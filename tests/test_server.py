@@ -920,7 +920,7 @@ class TestWhatTheToolsPromise:
         it is not something a reader should do.
         """
         mcp = create_mcp_server()
-        marks_things_read = {"get_conversation", "search_conversations"}
+        marks_things_read = {"get_inbox", "get_conversation", "search_conversations"}
         claiming = set()
         for name in marks_things_read:
             tool = await mcp.get_tool(name)

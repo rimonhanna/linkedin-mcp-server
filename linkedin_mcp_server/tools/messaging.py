@@ -29,7 +29,9 @@ def register_messaging_tools(
     @mcp.tool(
         timeout=tool_timeout,
         title="Get Inbox",
-        annotations={"readOnlyHint": True, "openWorldHint": True},
+        # Restoring the unread flag is compensating work, not an atomic read.
+        # A process/browser failure can interrupt it; do not auto-replay.
+        annotations={"readOnlyHint": False, "openWorldHint": True},
         tags={"messaging", "scraping"},
         exclude_args=["extractor"],
     )
@@ -40,6 +42,9 @@ def register_messaging_tools(
     ) -> dict[str, Any]:
         """
         List recent conversations from the LinkedIn messaging inbox.
+
+        Conversations that were unread are restored to unread after extraction.
+        Restoration errors are surfaced rather than reported as successful reads.
 
         Args:
             ctx: FastMCP context for progress reporting
@@ -75,10 +80,7 @@ def register_messaging_tools(
     @mcp.tool(
         timeout=tool_timeout,
         title="Get Conversation",
-        # Not read-only, though it reads: resolving a username enumerates the
-        # inbox by click-visiting rows, and LinkedIn marks a visited row as read.
-        # The docstring below has always said so. An unread message the user has
-        # not seen is state, and losing it is not something a reader should do.
+        # Unread restoration is not atomic; keep automatic replay disabled.
         annotations={"openWorldHint": True},
         tags={"messaging", "scraping"},
         exclude_args=["extractor"],
@@ -99,8 +101,9 @@ def register_messaging_tools(
         inbox for the participant's display name and click-visits every
         matching row to capture its thread ID — LinkedIn's sidebar has no
         anchor hrefs or thread-id attributes, so this is the only available
-        path. Each visit selects the row in the LinkedIn UI and may mark it
-        as read. Pass thread_id directly to skip this enumeration.
+        path. Originally unread conversations are restored after extraction.
+        Direct thread reads also establish prior state from the inbox and fail
+        if the thread cannot be safely identified there.
 
         Args:
             ctx: FastMCP context for progress reporting
@@ -158,9 +161,7 @@ def register_messaging_tools(
     @mcp.tool(
         timeout=tool_timeout,
         title="Search Conversations",
-        # Same reason as `get_conversation`: enumerating result rows selects them
-        # in LinkedIn's UI, which can mark them read. Its own `limit` argument is
-        # documented in those terms.
+        # Unread restoration is not atomic; keep automatic replay disabled.
         annotations={"openWorldHint": True},
         tags={"messaging", "search"},
         exclude_args=["extractor"],
@@ -179,8 +180,8 @@ def register_messaging_tools(
             ctx: FastMCP context for progress reporting
             limit: Maximum number of search-result rows to enumerate as
                 conversation references (1-50, default 20). Each enumeration
-                selects the row in LinkedIn's UI and may mark it as read, so
-                a low cap is preferable for noisy queries.
+                selects the row in LinkedIn's UI; its original unread state is
+                restored afterward. A low cap reduces work for noisy queries.
 
         Returns:
             Dict with url, sections (search_results -> raw text), and optional references.

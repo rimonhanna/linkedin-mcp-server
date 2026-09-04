@@ -65,6 +65,23 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `get_company_cache` | Read a cached company record (with per-half freshness), or list everything cached |
 | `close_session` | Close browser session and clean up resources |
 
+### Messaging read state
+
+`get_inbox`, `search_conversations`, and `get_conversation` restore conversations
+that were unread before extraction and verify that restoration. Already-read
+conversations are not marked unread. A direct thread read may scan the inbox to
+establish prior state; a thread outside that bounded scan is refused rather than
+opened with unknown state. Restoration or row-identity failures are reported as
+errors, including on timeout/cancellation cleanup.
+
+This is a compensating UI action, not an atomic or invisible read. It does not
+promise to undo read receipts, survive browser/process termination, or reconcile
+simultaneous manual inbox changes. The menu actions currently support the
+server's en-US browser locale. Messaging readers intentionally do not advertise
+`readOnlyHint`, so the daemon will not automatically replay them after auth repair.
+Rerun the messaging unit and browser-DOM regression tests, plus an authorized
+account check, when upgrading the runtime or adapting to LinkedIn DOM changes.
+
 <br/>
 <br/>
 
