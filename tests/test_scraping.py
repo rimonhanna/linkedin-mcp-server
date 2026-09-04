@@ -8009,8 +8009,15 @@ class TestGetConversation:
     async def test_returns_conversation_by_thread_id(self, mock_page):
         """get_conversation with thread_id navigates directly to thread URL."""
         extractor = LinkedInExtractor(mock_page)
+        mock_page.url = "https://www.linkedin.com/messaging/thread/abc123/"
         nav_mock = AsyncMock()
         with (
+            patch.object(
+                extractor,
+                "_current_conversation_unread_state",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(extractor, "_navigate_to_page", nav_mock),
             patch(
                 "linkedin_mcp_server.scraping.extractor.detect_rate_limit",
@@ -8056,7 +8063,14 @@ class TestGetConversation:
             "Open send options"
         )
         extractor = LinkedInExtractor(mock_page)
+        mock_page.url = "https://www.linkedin.com/messaging/thread/abc123/"
         with (
+            patch.object(
+                extractor,
+                "_current_conversation_unread_state",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(extractor, "_navigate_to_page", new_callable=AsyncMock),
             patch(
                 "linkedin_mcp_server.scraping.extractor.detect_rate_limit",
@@ -8094,6 +8108,9 @@ class TestGetConversation:
     async def test_by_username_default_index_picks_first_thread(self, mock_page):
         """get_conversation by username opens the 0th matching thread by default."""
         extractor = LinkedInExtractor(mock_page)
+        extractor._conversation_unread_state.update(
+            {"2-newer": False, "2-older": False}
+        )
         nav_mock = AsyncMock()
         mock_page.wait_for_selector = AsyncMock()
         with (
@@ -8152,6 +8169,9 @@ class TestGetConversation:
     async def test_by_username_index_picks_specified_thread(self, mock_page):
         """get_conversation by username + index opens the i-th matching thread."""
         extractor = LinkedInExtractor(mock_page)
+        extractor._conversation_unread_state.update(
+            {"2-newer": False, "2-older": False}
+        )
         nav_mock = AsyncMock()
         mock_page.wait_for_selector = AsyncMock()
         with (
