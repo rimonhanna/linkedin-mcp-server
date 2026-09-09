@@ -8010,10 +8010,17 @@ class TestGetInbox:
 
 class TestGetConversation:
     async def test_returns_conversation_by_thread_id(self, mock_page):
-        """get_conversation with thread_id navigates directly to thread URL."""
+        """get_conversation reuses an already selected direct thread."""
         extractor = LinkedInExtractor(mock_page)
+        mock_page.url = "https://www.linkedin.com/messaging/thread/abc123/"
         nav_mock = AsyncMock()
         with (
+            patch.object(
+                extractor,
+                "_current_conversation_unread_state",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(extractor, "_navigate_to_page", nav_mock),
             patch(
                 "linkedin_mcp_server.scraping.extractor.detect_rate_limit",
@@ -8044,9 +8051,7 @@ class TestGetConversation:
         ):
             result = await extractor.get_conversation(thread_id="abc123")
 
-        nav_mock.assert_awaited_once_with(
-            "https://www.linkedin.com/messaging/thread/abc123/"
-        )
+        nav_mock.assert_not_awaited()
         assert result["sections"]["conversation"] == "Hello!\nHi there!"
 
     async def test_strips_conversation_page_chrome(self, mock_page):
@@ -8059,7 +8064,14 @@ class TestGetConversation:
             "Open send options"
         )
         extractor = LinkedInExtractor(mock_page)
+        mock_page.url = "https://www.linkedin.com/messaging/thread/abc123/"
         with (
+            patch.object(
+                extractor,
+                "_current_conversation_unread_state",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
             patch.object(extractor, "_navigate_to_page", new_callable=AsyncMock),
             patch(
                 "linkedin_mcp_server.scraping.extractor.detect_rate_limit",
@@ -8095,10 +8107,19 @@ class TestGetConversation:
             await extractor.get_conversation()
 
     async def test_by_username_default_index_picks_first_thread(self, mock_page):
-        """get_conversation by username opens the 0th matching thread by default."""
+        """Username lookup reuses the first SPA-selected matching thread."""
         extractor = LinkedInExtractor(mock_page)
+        extractor._conversation_unread_state.update(
+            {"2-newer": False, "2-older": False}
+        )
         nav_mock = AsyncMock()
         mock_page.wait_for_selector = AsyncMock()
+
+        async def resolve_selected(_display_name, *, stop_after):
+            assert stop_after == 1
+            mock_page.url = "https://www.linkedin.com/messaging/thread/2-newer/"
+            return ["https://www.linkedin.com/messaging/thread/2-newer/"]
+
         with (
             patch.object(extractor, "_navigate_to_page", nav_mock),
             patch(
@@ -8122,12 +8143,8 @@ class TestGetConversation:
             patch.object(
                 extractor,
                 "_resolve_conversation_thread_urls",
-                new_callable=AsyncMock,
-                return_value=[
-                    "https://www.linkedin.com/messaging/thread/2-newer/",
-                    "https://www.linkedin.com/messaging/thread/2-older/",
-                ],
-            ),
+                side_effect=resolve_selected,
+            ) as resolve,
             patch.object(
                 extractor,
                 "_extract_root_content",
@@ -8145,18 +8162,31 @@ class TestGetConversation:
         ):
             await extractor.get_conversation(linkedin_username="jacki-old")
 
+        resolve.assert_awaited_once_with("Jacki McMahan", stop_after=1)
         target_calls = [
             c.args[0]
             for c in nav_mock.call_args_list
             if c.args and "/messaging/thread/" in c.args[0]
         ]
-        assert target_calls == ["https://www.linkedin.com/messaging/thread/2-newer/"]
+        assert target_calls == []
 
     async def test_by_username_index_picks_specified_thread(self, mock_page):
-        """get_conversation by username + index opens the i-th matching thread."""
+        """Username lookup reuses the i-th SPA-selected matching thread."""
         extractor = LinkedInExtractor(mock_page)
+        extractor._conversation_unread_state.update(
+            {"2-newer": False, "2-older": False}
+        )
         nav_mock = AsyncMock()
         mock_page.wait_for_selector = AsyncMock()
+
+        async def resolve_selected(_display_name, *, stop_after):
+            assert stop_after == 2
+            mock_page.url = "https://www.linkedin.com/messaging/thread/2-older/"
+            return [
+                "https://www.linkedin.com/messaging/thread/2-newer/",
+                "https://www.linkedin.com/messaging/thread/2-older/",
+            ]
+
         with (
             patch.object(extractor, "_navigate_to_page", nav_mock),
             patch(
@@ -8180,12 +8210,8 @@ class TestGetConversation:
             patch.object(
                 extractor,
                 "_resolve_conversation_thread_urls",
-                new_callable=AsyncMock,
-                return_value=[
-                    "https://www.linkedin.com/messaging/thread/2-newer/",
-                    "https://www.linkedin.com/messaging/thread/2-older/",
-                ],
-            ),
+                side_effect=resolve_selected,
+            ) as resolve,
             patch.object(
                 extractor,
                 "_extract_root_content",
@@ -8203,12 +8229,13 @@ class TestGetConversation:
         ):
             await extractor.get_conversation(linkedin_username="jacki-old", index=1)
 
+        resolve.assert_awaited_once_with("Jacki McMahan", stop_after=2)
         target_calls = [
             c.args[0]
             for c in nav_mock.call_args_list
             if c.args and "/messaging/thread/" in c.args[0]
         ]
-        assert target_calls == ["https://www.linkedin.com/messaging/thread/2-older/"]
+        assert target_calls == []
 
     async def test_by_username_index_out_of_range_raises(self, mock_page):
         """get_conversation raises when index exceeds the number of threads."""
@@ -8395,7 +8422,10 @@ class TestResolveConversationThreadUrls:
             urls = await extractor._resolve_conversation_thread_urls("Jacki McMahan")
 
         refs_mock.assert_awaited_once_with(
-            limit=ANY, context="inbox", name_filter="Jacki McMahan"
+            limit=ANY,
+            context="inbox",
+            name_filter="Jacki McMahan",
+            stop_after=None,
         )
         assert urls == ["https://www.linkedin.com/messaging/thread/2-aaa/"]
 

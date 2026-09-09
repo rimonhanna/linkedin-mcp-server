@@ -26,6 +26,15 @@ A Model Context Protocol (MCP) server that connects AI assistants to LinkedIn. A
 - **Company Enrichment**: Resolve and cache company firmographics (industry, size, HQ) and live open roles, cache-first with configurable TTLs, batching via company search
 - **Compact References**: Return typed per-section links alongside readable text without shipping full-page markdown
 
+Messaging readers restore and verify originally unread conversations after
+extraction; already-read threads stay read. Direct-thread reads stop when the
+exact sidebar row is SPA-selected and reuse it without a second thread load;
+username reads stop at the requested matching row. Both fail closed if prior
+state and exact selected identity cannot be established from the bounded scan.
+This requires the server's en-US UI and is not an atomic read: read receipts,
+concurrent manual changes, or browser/process termination are not reversible
+guarantees. Automatic auth-repair replay remains disabled for these tools.
+
 ## Quick Start
 
 The image ships full Chromium. Log in once through a browser the container shows you in your own browser tab.
