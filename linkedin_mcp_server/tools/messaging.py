@@ -98,12 +98,13 @@ def register_messaging_tools(
         Provide either linkedin_username or thread_id to identify the conversation.
 
         When looked up by linkedin_username, resolution searches the messaging
-        inbox for the participant's display name and click-visits every
-        matching row to capture its thread ID — LinkedIn's sidebar has no
-        anchor hrefs or thread-id attributes, so this is the only available
-        path. Originally unread conversations are restored after extraction.
-        Direct thread reads also establish prior state from the inbox and fail
-        if the thread cannot be safely identified there.
+        inbox for the participant's display name and click-visits matching rows
+        only through the requested index. LinkedIn's sidebar has no anchor
+        hrefs or thread-id attributes, so this is the only available path. The
+        selected row's SPA navigation is reused rather than loading its thread
+        again. Originally unread conversations are restored after extraction.
+        Direct thread reads similarly stop on the exact row and fail if the
+        thread and its prior state cannot be safely identified there.
 
         Args:
             ctx: FastMCP context for progress reporting

@@ -53,7 +53,6 @@ from linkedin_mcp_server.scraping.connection import ActionSignals
 from linkedin_mcp_server.scraping.identifiers import (
     company_page_url,
     job_view_url,
-    messaging_thread_url,
     normalize_company_identifier,
     normalize_job_id,
     normalize_person_identifier,
@@ -1227,7 +1226,7 @@ class LinkedInExtractor:
         )
 
     async def _prime_conversation_read_state(self, thread_id: str) -> None:
-        """Resolve a direct thread's state without leaving any row read."""
+        """Resolve and SPA-select a direct thread without leaving any row read."""
         self._conversation_unread_state.pop(thread_id, None)
         await self._navigate_to_page("https://www.linkedin.com/messaging/")
         await detect_rate_limit(self._page)
@@ -1237,9 +1236,14 @@ class LinkedInExtractor:
             position="bottom", attempts=5, pause_time=0.5
         )
         await self._extract_conversation_thread_refs(
-            limit=None, context="read_state_probe"
+            limit=None,
+            context="read_state_probe",
+            target_thread_id=thread_id,
         )
-        if thread_id not in self._conversation_unread_state:
+        if (
+            thread_id not in self._conversation_unread_state
+            or self._extract_thread_id(self._page.url) != thread_id
+        ):
             raise LinkedInScraperException(
                 "Cannot safely open this conversation because its prior read "
                 "state could not be established from the bounded inbox scan."
@@ -3289,7 +3293,9 @@ class LinkedInExtractor:
         match = re.search(r"/messaging/thread/([^/?#]+)/", url)
         return match.group(1) if match else None
 
-    async def _resolve_conversation_thread_urls(self, display_name: str) -> list[str]:
+    async def _resolve_conversation_thread_urls(
+        self, display_name: str, *, stop_after: int | None = None
+    ) -> list[str]:
         """Return all thread URLs whose participant name matches display_name.
 
         Enumerates the plain messaging inbox (`/messaging/`) plus click-to-capture
@@ -3300,7 +3306,9 @@ class LinkedInExtractor:
         messaging search frequently returns "We didn't find anything" for a
         participant whose thread is plainly present in the inbox (issue #434).
         ``name_filter`` is passed to the enumerator so only matching rows are
-        clicked. Originally unread rows are restored after URL capture.
+        clicked. When ``stop_after`` is set, the requested matching row remains
+        SPA-selected and enumeration stops there; earlier unread rows are
+        restored after URL capture.
 
         Matches by case-insensitive equality on the cleaned participant name
         derived from the row's aria-label, which tolerates duplicate threads
@@ -3339,7 +3347,10 @@ class LinkedInExtractor:
         )
         urls = _match(
             await self._extract_conversation_thread_refs(
-                limit=None, context="inbox", name_filter=display_name
+                limit=None,
+                context="inbox",
+                name_filter=display_name,
+                stop_after=stop_after,
             )
         )
         if urls:
@@ -3357,7 +3368,10 @@ class LinkedInExtractor:
         await self._wait_for_main_text(log_context="Messaging search results")
         return _match(
             await self._extract_conversation_thread_refs(
-                limit=None, context="search", name_filter=display_name
+                limit=None,
+                context="search",
+                name_filter=display_name,
+                stop_after=stop_after,
             )
         )
 
@@ -3390,7 +3404,9 @@ class LinkedInExtractor:
             )
 
         try:
-            thread_urls = await self._resolve_conversation_thread_urls(display_name)
+            thread_urls = await self._resolve_conversation_thread_urls(
+                display_name, stop_after=index + 1
+            )
             if not thread_urls:
                 raise LinkedInScraperException(
                     f"Could not find a conversation for {linkedin_username}."
@@ -3402,13 +3418,16 @@ class LinkedInExtractor:
                 )
 
             selected_id = self._extract_thread_id(thread_urls[index])
-            if selected_id not in self._conversation_unread_state:
+            if (
+                selected_id not in self._conversation_unread_state
+                or self._extract_thread_id(self._page.url) != selected_id
+            ):
                 raise LinkedInScraperException(
-                    "Cannot safely open this conversation: prior read state is unknown."
+                    "Cannot safely open this conversation: the selected thread or "
+                    "its prior read state is unknown."
                 )
             if self._conversation_unread_state[selected_id]:
                 self._conversation_restore_pending.add(selected_id)
-            await self._navigate_to_page(thread_urls[index])
         except PlaywrightTimeoutError as exc:
             raise LinkedInScraperException(
                 "Messaging search results did not load in time."
@@ -4995,7 +5014,13 @@ class LinkedInExtractor:
         )
 
     async def _extract_conversation_thread_refs(
-        self, limit: int | None, context: str, *, name_filter: str | None = None
+        self,
+        limit: int | None,
+        context: str,
+        *,
+        name_filter: str | None = None,
+        target_thread_id: str | None = None,
+        stop_after: int | None = None,
     ) -> list[Reference]:
         """Click each visible conversation item and capture the thread URL.
 
@@ -5013,6 +5038,9 @@ class LinkedInExtractor:
         but only rows whose cleaned participant name equals it (case-insensitive)
         are clicked; non-matching rows are skipped without clicking. Originally
         unread rows are restored and verified before leaving each selection.
+        ``target_thread_id`` stops on one exact thread; ``stop_after`` stops on
+        the requested resolved reference ordinal. The selected target remains
+        armed for restoration by the outer read-state guard.
         """
         # The conversation list mounts after main text settles, so wait
         # explicitly for at least one label rather than relying on
@@ -5094,41 +5122,101 @@ class LinkedInExtractor:
                 # already changed the row's read state.
                 self._unresolved_restore_pending.add(conv["rowKey"])
             resolved = await self._page.evaluate(
-                """async ({ rowKey }) => {
+                """async ({ rowKey, synchronizePane }) => {
                     const label = document.querySelector(
                         'main li label[data-mcp-read-row="' + rowKey + '"]'
                     );
                     const clickTarget = label?.closest('li')
                         ?.querySelector('div[class*="listitem__link"]');
                     if (!clickTarget) return null;
+                    // A URL and title can update before message history does.
+                    // Capture the history node itself so a selected target is
+                    // not ready until the old thread's history is replaced.
+                    const historySurface = () => document.querySelector(
+                        'main .msg-s-message-list-container, '
+                        + 'main [class*="message-list-container"]'
+                    );
                     const before = location.href;
+                    const beforeHistory = historySurface();
+                    const beforeText = beforeHistory?.innerText || '';
                     clickTarget.click();
                     let after = location.href;
+                    let match = null;
+                    // Preserve the existing two-second URL-resolution budget
+                    // for ordinary inbox/search enumeration.
                     for (let waits = 0; waits < 20; waits++) {
                         await new Promise(r => setTimeout(r, 100));
                         after = location.href;
-                        if (after !== before
-                            && /\\/messaging\\/thread\\//.test(after)) break;
+                        match = after.match(
+                            /\\/messaging\\/thread\\/([^/?#]+)/
+                        );
+                        if (after !== before && match) break;
                     }
-                    const match = after.match(
-                        /\\/messaging\\/thread\\/([^/?#]+)/
-                    );
-                    // An unchanged URL is not proof of this row's identity.
-                    // Never attach the previously selected thread to this row.
-                    return after !== before && match ? match[1] : null;
+                    if (after === before || !match) return null;
+                    if (!synchronizePane) return match[1];
+
+                    let changedHistory = null;
+                    let stableSamples = 0;
+                    for (let waits = 0; waits < 80; waits++) {
+                        await new Promise(r => setTimeout(r, 100));
+                        const currentHistory = historySurface();
+                        const currentText = currentHistory?.innerText || '';
+                        const replaced = currentHistory
+                            && currentHistory !== beforeHistory
+                            && currentText.trim()
+                            && currentText !== beforeText;
+                        if (!replaced) {
+                            changedHistory = null;
+                            stableSamples = 0;
+                            continue;
+                        }
+                        if (currentText === changedHistory) {
+                            stableSamples += 1;
+                        } else {
+                            changedHistory = currentText;
+                            stableSamples = 1;
+                        }
+                        if (stableSamples >= 3) return match[1];
+                    }
+                    // A target whose message history never replaces the prior
+                    // thread is unresolved and must fail closed.
+                    return { threadId: match[1], paneReady: false };
                 }""",
-                {"rowKey": conv["rowKey"]},
+                {
+                    "rowKey": conv["rowKey"],
+                    # Synchronize every click in a targeted scan so a late
+                    # update from an earlier row cannot masquerade as the final
+                    # target's history. Ordinary inbox/search enumeration keeps
+                    # its original URL-only timing.
+                    "synchronizePane": (
+                        target_thread_id is not None or stop_after is not None
+                    ),
+                },
             )
+            if (
+                isinstance(resolved, dict)
+                and resolved.get("threadId")
+                and resolved.get("paneReady") is False
+            ):
+                if was_unread:
+                    await self._restore_unresolved_conversation_row(conv["rowKey"])
+                raise LinkedInScraperException(
+                    "Could not verify the selected conversation pane."
+                )
             if not resolved:
                 if was_unread:
                     await self._restore_unresolved_conversation_row(conv["rowKey"])
                 continue
             conv["threadId"] = resolved
             self._conversation_unread_state[resolved] = was_unread
+            is_target = resolved == target_thread_id or (
+                stop_after is not None and len(refs) + 1 >= stop_after
+            )
             if was_unread:
                 self._conversation_restore_pending.add(resolved)
-                await self._restore_selected_conversation_unread(resolved)
                 self._unresolved_restore_pending.discard(conv["rowKey"])
+                if not is_target:
+                    await self._restore_selected_conversation_unread(resolved)
             ref: Reference = {
                 "kind": "conversation",
                 "url": f"/messaging/thread/{conv['threadId']}/",
@@ -5138,6 +5226,8 @@ class LinkedInExtractor:
             if name:
                 ref["text"] = name
             refs.append(ref)
+            if is_target:
+                break
         return refs
 
     # Best-effort prefix strip for the en-US "Select conversation with " verb.
@@ -5168,10 +5258,11 @@ class LinkedInExtractor:
         ``search_conversations`` to enumerate thread IDs first if disambiguation
         by index is impractical.
 
-        Username resolution click-visits matching inbox rows to capture their
-        IDs. A direct thread read also establishes prior state from the inbox
-        unless that thread is already selected. Originally unread threads are
-        restored before return; an unknown prior state prevents navigation.
+        Username resolution click-visits matching inbox rows until the requested
+        index is SPA-selected. A direct thread read similarly stops when its
+        exact row is selected unless that thread is already open. Originally
+        unread threads are restored before return; an unknown prior state or
+        target identity prevents extraction.
         """
         if not linkedin_username and not thread_id:
             raise LinkedInScraperException(
@@ -5188,7 +5279,6 @@ class LinkedInExtractor:
                 await self._prime_conversation_read_state(thread_id)
             if self._conversation_unread_state[thread_id]:
                 self._conversation_restore_pending.add(thread_id)
-            await self._navigate_to_page(messaging_thread_url(thread_id, "/"))
         else:
             await self._open_conversation_by_username(
                 linkedin_username or "", index=index

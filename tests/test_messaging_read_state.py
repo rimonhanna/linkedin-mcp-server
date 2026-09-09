@@ -52,6 +52,88 @@ async def test_enumeration_restores_only_originally_unread(extractor, unread):
         restore.assert_awaited_once_with("thread-a")
 
 
+async def test_ordinal_target_restores_earlier_row_and_stops_selected(extractor):
+    """Username selection stops at its ordinal without abandoning prior cleanup."""
+    extractor._page.evaluate = AsyncMock(
+        side_effect=[
+            [
+                {
+                    "ariaLabel": "Select conversation with Ada",
+                    "rowKey": "row-a",
+                    "wasUnread": True,
+                },
+                {
+                    "ariaLabel": "Select conversation with Ada",
+                    "rowKey": "row-b",
+                    "wasUnread": True,
+                },
+                {
+                    "ariaLabel": "Select conversation with Ada",
+                    "rowKey": "row-c",
+                    "wasUnread": False,
+                },
+            ],
+            "thread-a",
+            "thread-b",
+        ]
+    )
+
+    async def finish_restore(thread_id):
+        extractor._conversation_restore_pending.discard(thread_id)
+
+    with patch.object(
+        extractor,
+        "_restore_selected_conversation_unread",
+        side_effect=finish_restore,
+    ) as restore:
+        refs = await extractor._extract_conversation_thread_refs(
+            None,
+            "inbox",
+            name_filter="Ada",
+            stop_after=2,
+        )
+
+    assert [ref["url"] for ref in refs] == [
+        "/messaging/thread/thread-a/",
+        "/messaging/thread/thread-b/",
+    ]
+    restore.assert_awaited_once_with("thread-a")
+    assert extractor._conversation_restore_pending == {"thread-b"}
+    assert extractor._page.evaluate.await_count == 3
+
+
+async def test_ordinal_target_aborts_when_candidate_pane_is_unverified(extractor):
+    """Never shift an index to a later row after unsafe pane settlement."""
+    extractor._page.evaluate = AsyncMock(
+        side_effect=[
+            [
+                {
+                    "ariaLabel": "Select conversation with Ada",
+                    "rowKey": "row-a",
+                    "wasUnread": False,
+                },
+                {
+                    "ariaLabel": "Select conversation with Ada",
+                    "rowKey": "row-b",
+                    "wasUnread": False,
+                },
+            ],
+            {"threadId": "thread-a", "paneReady": False},
+            "thread-b",
+        ]
+    )
+
+    with pytest.raises(Exception, match="selected conversation pane"):
+        await extractor._extract_conversation_thread_refs(
+            None,
+            "inbox",
+            name_filter="Ada",
+            stop_after=1,
+        )
+
+    assert extractor._page.evaluate.await_count == 2
+
+
 async def test_unresolved_url_is_repaired_before_leaving_row(extractor):
     """Repair an unresolved selection before another row can be visited."""
     extractor._page.evaluate = AsyncMock(
@@ -115,6 +197,58 @@ async def test_unknown_direct_thread_fails_before_opening(extractor):
         with pytest.raises(Exception, match="prior read state"):
             await extractor.get_conversation(thread_id="unknown")
     assert all("/thread/" not in call.args[0] for call in nav.await_args_list)
+
+
+async def test_direct_thread_reuses_exact_sidebar_selection(extractor):
+    """Stop at the target row and consume its SPA-selected thread in place."""
+    extractor._page.url = "https://www.linkedin.com/feed/"
+    nav = AsyncMock()
+
+    async def select_target(*_args, **_kwargs):
+        extractor._conversation_unread_state["thread-b"] = False
+        extractor._page.url = "https://www.linkedin.com/messaging/thread/thread-b/"
+        return [
+            {
+                "kind": "conversation",
+                "url": "/messaging/thread/thread-b/",
+                "context": "read_state_probe",
+            }
+        ]
+
+    with (
+        patch.object(extractor, "_navigate_to_page", nav),
+        patch.object(
+            extractor,
+            "_extract_conversation_thread_refs",
+            side_effect=select_target,
+        ) as refs,
+        patch.object(extractor, "_wait_for_main_text", new_callable=AsyncMock),
+        patch.object(
+            extractor, "_scroll_main_scrollable_region", new_callable=AsyncMock
+        ),
+        patch.object(
+            extractor,
+            "_extract_root_content",
+            new_callable=AsyncMock,
+            return_value={"text": "message", "references": []},
+        ),
+        patch(
+            "linkedin_mcp_server.scraping.extractor.detect_rate_limit",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "linkedin_mcp_server.scraping.extractor.handle_modal_close",
+            new_callable=AsyncMock,
+        ),
+    ):
+        await extractor.get_conversation(thread_id="thread-b")
+
+    nav.assert_awaited_once_with("https://www.linkedin.com/messaging/")
+    refs.assert_awaited_once_with(
+        limit=None,
+        context="read_state_probe",
+        target_thread_id="thread-b",
+    )
 
 
 async def test_restore_refuses_a_thread_with_the_same_prefix(extractor):

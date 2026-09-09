@@ -27,11 +27,13 @@ A Model Context Protocol (MCP) server that connects AI assistants to LinkedIn. A
 - **Compact References**: Return typed per-section links alongside readable text without shipping full-page markdown
 
 Messaging readers restore and verify originally unread conversations after
-extraction; already-read threads stay read. Direct thread reads fail closed if
-prior state cannot be established from a bounded inbox scan. This requires the
-server's en-US UI and is not an atomic read: read receipts, concurrent manual
-changes, or browser/process termination are not reversible guarantees. Automatic
-auth-repair replay remains disabled for these tools.
+extraction; already-read threads stay read. Direct-thread reads stop when the
+exact sidebar row is SPA-selected and reuse it without a second thread load;
+username reads stop at the requested matching row. Both fail closed if prior
+state and exact selected identity cannot be established from the bounded scan.
+This requires the server's en-US UI and is not an atomic read: read receipts,
+concurrent manual changes, or browser/process termination are not reversible
+guarantees. Automatic auth-repair replay remains disabled for these tools.
 
 ## Quick Start
 

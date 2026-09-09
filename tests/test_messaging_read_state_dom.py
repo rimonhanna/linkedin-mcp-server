@@ -35,7 +35,7 @@ async def page():
             await browser.close()
 
 
-async def messaging(page, *, resolve=True, delay=30, acknowledge=True):
+async def messaging(page, *, resolve=True, delay=30, acknowledge=True, pane_delay=30):
     """Build a synthetic sidebar with independent row state and delayed reads."""
     await page.set_content("""<main><ul>
         <li id="row0"><label aria-label="Select conversation with Ada"></label>
@@ -46,11 +46,12 @@ async def messaging(page, *, resolve=True, delay=30, acknowledge=True):
           <div class="msg-conversation-listitem__link">Ada</div>
           <span>Preview</span>
           <button class="msg-thread-actions__control">Options 1</button></li>
-      </ul><div class="msg-title-bar"><button class="msg-thread-actions__control">Thread options</button></div>
+      </ul><section class="msg-thread"><div class="msg-title-bar"><button class="msg-thread-actions__control">Thread options</button><span id="thread-title">No thread selected</span></div>
+      <div id="pane-content" class="msg-s-message-list-container">No messages selected</div></section>
       <div id="menu" hidden><button id="toggle"></button></div></main>
     """)
     await page.evaluate(
-        """({resolve, delay, acknowledge}) => {
+        """({resolve, delay, acknowledge, paneDelay}) => {
       const rows = [...document.querySelectorAll('li')];
       window.clicks = [];
       let selected = 0, menuIndex = 0;
@@ -63,6 +64,15 @@ async def messaging(page, *, resolve=True, delay=30, acknowledge=True):
         row.querySelector('div').onclick = () => {
           selected = i; window.clicks.push(i);
           if (resolve) history.pushState({}, '', '/messaging/thread/thread-' + i + '/');
+          document.querySelector('#thread-title').textContent = 'Thread ' + i;
+          setTimeout(() => {
+            const oldPane = document.querySelector('#pane-content');
+            const newPane = document.createElement('div');
+            newPane.id = 'pane-content';
+            newPane.className = 'msg-s-message-list-container';
+            newPane.textContent = 'Messages ' + i;
+            oldPane.replaceWith(newPane);
+          }, paneDelay);
           setTimeout(() => row.querySelector('span').classList.remove(unreadClass), delay);
         };
         row.querySelector('button').onclick = () => open(i);
@@ -74,7 +84,12 @@ async def messaging(page, *, resolve=True, delay=30, acknowledge=True):
       };
       document.addEventListener('keydown', e => { if (e.key === 'Escape') menu.hidden = true; });
     }""",
-        {"resolve": resolve, "delay": delay, "acknowledge": acknowledge},
+        {
+            "resolve": resolve,
+            "delay": delay,
+            "acknowledge": acknowledge,
+            "paneDelay": pane_delay,
+        },
     )
 
 
@@ -118,6 +133,40 @@ async def test_failed_click_cannot_borrow_previous_threads_url(page):
         refs = await extractor._extract_conversation_thread_refs(1, "inbox")
     assert refs == []
     assert await states(page) == [True, False]
+
+
+async def test_exact_target_stops_scan_and_stays_selected_until_cleanup(page):
+    """Reuse the exact SPA-selected target without clicking later rows."""
+    await messaging(page)
+    extractor = LinkedInExtractor(page)
+    async with extractor._preserve_messaging_read_state():
+        refs = await extractor._extract_conversation_thread_refs(
+            None,
+            "read_state_probe",
+            target_thread_id="thread-0",
+        )
+        assert [ref["url"] for ref in refs] == ["/messaging/thread/thread-0/"]
+        assert extractor._conversation_restore_pending == {"thread-0"}
+        assert await page.evaluate("window.clicks") == [0]
+    assert await states(page) == [True, False]
+
+
+async def test_exact_target_waits_for_selected_pane_to_replace_previous(page):
+    """Do not extract while the prior SPA-selected pane is still rendered."""
+    await messaging(page, pane_delay=500)
+    extractor = LinkedInExtractor(page)
+    refs = await extractor._extract_conversation_thread_refs(
+        None,
+        "read_state_probe",
+        target_thread_id="thread-1",
+    )
+    assert [ref["url"] for ref in refs] == [
+        "/messaging/thread/thread-0/",
+        "/messaging/thread/thread-1/",
+    ]
+    assert await page.locator("#thread-title").inner_text() == "Thread 1"
+    assert await page.locator("#pane-content").inner_text() == "Messages 1"
+    assert await page.evaluate("window.clicks") == [0, 1]
 
 
 @pytest.mark.parametrize("resolve", [True, False])

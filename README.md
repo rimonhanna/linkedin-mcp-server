@@ -70,10 +70,12 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 
 `get_inbox`, `search_conversations`, and `get_conversation` restore conversations
 that were unread before extraction and verify that restoration. Already-read
-conversations are not marked unread. A direct thread read may scan the inbox to
-establish prior state; a thread outside that bounded scan is refused rather than
-opened with unknown state. Restoration or row-identity failures are reported as
-errors, including on timeout/cancellation cleanup.
+conversations are not marked unread. Direct-thread reads scan the inbox only
+until the exact thread is SPA-selected, then reuse that selection instead of
+loading the thread again. Username reads likewise stop at the requested matching
+row. A thread outside the bounded scan is refused rather than opened with unknown
+state. Restoration or row-identity failures are reported as errors, including on
+timeout/cancellation cleanup.
 
 This is a compensating UI action, not an atomic or invisible read. It does not
 promise to undo read receipts, survive browser/process termination, or reconcile
