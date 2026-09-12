@@ -3,6 +3,7 @@
 No browser, no clock beyond an explicit ``now``.
 """
 
+import json
 from datetime import datetime, timedelta
 
 import pytest
@@ -10,7 +11,10 @@ import pytest
 from linkedin_mcp_server.company_cache import (
     CompanyCache,
     CompanyRecord,
+    employee_band_bounds,
+    founded_year,
     normalize_company_name,
+    record_matches,
     ttl_from_days,
 )
 from linkedin_mcp_server.scraping.company_parse import (
@@ -204,6 +208,159 @@ class TestCache:
     def test_list_keys_empty_before_writes(self, tmp_path):
         assert CompanyCache(tmp_path / "unborn").list_keys() == []
 
+    def test_new_facets_round_trip(self, tmp_path):
+        cache = CompanyCache(tmp_path)
+        cache.record_firmographics(
+            "Acme",
+            NOW,
+            source="company_page",
+            founded="1999",
+            company_type="Privately Held",
+            specialties="Widgets, Gadgets",
+        )
+        rec = cache.get("Acme")
+        assert rec is not None
+        assert rec.founded == "1999"
+        assert rec.company_type == "Privately Held"
+        assert rec.specialties == "Widgets, Gadgets"
+
+    @pytest.mark.parametrize("facet", ["founded", "company_type", "specialties"])
+    def test_any_new_facet_alone_stamps_freshness(self, tmp_path, facet):
+        """A real About facet is firmographic content, so a write carrying
+        only it must stamp freshness -- else enrich_company_deep would re-read
+        a page it already read."""
+        cache = CompanyCache(tmp_path)
+        cache.record_firmographics("Acme", NOW, source="company_page", **{facet: "x"})
+        rec = cache.get("Acme")
+        assert rec is not None
+        assert rec.has_firmographics()
+
+    def test_a_cheap_search_hit_never_blanks_a_new_facet(self, tmp_path):
+        cache = CompanyCache(tmp_path)
+        cache.record_firmographics("Acme", NOW, source="company_page", founded="1999")
+        cache.record_firmographics(
+            "Acme", NOW, source="search", linkedin_url="https://x/company/acme"
+        )
+        rec = cache.get("Acme")
+        assert rec is not None
+        assert rec.founded == "1999"
+
+    def test_a_file_written_before_the_new_facets_still_loads(self, tmp_path):
+        """On-disk JSON from before founded/company_type/specialties existed
+        has no such keys; it must load with them empty, not fail."""
+        cache = CompanyCache(tmp_path)
+        cache.record_firmographics("Acme", NOW, source="search", industry="Retail")
+        path = cache._path("acme")
+        old = json.loads(path.read_text("utf-8"))
+        for key in ("founded", "company_type", "specialties"):
+            del old[key]
+        path.write_text(json.dumps(old), "utf-8")
+
+        rec = cache.get("Acme")
+        assert rec is not None
+        assert rec.industry == "Retail"
+        assert (rec.founded, rec.company_type, rec.specialties) == ("", "", "")
+
+    def test_all_records_scans_every_file_and_skips_the_unreadable(self, tmp_path):
+        cache = CompanyCache(tmp_path)
+        cache.record_firmographics("Beta", NOW, source="search", industry="B")
+        cache.record_firmographics("Alpha", NOW, source="search", industry="A")
+        (tmp_path / "broken.json").write_text("{not json", "utf-8")
+
+        recs = cache.all_records()
+        assert [r.key for r in recs] == ["alpha", "beta"]
+
+    def test_all_records_empty_before_writes(self, tmp_path):
+        assert CompanyCache(tmp_path / "unborn").all_records() == []
+
+
+class TestEmployeeBandBounds:
+    def test_range(self):
+        assert employee_band_bounds("1,001-5,000 employees") == (1001, 5000)
+
+    def test_open_top_bucket(self):
+        assert employee_band_bounds("10,001+ employees") == (10001, None)
+
+    def test_not_a_band(self):
+        assert employee_band_bounds("") is None
+        assert employee_band_bounds("Software") is None
+
+
+class TestFoundedYear:
+    def test_bare_year(self):
+        assert founded_year("2015") == 2015
+
+    def test_year_inside_text(self):
+        assert founded_year("est. 1999 in Cairo") == 1999
+
+    def test_none_when_absent(self):
+        assert founded_year("") is None
+        assert founded_year("long ago") is None
+
+
+def _rec(**kw) -> CompanyRecord:
+    return CompanyRecord(key="k", **kw)
+
+
+class TestRecordMatches:
+    def test_no_criteria_matches_anything(self):
+        assert record_matches(_rec())
+
+    def test_industry_is_a_case_insensitive_substring(self):
+        assert record_matches(
+            _rec(industry="Software Development"), industry="software"
+        )
+        assert not record_matches(_rec(industry="Retail"), industry="software")
+
+    def test_missing_industry_is_excluded_not_passed(self):
+        assert not record_matches(_rec(), industry="software")
+
+    def test_headquarters_substring(self):
+        assert record_matches(
+            _rec(headquarters="Redmond, Washington"), headquarters="redmond"
+        )
+        assert not record_matches(_rec(headquarters="Cairo"), headquarters="redmond")
+        assert not record_matches(_rec(), headquarters="redmond")
+
+    def test_headcount_matches_by_band_overlap(self):
+        band = _rec(employee_count="51-200 employees")
+        assert record_matches(band, min_employees=100)  # band reaches 100
+        assert record_matches(band, max_employees=100)  # band starts below 100
+        assert not record_matches(band, min_employees=201)
+        assert not record_matches(band, max_employees=50)
+        assert record_matches(band, min_employees=51, max_employees=200)
+
+    def test_open_top_bucket_has_no_ceiling(self):
+        big = _rec(employee_count="10,001+ employees")
+        assert record_matches(big, min_employees=1_000_000)
+        assert not record_matches(big, max_employees=10_000)
+
+    def test_headcount_never_fetched_is_excluded(self):
+        assert not record_matches(_rec(), min_employees=1)
+        assert not record_matches(_rec(), max_employees=1_000_000)
+
+    def test_hiring(self):
+        assert record_matches(_rec(open_roles_count=3), hiring=True)
+        assert not record_matches(_rec(open_roles_count=0), hiring=True)
+        assert record_matches(_rec(open_roles_count=0), hiring=False)
+        assert not record_matches(_rec(open_roles_count=3), hiring=False)
+        # Never fetched is neither hiring nor not hiring.
+        assert not record_matches(_rec(), hiring=True)
+        assert not record_matches(_rec(), hiring=False)
+
+    def test_founded_bounds_are_inclusive(self):
+        rec = _rec(founded="2015")
+        assert record_matches(rec, founded_after=2015)
+        assert record_matches(rec, founded_before=2015)
+        assert not record_matches(rec, founded_after=2016)
+        assert not record_matches(rec, founded_before=2014)
+        assert not record_matches(_rec(), founded_after=2000)
+
+    def test_every_criterion_must_hold(self):
+        rec = _rec(industry="Software", employee_count="51-200 employees")
+        assert record_matches(rec, industry="soft", min_employees=60)
+        assert not record_matches(rec, industry="soft", min_employees=500)
+
 
 class TestParseAbout:
     def test_pulls_labelled_fields(self):
@@ -223,6 +380,28 @@ class TestParseAbout:
 
     def test_size_plus_band(self):
         assert parse_about("10,001+ employees")["employee_count"] == "10,001+ employees"
+
+    def test_company_type_and_specialties_rows(self):
+        # No live fixture carries a "Company type" row (the captured pages
+        # were trimmed to their firmographic lines before it existed), so
+        # this is a claim about the parser, keyed on the label alone.
+        text = (
+            "Acme\n"
+            "Company size\n51-200 employees\n"
+            "Company type\nPrivately Held\n"
+            "Specialties\nWidgets, Gadgets, and Gizmos\n"
+        )
+        out = parse_about(text)
+        assert out["company_type"] == "Privately Held"
+        assert out["specialties"] == "Widgets, Gadgets, and Gizmos"
+        # "Company size" and "Company type" share a prefix; neither may be
+        # read as the other.
+        assert out["employee_count"] == "51-200 employees"
+
+    def test_company_type_and_specialties_absent_when_unlabelled(self):
+        out = parse_about("Acme\nPrivately Held\nWidgets, Gadgets\n")
+        assert "company_type" not in out
+        assert "specialties" not in out
 
     def test_follower_count_above_the_band_is_not_mistaken_for_size(self):
         # Real pages show "See all N employees" (a follower count) in the top
@@ -403,6 +582,7 @@ class TestParseRealLinkedInPages:
         assert ms["website"] == "https://news.microsoft.com/"
         # NOT "29M", "10K+", or "233,215 associated members".
         assert ms["employee_count"] == "10,001+ employees"
+        assert ms["specialties"] == "Business Software, Developer Tools"
 
     def test_real_partner_about(self):
         g = parse_about(_GEARSET_ABOUT_LIVE)

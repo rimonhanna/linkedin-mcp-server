@@ -99,6 +99,9 @@ class CompanyRecord:
     employee_count: str = ""
     headquarters: str = ""
     website: str = ""
+    founded: str = ""  # as LinkedIn shows it, usually a bare year
+    company_type: str = ""  # "Privately Held", "Public Company", ...
+    specialties: str = ""  # LinkedIn's own comma-separated free text
     linkedin_url: str = ""
     company_urn: str = ""  # numeric LinkedIn company id, for job-search-by-company
     firmographics_source: str = ""  # "search" | "company_page"
@@ -212,6 +215,9 @@ class CompanyCache:
         employee_count: str = "",
         headquarters: str = "",
         website: str = "",
+        founded: str = "",
+        company_type: str = "",
+        specialties: str = "",
         linkedin_url: str = "",
         company_urn: str = "",
         raw_about: str = "",
@@ -228,6 +234,12 @@ class CompanyCache:
             rec.headquarters = headquarters
         if website:
             rec.website = website
+        if founded:
+            rec.founded = founded
+        if company_type:
+            rec.company_type = company_type
+        if specialties:
+            rec.specialties = specialties
         if linkedin_url:
             rec.linkedin_url = linkedin_url
         if company_urn:
@@ -242,7 +254,13 @@ class CompanyCache:
         # (b) reset the timestamp/source of a record a deep fetch already
         # populated. So stamp only when the write brings a firmographic field.
         carries_firmographics = bool(
-            industry or employee_count or headquarters or website
+            industry
+            or employee_count
+            or headquarters
+            or website
+            or founded
+            or company_type
+            or specialties
         )
         if carries_firmographics:
             rec.firmographics_source = source
@@ -273,3 +291,105 @@ class CompanyCache:
         if not self.root.exists():
             return []
         return sorted(p.stem for p in self.root.glob("*.json"))
+
+    def all_records(self) -> list[CompanyRecord]:
+        """Every readable record, in key order.
+
+        A linear scan of the directory, one JSON parse per company. The cache
+        grows by the companies one account's network touches -- thousands,
+        not millions -- and a few thousand small files read in well under a
+        second, so nothing is indexed. Past ~50k records this is the first
+        thing to revisit; until then an index would be more code than the
+        scan it replaces.
+        """
+        if not self.root.exists():
+            return []
+        out: list[CompanyRecord] = []
+        for path in sorted(self.root.glob("*.json")):
+            try:
+                out.append(CompanyRecord.from_dict(json.loads(path.read_text("utf-8"))))
+            except (json.JSONDecodeError, OSError, TypeError) as e:
+                logger.warning("Skipping unreadable cache file %s: %s", path, e)
+        return out
+
+
+# The headcount is stored as LinkedIn's band string ("51-200 employees",
+# "10,001+ employees"), never a bare number, so a numeric filter has to reason
+# about the band's ends rather than a point.
+_BAND_RANGE = re.compile(r"(\d[\d,]*)\s*-\s*(\d[\d,]*)")
+_BAND_OPEN = re.compile(r"(\d[\d,]*)\s*\+")
+_YEAR = re.compile(r"\b(\d{4})\b")
+
+
+def employee_band_bounds(band: str) -> tuple[int, int | None] | None:
+    """(low, high) of a stored headcount band; high is None for "N+".
+
+    Returns None when the string is not a band at all, so a caller filtering
+    on headcount can exclude the record rather than guess.
+    """
+    if not band:
+        return None
+    m = _BAND_RANGE.search(band)
+    if m:
+        return int(m.group(1).replace(",", "")), int(m.group(2).replace(",", ""))
+    m = _BAND_OPEN.search(band)
+    if m:
+        return int(m.group(1).replace(",", "")), None
+    return None
+
+
+def founded_year(founded: str) -> int | None:
+    """The four-digit year in a stored ``founded`` value, if there is one."""
+    m = _YEAR.search(founded or "")
+    return int(m.group(1)) if m else None
+
+
+def record_matches(
+    rec: CompanyRecord,
+    *,
+    industry: str | None = None,
+    headquarters: str | None = None,
+    min_employees: int | None = None,
+    max_employees: int | None = None,
+    hiring: bool | None = None,
+    founded_after: int | None = None,
+    founded_before: int | None = None,
+) -> bool:
+    """Whether a record satisfies every given criterion.
+
+    A record that lacks a field being filtered on is excluded, not passed
+    through: a query for "companies with 200+ staff" must not return the ones
+    whose headcount was never fetched. Text criteria are case-insensitive
+    substrings. Headcount is matched by band overlap -- a 51-200 company
+    satisfies ``min_employees=100`` because its band reaches 100 -- since the
+    stored value is a band, not a count. Year bounds are inclusive.
+    """
+    if industry is not None:
+        if not rec.industry or industry.lower() not in rec.industry.lower():
+            return False
+    if headquarters is not None:
+        if not rec.headquarters or headquarters.lower() not in rec.headquarters.lower():
+            return False
+    if min_employees is not None or max_employees is not None:
+        bounds = employee_band_bounds(rec.employee_count)
+        if bounds is None:
+            return False
+        low, high = bounds
+        if min_employees is not None and high is not None and high < min_employees:
+            return False
+        if max_employees is not None and low > max_employees:
+            return False
+    if hiring is not None:
+        if rec.open_roles_count is None:
+            return False
+        if (rec.open_roles_count > 0) != hiring:
+            return False
+    if founded_after is not None or founded_before is not None:
+        year = founded_year(rec.founded)
+        if year is None:
+            return False
+        if founded_after is not None and year < founded_after:
+            return False
+        if founded_before is not None and year > founded_before:
+            return False
+    return True

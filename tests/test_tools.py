@@ -1549,6 +1549,7 @@ class TestToolTimeouts:
             "enrich_companies",
             "enrich_company_deep",
             "get_company_cache",
+            "query_company_cache",
             "close_session",
         )
 
@@ -1588,6 +1589,7 @@ class TestToolTimeouts:
             "enrich_companies",
             "enrich_company_deep",
             "get_company_cache",
+            "query_company_cache",
             "close_session",
         )
 

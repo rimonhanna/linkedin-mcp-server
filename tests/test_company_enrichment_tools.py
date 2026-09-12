@@ -61,8 +61,35 @@ def mcp(wired):
     return server
 
 
+_ABOUT_TEXT = (
+    "Acme\nIndustry\nRetail\n"
+    "Company size\n1,001-5,000 employees\n"
+    "Headquarters\nCairo, Egypt\n"
+    "Founded\n1999\n"
+    "Company type\nPrivately Held\n"
+    "Specialties\nWidgets, Gadgets\n"
+)
+
+
+def _about_result(slug="acme"):
+    return {
+        "url": f"https://www.linkedin.com/company/{slug}/",
+        "sections": {"about": _ABOUT_TEXT},
+        "references": {
+            "about": [
+                {
+                    "kind": "company_urn",
+                    "url": "/search/results/people/?currentCompany=%5B%229999%22%5D",
+                    "value": "9999",
+                }
+            ]
+        },
+    }
+
+
 def _search_extractor(hits):
-    """A mock whose search_companies returns the given company references."""
+    """A mock whose search_companies returns the given company references,
+    and whose scrape_company serves one About page for any slug."""
     mock = MagicMock()
     refs = [
         {"url": f"https://www.linkedin.com/company/{s}", "text": s.title()}
@@ -74,7 +101,14 @@ def _search_extractor(hits):
             "references": {"search_results": refs},
         }
     )
+    mock.scrape_company = AsyncMock(
+        side_effect=lambda slug, sections: _about_result(slug)
+    )
     return mock
+
+
+def _spent(jobs):
+    return jobs.load(ACCOUNT_BUDGET_JOB).ledger.spent(datetime.now().astimezone())
 
 
 class TestEnrichCompanies:
@@ -217,6 +251,154 @@ class TestEnrichCompanies:
         with pytest.raises(ToolError, match="empty"):
             await fn([], mock_context)
 
+    async def test_about_is_off_by_default(self, mcp, wired, mock_context, monkeypatch):
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        _, jobs = wired
+        extractor = _search_extractor(["copado"])
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(["Copado"], mock_context, extractor=extractor)
+
+        extractor.scrape_company.assert_not_awaited()
+        assert out["about_loaded"] == 0
+        assert _spent(jobs) == 1
+
+    async def test_about_loads_the_about_tab_after_the_search(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """about=True: one search resolves the slug, then one About load on
+        that slug fills every facet; both navigations hit the ledger."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        cache, jobs = wired
+        extractor = _search_extractor(["copado"])
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        extractor.scrape_company.assert_awaited_once()
+        assert extractor.scrape_company.await_args.args[0] == "copado"
+        assert out["fetched"] == 1
+        assert out["about_loaded"] == 1
+        assert _spent(jobs) == 2  # search + About, one unit each
+
+        served = out["results"]["Copado"]
+        assert served["source"] == "company_page"
+        assert served["industry"] == "Retail"
+        assert served["employee_count"] == "1,001-5,000 employees"
+        assert served["founded"] == "1999"
+        assert served["company_type"] == "Privately Held"
+        assert served["specialties"] == "Widgets, Gadgets"
+        rec = cache.get("Copado")
+        assert rec.has_firmographics()
+        assert rec.company_urn == "9999"  # so a later jobs lookup can run
+
+    async def test_about_counts_toward_the_bunch(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """A bunch of one navigation affords the search but not the About
+        load; the search view stands and the name stays outstanding."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        _, jobs = wired
+        extractor = _search_extractor(["copado"])
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(
+            ["Copado"], mock_context, about=True, bunch_searches=1, extractor=extractor
+        )
+
+        extractor.scrape_company.assert_not_awaited()
+        assert out["fetched"] == 1
+        assert out["about_loaded"] == 0
+        assert _spent(jobs) == 1
+        assert out["results"]["Copado"]["source"] == "search"
+        assert "next_run_after_seconds" in out  # Copado still owed its About
+
+    async def test_about_on_a_url_only_record_skips_the_search(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """A company an earlier call resolved to a URL (no facets) needs only
+        the About load, not another search."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        cache, jobs = wired
+        cache.record_firmographics(
+            "Copado",
+            datetime.now().astimezone(),
+            source="search",
+            linkedin_url="https://www.linkedin.com/company/copado",
+        )
+        extractor = _search_extractor(["copado"])
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        extractor.search_companies.assert_not_awaited()
+        extractor.scrape_company.assert_awaited_once()
+        assert (out["fetched"], out["about_loaded"]) == (0, 1)
+        assert _spent(jobs) == 1
+        assert out["results"]["Copado"]["industry"] == "Retail"
+
+    async def test_about_serves_fresh_facets_from_cache(self, mcp, wired, mock_context):
+        cache, _ = wired
+        cache.record_firmographics(
+            "Copado",
+            datetime.now().astimezone(),
+            source="company_page",
+            industry="Retail",
+            linkedin_url="https://www.linkedin.com/company/copado",
+        )
+        extractor = _search_extractor(["copado"])
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        assert out["stopped_because"] == "all_cached"
+        extractor.scrape_company.assert_not_awaited()
+
+    async def test_about_rate_limit_saves_progress(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        cache, jobs = wired
+        extractor = _search_extractor(["copado"])
+        extractor.scrape_company = AsyncMock(side_effect=RateLimitError("slow"))
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        assert out["stopped_because"] == "rate_limited"
+        assert out["fetched"] == 1  # the search that ran is not forgotten
+        assert cache.get("Copado").linkedin_url  # its URL was persisted
+        assert _spent(jobs) == 1
+
+    async def test_about_failure_keeps_the_search_view_and_charges_the_load(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        _, jobs = wired
+        extractor = _search_extractor(["copado"])
+        extractor.scrape_company = AsyncMock(side_effect=RuntimeError("boom"))
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        served = out["results"]["Copado"]
+        assert served["source"] == "search"
+        assert served["about_error"] == "boom"
+        assert out["about_loaded"] == 1
+        assert _spent(jobs) == 2  # the page load happened either way
+
 
 class TestEnrichCompanyDeep:
     def _deep_extractor(self):
@@ -229,13 +411,7 @@ class TestEnrichCompanyDeep:
         mock.scrape_company = AsyncMock(
             return_value={
                 "url": "https://www.linkedin.com/company/acme/",
-                "sections": {
-                    "about": (
-                        "Acme\nIndustry\nRetail\n"
-                        "Company size\n1,001-5,000 employees\n"
-                        "Headquarters\nCairo, Egypt\n"
-                    ),
-                },
+                "sections": {"about": _ABOUT_TEXT},
                 "references": {
                     "about": [
                         {
@@ -265,6 +441,9 @@ class TestEnrichCompanyDeep:
         assert out["status"] == "fetched"
         assert out["industry"] == "Retail"
         assert out["employee_count"] == "1,001-5,000 employees"
+        assert out["founded"] == "1999"
+        assert out["company_type"] == "Privately Held"
+        assert out["specialties"] == "Widgets, Gadgets"
         assert out["open_roles_count"] == 42  # from the job SEARCH, not the tab
         # Open roles came from job-search-by-URN, not the company /jobs/ tab.
         jobs_url = extractor.extract_page.await_args.args[0]
@@ -373,3 +552,105 @@ class TestGetCompanyCache:
     async def test_unknown_company(self, mcp, wired):
         fn = await get_tool_fn(mcp, "get_company_cache")
         assert (await fn("Nope"))["status"] == "not_cached"
+
+
+class TestQueryCompanyCache:
+    def _seed(self, cache):
+        now = datetime.now().astimezone()
+        cache.record_firmographics(
+            "Acme",
+            now,
+            source="company_page",
+            industry="Retail",
+            headquarters="Cairo, Egypt",
+            employee_count="51-200 employees",
+            founded="1999",
+        )
+        cache.record_jobs("Acme", now, count=3, sample=["Admin"])
+        cache.record_firmographics(
+            "Globex",
+            now,
+            source="company_page",
+            industry="Software Development",
+            headquarters="Redmond, Washington",
+            employee_count="10,001+ employees",
+            founded="2015",
+        )
+        cache.record_jobs("Globex", now, count=0, sample=[])
+        # Search-only: URL known, no facets, no jobs.
+        cache.record_firmographics(
+            "Initech", now, source="search", linkedin_url="https://x/company/initech"
+        )
+
+    async def test_no_criteria_lists_everything_in_the_view_shape(self, mcp, wired):
+        cache, _ = wired
+        self._seed(cache)
+
+        fn = await get_tool_fn(mcp, "query_company_cache")
+        out = await fn()
+
+        assert out["count"] == 3
+        names = [c["display_name"] for c in out["companies"]]
+        assert names == ["Acme", "Globex", "Initech"]
+        assert out["companies"][0]["founded"] == "1999"
+
+    async def test_industry_substring(self, mcp, wired):
+        cache, _ = wired
+        self._seed(cache)
+
+        fn = await get_tool_fn(mcp, "query_company_cache")
+        out = await fn(industry="software")
+
+        assert [c["display_name"] for c in out["companies"]] == ["Globex"]
+
+    async def test_headcount_excludes_the_unfetched(self, mcp, wired):
+        cache, _ = wired
+        self._seed(cache)
+
+        fn = await get_tool_fn(mcp, "query_company_cache")
+        out = await fn(min_employees=100)
+
+        # Initech has no band and is excluded, not assumed to qualify.
+        assert {c["display_name"] for c in out["companies"]} == {"Acme", "Globex"}
+        out = await fn(max_employees=1000)
+        assert [c["display_name"] for c in out["companies"]] == ["Acme"]
+
+    async def test_hiring_and_founded(self, mcp, wired):
+        cache, _ = wired
+        self._seed(cache)
+
+        fn = await get_tool_fn(mcp, "query_company_cache")
+        assert [c["display_name"] for c in (await fn(hiring=True))["companies"]] == [
+            "Acme"
+        ]
+        assert [c["display_name"] for c in (await fn(hiring=False))["companies"]] == [
+            "Globex"
+        ]
+        out = await fn(founded_after=2000, headquarters="redmond")
+        assert [c["display_name"] for c in out["companies"]] == ["Globex"]
+        out = await fn(founded_before=2000)
+        assert [c["display_name"] for c in out["companies"]] == ["Acme"]
+
+    async def test_limit_caps_the_page_but_not_the_count(self, mcp, wired):
+        cache, _ = wired
+        self._seed(cache)
+
+        fn = await get_tool_fn(mcp, "query_company_cache")
+        out = await fn(limit=1)
+
+        assert out["count"] == 3
+        assert len(out["companies"]) == 1
+
+    async def test_spends_no_budget(self, mcp, wired):
+        cache, jobs = wired
+        self._seed(cache)
+        before = _spent(jobs)
+
+        fn = await get_tool_fn(mcp, "query_company_cache")
+        await fn(industry="retail")
+
+        assert _spent(jobs) == before
+
+    async def test_empty_cache(self, mcp, wired):
+        fn = await get_tool_fn(mcp, "query_company_cache")
+        assert await fn(industry="retail") == {"count": 0, "companies": []}

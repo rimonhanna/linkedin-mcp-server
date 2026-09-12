@@ -41,6 +41,12 @@ instances, clear profiles, or replace the user's browser session.
   `get_sidebar_profiles`.
 - Companies: `get_company_profile`, `get_company_posts`, `search_companies`,
   and `get_company_employees`.
+- Company research at scale: `enrich_companies` (paced, cache-first; pass
+  `about=true` for About-tab facets at one extra navigation per company),
+  `enrich_company_deep` for one company's facets plus open roles,
+  `get_company_cache` to read a record, and `query_company_cache` to filter
+  the cache by industry, headquarters, headcount, hiring, or founding year
+  without touching LinkedIn.
 - Jobs: `search_jobs`, `get_saved_jobs`, and `get_job_details`.
 - Content: `get_feed` and `search_posts`.
 - Messages: `get_inbox`, `get_conversation`, and `search_conversations`.

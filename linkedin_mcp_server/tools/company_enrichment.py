@@ -22,8 +22,11 @@ one account-safety budget -- LinkedIn counts activity per account, not per job.
 
 Note the two tiers deliver different depth: the search tier records a company's
 LinkedIn URL and the raw results text but does not itself parse industry or
-headcount (those live behind the company page). ``enrich_company_deep`` is what
-fills the typed firmographic fields.
+headcount (those live behind the company page). The typed firmographic fields
+come from an About-tab load: ``enrich_company_deep`` always does one, and
+``enrich_companies(about=True)`` does one per company it resolves, at one extra
+navigation each. ``query_company_cache`` then filters what has been gathered
+without touching LinkedIn at all.
 """
 
 from __future__ import annotations
@@ -44,6 +47,7 @@ from linkedin_mcp_server.company_cache import (
     DEFAULT_FIRMOGRAPHICS_TTL,
     DEFAULT_JOBS_TTL,
     CompanyCache,
+    record_matches,
     ttl_from_days,
 )
 from linkedin_mcp_server.config.loaders import EnvironmentKeys
@@ -89,6 +93,36 @@ def register_company_enrichment_tools(
     )
     jobs = JobStore()
 
+    async def _load_about(
+        extractor: Any, company: str, slug: str, now: datetime, urn: str
+    ) -> str:
+        """One About-tab navigation: parse, cache, and return the company URN.
+
+        Shared by both tiers so the facets a company ends up with do not depend
+        on which tool asked. The caller charges the ledger for the load; this
+        only reads and records.
+        """
+        result = await extractor.scrape_company(slug, {"about"})
+        about = result.get("sections", {}).get("about", "")
+        fields = parse_about(about)
+        urn = _company_urn(result) or urn
+        cache.record_firmographics(
+            company,
+            now,
+            source="company_page",
+            industry=fields.get("industry", ""),
+            employee_count=fields.get("employee_count", ""),
+            headquarters=fields.get("headquarters", ""),
+            website=fields.get("website", ""),
+            founded=fields.get("founded", ""),
+            company_type=fields.get("company_type", ""),
+            specialties=fields.get("specialties", ""),
+            linkedin_url=result.get("url", ""),
+            company_urn=urn,
+            raw_about=about,
+        )
+        return urn
+
     @mcp.tool(
         timeout=tool_timeout,
         title="Enrich Companies (search)",
@@ -100,6 +134,7 @@ def register_company_enrichment_tools(
         company_names: list[str],
         ctx: Context,
         bunch_searches: Annotated[int, Field(ge=1, le=20)] = 8,
+        about: bool = False,
         refresh: bool = False,
         ignore_schedule: bool = False,
         extractor: Any | None = None,
@@ -113,20 +148,31 @@ def register_company_enrichment_tools(
         other companies, which are cached in passing, so overlapping names get
         cheaper as you go.
 
+        A search alone yields a company's LinkedIn URL, not its facets. With
+        ``about=True`` each resolved company also gets its About tab read --
+        industry, headcount band, HQ, website, founded year, company type,
+        specialties, and the numeric id open-roles lookups need -- at the cost
+        of one extra navigation per company, counted against the bunch and the
+        shared budget exactly as enrich_company_deep counts it. A bunch
+        therefore covers about half as many new companies with ``about`` on.
+
         Stops early, persisting everything, when the bunch is done, the shared
         rolling-24h action budget is spent, the working window closes, the tool
         deadline nears, or LinkedIn rate-limits.
 
         Args:
             company_names: Company names or LinkedIn company URLs.
-            bunch_searches: Max LinkedIn searches to run this call (1-20,
-                default 8). Cache hits do not count toward it.
+            bunch_searches: Max LinkedIn navigations to run this call (1-20,
+                default 8): searches, plus About loads when ``about`` is on.
+                Cache hits do not count toward it.
+            about: Also read each resolved company's About tab (default
+                False). One extra navigation per company.
             refresh: Re-fetch even companies whose cache is still fresh.
             ignore_schedule: Run outside working hours (off by default).
 
         Returns:
             Per-company firmographics gathered or served from cache, plus how
-            many searches were spent and when to call again.
+            many searches (and About loads) were spent and when to call again.
         """
         if not company_names:
             raise ToolError("company_names is empty.")
@@ -138,12 +184,13 @@ def register_company_enrichment_tools(
         # not re-searching: the company's LinkedIn URL, or fresh firmographics
         # from a deep fetch. (Search itself never yields firmographics, only
         # the URL, so keying serve-from-cache on firmographics alone would
-        # re-search every resolved company forever.)
+        # re-search every resolved company forever.) With ``about`` on the bar
+        # is fresh firmographics, since the URL alone is not what was asked.
         def _resolved(rec: Any) -> bool:
-            return rec is not None and bool(
-                rec.linkedin_url
-                or rec.firmographics_fresh(now, cache.firmographics_ttl)
-            )
+            if rec is None:
+                return False
+            fresh = rec.firmographics_fresh(now, cache.firmographics_ttl)
+            return fresh or (not about and bool(rec.linkedin_url))
 
         served: dict[str, dict] = {}
         to_fetch: list[str] = []
@@ -160,6 +207,7 @@ def register_company_enrichment_tools(
             return {
                 "served_from_cache": len(served),
                 "fetched": 0,
+                "about_loaded": 0,
                 "results": served,
                 "stopped_because": "all_cached",
             }
@@ -190,16 +238,30 @@ def register_company_enrichment_tools(
         rng = random.Random()
         deadline = asyncio.get_running_loop().time() + tool_timeout * DEADLINE_FRACTION
         spent = 0
+        about_loaded = 0
         stopped = "bunch_complete"
 
-        # `bunch_searches` bounds the number of *searches actually run*, not the
-        # number of names looked at: a name resolved for free from the cache (or
-        # in passing by an earlier search this call) must not burn a search
-        # slot. So iterate the whole to_fetch list and stop once `spent` reaches
-        # the bunch limit, the deadline nears, or the budget can't afford one
-        # more search.
+        def _navigations() -> int:
+            return spent + about_loaded
+
+        def _rate_limited() -> dict[str, Any]:
+            jobs.save(budget)
+            return _paced_return(
+                served,
+                spent,
+                "rate_limited",
+                max(budget.ledger.next_expiry(now), 3600.0),
+                detail="LinkedIn rate-limited; progress saved. Wait ~1h.",
+                about_loaded=about_loaded,
+            )
+
+        # `bunch_searches` bounds the number of *navigations actually run*, not
+        # the number of names looked at: a name resolved for free from the
+        # cache (or in passing by an earlier search this call) must not burn a
+        # slot. So iterate the whole to_fetch list and stop once the bunch is
+        # spent, the deadline nears, or the budget can't afford one more load.
         for name in to_fetch:
-            if spent >= bunch_searches:
+            if _navigations() >= bunch_searches:
                 break
             if asyncio.get_running_loop().time() >= deadline:
                 stopped = "tool_deadline"
@@ -216,71 +278,101 @@ def register_company_enrichment_tools(
                 stopped = "daily_budget_spent"
                 break
 
-            try:
-                result = await extractor.search_companies(name)
-            except RateLimitError as e:
-                logger.warning("Rate limited during company enrichment: %s", e)
-                jobs.save(budget)
-                return _paced_return(
-                    served,
-                    spent,
-                    "rate_limited",
-                    max(budget.ledger.next_expiry(now), 3600.0),
-                    detail="LinkedIn rate-limited; progress saved. Wait ~1h.",
-                )
-            except Exception as e:
-                logger.info("Company search failed for %s: %s", name, e)
-                served[name] = {"status": "search_failed", "error": str(e)[:160]}
-                budget.ledger.record(now)  # the page load still happened
+            # The search is what turns a name into a /company/ URL. A name
+            # whose URL is already cached (from an earlier call, without
+            # ``about``) skips straight to the About load below.
+            if refresh or rec is None or not rec.linkedin_url:
+                try:
+                    result = await extractor.search_companies(name)
+                except RateLimitError as e:
+                    logger.warning("Rate limited during company enrichment: %s", e)
+                    return _rate_limited()
+                except Exception as e:
+                    logger.info("Company search failed for %s: %s", name, e)
+                    served[name] = {"status": "search_failed", "error": str(e)[:160]}
+                    budget.ledger.record(now)  # the page load still happened
+                    spent += 1
+                    jobs.save(budget)
+                    continue
+
+                budget.ledger.record(now)
                 spent += 1
                 jobs.save(budget)
-                continue
 
-            budget.ledger.record(now)
-            spent += 1
-            jobs.save(budget)
+                text = result.get("sections", {}).get("search_results", "")
+                refs = result.get("references", {}).get("search_results", [])
+                hits = parse_search_results(refs)
 
-            text = result.get("sections", {}).get("search_results", "")
-            refs = result.get("references", {}).get("search_results", [])
-            hits = parse_search_results(refs)
+                # Cache every company the results page revealed, so overlapping
+                # names later in the list become free hits. Store only the URL --
+                # NOT the results-page text: that blob is the whole page (all ~10
+                # companies), not this company's About, so persisting a copy on
+                # every record would bloat the cache and mislead. The page text is
+                # still returned at call level below for the LLM to read.
+                for hit in hits:
+                    cache.record_firmographics(
+                        hit["name"],
+                        now,
+                        source="search",
+                        linkedin_url=hit["url"],
+                    )
+                # Attribute a hit to the requested name only when it actually
+                # matches: cache.get(name) normalises both sides and hits iff one
+                # of the just-cached companies shares the query's normalised key.
+                # Never fall back to hits[0] -- the top result for "Deloitte
+                # Digital" may be "Deloitte", a different company. On no match,
+                # hand back the candidates and the raw page for the LLM to judge.
+                rec = cache.get(name)
+                if rec is not None and rec.linkedin_url:
+                    served[name] = _firmographics_view(rec, "search", fallback_raw=text)
+                else:
+                    served[name] = {
+                        "status": "no_confident_match",
+                        "source": "search",
+                        "candidates": [h["name"] for h in hits[:10]],
+                        "raw_about": text,
+                    }
 
-            # Cache every company the results page revealed, so overlapping
-            # names later in the list become free hits. Store only the URL --
-            # NOT the results-page text: that blob is the whole page (all ~10
-            # companies), not this company's About, so persisting a copy on
-            # every record would bloat the cache and mislead. The page text is
-            # still returned at call level below for the LLM to read.
-            for hit in hits:
-                cache.record_firmographics(
-                    hit["name"],
-                    now,
-                    source="search",
-                    linkedin_url=hit["url"],
+            # The About load is a second navigation for the same company, so
+            # it gets its own slot, budget check, and step delay. When the
+            # bunch cannot afford it the search view already served above
+            # stands, and the name stays outstanding for the next call.
+            if (
+                about
+                and rec is not None
+                and rec.linkedin_url
+                and (
+                    refresh or not rec.firmographics_fresh(now, cache.firmographics_ttl)
                 )
-            # Attribute a hit to the requested name only when it actually
-            # matches: cache.get(name) normalises both sides and hits iff one
-            # of the just-cached companies shares the query's normalised key.
-            # Never fall back to hits[0] -- the top result for "Deloitte
-            # Digital" may be "Deloitte", a different company. On no match,
-            # hand back the candidates and the raw page for the LLM to judge.
-            rec = cache.get(name)
-            if rec is not None and rec.linkedin_url:
-                served[name] = _firmographics_view(rec, "search", fallback_raw=text)
-            else:
-                served[name] = {
-                    "status": "no_confident_match",
-                    "source": "search",
-                    "candidates": [h["name"] for h in hits[:10]],
-                    "raw_about": text,
-                }
+                and _navigations() < bunch_searches
+            ):
+                if budget.remaining_today(now) <= 0:
+                    stopped = "daily_budget_spent"
+                    break
+                await asyncio.sleep(step_delay(rng=rng))
+                try:
+                    await _load_about(
+                        extractor, name, _slug(rec.linkedin_url), now, rec.company_urn
+                    )
+                except RateLimitError as e:
+                    logger.warning("Rate limited during About load: %s", e)
+                    return _rate_limited()
+                except Exception as e:
+                    logger.info("About load failed for %s: %s", name, e)
+                    served[name]["about_error"] = str(e)[:160]
+                else:
+                    served[name] = _firmographics_view(cache.get(name), "company_page")
+                budget.ledger.record(now)  # the page load happened either way
+                about_loaded += 1
+                jobs.save(budget)
 
             now = datetime.now().astimezone()
             await ctx.report_progress(
-                progress=spent,
+                progress=_navigations(),
                 total=bunch_searches,
-                message=f"{spent} searched, {len(served)} known",
+                message=f"{spent} searched, {about_loaded} about, {len(served)} known",
             )
-            if spent < bunch_searches:
+            if _navigations() < bunch_searches:
                 await asyncio.sleep(step_delay(rng=rng))
 
         now = datetime.now().astimezone()
@@ -295,7 +387,7 @@ def register_company_enrichment_tools(
                 remaining, bunch_searches, now, budget.schedule, rng
             )
         jobs.save(budget)
-        return _paced_return(served, spent, stopped, wait)
+        return _paced_return(served, spent, stopped, wait, about_loaded=about_loaded)
 
     @mcp.tool(
         timeout=tool_timeout,
@@ -314,8 +406,9 @@ def register_company_enrichment_tools(
         """
         Deep firmographics plus live open roles for one company.
 
-        Reads the company's About tab (exact headcount band, HQ, website, and
-        the numeric company id) and, by default, its live open-roles count from
+        Reads the company's About tab (exact headcount band, HQ, website,
+        founded year, company type, specialties, and the numeric company id)
+        and, by default, its live open-roles count from
         LinkedIn's job search filtered by that company -- the active-investment
         signal. (The company Page's own /jobs/ tab is NOT used: it lists only
         roles posted directly on the Page, so it reads "no jobs" even for
@@ -367,23 +460,7 @@ def register_company_enrichment_tools(
             # Firmographics from the About tab; also yields the numeric company
             # URN, which the open-roles lookup below is keyed on.
             if want_firmographics:
-                result = await extractor.scrape_company(slug, {"about"})
-                secs = result.get("sections", {})
-                about = secs.get("about", "")
-                fields = parse_about(about)
-                urn = _company_urn(result) or urn
-                cache.record_firmographics(
-                    company,
-                    now,
-                    source="company_page",
-                    industry=fields.get("industry", ""),
-                    employee_count=fields.get("employee_count", ""),
-                    headquarters=fields.get("headquarters", ""),
-                    website=fields.get("website", ""),
-                    linkedin_url=result.get("url", ""),
-                    company_urn=urn,
-                    raw_about=about,
-                )
+                urn = await _load_about(extractor, company, slug, now, urn)
                 budget.ledger.record(now)
 
             # Open roles come from job SEARCH filtered by the company URN -- the
@@ -466,6 +543,69 @@ def register_company_enrichment_tools(
         view["jobs_fresh"] = rec.jobs_fresh(now, cache.jobs_ttl)
         return {"company": company, "status": "cached", **view}
 
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="Query Company Cache",
+        annotations={"readOnlyHint": True, "openWorldHint": False},
+        tags={"company", "bulk"},
+    )
+    async def query_company_cache(
+        industry: str | None = None,
+        headquarters: str | None = None,
+        min_employees: Annotated[int | None, Field(ge=0)] = None,
+        max_employees: Annotated[int | None, Field(ge=0)] = None,
+        hiring: bool | None = None,
+        founded_after: int | None = None,
+        founded_before: int | None = None,
+        limit: Annotated[int, Field(ge=1, le=500)] = 50,
+    ) -> dict[str, Any]:
+        """
+        Filter cached companies by firmographic criteria. No LinkedIn access.
+
+        A pure read of what enrich_companies / enrich_company_deep have already
+        gathered, so it costs nothing and is not paced. A company that lacks a
+        field you filter on is excluded, never assumed: filter on headcount and
+        only companies whose About tab has been read can match (search alone
+        does not yield it -- use enrich_companies with about=True first).
+
+        Args:
+            industry: Case-insensitive substring of the industry.
+            headquarters: Case-insensitive substring of the HQ location.
+            min_employees: Lower bound on headcount. Matched against
+                LinkedIn's band, so a 51-200 company satisfies 100.
+            max_employees: Upper bound on headcount, same band semantics.
+            hiring: True for companies with open roles, False for none. Needs
+                open roles fetched (enrich_company_deep).
+            founded_after: Founded in this year or later.
+            founded_before: Founded in this year or earlier.
+            limit: Max companies to return (1-500, default 50).
+
+        Returns:
+            ``count`` of matches and ``companies``, each in the same shape
+            get_company_cache serves, in cache-key order.
+        """
+        matches = [
+            rec
+            for rec in cache.all_records()
+            if record_matches(
+                rec,
+                industry=industry,
+                headquarters=headquarters,
+                min_employees=min_employees,
+                max_employees=max_employees,
+                hiring=hiring,
+                founded_after=founded_after,
+                founded_before=founded_before,
+            )
+        ]
+        return {
+            "count": len(matches),
+            "companies": [
+                _firmographics_view(rec, rec.firmographics_source or "cache")
+                for rec in matches[:limit]
+            ],
+        }
+
 
 def _slug(company: str) -> str:
     """A /company/<slug> value from a name, slug, or full URL."""
@@ -499,6 +639,9 @@ def _firmographics_view(
         "employee_count": rec.employee_count,
         "headquarters": rec.headquarters,
         "website": rec.website,
+        "founded": rec.founded,
+        "company_type": rec.company_type,
+        "specialties": rec.specialties,
         "linkedin_url": rec.linkedin_url,
         "open_roles_count": rec.open_roles_count,
         "open_roles_sample": rec.open_roles_sample,
@@ -514,9 +657,11 @@ def _paced_return(
     stopped: str,
     wait: float | None,
     detail: str | None = None,
+    about_loaded: int = 0,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
         "fetched": spent,
+        "about_loaded": about_loaded,
         "results": served,
         "known": len(served),
         "stopped_because": stopped,
