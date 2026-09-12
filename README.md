@@ -54,7 +54,7 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `get_company_employees` | List employees at a company from the /people/ page, with optional keyword filter |
 | `search_jobs` | Search for jobs with keywords and location filters |
 | `get_saved_jobs` | List job postings saved by the authenticated user |
-| `search_people` | Search for people by keywords, location, connection degree (1st/2nd/3rd), and current company (name, `/company/` slug URL, or numeric URN), with `max_pages` pagination (1-10, 10 people per page) |
+| `search_people` | Search for people by keywords (Boolean `AND`/`OR`/`NOT`, quotes, parentheses) and/or Clay-style facets: `location`, `network` (1st/2nd/3rd), `current_company` and `past_company` (one or a list; name, `/company/` slug URL, or numeric URN), `title`, `industry` (numeric id or a known name, same table as `search_companies`), `school` (numeric id or name), `first_name`, `last_name`, `profile_language` (ISO 639-1 codes), with `max_pages` pagination (1-10, 10 people per page). Funnel: `search_companies` -> `enrich_companies(about=True)` -> `query_company_cache` -> `search_people(current_company=[...], title=...)` |
 | `get_job_details` | Get detailed information about a specific job posting |
 | `get_feed` | Get recent posts from the authenticated user's home feed |
 | `search_posts` | Search posts/content globally by keyword (the "Posts" tab) with an optional recency filter (past-24h/past-week/past-month), scrolling until `max_posts` results (1-50, default 10); author `/in/` references make it usable as a prospect list |

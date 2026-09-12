@@ -142,20 +142,40 @@ def register_person_tools(
         exclude_args=["extractor"],
     )
     async def search_people(
-        keywords: str,
         ctx: Context,
+        keywords: str | None = None,
         location: str | None = None,
         network: StrList | None = None,
-        current_company: str | None = None,
+        current_company: StrList | None = None,
         max_pages: Annotated[int, Field(ge=1, le=10)] = 1,
+        title: str | None = None,
+        past_company: StrList | None = None,
+        industry: StrList | None = None,
+        school: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        profile_language: StrList | None = None,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
-        Search for people on LinkedIn.
+        Search for people on LinkedIn, with Clay-style facets.
+
+        At least one of keywords or a facet is required. Every result page is
+        one navigation against the daily budget, and each company or school
+        name that has to be resolved costs one or two more; pass numeric ids
+        (or companies already in the cache) to keep it at one per page.
+
+        Recommended funnel for account-based prospecting: search_companies
+        (industry/size/hq_location facets) -> enrich_companies(about=True)
+        -> query_company_cache to pick the accounts -> search_people(
+        current_company=[...ids or names...], title=...) for the people.
 
         Args:
-            keywords: Search keywords (e.g., "software engineer", "recruiter at Google")
             ctx: FastMCP context for progress reporting
+            keywords: Free-text query (e.g., "software engineer", "recruiter
+                at Google"). Boolean search works on free LinkedIn: AND, OR,
+                NOT, quoted phrases and parentheses, e.g.
+                '("head of sales" OR "VP sales") AND NOT recruiter'.
             location: Optional location filter: a country or city name
                 (e.g., "Egypt", "United Arab Emirates", "Amsterdam"). It is
                 resolved to LinkedIn's numeric geo id through the site's own
@@ -167,24 +187,42 @@ def register_person_tools(
                 Example: ["F"] to only return 1st-degree connections. A single
                 token ("F") or a comma-separated string ("F,S") is also
                 accepted, for clients that cannot transmit an array.
-            current_company: Optional current-employer filter: a company name
-                (e.g. "SAP"), a /company/<slug> URL, or the numeric company URN
-                id (e.g. "1115" for SAP). LinkedIn's currentCompany facet
-                filters on the id only, so a name or URL is resolved to it
-                first (company search, then the company's About page; cached
-                on disk so a company already looked up costs no navigation).
-                A name that does not resolve raises an error rather than
-                silently returning the unfiltered result set. Pass the id
-                directly, as exposed by get_company_profile under
-                references["about"], to skip the resolution. For company-wide
-                employee demographics (location/education/function breakdown)
-                plus a slug-based lookup, use get_company_employees instead.
+            current_company: Optional current-employer filter, one or a list.
+                Each is a company name (e.g. "SAP"), a /company/<slug> URL, or
+                the numeric company URN id (e.g. "1115" for SAP). LinkedIn's
+                currentCompany facet filters on the id only, so a name or URL
+                is resolved to it first (company search, then the company's
+                About page; cached on disk so a company already looked up
+                costs no navigation). A name that does not resolve raises an
+                error rather than silently returning the unfiltered result
+                set. Pass the id directly, as exposed by get_company_profile
+                under references["about"], to skip the resolution. For
+                company-wide employee demographics (location/education/
+                function breakdown) plus a slug-based lookup, use
+                get_company_employees instead.
             max_pages: Number of result pages to load, 1-10 (default 1).
                 LinkedIn returns 10 people per page, so max_pages=10 yields up
                 to 100. Pagination stops early once a page adds no new people.
                 Raise this when you need more than a top-10 sample -- e.g.
                 enumerating 1st-degree connections in a region with
                 network=["F"].
+            title: Optional current job title, free text (e.g. "Head of
+                Sales"). Matches the title field only, unlike keywords.
+            past_company: Optional past-employer filter; same shapes and
+                resolution as current_company. Each unresolved name may cost
+                up to two navigations.
+            industry: Optional industry filter, one or a list. Each is
+                LinkedIn's numeric industry id (e.g. "4") or a name this
+                server knows (e.g. "Software Development", "Financial
+                Services"; same table as search_companies). An unknown name
+                raises an error listing the known names.
+            school: Optional school filter: the numeric school id, or a name
+                (e.g. "Stanford University") resolved through a schools search
+                and the school page, up to two navigations.
+            first_name: Optional first-name filter.
+            last_name: Optional last-name filter.
+            profile_language: Optional profile-language filter, one or a list
+                of two-letter ISO 639-1 codes (e.g. "en", "de", "fr").
 
         Returns:
             Dict with url, sections (name -> raw text), and optional references.
@@ -198,11 +236,16 @@ def register_person_tools(
             )
             logger.info(
                 "Searching people: keywords='%s', location='%s', network=%s, "
-                "current_company='%s', max_pages=%d",
+                "current_company=%s, past_company=%s, title='%s', industry=%s, "
+                "school='%s', max_pages=%d",
                 keywords,
                 location,
                 network,
                 current_company,
+                past_company,
+                title,
+                industry,
+                school,
                 max_pages,
             )
 
@@ -217,6 +260,13 @@ def register_person_tools(
                     network=network,
                     current_company=current_company,
                     max_pages=max_pages,
+                    title=title,
+                    past_company=past_company,
+                    industry=industry,
+                    school=school,
+                    first_name=first_name,
+                    last_name=last_name,
+                    profile_language=profile_language,
                 )
             except FilterValidationError as e:
                 # Validation messages carry actionable detail; surface
