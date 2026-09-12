@@ -14,7 +14,8 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from linkedin_mcp_server.company_cache import CompanyCache
-from linkedin_mcp_server.core.exceptions import RateLimitError
+from linkedin_mcp_server.core.exceptions import AuthenticationError, RateLimitError
+from linkedin_mcp_server.exceptions import AuthenticationStartedError
 from linkedin_mcp_server.pacing import (
     ACCOUNT_BUDGET_JOB,
     Job,
@@ -597,6 +598,61 @@ class TestEnrichCompanies:
 
         assert "about_error" in out["results"]["Copado"]
         assert not cache.get("Copado").has_firmographics()
+
+    async def test_an_expired_session_during_about_stops_the_bunch(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """An AuthenticationError from an About load is not a per-company
+        failure to file under about_error: every remaining navigation would
+        fail the same way. The load that found it is charged, progress is
+        saved, and the tool routes to re-login instead of walking the list."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        cache, jobs = wired
+        extractor = _search_extractor(["copado", "acme"])
+        extractor.scrape_company = AsyncMock(
+            side_effect=AuthenticationError("session expired")
+        )
+        handle = AsyncMock(side_effect=AuthenticationStartedError("login opened"))
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.handle_auth_error", handle
+        )
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        with pytest.raises(ToolError, match="login opened"):
+            await fn(["Copado", "Acme"], mock_context, about=True, extractor=extractor)
+
+        handle.assert_awaited_once()
+        assert isinstance(handle.call_args[0][0], AuthenticationError)
+        extractor.scrape_company.assert_awaited_once()  # Acme was not attempted
+        assert extractor.search_companies.await_count == 1
+        assert _spent(jobs) == 2  # Copado's search + the About that hit the wall
+        assert cache.get("Copado").linkedin_url  # the search's result was kept
+
+    async def test_an_expired_session_during_search_stops_the_bunch(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        _, jobs = wired
+        extractor = _search_extractor([])
+        extractor.search_companies = AsyncMock(
+            side_effect=AuthenticationError("session expired")
+        )
+        handle = AsyncMock(side_effect=AuthenticationStartedError("login opened"))
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.handle_auth_error", handle
+        )
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        with pytest.raises(ToolError, match="login opened"):
+            await fn(["Copado", "Acme"], mock_context, extractor=extractor)
+
+        handle.assert_awaited_once()
+        extractor.search_companies.assert_awaited_once()  # Acme was not attempted
+        assert _spent(jobs) == 1  # the search that hit the wall
 
     async def test_a_search_that_outlives_the_deadline_skips_the_about(
         self, wired, mock_context, monkeypatch

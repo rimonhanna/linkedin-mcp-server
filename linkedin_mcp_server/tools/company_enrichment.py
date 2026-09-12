@@ -36,7 +36,7 @@ import asyncio
 import logging
 import random
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -284,6 +284,16 @@ def register_company_enrichment_tools(
                 about_loaded=about_loaded,
             )
 
+        async def _session_expired(e: AuthenticationError) -> NoReturn:
+            # An expired session fails every remaining navigation the same
+            # way, so the bunch stops here rather than burning one load per
+            # name left. The caller has charged the load that found it.
+            jobs.save(budget)
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "enrich_companies")
+
         # `bunch_searches` bounds the number of *navigations actually run*, not
         # the number of names looked at: a name resolved for free from the
         # cache (or in passing by an earlier search this call) must not burn a
@@ -319,6 +329,10 @@ def register_company_enrichment_tools(
                     budget.ledger.record(now)
                     spent += 1
                     return _rate_limited()
+                except AuthenticationError as e:
+                    budget.ledger.record(now)
+                    spent += 1
+                    await _session_expired(e)
                 except Exception as e:
                     logger.info("Company search failed for %s: %s", name, e)
                     served[name] = {"status": "search_failed", "error": str(e)[:160]}
@@ -406,6 +420,10 @@ def register_company_enrichment_tools(
                     budget.ledger.record(now)
                     about_loaded += 1
                     return _rate_limited()
+                except AuthenticationError as e:
+                    budget.ledger.record(now)
+                    about_loaded += 1
+                    await _session_expired(e)
                 except Exception as e:
                     logger.info("About load failed for %s: %s", name, e)
                     # No search ran when the URL was already cached, so there
