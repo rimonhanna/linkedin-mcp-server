@@ -34,6 +34,7 @@ from linkedin_mcp_server.scraping.extractor import (
     ExtractedSection,
     FilterValidationError,
     LinkedInExtractor,
+    _COMPANY_SIZE_LETTERS,
     _CONTENT_DATE_POSTED_MAP,
     _RATE_LIMITED_MSG,
     _build_feed_references,
@@ -6659,6 +6660,32 @@ class TestSearchPeopleFacets:
         assert "pastCompany=%5B%221115%22%2C%221441%22%5D" in many["url"]
         assert "currentCompany" not in many["url"]
 
+    async def test_company_resolution_is_spaced_from_the_first_results_page(
+        self, mock_page
+    ):
+        """A resolution navigates; the people search that follows gets the
+        same pause as a later results page, and a search with nothing to
+        resolve gets none."""
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            self._run(extractor),
+            patch.object(
+                extractor,
+                "_resolve_company_urn",
+                new_callable=AsyncMock,
+                return_value="1115",
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ) as pause,
+        ):
+            await extractor.search_people("engineer")
+            pause.assert_not_awaited()
+            await extractor.search_people(current_company="SAP")
+
+        pause.assert_awaited_once_with(extractor_module._NAV_DELAY)
+
     async def test_industry_maps_names_and_passes_ids(self, mock_page):
         extractor = LinkedInExtractor(mock_page)
         with self._run(extractor):
@@ -7084,6 +7111,176 @@ class TestResolveCompanyUrn:
             with pytest.raises(FilterValidationError, match="throttled"):
                 await extractor._resolve_company_urn("SAP")
 
+    async def test_disk_record_with_url_only_skips_the_search(
+        self, mock_page, tmp_path
+    ):
+        """``enrich_companies`` stores the page URL from a search hit but no
+        id; the slug in that URL is enough to go straight to About."""
+        extractor = self._extractor(mock_page, tmp_path)
+        assert extractor._company_cache is not None
+        extractor._company_cache.record_firmographics(
+            "SAP",
+            datetime.now(),
+            source="search",
+            linkedin_url="https://www.linkedin.com/company/sap",
+        )
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted("About SAP", [self._urn_ref("1115")]),
+        ) as nav:
+            assert await extractor._resolve_company_urn("sap") == "1115"
+
+        nav.assert_awaited_once()
+        assert nav.await_args_list[0].args[0] == self.ABOUT
+        record = extractor._company_cache.get("SAP")
+        assert record is not None
+        assert record.company_urn == "1115"
+
+    async def test_promoted_top_card_for_another_company_is_skipped(
+        self, mock_page, tmp_path
+    ):
+        """The first card is often an ad for a different company; the card
+        whose name is the query wins, and the first card's own id anchor is
+        not attributed to it."""
+        extractor = self._extractor(mock_page, tmp_path)
+        pages = {
+            self.SEARCH: extracted(
+                "Page by Deloitte\nSAP",
+                [
+                    {
+                        "kind": "company",
+                        "url": "/company/deloitte/",
+                        "text": "Page by Deloitte",
+                    },
+                    self._urn_ref("999"),
+                    self._company_ref("sap"),
+                ],
+            ),
+            self.ABOUT: extracted("About SAP", [self._urn_ref("1115")]),
+        }
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=lambda url, **_: pages[url],
+            ) as nav,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+        ):
+            assert await extractor._resolve_company_urn("SAP") == "1115"
+
+        assert [c.args[0] for c in nav.await_args_list] == [self.SEARCH, self.ABOUT]
+        assert extractor._company_cache is not None
+        assert extractor._company_cache.get("deloitte") is None
+        record = extractor._company_cache.get("sap")
+        assert record is not None
+        assert record.company_urn == "1115"
+
+    async def test_no_card_named_like_the_query_raises_with_candidates(
+        self, mock_page, tmp_path
+    ):
+        extractor = self._extractor(mock_page, tmp_path)
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted(
+                "Deloitte",
+                [self._company_ref("deloitte"), self._company_ref("deloitte-digital")],
+            ),
+        ) as nav:
+            with pytest.raises(FilterValidationError) as excinfo:
+                await extractor._resolve_company_urn("Deloitte Consulting")
+            with pytest.raises(FilterValidationError):
+                await extractor._resolve_company_urn("deloitte consulting")
+
+        message = str(excinfo.value)
+        assert "'deloitte'" in message
+        assert "'deloitte-digital'" in message
+        assert "/company/<slug>/" in message
+        # No About page was loaded for a card that was never accepted, and
+        # the clean miss is remembered for the batch.
+        assert nav.await_count == 1
+        assert extractor._company_cache is not None
+        assert extractor._company_cache.get("Deloitte Consulting") is None
+
+    async def test_cache_entry_is_written_under_the_hit_name(self, mock_page, tmp_path):
+        """The record carries the name LinkedIn shows, not the query's
+        spelling; both normalise to the same key."""
+        extractor = self._extractor(mock_page, tmp_path)
+        refs: list[Reference] = [
+            {"kind": "company", "url": "/company/sap/", "text": "SAP, Inc."},
+            self._urn_ref("1115"),
+        ]
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted("SAP, Inc.", refs),
+        ):
+            assert await extractor._resolve_company_urn("sap") == "1115"
+
+        assert extractor._company_cache is not None
+        record = extractor._company_cache.get("sap")
+        assert record is not None
+        assert record.display_name == "SAP, Inc."
+
+    @pytest.mark.parametrize(
+        "bad_page",
+        [
+            extracted(_RATE_LIMITED_MSG),
+            extracted("", error={"error_type": "NetworkError"}),
+        ],
+        ids=["throttled", "errored"],
+    )
+    async def test_a_throttled_or_failed_miss_is_not_cached(
+        self, mock_page, tmp_path, bad_page
+    ):
+        """A retry may succeed, so the second call searches again."""
+        extractor = self._extractor(mock_page, tmp_path)
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=bad_page,
+        ) as nav:
+            with pytest.raises(FilterValidationError):
+                await extractor._resolve_company_urn("SAP")
+            with pytest.raises(FilterValidationError):
+                await extractor._resolve_company_urn("SAP")
+
+        assert nav.await_count == 2
+        assert "sap" not in extractor._company_urn_cache
+
+    async def test_a_failing_write_back_does_not_fail_the_resolution(
+        self, mock_page, tmp_path, caplog
+    ):
+        """``CompanyCache._path`` refuses a name that normalises to nothing;
+        the id is the result, the cache write is not."""
+        extractor = self._extractor(mock_page, tmp_path)
+        refs: list[Reference] = [
+            {"kind": "company", "url": "/company/group/", "text": "Group"},
+            self._urn_ref("42"),
+        ]
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=extracted("Group", refs),
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            assert await extractor._resolve_company_urn("Group") == "42"
+
+        assert extractor._company_urn_cache["group"] == "42"
+        assert any("Could not cache company urn" in r.message for r in caplog.records)
+
 
 class TestSearchPeoplePagination:
     """``max_pages`` walks LinkedIn's ``&page=N`` facet (issue #526)."""
@@ -7223,6 +7420,21 @@ class TestSearchCompanies:
         assert "'software development'" in str(exc.value)
         assert "numeric industry id" in str(exc.value)
 
+    def test_size_letters_follow_staff_count_range(self):
+        """LinkedIn's ``staffCountRange`` enum starts at self-employed, so the
+        headcount buckets map to A-I in ascending order from there."""
+        assert _COMPANY_SIZE_LETTERS == {
+            "self-employed": "A",
+            "1-10": "B",
+            "11-50": "C",
+            "51-200": "D",
+            "201-500": "E",
+            "501-1000": "F",
+            "1001-5000": "G",
+            "5001-10000": "H",
+            "10001+": "I",
+        }
+
     async def test_size_accepts_letters_and_buckets(self, mock_page):
         extractor = LinkedInExtractor(mock_page)
         with self._run(extractor):
@@ -7231,7 +7443,7 @@ class TestSearchCompanies:
             )
 
         assert (
-            "companySize=%5B%22B%22%2C%22C%22%2C%22H%22%2C%22I%22%5D" in result["url"]
+            "companySize=%5B%22B%22%2C%22D%22%2C%22I%22%2C%22A%22%5D" in result["url"]
         )
 
     @pytest.mark.parametrize("bad", ["J", "50-200", "huge"])
