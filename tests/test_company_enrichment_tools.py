@@ -23,6 +23,7 @@ from linkedin_mcp_server.pacing import (
     Schedule,
 )
 
+from test_company_cache import _NOT_FOUND_LIVE
 from test_search_parse import COMPANY_PAGE
 from test_tools import get_tool_fn
 
@@ -504,12 +505,12 @@ class TestEnrichCompanies:
         assert out["results"]["Globex"]["about_error"] == "boom"
         assert _spent(jobs) == 3  # Copado About + Globex search + Globex About
 
-    async def test_about_that_parses_to_nothing_is_not_reloaded(
+    async def test_about_with_labels_but_no_values_is_not_reloaded(
         self, mcp, wired, mock_context, monkeypatch
     ):
-        """An About page with no recognisable facets still counts as read:
-        the second call serves it from cache instead of spending another
-        navigation on the same empty page."""
+        """An About page whose rows are there but parse to nothing still
+        counts as read: the second call serves it from cache instead of
+        spending another navigation on the same page."""
         monkeypatch.setattr(
             "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
         )
@@ -518,7 +519,7 @@ class TestEnrichCompanies:
         extractor.scrape_company = AsyncMock(
             return_value={
                 "url": "https://www.linkedin.com/company/copado/",
-                "sections": {"about": "Copado\nnothing parseable here"},
+                "sections": {"about": "Copado\nOverview\nA company.\nCompany size\n"},
                 "references": {},
             }
         )
@@ -534,6 +535,68 @@ class TestEnrichCompanies:
         assert second["stopped_because"] == "all_cached"
         extractor.scrape_company.assert_awaited_once()
         assert _spent(jobs) == 2  # search + one About, nothing more
+
+    async def test_about_without_any_row_label_is_a_failed_load(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """A rendered page with none of the About row labels is not an About
+        page, however much text it carries. Recording it would stamp nothing
+        fresh for 90 days; instead it is a failed load: charged, surfaced as
+        about_error, and left stale for the next call to retry."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        cache, jobs = wired
+        extractor = _search_extractor(["copado"])
+        extractor.scrape_company = AsyncMock(
+            return_value={
+                "url": "https://www.linkedin.com/company/copado/",
+                "sections": {"about": "Copado\nnothing parseable here"},
+                "references": {},
+            }
+        )
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        first = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        assert first["results"]["Copado"]["about_error"] == (
+            "About page carried no firmographic rows"
+        )
+        assert first["about_loaded"] == 1
+        assert _spent(jobs) == 2  # search + the About load that showed junk
+        rec = cache.get("Copado")
+        assert rec is not None and rec.linkedin_url
+        assert not rec.has_firmographics()
+
+        second = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        assert second["about_loaded"] == 1  # retried, not served from cache
+        assert extractor.scrape_company.await_count == 2
+
+    async def test_a_real_not_found_page_is_not_stamped_fresh(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """LinkedIn's live "page isn't available" body renders as the About
+        section of a deleted or renamed company. It must not be cached as a
+        read About."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        cache, _ = wired
+        extractor = _search_extractor(["copado"])
+        extractor.scrape_company = AsyncMock(
+            return_value={
+                "url": "https://www.linkedin.com/company/copado/",
+                "sections": {"about": _NOT_FOUND_LIVE},
+                "references": {},
+            }
+        )
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        assert "about_error" in out["results"]["Copado"]
+        assert not cache.get("Copado").has_firmographics()
 
     async def test_a_search_that_outlives_the_deadline_skips_the_about(
         self, wired, mock_context, monkeypatch

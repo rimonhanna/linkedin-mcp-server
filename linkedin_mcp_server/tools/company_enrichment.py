@@ -67,6 +67,7 @@ from linkedin_mcp_server.pacing import (
     step_delay,
 )
 from linkedin_mcp_server.scraping.company_parse import (
+    has_about_labels,
     parse_about,
     parse_company_cards,
     parse_job_search,
@@ -118,7 +119,10 @@ def register_company_enrichment_tools(
         # stale. A rate limit is raised as such, not as a generic failure:
         # the callers back off on RateLimitError and would otherwise keep
         # navigating while throttled. An About that *is* present but parses
-        # to nothing is a real page and is recorded as such.
+        # to nothing is a real page and is recorded as such -- provided it
+        # carries the About row labels. A rendered page with none of them (a
+        # "page isn't available" body, a redirect) is not an About at all,
+        # and recording it would stamp nothing fresh for the whole TTL.
         if "about" not in sections:
             error = result.get("section_errors", {}).get("about", {})
             message = error.get("error_message") or "About section did not load."
@@ -127,6 +131,8 @@ def register_company_enrichment_tools(
             raise ScrapingError(message)
         about = sections["about"]
         fields = parse_about(about)
+        if not fields and not has_about_labels(about):
+            raise ScrapingError("About page carried no firmographic rows")
         urn = _company_urn(result) or urn
         cache.record_firmographics(
             company,
