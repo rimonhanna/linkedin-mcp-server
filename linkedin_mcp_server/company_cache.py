@@ -104,6 +104,7 @@ class CompanyRecord:
     specialties: str = ""  # LinkedIn's own comma-separated free text
     linkedin_url: str = ""
     company_urn: str = ""  # numeric LinkedIn company id, for job-search-by-company
+    followers: int | None = None  # from the search card; the About page has none
     firmographics_source: str = ""  # "search" | "company_page"
     firmographics_fetched_at: str = ""  # ISO 8601, empty = never
 
@@ -220,44 +221,54 @@ class CompanyCache:
         specialties: str = "",
         linkedin_url: str = "",
         company_urn: str = "",
+        followers: int | None = None,
         raw_about: str = "",
     ) -> CompanyRecord:
         rec = self.get_or_new(name)
 
         # Only overwrite a field when the new fetch actually carries it; a
         # cheap search hit must not blank out headquarters a deep fetch found.
-        if industry:
-            rec.industry = industry
-        if employee_count:
-            rec.employee_count = employee_count
-        if headquarters:
-            rec.headquarters = headquarters
-        if website:
-            rec.website = website
-        if founded:
-            rec.founded = founded
-        if company_type:
-            rec.company_type = company_type
-        if specialties:
-            rec.specialties = specialties
+        # Nor may it overwrite one: a search card's industry and location are
+        # the About page's own rows abbreviated, so once a deep fetch has
+        # written the record its typed fields stand and a search only refreshes
+        # what the About page does not carry (URL, URN, followers).
+        deep = rec.firmographics_source == "company_page"
+        if source == "company_page" or not deep:
+            if industry:
+                rec.industry = industry
+            if employee_count:
+                rec.employee_count = employee_count
+            if headquarters:
+                rec.headquarters = headquarters
+            if website:
+                rec.website = website
+            if founded:
+                rec.founded = founded
+            if company_type:
+                rec.company_type = company_type
+            if specialties:
+                rec.specialties = specialties
         if linkedin_url:
             rec.linkedin_url = linkedin_url
         if company_urn:
             rec.company_urn = company_urn
+        if followers is not None:
+            rec.followers = followers
         if raw_about:
             rec.raw_about = raw_about
 
-        # Freshness tracks *real firmographic content*, not the mere fact of a
-        # write. A company-search pass only learns a company's URL, so it must
-        # not (a) stamp a bare stub as fresh-for-90-days -- which would make
-        # enrich_company_deep skip a company it never actually read -- nor
-        # (b) reset the timestamp/source of a record a deep fetch already
-        # populated. So stamp only when the write brings a firmographic field
-        # -- or comes from the About page itself: that navigation happened and
-        # ``raw_about`` holds what it showed, so an About that parsed to
-        # nothing must not be re-spent on every call until the TTL. An About
-        # write with nothing in ``raw_about`` showed nothing, so it earns no
-        # stamp: a failed load must stay stale and be retried.
+        # Freshness tracks a *read of the About page*, not the mere fact of a
+        # write, because the stamp is what lets enrich_company_deep skip the
+        # load. A company-search pass never reads that page: its card carries
+        # an industry and a location, which are stored and reported under
+        # ``source: "search"``, but stamping them fresh-for-90-days would make
+        # the deep tier skip a company it never actually read, and would reset
+        # the timestamp/source of a record a deep fetch already populated. So
+        # only an About write stamps -- when it brings a firmographic field,
+        # or when ``raw_about`` holds what the page showed, so an About that
+        # parsed to nothing is not re-spent on every call until the TTL. An
+        # About write with nothing in ``raw_about`` showed nothing, so it earns
+        # no stamp: a failed load must stay stale and be retried.
         carries_firmographics = bool(
             industry
             or employee_count
@@ -267,9 +278,12 @@ class CompanyCache:
             or company_type
             or specialties
         )
-        if carries_firmographics or (source == "company_page" and raw_about):
+        if source == "company_page":
+            if carries_firmographics or raw_about:
+                rec.firmographics_source = source
+                rec.firmographics_fetched_at = now.isoformat()
+        elif carries_firmographics and not deep:
             rec.firmographics_source = source
-            rec.firmographics_fetched_at = now.isoformat()
 
         self.save(rec)
         return rec

@@ -5,6 +5,7 @@ No browser, no clock beyond an explicit ``now``.
 
 import json
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -100,7 +101,9 @@ class TestTTLFromDays:
             tmp_path, firmographics_ttl=ttl_from_days("7", self.default)
         )
         now = datetime(2026, 8, 9, 10, 0)
-        cache.record_firmographics("Acme", now, source="search", industry="Retail")
+        cache.record_firmographics(
+            "Acme", now, source="company_page", industry="Retail"
+        )
         assert not cache.needs_firmographics("Acme", now + timedelta(days=6))
         assert cache.needs_firmographics("Acme", now + timedelta(days=8))
 
@@ -122,7 +125,9 @@ class TestCache:
     def test_needs_firmographics_when_absent_or_stale(self, tmp_path):
         cache = CompanyCache(tmp_path, firmographics_ttl=timedelta(days=90))
         assert cache.needs_firmographics("Acme", NOW)
-        cache.record_firmographics("Acme", NOW, source="search", industry="Retail")
+        cache.record_firmographics(
+            "Acme", NOW, source="company_page", industry="Retail"
+        )
         assert not cache.needs_firmographics("Acme", NOW + timedelta(days=89))
         assert cache.needs_firmographics("Acme", NOW + timedelta(days=91))
 
@@ -170,6 +175,72 @@ class TestCache:
         assert rec.firmographics_fetched_at == day0.isoformat()  # not re-stamped
         # ...so it correctly reads as stale past the 90-day TTL from day 0.
         assert cache.needs_firmographics("Acme", NOW + timedelta(days=91))
+
+    def test_a_search_card_stores_facets_without_stamping_them_fresh(self, tmp_path):
+        """The card's industry and location are worth keeping, but only an
+        About read earns the stamp that lets the deep tier skip the load."""
+        cache = CompanyCache(tmp_path)
+        cache.record_firmographics(
+            "Acme",
+            NOW,
+            source="search",
+            industry="Retail",
+            headquarters="Cairo, Egypt",
+            followers=20000,
+            linkedin_url="https://x/company/acme",
+        )
+        rec = cache.get("Acme")
+        assert rec is not None
+        assert (rec.industry, rec.headquarters, rec.followers) == (
+            "Retail",
+            "Cairo, Egypt",
+            20000,
+        )
+        assert rec.firmographics_source == "search"
+        assert not rec.has_firmographics()
+        assert cache.needs_firmographics("Acme", NOW)
+
+    def test_a_search_card_never_overwrites_a_deep_field(self, tmp_path):
+        """A card abbreviates the About page's own rows, so a later search
+        adds what the page lacks (followers) and leaves the rest alone."""
+        cache = CompanyCache(tmp_path)
+        cache.record_firmographics(
+            "Acme",
+            NOW,
+            source="company_page",
+            industry="Software Development",
+            headquarters="Las Vegas, Nevada, United States",
+        )
+        cache.record_firmographics(
+            "Acme",
+            NOW + timedelta(days=1),
+            source="search",
+            industry="Software",
+            headquarters="Las Vegas, Nevada",
+            followers=20000,
+        )
+        rec = cache.get("Acme")
+        assert rec is not None
+        assert rec.industry == "Software Development"
+        assert rec.headquarters == "Las Vegas, Nevada, United States"
+        assert rec.followers == 20000
+        assert rec.firmographics_source == "company_page"
+        assert rec.firmographics_fetched_at == NOW.isoformat()
+
+    def test_followers_round_trip_and_load_without_the_key(self, tmp_path):
+        cache = CompanyCache(tmp_path)
+        cache.record_firmographics("Acme", NOW, source="search", followers=20000)
+        path = cache._path("acme")
+        rec = cache.get("Acme")
+        assert rec is not None
+        assert rec.followers == 20000
+
+        old = json.loads(path.read_text("utf-8"))
+        del old["followers"]
+        path.write_text(json.dumps(old), "utf-8")
+        rec = cache.get("Acme")
+        assert rec is not None
+        assert rec.followers is None
 
     def test_a_bare_search_hit_is_not_treated_as_having_firmographics(self, tmp_path):
         cache = CompanyCache(tmp_path)
@@ -230,7 +301,8 @@ class TestCache:
         only it must stamp freshness -- else enrich_company_deep would re-read
         a page it already read."""
         cache = CompanyCache(tmp_path)
-        cache.record_firmographics("Acme", NOW, source="company_page", **{facet: "x"})
+        facets: dict[str, Any] = {facet: "x"}
+        cache.record_firmographics("Acme", NOW, source="company_page", **facets)
         rec = cache.get("Acme")
         assert rec is not None
         assert rec.has_firmographics()
