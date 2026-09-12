@@ -20,7 +20,7 @@ import anyio.lowlevel
 from patchright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
-from linkedin_mcp_server.company_cache import CompanyCache
+from linkedin_mcp_server.company_cache import CompanyCache, normalize_company_name
 from linkedin_mcp_server.core import (
     detect_auth_barrier,
     detect_auth_barrier_quick,
@@ -559,20 +559,20 @@ _COMPANY_INDUSTRY_IDS: dict[str, str] = {
 }
 
 # Company-search ``companySize`` facet letters, keyed by the headcount bucket
-# as LinkedIn labels it. Callers may pass either side of the mapping.
-# TODO(live-verify): letters are unconfirmed. The other candidate ordering
-# starts at self-employed (A=self-employed, B=1-10, ... I=10001+), i.e. every
-# letter below shifted by one; a live probe of the filter dropdown decides.
+# as LinkedIn labels it. Callers may pass either side of the mapping. The
+# letters follow LinkedIn's ``staffCountRange`` enum, which starts at
+# self-employed.
+# TODO(live-verify): letters recalled, not measured; a dropdown probe is queued.
 _COMPANY_SIZE_LETTERS: dict[str, str] = {
-    "1-10": "A",
-    "11-50": "B",
-    "51-200": "C",
-    "201-500": "D",
-    "501-1000": "E",
-    "1001-5000": "F",
-    "5001-10000": "G",
-    "10001+": "H",
-    "self-employed": "I",
+    "self-employed": "A",
+    "1-10": "B",
+    "11-50": "C",
+    "51-200": "D",
+    "201-500": "E",
+    "501-1000": "F",
+    "1001-5000": "G",
+    "5001-10000": "H",
+    "10001+": "I",
 }
 
 _DIALOG_SELECTOR = 'dialog[open], [role="dialog"]'
@@ -4904,9 +4904,15 @@ class LinkedInExtractor:
         per-extractor cache, then the on-disk company cache (populated by the
         enrichment tools and by this method), so a repeated company in a batch
         resolves at most once and a company already researched never
-        navigates at all.
+        navigates at all. A disk record that knows only the page URL skips
+        the search and goes straight to About.
 
-        Raises ``FilterValidationError`` when nothing resolves.
+        A search hit counts only when its name normalises to the query: the
+        top card is often a promoted page for another company. A page of
+        candidates none of which match raises, naming their slugs.
+
+        Raises ``FilterValidationError`` when nothing resolves. A clean miss
+        is remembered for the batch; a throttled or failed lookup is not.
         """
         if re.fullmatch(r"[0-9]+", name_or_urn):
             return name_or_urn
@@ -4929,13 +4935,20 @@ class LinkedInExtractor:
         if self._company_cache is None:
             self._company_cache = CompanyCache()
         record = self._company_cache.get(lookup)
-        if record is not None and record.company_urn:
-            self._company_urn_cache[key] = record.company_urn
-            return record.company_urn
+        if record is not None:
+            if record.company_urn:
+                self._company_urn_cache[key] = record.company_urn
+                return record.company_urn
+            # A search-sourced record (enrich_companies) knows the page but
+            # not the id: the slug is in the URL, so skip the search.
+            if slug is None and "/company/" in record.linkedin_url:
+                slug = normalize_company_identifier(record.linkedin_url)
 
         urn: str | None = None
         throttled = False
+        failed = False
         searched = False
+        cache_name = lookup
         if slug is None:
             search_url = (
                 "https://www.linkedin.com/search/results/companies/"
@@ -4946,16 +4959,36 @@ class LinkedInExtractor:
             )
             searched = True
             throttled = extracted.text == _RATE_LIMITED_MSG
+            failed = extracted.error is not None
             hits = parse_search_results([dict(ref) for ref in extracted.references])
-            if hits:
-                slug = hits[0]["slug"]
+            # Never take the top card on position alone: it is often a
+            # promoted "Page by <Company>" for a different company (see
+            # ``parse_search_results``). Only a card whose name normalises to
+            # the query is the query.
+            wanted = normalize_company_name(lookup)
+            hit = next(
+                (h for h in hits if normalize_company_name(h["name"]) == wanted),
+                None,
+            )
+            if hit is None and hits and not throttled and not failed:
+                self._company_urn_cache[key] = ""
+                raise FilterValidationError(
+                    f"Could not resolve current_company {name_or_urn!r}: no "
+                    f"company search card is named that. Candidates: "
+                    f"{[h['slug'] for h in hits]!r}. Pass the intended one as "
+                    f"https://www.linkedin.com/company/<slug>/ instead."
+                )
+            if hit is not None:
+                slug = hit["slug"]
+                cache_name = hit["name"]
                 # ponytail: a live check may collapse this to one navigation.
                 # If the top card carries its own "See all employees" anchor,
                 # the id is already here; the first company_urn reference that
                 # follows the top card's link and precedes the next card's is
                 # that card's. Unverified live, so the About page below stays
                 # the fallback rather than the other way round.
-                urn = _company_urn_of_first_card(extracted.references)
+                if hit is hits[0]:
+                    urn = _company_urn_of_first_card(extracted.references)
 
         if slug is not None and urn is None:
             if searched:
@@ -4964,23 +4997,33 @@ class LinkedInExtractor:
                 company_page_url(slug, "/about/"), section_name="about"
             )
             throttled = throttled or about.text == _RATE_LIMITED_MSG
+            failed = failed or about.error is not None
             for ref in about.references:
                 if ref["kind"] == "company_urn" and ref.get("value"):
                     urn = str(ref["value"])
                     break
 
-        self._company_urn_cache[key] = urn or ""
         if not urn:
+            # Only a clean miss is remembered; a throttled or failed lookup
+            # may succeed on retry and must not poison the batch.
+            if not throttled and not failed:
+                self._company_urn_cache[key] = ""
             raise FilterValidationError(
                 self._company_unresolved_message(name_or_urn, throttled=throttled)
             )
-        self._company_cache.record_firmographics(
-            lookup,
-            datetime.now().astimezone(),
-            source="search",
-            linkedin_url=company_page_url(slug) if slug else "",
-            company_urn=urn,
-        )
+        self._company_urn_cache[key] = urn
+        # The write-back is an optimisation, not the result: ``_path`` refuses
+        # a name that normalises to nothing ("Group", "Co") with ValueError.
+        try:
+            self._company_cache.record_firmographics(
+                cache_name,
+                datetime.now().astimezone(),
+                source="search",
+                linkedin_url=company_page_url(slug) if slug else "",
+                company_urn=urn,
+            )
+        except (OSError, ValueError) as e:
+            logger.warning("Could not cache company urn for %r: %s", cache_name, e)
         return urn
 
     @staticmethod
@@ -5221,8 +5264,12 @@ class LinkedInExtractor:
         section_errors: dict[str, dict[str, Any]] = {}
         seen_person_urls: set[str] = set()
 
+        # A facet resolution may have just navigated (company search, About
+        # page, school page); the first results page gets the same spacing
+        # as every later one.
+        resolved = bool(current_ids or past_ids or school_id)
         for page_num in range(1, max_pages + 1):
-            if page_num > 1:
+            if page_num > 1 or resolved:
                 await human_pause(_NAV_DELAY)
 
             url = base_url if page_num == 1 else f"{base_url}&page={page_num}"
@@ -5294,10 +5341,10 @@ class LinkedInExtractor:
                 table is partial; an unknown name raises
                 ``FilterValidationError`` listing the names it does know.
             size: Optional ``companySize`` facet. Each element is a headcount
-                bucket as LinkedIn labels it (``"1-10"``, ``"11-50"``,
-                ``"51-200"``, ``"201-500"``, ``"501-1000"``, ``"1001-5000"``,
-                ``"5001-10000"``, ``"10001+"``, ``"self-employed"``) or the
-                facet letter it maps to (``"A"``-``"I"``, see
+                bucket as LinkedIn labels it (``"self-employed"``, ``"1-10"``,
+                ``"11-50"``, ``"51-200"``, ``"201-500"``, ``"501-1000"``,
+                ``"1001-5000"``, ``"5001-10000"``, ``"10001+"``) or the
+                facet letter it maps to (``"A"``-``"I"`` in that order, see
                 ``_COMPANY_SIZE_LETTERS``). Anything else raises
                 ``FilterValidationError``.
             hq_location: Optional headquarters filter, a free-text country or
