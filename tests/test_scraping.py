@@ -4802,6 +4802,12 @@ class TestSearchJobs:
                 "linkedin_mcp_server.scraping.extractor.asyncio.sleep",
                 side_effect=sleep,
             ),
+            # The arithmetic below assumes the delay is exactly _NAV_DELAY;
+            # human_pause jitters it by +/- 50%, and a long draw drops a page.
+            patch(
+                "linkedin_mcp_server.core.humanize.jitter",
+                side_effect=lambda base, spread=0.5: base,
+            ),
         ):
             result = await extractor.search_jobs("python", max_pages=10)
 
@@ -4861,6 +4867,12 @@ class TestSearchJobs:
             patch(
                 "linkedin_mcp_server.scraping.extractor.asyncio.sleep",
                 side_effect=sleep,
+            ),
+            # Same as above: the budget sits 0.1s either side of the two
+            # arithmetics, so a jittered delay decides the page count.
+            patch(
+                "linkedin_mcp_server.core.humanize.jitter",
+                side_effect=lambda base, spread=0.5: base,
             ),
         ):
             # 176.25 * _SEARCH_TIMEOUT_FRACTION is a 141s budget.
