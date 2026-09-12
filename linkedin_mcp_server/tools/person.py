@@ -167,14 +167,18 @@ def register_person_tools(
                 Example: ["F"] to only return 1st-degree connections. A single
                 token ("F") or a comma-separated string ("F,S") is also
                 accepted, for clients that cannot transmit an array.
-            current_company: Optional current-employer filter. LinkedIn's
-                currentCompany facet only filters on the numeric company URN id
-                (e.g. "1115" for SAP); plain company names are accepted by the
-                URL but ignored by LinkedIn and return the unfiltered result
-                set. Look up a company's URN via get_company_profile -- it is
-                exposed under references["about"]. For company-wide employee
-                demographics (location/education/function breakdown) plus a
-                slug-based lookup, use get_company_employees instead.
+            current_company: Optional current-employer filter: a company name
+                (e.g. "SAP"), a /company/<slug> URL, or the numeric company URN
+                id (e.g. "1115" for SAP). LinkedIn's currentCompany facet
+                filters on the id only, so a name or URL is resolved to it
+                first (company search, then the company's About page; cached
+                on disk so a company already looked up costs no navigation).
+                A name that does not resolve raises an error rather than
+                silently returning the unfiltered result set. Pass the id
+                directly, as exposed by get_company_profile under
+                references["about"], to skip the resolution. For company-wide
+                employee demographics (location/education/function breakdown)
+                plus a slug-based lookup, use get_company_employees instead.
             max_pages: Number of result pages to load, 1-10 (default 1).
                 LinkedIn returns 10 people per page, so max_pages=10 yields up
                 to 100. Pagination stops early once a page adds no new people.

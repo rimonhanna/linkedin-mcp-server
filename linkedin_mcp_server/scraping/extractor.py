@@ -20,6 +20,7 @@ import anyio.lowlevel
 from patchright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
+from linkedin_mcp_server.company_cache import CompanyCache
 from linkedin_mcp_server.core import (
     detect_auth_barrier,
     detect_auth_barrier_quick,
@@ -45,6 +46,7 @@ from linkedin_mcp_server.core.utils import (
     scroll_to_bottom,
 )
 from linkedin_mcp_server.scraping.connection import ActionSignals
+from linkedin_mcp_server.scraping.company_parse import parse_search_results
 from linkedin_mcp_server.scraping.identifiers import (
     company_page_url,
     job_view_url,
@@ -989,6 +991,30 @@ class FilterValidationError(ValueError):
     """
 
 
+def _company_urn_of_first_card(references: list[Reference]) -> str | None:
+    """The ``company_urn`` reference belonging to the first company card, if any.
+
+    References come in DOM order, so an id anchor sitting between the first
+    ``/company/<slug>/`` link and the next card's link (a different slug) is
+    the first card's own. One before any company link, or after the second
+    card starts, is not attributed to anything.
+    """
+    first_slug: str | None = None
+    for ref in references:
+        if ref["kind"] == "company":
+            match = re.search(r"/company/([^/?#]+)", ref["url"])
+            slug = match.group(1) if match else None
+            if first_slug is None:
+                first_slug = slug
+            elif slug != first_slug:
+                return None
+        elif first_slug is not None and ref["kind"] == "company_urn":
+            value = ref.get("value")
+            if value:
+                return str(value)
+    return None
+
+
 def strip_linkedin_noise(text: str) -> str:
     """Remove LinkedIn page chrome (footer, sidebar recommendations) from innerText.
 
@@ -1138,6 +1164,12 @@ class LinkedInExtractor:
         # location name (casefolded) -> numeric geo id ("" means "did not
         # resolve"), so a repeated region in a batch resolves once.
         self._geo_cache: dict[str, str] = {}
+        # company name/slug (casefolded) -> numeric company URN id ("" means
+        # "did not resolve"), same contract as ``_geo_cache``.
+        self._company_urn_cache: dict[str, str] = {}
+        # The on-disk company cache, opened on first use so an extractor that
+        # never resolves a company name never touches the filesystem.
+        self._company_cache: CompanyCache | None = None
         # What the sidebar scroll spent on the page being read, so that a
         # multi-page search charges its scroll budget for scrolling alone.
         self._scroll_seconds = 0.0
@@ -4694,6 +4726,113 @@ class LinkedInExtractor:
         self._geo_cache[key] = geo_id or ""
         return geo_id
 
+    async def _resolve_company_urn(self, name_or_urn: str) -> str:
+        """Resolve a company name, slug or URL to LinkedIn's numeric company id.
+
+        People search's ``currentCompany`` facet filters on the numeric URN
+        only (``"1115"`` for SAP); a name in the URL is accepted and ignored.
+        The id is public but only on the company's own About page, in the
+        "See all employees" anchor that ``link_metadata`` already reads as a
+        ``company_urn`` reference (the same one ``get_company_profile``
+        returns). So a name costs a company search to find the slug, then the
+        About page to read the id; a ``/company/<slug>`` URL skips the search.
+
+        Cache-first: an all-digit input is returned as is, then the
+        per-extractor cache, then the on-disk company cache (populated by the
+        enrichment tools and by this method), so a repeated company in a batch
+        resolves at most once and a company already researched never
+        navigates at all.
+
+        Raises ``FilterValidationError`` when nothing resolves.
+        """
+        if re.fullmatch(r"[0-9]+", name_or_urn):
+            return name_or_urn
+
+        key = name_or_urn.strip().casefold()
+        if key in self._company_urn_cache:
+            urn = self._company_urn_cache[key]
+            if urn:
+                return urn
+            raise FilterValidationError(self._company_unresolved_message(name_or_urn))
+
+        # A URL names the page outright; anything else is a name to search for.
+        slug = (
+            normalize_company_identifier(name_or_urn)
+            if "/company/" in name_or_urn
+            else None
+        )
+        lookup = slug or name_or_urn.strip()
+
+        if self._company_cache is None:
+            self._company_cache = CompanyCache()
+        record = self._company_cache.get(lookup)
+        if record is not None and record.company_urn:
+            self._company_urn_cache[key] = record.company_urn
+            return record.company_urn
+
+        urn: str | None = None
+        throttled = False
+        searched = False
+        if slug is None:
+            search_url = (
+                "https://www.linkedin.com/search/results/companies/"
+                f"?keywords={quote_plus(lookup)}"
+            )
+            extracted = await self.extract_page(
+                search_url, section_name="search_results"
+            )
+            searched = True
+            throttled = extracted.text == _RATE_LIMITED_MSG
+            hits = parse_search_results([dict(ref) for ref in extracted.references])
+            if hits:
+                slug = hits[0]["slug"]
+                # ponytail: a live check may collapse this to one navigation.
+                # If the top card carries its own "See all employees" anchor,
+                # the id is already here; the first company_urn reference that
+                # follows the top card's link and precedes the next card's is
+                # that card's. Unverified live, so the About page below stays
+                # the fallback rather than the other way round.
+                urn = _company_urn_of_first_card(extracted.references)
+
+        if slug is not None and urn is None:
+            if searched:
+                await human_pause(_NAV_DELAY)
+            about = await self.extract_page(
+                company_page_url(slug, "/about/"), section_name="about"
+            )
+            throttled = throttled or about.text == _RATE_LIMITED_MSG
+            for ref in about.references:
+                if ref["kind"] == "company_urn" and ref.get("value"):
+                    urn = str(ref["value"])
+                    break
+
+        self._company_urn_cache[key] = urn or ""
+        if not urn:
+            raise FilterValidationError(
+                self._company_unresolved_message(name_or_urn, throttled=throttled)
+            )
+        self._company_cache.record_firmographics(
+            lookup,
+            datetime.now().astimezone(),
+            source="search",
+            linkedin_url=company_page_url(slug) if slug else "",
+            company_urn=urn,
+        )
+        return urn
+
+    @staticmethod
+    def _company_unresolved_message(name: str, *, throttled: bool = False) -> str:
+        why = (
+            "LinkedIn throttled the lookup; retry later"
+            if throttled
+            else "no company search hit or About page yielded an id"
+        )
+        return (
+            f"Could not resolve current_company {name!r} to a LinkedIn company "
+            f"URN ({why}). Pass the numeric id instead: get_company_profile "
+            f'exposes it under references["about"] as kind "company_urn".'
+        )
+
     async def search_people(
         self,
         keywords: str,
@@ -4716,13 +4855,14 @@ class LinkedInExtractor:
                 ``"F"`` (1st-degree), ``"S"`` (2nd-degree), ``"O"`` (3rd-degree
                 and beyond). Example: ``["F"]`` to only return 1st-degree
                 connections. Invalid tokens raise ``ValueError``.
-            current_company: Optional current-employer filter. LinkedIn's
-                ``currentCompany`` facet only filters on the numeric company
-                URN id (e.g. ``"1115"`` for SAP); plain company names are
-                accepted by the URL but ignored by LinkedIn and return the
-                unfiltered result set. Look up a company's URN via
-                ``get_company_profile`` -- it is exposed under
-                ``references["about"]``.
+            current_company: Optional current-employer filter: a company
+                name ("SAP"), a ``/company/<slug>`` URL, or the numeric company
+                URN id (``"1115"`` for SAP). LinkedIn's ``currentCompany``
+                facet filters on the id only, so a name or URL is resolved to
+                it first (see ``_resolve_company_urn``); one that does not
+                resolve raises ``FilterValidationError`` rather than silently
+                returning the unfiltered result set. The id is what
+                ``get_company_profile`` exposes under ``references["about"]``.
             max_pages: Maximum result pages to load (LinkedIn returns 10 people
                 per page). Stops early once a page adds no new people, so
                 over-requesting is harmless. Default 1 (previous behavior).
@@ -4738,13 +4878,10 @@ class LinkedInExtractor:
                     f"{invalid!r}; expected any of {list(_NETWORK_TOKENS)!r}"
                 )
 
-        if current_company and not re.fullmatch(r"[0-9]+", current_company):
-            raise FilterValidationError(
-                f"current_company must be a numeric LinkedIn company URN id "
-                f"(e.g. '1115' for SAP); got {current_company!r}. Plain-text "
-                f"company names are silently ignored by LinkedIn. Look up the "
-                f'URN via get_company_profile -> references["about"].'
-            )
+        if current_company:
+            # LinkedIn ignores a name in currentCompany=; resolve it to the
+            # numeric URN or fail loudly (see ``_resolve_company_urn``).
+            current_company = await self._resolve_company_urn(current_company)
 
         params = f"keywords={quote_plus(keywords)}"
         if location:
