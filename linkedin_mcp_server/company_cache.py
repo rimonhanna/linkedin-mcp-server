@@ -255,7 +255,9 @@ class CompanyCache:
         # populated. So stamp only when the write brings a firmographic field
         # -- or comes from the About page itself: that navigation happened and
         # ``raw_about`` holds what it showed, so an About that parsed to
-        # nothing must not be re-spent on every call until the TTL.
+        # nothing must not be re-spent on every call until the TTL. An About
+        # write with nothing in ``raw_about`` showed nothing, so it earns no
+        # stamp: a failed load must stay stale and be retried.
         carries_firmographics = bool(
             industry
             or employee_count
@@ -265,7 +267,7 @@ class CompanyCache:
             or company_type
             or specialties
         )
-        if carries_firmographics or source == "company_page":
+        if carries_firmographics or (source == "company_page" and raw_about):
             rec.firmographics_source = source
             rec.firmographics_fetched_at = now.isoformat()
 

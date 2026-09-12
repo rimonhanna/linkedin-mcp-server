@@ -633,20 +633,21 @@ client pointed at it instead of spawning its own process:
 ```
 
 Keep it running with the OS's own service manager, not a terminal window.
-macOS launchd
+Service managers start with a minimal `PATH` and no working directory, so
+name `uvx` by its absolute path (`which uvx`). macOS launchd
 (`~/Library/LaunchAgents/com.linkedin-mcp-server.plist`, loaded with
 `launchctl load`):
 
 ```xml
 <key>ProgramArguments</key>
-<array><string>uv</string><string>run</string><string>-m</string>
-  <string>linkedin_mcp_server</string>
+<array><string>/absolute/path/to/uvx</string>
+  <string>mcp-server-linkedin@latest</string>
   <string>--transport</string><string>streamable-http</string></array>
 <key>KeepAlive</key><true/>
 ```
 
-Linux systemd: `ExecStart=uv run -m linkedin_mcp_server --transport
-streamable-http` with `Restart=always`.
+Linux systemd: `ExecStart=/absolute/path/to/uvx mcp-server-linkedin@latest
+--transport streamable-http` with `Restart=always`.
 
 ## 🐍 Local Setup (Develop & Contribute)
 

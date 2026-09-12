@@ -462,6 +462,46 @@ class TestEnrichCompanies:
         extractor.scrape_company.assert_awaited_once()
         assert _spent(jobs) == 2  # search + one About, nothing more
 
+    async def test_a_rate_limited_about_is_not_stamped_fresh(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """scrape_company swallows a rate-limited About into section_errors
+        and returns no section. That is a failed load, not an empty page:
+        it must surface as about_error, cost the navigation, and leave the
+        record stale so the next call retries instead of serving nothing
+        for 90 days."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        cache, jobs = wired
+        extractor = _search_extractor(["copado"])
+        extractor.scrape_company = AsyncMock(
+            return_value={
+                "url": "https://www.linkedin.com/company/copado/",
+                "sections": {},
+                "section_errors": {
+                    "about": {"error_type": "rate_limit", "error_message": "blocked"}
+                },
+            }
+        )
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        first = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        assert first["results"]["Copado"]["about_error"] == "blocked"
+        assert first["about_loaded"] == 1
+        assert _spent(jobs) == 2  # search + the About load that came back empty
+        rec = cache.get("Copado")
+        assert rec is not None and rec.linkedin_url
+        assert not rec.has_firmographics()
+
+        second = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        assert second["stopped_because"] != "all_cached"
+        assert second["about_loaded"] == 1  # retried, not served from cache
+        assert extractor.scrape_company.await_count == 2
+        assert extractor.search_companies.await_count == 1  # URL was kept
+
 
 class TestEnrichCompanyDeep:
     def _deep_extractor(self):

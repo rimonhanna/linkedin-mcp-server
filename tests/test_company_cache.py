@@ -235,6 +235,16 @@ class TestCache:
         assert rec is not None
         assert rec.has_firmographics()
 
+    def test_an_about_write_with_no_text_is_not_stamped(self, tmp_path):
+        """No raw_about means the About page never showed anything -- a
+        failed load, not an empty page -- so it must not become fresh."""
+        cache = CompanyCache(tmp_path)
+        cache.record_firmographics("Acme", NOW, source="company_page")
+        rec = cache.get("Acme")
+        assert rec is not None
+        assert not rec.has_firmographics()
+        assert not rec.firmographics_fresh(NOW, cache.firmographics_ttl)
+
     def test_an_about_load_with_no_facets_still_stamps_freshness(self, tmp_path):
         """The About navigation happened and raw_about holds what it showed;
         leaving the record unstamped would re-spend that load every call."""

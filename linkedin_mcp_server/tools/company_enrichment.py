@@ -52,7 +52,11 @@ from linkedin_mcp_server.company_cache import (
 )
 from linkedin_mcp_server.config.loaders import EnvironmentKeys
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
-from linkedin_mcp_server.core.exceptions import AuthenticationError, RateLimitError
+from linkedin_mcp_server.core.exceptions import (
+    AuthenticationError,
+    RateLimitError,
+    ScrapingError,
+)
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.pacing import (
@@ -103,7 +107,20 @@ def register_company_enrichment_tools(
         only reads and records.
         """
         result = await extractor.scrape_company(slug, {"about"})
-        about = result.get("sections", {}).get("about", "")
+        sections = result.get("sections", {})
+        # scrape_company does not raise for a rate-limited, auth-walled or
+        # crashed About load: it files the failure under section_errors and
+        # returns without the section. Recording that would stamp an empty
+        # record fresh for the whole TTL and never retry. Raise instead so the
+        # caller's failure path charges the navigation and leaves the record
+        # stale. An About that *is* present but parses to nothing is a real
+        # page and is recorded as such.
+        if "about" not in sections:
+            error = result.get("section_errors", {}).get("about", {})
+            raise ScrapingError(
+                error.get("error_message") or "About section did not load."
+            )
+        about = sections["about"]
         fields = parse_about(about)
         urn = _company_urn(result) or urn
         cache.record_firmographics(
