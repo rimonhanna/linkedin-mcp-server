@@ -6715,22 +6715,35 @@ class TestSearchPeopleFacets:
         assert "schoolFilter=%5B%221792%22%5D" in result["url"]
         assert nav.await_count == 1
 
-    async def test_school_name_is_resolved(self, mock_page):
+    async def test_school_id_is_not_a_navigation(self, mock_page):
+        """An id needs no resolution, so a school alone costs no pause
+        before the first results page (unlike a company that resolved)."""
         extractor = LinkedInExtractor(mock_page)
         with (
             self._run(extractor),
-            patch.object(
-                extractor,
-                "_resolve_school_id",
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
                 new_callable=AsyncMock,
-                return_value="1792",
-            ) as resolve,
+            ) as pause,
         ):
-            result = await extractor.search_people(school="Stanford University")
+            result = await extractor.search_people(school=" 1792 ")
 
-        resolve.assert_awaited_once_with("Stanford University")
-        assert "schoolFilter=%5B%221792%22%5D" in result["url"]
-        assert "Stanford" not in result["url"]
+        pause.assert_not_awaited()
+        assert result["url"].endswith("?schoolFilter=%5B%221792%22%5D")
+
+    @pytest.mark.parametrize("name", ["Stanford University", "17a92", "/school/x/"])
+    async def test_school_name_raises_with_the_way_to_the_id(self, mock_page, name):
+        """No schools-search page carries a ``schoolFilter`` id (measured
+        live), so a name is refused before any navigation, and the message
+        says where the id is."""
+        extractor = LinkedInExtractor(mock_page)
+        with self._run(extractor) as nav:
+            with pytest.raises(FilterValidationError, match="numeric school id") as e:
+                await extractor.search_people("engineer", school=name)
+
+        nav.assert_not_awaited()
+        assert 'schoolFilter=["<id>"]' in str(e.value)
+        assert "All filters -> School" in str(e.value)
 
     async def test_names_and_languages_reach_the_url(self, mock_page):
         extractor = LinkedInExtractor(mock_page)
@@ -6794,130 +6807,6 @@ class TestSearchPeopleFacets:
             "&titleFreeText=CTO&firstName=Jane&lastName=Doe"
             "&profileLanguage=%5B%22en%22%5D"
         )
-
-
-class TestResolveSchoolId:
-    """``school`` accepts a name or the numeric id ``schoolFilter`` takes."""
-
-    SEARCH = "https://www.linkedin.com/search/results/schools/?keywords=Stanford"
-    SCHOOL = "https://www.linkedin.com/school/stanford-university/"
-    ALUMNI = (
-        "https://www.linkedin.com/search/results/people/"
-        "?schoolFilter=%5B%221792%22%5D&origin=SCHOOL_PAGE"
-    )
-    CARD: Reference = {
-        "kind": "school",
-        "url": "/school/stanford-university/",
-        "text": "Stanford University",
-    }
-
-    @staticmethod
-    def _extractor(mock_page):
-        extractor = LinkedInExtractor(mock_page)
-        return extractor, patch(
-            "linkedin_mcp_server.scraping.extractor.human_pause",
-            new_callable=AsyncMock,
-        )
-
-    async def test_digits_pass_through_without_navigating(self, mock_page):
-        extractor = LinkedInExtractor(mock_page)
-        with patch.object(extractor, "extract_page", new_callable=AsyncMock) as nav:
-            assert await extractor._resolve_school_id("1792") == "1792"
-
-        nav.assert_not_awaited()
-        assert extractor._school_cache == {}
-
-    async def test_id_read_from_search_page_skips_school_page(self, mock_page):
-        extractor, pause = self._extractor(mock_page)
-        mock_page.evaluate = AsyncMock(return_value=self.ALUMNI)
-        with (
-            pause,
-            patch.object(
-                extractor,
-                "extract_page",
-                new_callable=AsyncMock,
-                return_value=extracted("Stanford", [self.CARD]),
-            ) as nav,
-        ):
-            assert await extractor._resolve_school_id("Stanford") == "1792"
-
-        assert [c.args[0] for c in nav.await_args_list] == [self.SEARCH]
-        assert extractor._school_cache["stanford"] == "1792"
-
-    async def test_falls_back_to_school_page_and_caches(self, mock_page):
-        """No alumni anchor on the search page: the first card's slug names
-        the school page, which carries it. The second lookup, spelt
-        differently, is served from cache."""
-        extractor, pause = self._extractor(mock_page)
-        mock_page.evaluate = AsyncMock(side_effect=[None, self.ALUMNI])
-        with (
-            pause,
-            patch.object(
-                extractor,
-                "extract_page",
-                new_callable=AsyncMock,
-                side_effect=[extracted("Stanford", [self.CARD]), extracted("About")],
-            ) as nav,
-        ):
-            assert await extractor._resolve_school_id("Stanford") == "1792"
-            assert await extractor._resolve_school_id("  stanford ") == "1792"
-
-        assert [c.args[0] for c in nav.await_args_list] == [self.SEARCH, self.SCHOOL]
-
-    async def test_unquoted_list_element_is_read_too(self, mock_page):
-        extractor, pause = self._extractor(mock_page)
-        mock_page.evaluate = AsyncMock(
-            return_value="https://www.linkedin.com/search/results/people/"
-            "?schoolFilter=%5B1792%5D"
-        )
-        with (
-            pause,
-            patch.object(
-                extractor,
-                "extract_page",
-                new_callable=AsyncMock,
-                return_value=extracted("Stanford", [self.CARD]),
-            ),
-        ):
-            assert await extractor._resolve_school_id("Stanford") == "1792"
-
-    async def test_no_card_raises_and_is_remembered(self, mock_page):
-        extractor, pause = self._extractor(mock_page)
-        mock_page.evaluate = AsyncMock(return_value=self.ALUMNI)
-        with (
-            pause,
-            patch.object(
-                extractor,
-                "extract_page",
-                new_callable=AsyncMock,
-                return_value=extracted("No results"),
-            ) as nav,
-        ):
-            with pytest.raises(FilterValidationError, match="school 'Nowhere U'"):
-                await extractor._resolve_school_id("Nowhere U")
-            with pytest.raises(FilterValidationError, match="/school/<slug>/"):
-                await extractor._resolve_school_id("nowhere u")
-
-        assert nav.await_count == 1
-        mock_page.evaluate.assert_not_awaited()
-
-    async def test_no_anchor_anywhere_raises(self, mock_page):
-        extractor, pause = self._extractor(mock_page)
-        mock_page.evaluate = AsyncMock(return_value=None)
-        with (
-            pause,
-            patch.object(
-                extractor,
-                "extract_page",
-                new_callable=AsyncMock,
-                return_value=extracted("Stanford", [self.CARD]),
-            ) as nav,
-        ):
-            with pytest.raises(FilterValidationError, match="numeric id"):
-                await extractor._resolve_school_id("Stanford")
-
-        assert nav.await_count == 2
-        assert extractor._school_cache["stanford"] == ""
 
 
 class TestResolveCompanyUrn:
@@ -7396,7 +7285,9 @@ class TestSearchCompanies:
         with self._run(extractor):
             result = await extractor.search_companies(industry=["4", "1862"])
 
-        assert "companyIndustry=%5B%224%22%2C%221862%22%5D" in result["url"]
+        assert "industryCompanyVertical=%5B%224%22%2C%221862%22%5D" in result["url"]
+        # Stripped by LinkedIn (measured live 2026-09-12).
+        assert "companyIndustry" not in result["url"]
         assert "keywords=" not in result["url"]
 
     async def test_industry_maps_known_names_case_insensitively(self, mock_page):
@@ -7410,7 +7301,10 @@ class TestSearchCompanies:
                 ]
             )
 
-        assert "companyIndustry=%5B%224%22%2C%2243%22%2C%226%22%5D" in result["url"]
+        assert (
+            "industryCompanyVertical=%5B%224%22%2C%2243%22%2C%226%22%5D"
+            in result["url"]
+        )
 
     async def test_industry_unknown_name_names_the_table(self, mock_page):
         extractor = LinkedInExtractor(mock_page)
@@ -7478,12 +7372,14 @@ class TestSearchCompanies:
                 await extractor.search_companies(hq_location="Nowhereland")
 
     async def test_has_jobs_adds_the_flag_only_when_true(self, mock_page):
+        """LinkedIn rewrites a bare ``hasJobs=true`` to the JSON-string form
+        (measured live 2026-09-12), so that form is sent directly."""
         extractor = LinkedInExtractor(mock_page)
         with self._run(extractor):
             on = await extractor.search_companies("fintech", has_jobs=True)
             off = await extractor.search_companies("fintech", has_jobs=False)
 
-        assert on["url"].endswith("&hasJobs=true")
+        assert on["url"].endswith("&hasJobs=%22true%22")
         assert "hasJobs" not in off["url"]
 
     async def test_all_facets_combine_in_one_url(self, mock_page):
@@ -7507,8 +7403,8 @@ class TestSearchCompanies:
 
         assert result["url"] == (
             "https://www.linkedin.com/search/results/companies/?keywords=payments"
-            "&companyIndustry=%5B%2243%22%5D&companySize=%5B%22C%22%5D"
-            "&companyHqGeo=%5B%22101282230%22%5D&hasJobs=true"
+            "&industryCompanyVertical=%5B%2243%22%5D&companySize=%5B%22C%22%5D"
+            "&companyHqGeo=%5B%22101282230%22%5D&hasJobs=%22true%22"
         )
 
     @pytest.mark.parametrize(

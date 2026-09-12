@@ -526,16 +526,13 @@ _CONTENT_SEARCH_MAX_SCROLLS = 20
 _NETWORK_TOKENS = ("F", "S", "O")
 # ``profileLanguage`` takes ISO 639-1 codes ("en", "de"); anything else is a typo.
 _PROFILE_LANGUAGE_RE = re.compile(r"[a-z]{2}")
-# The first anchor on a school page whose href carries the people-search
-# ``schoolFilter`` facet ("See all alumni"), the school analogue of the
-# company About page's "See all employees" anchor that ``link_metadata``
-# reads as ``company_urn``. Generic attribute selector, no layout class.
-_SCHOOL_FILTER_HREF_JS = """() => {
-    const a = document.querySelector('a[href*="schoolFilter"]');
-    return a ? a.href : null;
-}"""
+# ``school`` takes the numeric id ``schoolFilter`` filters on and nothing
+# else: the schools search page carries no ``schoolFilter`` anchor and no
+# numeric id in any ``/school/`` href (measured live 2026-09-12), so a name
+# cannot be resolved to one from here.
+_SCHOOL_ID_RE = re.compile(r"[0-9]+")
 
-# Company-search ``companyIndustry`` facet: LinkedIn's numeric industry ids,
+# Company-search ``industryCompanyVertical`` facet: LinkedIn's numeric industry ids,
 # keyed by the industry name as the filter dropdown labels it (casefolded,
 # commas stripped, whitespace collapsed -- see ``_normalize_industry_name``).
 # ponytail: partial table; unknown names raise, pass the numeric id
@@ -1235,9 +1232,6 @@ class LinkedInExtractor:
         # company name/slug (casefolded) -> numeric company URN id ("" means
         # "did not resolve"), same contract as ``_geo_cache``.
         self._company_urn_cache: dict[str, str] = {}
-        # school name (casefolded) -> numeric school id ("" means "did not
-        # resolve"), same contract as ``_geo_cache``.
-        self._school_cache: dict[str, str] = {}
         # The on-disk company cache, opened on first use so an extractor that
         # never resolves a company name never touches the filesystem.
         self._company_cache: CompanyCache | None = None
@@ -5039,63 +5033,6 @@ class LinkedInExtractor:
             f'exposes it under references["about"] as kind "company_urn".'
         )
 
-    async def _resolve_school_id(self, name_or_id: str) -> str:
-        """Resolve a school name to the numeric id ``schoolFilter`` filters on.
-
-        An all-digit input is returned as is. A name costs a schools search
-        to find the first ``/school/<slug>/`` card, then the id is read from
-        the first anchor whose href carries a ``schoolFilter`` facet: on the
-        search page if a card links its alumni search, else on the school
-        page itself. Cached per extractor like ``_geo_cache``, misses too.
-
-        Raises ``FilterValidationError`` when nothing resolves.
-        """
-        if re.fullmatch(r"[0-9]+", name_or_id):
-            return name_or_id
-        key = name_or_id.strip().casefold()
-        if key not in self._school_cache:
-            self._school_cache[key] = (
-                await self._search_school_id(name_or_id.strip()) or ""
-            )
-        if not self._school_cache[key]:
-            raise FilterValidationError(
-                f"Could not resolve school {name_or_id!r} to a LinkedIn school id. "
-                "Pass the numeric id instead: it is the number in "
-                'schoolFilter=["<id>"] on the alumni search linked from '
-                "https://www.linkedin.com/school/<slug>/."
-            )
-        return self._school_cache[key]
-
-    async def _search_school_id(self, name: str) -> str | None:
-        extracted = await self.extract_page(
-            f"https://www.linkedin.com/search/results/schools/?keywords={quote_plus(name)}",
-            section_name="search_results",
-        )
-        # TODO(live-verify): school search cards are assumed to link /school/<slug>/.
-        slugs = (
-            re.search(r"/school/([^/?#]+)", ref["url"])
-            for ref in extracted.references
-            if ref["kind"] == "school"
-        )
-        slug = next((m.group(1) for m in slugs if m), None)
-        if slug is None:
-            return None
-        school_id = await self._first_school_filter_id()
-        if school_id is None:
-            await human_pause(_NAV_DELAY)
-            await self.extract_page(
-                f"https://www.linkedin.com/school/{slug}/", section_name="school"
-            )
-            school_id = await self._first_school_filter_id()
-        return school_id
-
-    async def _first_school_filter_id(self) -> str | None:
-        # TODO(live-verify): the alumni anchor is assumed to carry schoolFilter=["<id>"].
-        href = await self._page.evaluate(_SCHOOL_FILTER_HREF_JS)
-        values = parse_qs(urlparse(href or "").query).get("schoolFilter")
-        match = re.match(r'\[\s*"?(\d+)', values[0]) if values else None
-        return match.group(1) if match else None
-
     async def search_people(
         self,
         keywords: str | None = None,
@@ -5140,7 +5077,9 @@ class LinkedInExtractor:
                 per page). Stops early once a page adds no new people, so
                 over-requesting is harmless. Default 1 (previous behavior).
             title: Optional current-title filter, free text
-                (``titleFreeText``).
+                (``titleFreeText``). Measured live as ignored by the SDUI
+                results page; a title in ``keywords`` as a quoted phrase
+                does filter.
             past_company: Optional past-employer filter, same shapes and
                 resolution as ``current_company`` (``pastCompany``). Each
                 unresolved name may cost up to two navigations.
@@ -5148,9 +5087,9 @@ class LinkedInExtractor:
                 numeric LinkedIn industry id or a name in
                 ``_COMPANY_INDUSTRY_IDS`` (the ids are shared with company
                 search); an unknown name raises ``FilterValidationError``.
-            school: Optional ``schoolFilter`` facet: the numeric school id, or
-                a name resolved through a schools search and the school page
-                (see ``_resolve_school_id``, up to two navigations).
+            school: Optional ``schoolFilter`` facet, the numeric school id
+                only. A name raises ``FilterValidationError``: the schools
+                search page carries nothing to resolve it from.
             first_name: Optional ``firstName`` filter.
             last_name: Optional ``lastName`` filter.
             profile_language: Optional ``profileLanguage`` facet, one or a
@@ -5219,7 +5158,13 @@ class LinkedInExtractor:
         # to the numeric URN or fail loudly (see ``_resolve_company_urn``).
         current_ids = [await self._resolve_company_urn(c) for c in current_companies]
         past_ids = [await self._resolve_company_urn(c) for c in past_companies]
-        school_id = await self._resolve_school_id(school) if school else None
+        school_id = school.strip() if school else None
+        if school_id and not _SCHOOL_ID_RE.fullmatch(school_id):
+            raise FilterValidationError(
+                f"Invalid school {school!r}; pass the numeric school id. Find it "
+                "on LinkedIn: people search -> All filters -> School -> pick "
+                'one, then the URL shows schoolFilter=["<id>"].'
+            )
 
         params: list[str] = []
         if keywords:
@@ -5240,8 +5185,9 @@ class LinkedInExtractor:
             params.append(f"network={_encode_list_facet(network)}")
         if current_ids:
             params.append(f"currentCompany={_encode_list_facet(current_ids)}")
-        # TODO(live-verify): facet names unconfirmed (titleFreeText, pastCompany,
-        # industry, schoolFilter, firstName, lastName, profileLanguage).
+        # TODO(live-verify): facet names unconfirmed (pastCompany, industry,
+        # schoolFilter, lastName, profileLanguage). currentCompany, firstName
+        # and a keyword-less search were confirmed live on 2026-09-12.
         if past_ids:
             params.append(f"pastCompany={_encode_list_facet(past_ids)}")
         if industry_ids:
@@ -5249,6 +5195,9 @@ class LinkedInExtractor:
         if school_id:
             params.append(f"schoolFilter={_encode_list_facet([school_id])}")
         if title:
+            # live-verified: ignored on 2026-09-12 in the SDUI variant. Kept
+            # because another results-page variant may still read it; the
+            # tool docstring steers callers to a quoted phrase in keywords.
             params.append(f"titleFreeText={quote_plus(title)}")
         if first_name:
             params.append(f"firstName={quote_plus(first_name)}")
@@ -5265,9 +5214,9 @@ class LinkedInExtractor:
         seen_person_urls: set[str] = set()
 
         # A facet resolution may have just navigated (company search, About
-        # page, school page); the first results page gets the same spacing
-        # as every later one.
-        resolved = bool(current_ids or past_ids or school_id)
+        # page); the first results page gets the same spacing as every later
+        # one.
+        resolved = bool(current_ids or past_ids)
         for page_num in range(1, max_pages + 1):
             if page_num > 1 or resolved:
                 await human_pause(_NAV_DELAY)
@@ -5334,7 +5283,7 @@ class LinkedInExtractor:
             keywords: Free-text query ("fintech", "electric vehicles").
                 Optional when at least one of ``industry``, ``size`` or
                 ``hq_location`` is given.
-            industry: Optional ``companyIndustry`` facet. Each element is
+            industry: Optional ``industryCompanyVertical`` facet. Each element is
                 either a numeric LinkedIn industry id (always accepted, e.g.
                 ``"4"``) or one of the names in ``_COMPANY_INDUSTRY_IDS``
                 (case-insensitive, e.g. ``"Software Development"``). The name
@@ -5354,7 +5303,8 @@ class LinkedInExtractor:
                 ``FilterValidationError`` rather than silently returning
                 worldwide results.
             has_jobs: When true, only companies with live job listings
-                (``hasJobs=true``).
+                (``hasJobs="true"``, the JSON-string form LinkedIn normalises
+                a bare ``true`` to).
             max_pages: Maximum result pages to load (10 companies per page).
                 Stops early once a page adds no new companies. Default 1.
 
@@ -5401,7 +5351,10 @@ class LinkedInExtractor:
         if keywords:
             params.append(f"keywords={quote_plus(keywords)}")
         if industry_ids:
-            params.append(f"companyIndustry={_encode_list_facet(industry_ids)}")
+            # ``companyIndustry`` is stripped by LinkedIn (measured live
+            # 2026-09-12); this is the name its own company-filter UI writes.
+            # TODO(live-verify): industryCompanyVertical unconfirmed
+            params.append(f"industryCompanyVertical={_encode_list_facet(industry_ids)}")
         if size_letters:
             params.append(f"companySize={_encode_list_facet(size_letters)}")
         if hq_location:
@@ -5414,7 +5367,7 @@ class LinkedInExtractor:
                 )
             params.append(f"companyHqGeo={_encode_list_facet([geo_id])}")
         if has_jobs:
-            params.append("hasJobs=true")
+            params.append("hasJobs=%22true%22")
 
         base_url = "https://www.linkedin.com/search/results/companies/?" + "&".join(
             params

@@ -40,10 +40,11 @@ instances, clear profiles, or replace the user's browser session.
 - Profiles: `get_my_profile`, `get_person_profile`, `search_people`, and
   `get_sidebar_profiles`. `search_people` takes Boolean `keywords` and
   optional `location`, `network`, `current_company`, `past_company`
-  (names, slugs or ids; lists accepted), `title`, `industry`, `school`,
-  `first_name`, `last_name` and `profile_language` facets plus `max_pages`;
-  every page is one navigation, and each company or school name that is not
-  already cached costs one or two more.
+  (names, slugs or ids; lists accepted), `title`, `industry`, `school`
+  (numeric id only), `first_name`, `last_name` and `profile_language` facets
+  plus `max_pages`; every page is one navigation, and each company name that
+  is not already cached costs one or two more. LinkedIn ignores `title` on
+  its current results page: put the title in `keywords` as a quoted phrase.
 - Companies: `get_company_profile`, `get_company_posts`, `search_companies`,
   and `get_company_employees`. `search_companies` takes optional `industry`,
   `size`, `hq_location` and `has_jobs` facets plus `max_pages`; narrow there

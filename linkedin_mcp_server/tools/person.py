@@ -161,9 +161,9 @@ def register_person_tools(
         Search for people on LinkedIn, with Clay-style facets.
 
         At least one of keywords or a facet is required. Every result page is
-        one navigation against the daily budget, and each company or school
-        name that has to be resolved costs one or two more; pass numeric ids
-        (or companies already in the cache) to keep it at one per page.
+        one navigation against the daily budget, and each company name that
+        has to be resolved costs one or two more; pass numeric ids (or
+        companies already in the cache) to keep it at one per page.
 
         Recommended funnel for account-based prospecting: search_companies
         (industry/size/hq_location facets) -> enrich_companies(about=True)
@@ -207,7 +207,12 @@ def register_person_tools(
                 enumerating 1st-degree connections in a region with
                 network=["F"].
             title: Optional current job title, free text (e.g. "Head of
-                Sales"). Matches the title field only, unlike keywords.
+                Sales"). Measured live (2026-09-12) as silently ignored by
+                LinkedIn's current results page: the results did not match
+                the title. Prefer putting the title in keywords as a quoted
+                phrase, e.g. '"VP Engineering"', which does filter; this
+                parameter is kept for a results-page variant that may still
+                read it and is never merged into keywords for you.
             past_company: Optional past-employer filter; same shapes and
                 resolution as current_company. Each unresolved name may cost
                 up to two navigations.
@@ -216,9 +221,11 @@ def register_person_tools(
                 server knows (e.g. "Software Development", "Financial
                 Services"; same table as search_companies). An unknown name
                 raises an error listing the known names.
-            school: Optional school filter: the numeric school id, or a name
-                (e.g. "Stanford University") resolved through a schools search
-                and the school page, up to two navigations.
+            school: Optional school filter, the numeric school id only (a
+                name raises an error: LinkedIn's schools search exposes no
+                id to resolve it from). To find the id: LinkedIn people
+                search -> All filters -> School -> pick one; the URL then
+                shows schoolFilter=["<id>"].
             first_name: Optional first-name filter.
             last_name: Optional last-name filter.
             profile_language: Optional profile-language filter, one or a list
