@@ -522,6 +522,46 @@ _CONTENT_SCROLLS_PER_REQUESTED_PAGE = 5
 # LinkedIn accepts "F" (1st-degree), "S" (2nd-degree), "O" (3rd-degree and beyond).
 _NETWORK_TOKENS = ("F", "S", "O")
 
+# Company-search ``companyIndustry`` facet: LinkedIn's numeric industry ids,
+# keyed by the industry name as the filter dropdown labels it (casefolded,
+# commas stripped, whitespace collapsed -- see ``_normalize_industry_name``).
+# ponytail: partial table; unknown names raise, pass the numeric id
+_COMPANY_INDUSTRY_IDS: dict[str, str] = {
+    "software development": "4",
+    "technology information and internet": "6",
+    "telecommunications": "8",
+    "business consulting and services": "11",
+    "biotechnology research": "12",
+    "hospitals and health care": "14",
+    "pharmaceutical manufacturing": "15",
+    "retail": "27",
+    "banking": "41",
+    "insurance": "42",
+    "financial services": "43",
+    "real estate": "44",
+    "construction": "48",
+    "advertising services": "80",
+    "it services and it consulting": "96",
+    "staffing and recruiting": "104",
+}
+
+# Company-search ``companySize`` facet letters, keyed by the headcount bucket
+# as LinkedIn labels it. Callers may pass either side of the mapping.
+# TODO(live-verify): letters are unconfirmed. The other candidate ordering
+# starts at self-employed (A=self-employed, B=1-10, ... I=10001+), i.e. every
+# letter below shifted by one; a live probe of the filter dropdown decides.
+_COMPANY_SIZE_LETTERS: dict[str, str] = {
+    "1-10": "A",
+    "11-50": "B",
+    "51-200": "C",
+    "201-500": "D",
+    "501-1000": "E",
+    "1001-5000": "F",
+    "5001-10000": "G",
+    "10001+": "H",
+    "self-employed": "I",
+}
+
 _DIALOG_SELECTOR = 'dialog[open], [role="dialog"]'
 _DIALOG_PREMIUM_LINK_SELECTOR = (
     'dialog[open] a[href*="/premium/"], [role="dialog"] a[href*="/premium/"]'
@@ -800,6 +840,16 @@ def _normalize_csv(value: str, mapping: dict[str, str]) -> str:
     """Normalize a comma-separated filter value using the provided mapping."""
     parts = [v.strip() for v in value.split(",")]
     return ",".join(mapping.get(p, p) for p in parts)
+
+
+def _normalize_industry_name(name: str) -> str:
+    """Casefold, drop commas and collapse whitespace for industry lookup.
+
+    LinkedIn labels one entry "Technology, Information and Internet"; a
+    client that transmits list params as a comma-separated string cannot
+    carry that comma, so the lookup ignores it on both sides.
+    """
+    return " ".join(name.replace(",", " ").casefold().split())
 
 
 def _encode_list_facet(values: list[str]) -> str:
@@ -4819,34 +4869,151 @@ class LinkedInExtractor:
 
     async def search_companies(
         self,
-        keywords: str,
+        keywords: str | None = None,
+        industry: list[str] | None = None,
+        size: list[str] | None = None,
+        hq_location: str | None = None,
+        has_jobs: bool | None = None,
+        max_pages: int = 1,
     ) -> dict[str, Any]:
-        """Search for companies and extract the results page.
+        """Search for companies and extract the results pages.
+
+        Facets narrow the result set on LinkedIn's side, so a shortlist
+        built here costs one navigation per page rather than one per
+        company; ``enrich_companies`` then only pays for the companies that
+        survived the filter.
+
+        Args:
+            keywords: Free-text query ("fintech", "electric vehicles").
+                Optional when at least one of ``industry``, ``size`` or
+                ``hq_location`` is given.
+            industry: Optional ``companyIndustry`` facet. Each element is
+                either a numeric LinkedIn industry id (always accepted, e.g.
+                ``"4"``) or one of the names in ``_COMPANY_INDUSTRY_IDS``
+                (case-insensitive, e.g. ``"Software Development"``). The name
+                table is partial; an unknown name raises
+                ``FilterValidationError`` listing the names it does know.
+            size: Optional ``companySize`` facet. Each element is a headcount
+                bucket as LinkedIn labels it (``"1-10"``, ``"11-50"``,
+                ``"51-200"``, ``"201-500"``, ``"501-1000"``, ``"1001-5000"``,
+                ``"5001-10000"``, ``"10001+"``, ``"self-employed"``) or the
+                facet letter it maps to (``"A"``-``"I"``, see
+                ``_COMPANY_SIZE_LETTERS``). Anything else raises
+                ``FilterValidationError``.
+            hq_location: Optional headquarters filter, a free-text country or
+                city name resolved to LinkedIn's numeric geo id via the site's
+                own location dropdown (see ``_resolve_geo_urn``) and sent as
+                ``companyHqGeo``. An unrecognized name raises
+                ``FilterValidationError`` rather than silently returning
+                worldwide results.
+            has_jobs: When true, only companies with live job listings
+                (``hasJobs=true``).
+            max_pages: Maximum result pages to load (10 companies per page).
+                Stops early once a page adds no new companies. Default 1.
 
         Returns:
-            {url, sections: {search_results: text}}
+            {url, sections: {search_results: text}} -- pages joined by ``\n---\n``
         """
-        url = f"https://www.linkedin.com/search/results/companies/?keywords={quote_plus(keywords)}"
-        extracted = await self.extract_page(url, section_name="search_results")
+        industry_ids: list[str] = []
+        for raw in industry or []:
+            token = raw.strip()
+            if re.fullmatch(r"[0-9]+", token):
+                industry_ids.append(token)
+                continue
+            mapped = _COMPANY_INDUSTRY_IDS.get(_normalize_industry_name(token))
+            if mapped is None:
+                raise FilterValidationError(
+                    f"Unknown industry {raw!r}; pass LinkedIn's numeric industry "
+                    f"id, or one of the names this server knows: "
+                    f"{list(_COMPANY_INDUSTRY_IDS)!r}"
+                )
+            industry_ids.append(mapped)
 
-        sections: dict[str, str] = {}
-        references: dict[str, list[Reference]] = {}
+        size_letters: list[str] = []
+        for raw in size or []:
+            token = raw.strip()
+            if token.upper() in _COMPANY_SIZE_LETTERS.values():
+                size_letters.append(token.upper())
+                continue
+            mapped = _COMPANY_SIZE_LETTERS.get(token.casefold())
+            if mapped is None:
+                raise FilterValidationError(
+                    f"Unknown company size {raw!r}; expected a headcount bucket "
+                    f"{list(_COMPANY_SIZE_LETTERS)!r} or a facet letter "
+                    f"{list(_COMPANY_SIZE_LETTERS.values())!r}"
+                )
+            size_letters.append(mapped)
+
+        if not (keywords or industry_ids or size_letters or hq_location):
+            raise FilterValidationError(
+                "search_companies needs at least one of keywords, industry, "
+                "size or hq_location"
+            )
+
+        params: list[str] = []
+        if keywords:
+            params.append(f"keywords={quote_plus(keywords)}")
+        if industry_ids:
+            params.append(f"companyIndustry={_encode_list_facet(industry_ids)}")
+        if size_letters:
+            params.append(f"companySize={_encode_list_facet(size_letters)}")
+        if hq_location:
+            geo_id = await self._resolve_geo_urn(hq_location)
+            if not geo_id:
+                raise FilterValidationError(
+                    f"Could not resolve hq_location {hq_location!r} to a "
+                    f"LinkedIn region. Use a country or city name as it "
+                    f"appears in LinkedIn's location dropdown."
+                )
+            params.append(f"companyHqGeo={_encode_list_facet([geo_id])}")
+        if has_jobs:
+            params.append("hasJobs=true")
+
+        base_url = "https://www.linkedin.com/search/results/companies/?" + "&".join(
+            params
+        )
+
+        page_texts: list[str] = []
+        page_references: list[Reference] = []
         section_errors: dict[str, dict[str, Any]] = {}
-        if extracted.text and extracted.text != _RATE_LIMITED_MSG:
-            sections["search_results"] = extracted.text
+        seen_company_urls: set[str] = set()
+
+        for page_num in range(1, max_pages + 1):
+            if page_num > 1:
+                await human_pause(_NAV_DELAY)
+
+            url = base_url if page_num == 1 else f"{base_url}&page={page_num}"
+            extracted = await self.extract_page(url, section_name="search_results")
+
+            if not extracted.text or extracted.text == _RATE_LIMITED_MSG:
+                if extracted.text == _RATE_LIMITED_MSG:
+                    section_errors["search_results"] = rate_limited_section_error()
+                elif extracted.error:
+                    section_errors["search_results"] = extracted.error
+                break
+
+            page_texts.append(extracted.text)
             if extracted.references:
-                references["search_results"] = extracted.references
-        elif extracted.text == _RATE_LIMITED_MSG:
-            section_errors["search_results"] = rate_limited_section_error()
-        elif extracted.error:
-            section_errors["search_results"] = extracted.error
+                page_references.extend(extracted.references)
+
+            new_companies = {
+                ref["url"] for ref in extracted.references if ref["kind"] == "company"
+            } - seen_company_urls
+            if not new_companies:
+                logger.debug("No new companies on page %d, stopping", page_num)
+                break
+            seen_company_urls |= new_companies
 
         result: dict[str, Any] = {
-            "url": url,
-            "sections": sections,
+            "url": base_url,
+            "sections": {"search_results": "\n---\n".join(page_texts)}
+            if page_texts
+            else {},
         }
-        if references:
-            result["references"] = references
+        if page_references:
+            result["references"] = {
+                "search_results": dedupe_references(page_references)
+            }
         if section_errors:
             result["section_errors"] = section_errors
         return result

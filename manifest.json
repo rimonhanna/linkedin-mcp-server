@@ -73,7 +73,7 @@
     },
     {
       "name": "search_companies",
-      "description": "Search for companies on LinkedIn by keywords"
+      "description": "Search for companies by keywords and/or facets (industry, headcount size, HQ location, has open jobs) with page-by-page pagination; facets narrow at search time so enrichment only pays for the shortlist"
     },
     {
       "name": "get_company_employees",

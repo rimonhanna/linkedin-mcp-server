@@ -6641,6 +6641,266 @@ class TestSearchPeoplePagination:
         assert result["section_errors"]["search_results"]["error_type"] == "rate_limit"
 
 
+class TestSearchCompanies:
+    """Facets reach the URL in LinkedIn's JSON-list encoding, or raise."""
+
+    @staticmethod
+    def _run(extractor, **kwargs):
+        return patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted("Stripe"),
+        )
+
+    async def test_keywords_only_builds_the_bare_url(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with self._run(extractor):
+            result = await extractor.search_companies("fintech")
+
+        assert (
+            result["url"]
+            == "https://www.linkedin.com/search/results/companies/?keywords=fintech"
+        )
+
+    async def test_industry_accepts_numeric_ids_verbatim(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with self._run(extractor):
+            result = await extractor.search_companies(industry=["4", "1862"])
+
+        assert "companyIndustry=%5B%224%22%2C%221862%22%5D" in result["url"]
+        assert "keywords=" not in result["url"]
+
+    async def test_industry_maps_known_names_case_insensitively(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with self._run(extractor):
+            result = await extractor.search_companies(
+                industry=[
+                    "software development",
+                    "Financial Services",
+                    "Technology, Information and Internet",
+                ]
+            )
+
+        assert "companyIndustry=%5B%224%22%2C%2243%22%2C%226%22%5D" in result["url"]
+
+    async def test_industry_unknown_name_names_the_table(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with pytest.raises(FilterValidationError, match="Unknown industry") as exc:
+            await extractor.search_companies(industry=["Underwater Basketry"])
+
+        assert "'software development'" in str(exc.value)
+        assert "numeric industry id" in str(exc.value)
+
+    async def test_size_accepts_letters_and_buckets(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with self._run(extractor):
+            result = await extractor.search_companies(
+                size=["b", "51-200", "10001+", "Self-Employed"]
+            )
+
+        assert (
+            "companySize=%5B%22B%22%2C%22C%22%2C%22H%22%2C%22I%22%5D" in result["url"]
+        )
+
+    @pytest.mark.parametrize("bad", ["J", "50-200", "huge"])
+    async def test_size_unknown_value_raises(self, mock_page, bad):
+        extractor = LinkedInExtractor(mock_page)
+        with pytest.raises(FilterValidationError, match="Unknown company size"):
+            await extractor.search_companies(size=[bad])
+
+    async def test_hq_location_resolves_to_company_hq_geo(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            self._run(extractor),
+            patch.object(
+                extractor,
+                "_resolve_geo_urn",
+                new_callable=AsyncMock,
+                return_value="101282230",
+            ) as resolve,
+        ):
+            result = await extractor.search_companies(hq_location="Germany")
+
+        resolve.assert_awaited_once_with("Germany")
+        assert "companyHqGeo=%5B%22101282230%22%5D" in result["url"]
+        assert "geoUrn" not in result["url"]
+
+    async def test_unresolvable_hq_location_raises(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with patch.object(
+            extractor, "_resolve_geo_urn", new_callable=AsyncMock, return_value=None
+        ):
+            with pytest.raises(FilterValidationError, match="Could not resolve"):
+                await extractor.search_companies(hq_location="Nowhereland")
+
+    async def test_has_jobs_adds_the_flag_only_when_true(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with self._run(extractor):
+            on = await extractor.search_companies("fintech", has_jobs=True)
+            off = await extractor.search_companies("fintech", has_jobs=False)
+
+        assert on["url"].endswith("&hasJobs=true")
+        assert "hasJobs" not in off["url"]
+
+    async def test_all_facets_combine_in_one_url(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            self._run(extractor),
+            patch.object(
+                extractor,
+                "_resolve_geo_urn",
+                new_callable=AsyncMock,
+                return_value="101282230",
+            ),
+        ):
+            result = await extractor.search_companies(
+                "payments",
+                industry=["Financial Services"],
+                size=["C"],
+                hq_location="Germany",
+                has_jobs=True,
+            )
+
+        assert result["url"] == (
+            "https://www.linkedin.com/search/results/companies/?keywords=payments"
+            "&companyIndustry=%5B%2243%22%5D&companySize=%5B%22C%22%5D"
+            "&companyHqGeo=%5B%22101282230%22%5D&hasJobs=true"
+        )
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{}, {"keywords": ""}, {"has_jobs": True}, {"industry": [], "size": []}],
+    )
+    async def test_no_narrowing_criteria_raises(self, mock_page, kwargs):
+        extractor = LinkedInExtractor(mock_page)
+        with pytest.raises(FilterValidationError, match="at least one of"):
+            await extractor.search_companies(**kwargs)
+
+
+class TestSearchCompaniesPagination:
+    """``max_pages`` walks ``&page=N`` and stops once a page adds no company."""
+
+    @staticmethod
+    def _page(n: int) -> ExtractedSection:
+        return extracted(
+            f"Company {n}",
+            [{"kind": "company", "url": f"/company/co{n}/", "text": f"Company {n}"}],
+        )
+
+    async def test_default_fetches_only_first_page(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            side_effect=[self._page(1), self._page(2)],
+        ) as fetch:
+            result = await extractor.search_companies("fintech")
+
+        assert fetch.await_count == 1
+        assert "&page=" not in fetch.await_args_list[0].args[0]
+        assert result["sections"]["search_results"] == "Company 1"
+
+    async def test_pages_are_joined_and_references_merged(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=[self._page(1), self._page(2), self._page(3)],
+            ) as fetch,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ) as pause,
+        ):
+            result = await extractor.search_companies("fintech", max_pages=3)
+
+        assert fetch.await_count == 3
+        urls = [call.args[0] for call in fetch.await_args_list]
+        assert "&page=" not in urls[0]
+        assert urls[1].endswith("&page=2")
+        assert urls[2].endswith("&page=3")
+        # One pause per page after the first, before its navigation.
+        assert pause.await_count == 2
+        assert (
+            result["sections"]["search_results"]
+            == "Company 1\n---\nCompany 2\n---\nCompany 3"
+        )
+        assert [r["url"] for r in result["references"]["search_results"]] == [
+            "/company/co1/",
+            "/company/co2/",
+            "/company/co3/",
+        ]
+        assert "&page=" not in result["url"]
+
+    async def test_stops_when_a_page_adds_no_new_company(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=[self._page(1), self._page(1), self._page(3)],
+            ) as fetch,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await extractor.search_companies("fintech", max_pages=10)
+
+        assert fetch.await_count == 2
+        assert result["sections"]["search_results"] == "Company 1\n---\nCompany 1"
+        assert [r["url"] for r in result["references"]["search_results"]] == [
+            "/company/co1/"
+        ]
+
+    async def test_only_company_refs_count_as_new(self, mock_page):
+        """A page of nothing but people/job anchors is the end of the results."""
+        extractor = LinkedInExtractor(mock_page)
+        filler = extracted(
+            "Sidebar",
+            [{"kind": "person", "url": "/in/someone/", "text": "Someone"}],
+        )
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=[self._page(1), filler, self._page(3)],
+            ) as fetch,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await extractor.search_companies("fintech", max_pages=10)
+
+        assert fetch.await_count == 2
+
+    async def test_rate_limit_midway_keeps_earlier_pages(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=[self._page(1), extracted(_RATE_LIMITED_MSG)],
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await extractor.search_companies("fintech", max_pages=5)
+
+        assert result["sections"]["search_results"] == "Company 1"
+        assert result["section_errors"]["search_results"]["error_type"] == "rate_limit"
+
+
 class TestBuildContentSearchUrl:
     """Tests for _build_content_search_url URL construction."""
 
