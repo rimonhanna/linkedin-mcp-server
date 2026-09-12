@@ -1166,9 +1166,108 @@ class TestSearchCompaniesTool:
         register_company_tools(mcp)
 
         tool_fn = await get_tool_fn(mcp, "search_companies")
-        result = await tool_fn("fintech", mock_context, extractor=mock_extractor)
+        result = await tool_fn(
+            mock_context, keywords="fintech", extractor=mock_extractor
+        )
         assert "search_results" in result["sections"]
-        mock_extractor.search_companies.assert_awaited_once_with("fintech")
+        mock_extractor.search_companies.assert_awaited_once_with(
+            "fintech",
+            industry=None,
+            size=None,
+            hq_location=None,
+            has_jobs=None,
+            max_pages=1,
+        )
+
+    async def test_search_companies_forwards_every_facet(self, mock_context):
+        mock_extractor = _make_mock_extractor({"url": "u", "sections": {}})
+
+        from linkedin_mcp_server.tools.company import register_company_tools
+
+        mcp = FastMCP("test")
+        register_company_tools(mcp)
+
+        tool_fn = await get_tool_fn(mcp, "search_companies")
+        await tool_fn(
+            mock_context,
+            industry=["Financial Services", "4"],
+            size=["C", "201-500"],
+            hq_location="Germany",
+            has_jobs=True,
+            max_pages=4,
+            extractor=mock_extractor,
+        )
+        mock_extractor.search_companies.assert_awaited_once_with(
+            None,
+            industry=["Financial Services", "4"],
+            size=["C", "201-500"],
+            hq_location="Germany",
+            has_jobs=True,
+            max_pages=4,
+        )
+
+    async def test_search_companies_accepts_stringified_lists(self, monkeypatch):
+        """Same transport quirk as search_people's ``network`` (#739): a client
+        that collapses ``anyOf: [array, null]`` sends the list as a string."""
+        import linkedin_mcp_server.tools.company as company_module
+        from linkedin_mcp_server.tools.company import register_company_tools
+
+        mock_extractor = _make_mock_extractor({"url": "u", "sections": {}})
+
+        async def _fake_get_ready_extractor(ctx, tool_name):
+            return mock_extractor
+
+        monkeypatch.setattr(
+            company_module, "get_ready_extractor", _fake_get_ready_extractor
+        )
+
+        mcp = FastMCP("test")
+        register_company_tools(mcp)
+
+        await mcp.call_tool(
+            "search_companies", {"industry": "4,43", "size": "51-200,201-500"}
+        )
+
+        mock_extractor.search_companies.assert_awaited_once_with(
+            None,
+            industry=["4", "43"],
+            size=["51-200", "201-500"],
+            hq_location=None,
+            has_jobs=None,
+            max_pages=1,
+        )
+
+    async def test_search_companies_max_pages_bounds(self, mock_context):
+        from linkedin_mcp_server.tools.company import register_company_tools
+
+        mcp = FastMCP("test")
+        register_company_tools(mcp)
+        tool = await mcp.get_tool("search_companies")
+        assert tool is not None
+        schema = tool.parameters
+        assert schema["properties"]["max_pages"]["minimum"] == 1
+        assert schema["properties"]["max_pages"]["maximum"] == 10
+        assert "keywords" not in schema.get("required", [])
+
+    async def test_search_companies_validation_error_surfaced_as_tool_error(
+        self, mock_context
+    ):
+        from fastmcp.exceptions import ToolError
+
+        from linkedin_mcp_server.scraping.extractor import FilterValidationError
+        from linkedin_mcp_server.tools.company import register_company_tools
+
+        mock_extractor = MagicMock()
+        mock_extractor.search_companies = AsyncMock(
+            side_effect=FilterValidationError("Unknown company size 'J'")
+        )
+
+        mcp = FastMCP("test")
+        register_company_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "search_companies")
+
+        with pytest.raises(ToolError, match="Unknown company size 'J'"):
+            await tool_fn(mock_context, size=["J"], extractor=mock_extractor)
 
     async def test_search_companies_error(self, mock_context):
         from fastmcp.exceptions import ToolError
@@ -1185,7 +1284,7 @@ class TestSearchCompaniesTool:
 
         tool_fn = await get_tool_fn(mcp, "search_companies")
         with pytest.raises(ToolError, match="Session expired"):
-            await tool_fn("fintech", mock_context, extractor=mock_extractor)
+            await tool_fn(mock_context, keywords="fintech", extractor=mock_extractor)
 
 
 class TestGetCompanyEmployeesTool:

@@ -50,7 +50,7 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `send_message` | Compose/send a new message to a LinkedIn user (requires confirmation; profile-based targeting may open a separate DM instead of replying in an existing thread — see #483) |
 | `get_company_profile` | Extract company information with explicit section selection (posts, jobs); about-section references may include a `company_urn` entry carrying the numeric id used by LinkedIn's people-search `currentCompany` URL facet |
 | `get_company_posts` | Get recent posts from a company's LinkedIn feed |
-| `search_companies` | Search for companies on LinkedIn by keywords |
+| `search_companies` | Search for companies by keywords and/or Clay-style facets: `industry` (LinkedIn numeric id, or a known name such as "Software Development"), `size` (headcount bucket like `51-200` or facet letter `A`-`I`), `hq_location` (country/city, resolved like `search_people`'s location) and `has_jobs`, with `max_pages` pagination (1-10, 10 companies per page). Facets narrow at search time, so `enrich_companies` only pays for the shortlist |
 | `get_company_employees` | List employees at a company from the /people/ page, with optional keyword filter |
 | `search_jobs` | Search for jobs with keywords and location filters |
 | `get_saved_jobs` | List job postings saved by the authenticated user |

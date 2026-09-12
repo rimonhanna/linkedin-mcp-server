@@ -40,7 +40,9 @@ instances, clear profiles, or replace the user's browser session.
 - Profiles: `get_my_profile`, `get_person_profile`, `search_people`, and
   `get_sidebar_profiles`.
 - Companies: `get_company_profile`, `get_company_posts`, `search_companies`,
-  and `get_company_employees`.
+  and `get_company_employees`. `search_companies` takes optional `industry`,
+  `size`, `hq_location` and `has_jobs` facets plus `max_pages`; narrow there
+  first so `enrich_companies` only spends navigations on the shortlist.
 - Company research at scale: `enrich_companies` (paced, cache-first; pass
   `about=true` for About-tab facets at one extra navigation per company),
   `enrich_company_deep` for one company's facets plus open roles,
