@@ -20,7 +20,10 @@ text captured live (see tests/test_search_parse.py):
   block that carries a ``·`` and whose last ``·``-segment is a count and one
   word. Cards are read *backwards* from that line, so the promoted event and
   "Contact us" blocks LinkedIn drops *between* cards never shift a card's
-  fields.
+  fields. A card may carry no tagline, which drops it to four lines; the
+  two shapes are told apart by the ``company`` references: the slot whose
+  text is a reference's text is the name slot. A card no reference names
+  (the builder drops anchors past its label limit) is read as five lines.
 
 Known locale limit: a count is only recognised with its magnitude suffix
 attached (``2K``, ``2,5K``). A locale that spaces the suffix (French renders
@@ -214,8 +217,14 @@ def parse_company_cards(
     text: str, refs: Sequence[Mapping[str, Any]]
 ) -> list[dict[str, Any]]:
     """Rows ``{name, industry, location, tagline, url[, followers]}`` from a
-    company-search page's innerText and its ``company`` references."""
+    company-search page's innerText and its ``company`` references.
+    ``tagline`` is None for a card that carries none."""
     blocks = _blocks(text)
+    ref_keys = [
+        _label_key(ref["text"])
+        for ref in refs or []
+        if ref.get("kind") == "company" and ref.get("text")
+    ]
     rows: list[dict[str, Any]] = []
     previous_end = -1
     for end, block in enumerate(blocks):
@@ -225,16 +234,38 @@ def parse_company_cards(
         window = blocks[previous_end + 1 : end]
         previous_end = end
         # name / industry / location / follow / tagline: five blocks above the
-        # followers line. Fewer means a card missing a line, which cannot be
-        # told from a shifted one, so the card is skipped rather than guessed.
-        if len(window) < 5:
-            continue
-        name, industry, location, button, tagline = window[-5:]
+        # followers line, or four for a card without a tagline. The shape is
+        # read from the anchors: the slot that carries a company ref's text
+        # is the name slot. Five is tried first because a five-line card's
+        # industry sits where a four-line name would, and a company on the
+        # page can be named like an industry. Five is also what is assumed
+        # when no ref names either slot.
+        for size in (5, 4):
+            if len(window) >= size and any(
+                _keys_match(_label_key(window[-size]), key) for key in ref_keys
+            ):
+                break
+        else:
+            size = 5
+            # Fewer means a card missing a line, which cannot be told from a
+            # shifted one, so the card is skipped rather than guessed.
+            if len(window) < size:
+                continue
+            # A tagline-less card slides the window up into the block before
+            # it; at the top of the page that is the results header. Only
+            # the page's first block is judged: a company can be named
+            # "500 Startups", which reads as a count and a word too.
+            if end - size == 0 and _RESULT_COUNT.match(window[-size]):
+                logger.debug("Skipping a company card under the header: %r", window)
+                continue
+        name, industry, location, button = window[-size:][:4]
+        tagline = window[-1] if size == 5 else None
         # The follow button is one token in every locale. Whitespace there
         # means the card is short a line and the window has slid up into
-        # whatever block precedes it -- the page header, a promoted event.
-        # (A card short of its tagline puts its location in this slot, so a
-        # one-word location slips past; the live pages carry "City, Region".)
+        # whatever block precedes it -- a promoted event, the page header.
+        # (A card short of its tagline that no ref names puts its location in
+        # this slot, so a one-word location slips past; the live pages carry
+        # "City, Region".)
         if _WHITESPACE.search(button.strip()):
             logger.debug("Skipping a company card short of a line: %r", name)
             continue
