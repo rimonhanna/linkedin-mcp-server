@@ -234,10 +234,15 @@ def register_company_tools(
                 once a page adds no new companies.
 
         Returns:
-            Dict with url, sections (search_results -> raw text), and optional references.
-            Pages are joined by a "---" line in the raw text; references are
-            deduplicated by URL across pages.
-            The LLM should parse the raw text to extract individual companies and their pages.
+            Dict with url, sections (search_results -> raw text), companies,
+            result_count, and optional references. Pages are joined by a "---"
+            line in the raw text; references are deduplicated by URL across
+            pages. companies is a list of rows {name, industry, location,
+            tagline, followers, url} parsed from the raw text, deduplicated by
+            url across pages; url is null when a card could not be paired with
+            a company link. result_count is the "About N results" header of
+            the first page, or null. Fall back to the raw text for anything
+            the rows do not carry.
         """
         try:
             extractor = extractor or await get_ready_extractor(

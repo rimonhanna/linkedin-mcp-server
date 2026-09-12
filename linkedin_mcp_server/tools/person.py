@@ -232,10 +232,15 @@ def register_person_tools(
                 of two-letter ISO 639-1 codes (e.g. "en", "de", "fr").
 
         Returns:
-            Dict with url, sections (name -> raw text), and optional references.
-            Pages are joined by a "---" line in the raw text; references are
-            deduplicated by URL across pages.
-            The LLM should parse the raw text to extract individual people and their profiles.
+            Dict with url, sections (name -> raw text), people, result_count,
+            and optional references. Pages are joined by a "---" line in the
+            raw text; references are deduplicated by URL across pages.
+            people is a list of rows {name, degree, headline, location,
+            snippet, url[, followers]} parsed from the raw text, deduplicated
+            by url across pages; url is null when a card could not be paired
+            with a profile link. result_count is the "About N results" header
+            of the first page, or null. Fall back to the raw text for
+            anything the rows do not carry.
         """
         try:
             extractor = extractor or await get_ready_extractor(

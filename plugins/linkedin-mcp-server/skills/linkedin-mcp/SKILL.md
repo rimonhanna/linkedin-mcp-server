@@ -45,10 +45,16 @@ instances, clear profiles, or replace the user's browser session.
   plus `max_pages`; every page is one navigation, and each company name that
   is not already cached costs one or two more. LinkedIn ignores `title` on
   its current results page: put the title in `keywords` as a quoted phrase.
+  The result carries `people` rows (`name`, `degree`, `headline`, `location`,
+  `snippet`, `url`) parsed from the page text and a `result_count`; `url` is
+  null when a card could not be paired with a profile link, so keep the raw
+  text for anything a row does not carry.
 - Companies: `get_company_profile`, `get_company_posts`, `search_companies`,
   and `get_company_employees`. `search_companies` takes optional `industry`,
   `size`, `hq_location` and `has_jobs` facets plus `max_pages`; narrow there
-  first so `enrich_companies` only spends navigations on the shortlist.
+  first so `enrich_companies` only spends navigations on the shortlist. The
+  result carries `companies` rows (`name`, `industry`, `location`, `tagline`,
+  `followers`, `url`) parsed from the page text and a `result_count`.
 - Company research at scale: `enrich_companies` (paced, cache-first; pass
   `about=true` for About-tab facets at one extra navigation per company),
   `enrich_company_deep` for one company's facets plus open roles,

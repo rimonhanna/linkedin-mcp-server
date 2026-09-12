@@ -7540,6 +7540,226 @@ class TestSearchCompaniesPagination:
         assert result["section_errors"]["search_results"]["error_type"] == "rate_limit"
 
 
+def _person_card(name: str, headline: str, location: str) -> str:
+    return f"{name} • 2nd\n\n{headline}\n\n{location}"
+
+
+def _person_ref(slug: str, name: str) -> Reference:
+    return {"kind": "person", "url": f"/in/{slug}/", "text": name}
+
+
+def _company_card(name: str, industry: str, location: str, tagline: str) -> str:
+    return (
+        f"{name}\n\n{industry}\n\n{location}\n\nFollow\n\n{tagline}\n\n"
+        f"Ann & 3 other connections follow this page · 20K followers"
+    )
+
+
+def _company_ref(slug: str, name: str) -> Reference:
+    return {"kind": "company", "url": f"/company/{slug}/", "text": name}
+
+
+class TestSearchPeopleRows:
+    """``people`` rows come from ``search_parse`` per page, before the join.
+
+    The pages here are synthetic containers in the shape the parser's
+    docstring names -- a claim about the wiring, not about LinkedIn; the
+    parser's own suite holds the live fixtures.
+    """
+
+    # Ada / Bob on page 1, Bob again / Cy / Dee on page 2. Bob is the row a
+    # naive concatenation would double, and the last card of page 1, whose
+    # location would swallow the ``---`` separator and page 2's header if the
+    # pages were joined before parsing. Dee has no anchor.
+    PAGE_1 = "About 1,234 results\n\n" + "\n\n".join(
+        [
+            _person_card("Ada", "Engineer at Example", "London, United Kingdom"),
+            _person_card("Bob", "Founder", "Berlin, Germany"),
+        ]
+    )
+    PAGE_2 = "About 999 results\n\n" + "\n\n".join(
+        [
+            _person_card("Bob", "Founder", "Berlin, Germany"),
+            _person_card("Cy", "Designer", "Paris, France"),
+            _person_card("Dee", "Writer", "Rome, Italy"),
+        ]
+    )
+
+    @classmethod
+    def _pages(cls) -> list[ExtractedSection]:
+        return [
+            extracted(
+                cls.PAGE_1, [_person_ref("ada", "Ada"), _person_ref("bob", "Bob")]
+            ),
+            extracted(cls.PAGE_2, [_person_ref("bob", "Bob"), _person_ref("cy", "Cy")]),
+        ]
+
+    async def test_rows_are_parsed_per_page_and_deduped_by_url(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=self._pages(),
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await extractor.search_people("engineer", max_pages=2)
+
+        assert [(row["name"], row["url"]) for row in result["people"]] == [
+            ("Ada", "/in/ada/"),
+            ("Bob", "/in/bob/"),
+            ("Cy", "/in/cy/"),
+            ("Dee", None),
+        ]
+        assert result["people"][1] == {
+            "name": "Bob",
+            "degree": "2nd",
+            "headline": "Founder",
+            "location": "Berlin, Germany",
+            "snippet": None,
+            "url": "/in/bob/",
+        }
+        assert result["result_count"] == 1234
+        # The raw text keeps its shape alongside the rows.
+        assert result["sections"]["search_results"] == (
+            self.PAGE_1 + "\n---\n" + self.PAGE_2
+        )
+
+    async def test_a_parser_failure_keeps_the_raw_text(self, mock_page, caplog):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=self._pages()[:1],
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.parse_people_cards",
+                side_effect=RuntimeError("parser bug"),
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            result = await extractor.search_people("engineer")
+
+        assert result["people"] == []
+        assert result["sections"]["search_results"] == self.PAGE_1
+        assert "Could not parse result cards on page 1" in caplog.text
+
+    async def test_no_page_means_no_rows(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted(_RATE_LIMITED_MSG),
+        ):
+            result = await extractor.search_people("engineer")
+
+        assert result["people"] == []
+        assert result["result_count"] is None
+
+
+class TestSearchCompaniesRows:
+    """``companies`` rows, same wiring as ``TestSearchPeopleRows``."""
+
+    # Beta is the repeat. Delta closes page 1: a company card is read
+    # backwards from its followers line, and joined before parsing that line
+    # would run into the separator and page 2's header and stop being one,
+    # so Delta would be lost rather than shifted.
+    PAGE_1 = "About 5,200 results\n\n" + "\n\n".join(
+        [
+            _company_card("Acme", "Software Development", "Austin, Texas", "Tools"),
+            _company_card("Beta Ltd", "Financial Services", "London, England", "Pay"),
+            _company_card("Delta", "Insurance", "Oslo, Oslo", "Cover"),
+        ]
+    )
+    PAGE_2 = "About 5,100 results\n\n" + "\n\n".join(
+        [
+            _company_card("Beta Ltd", "Financial Services", "London, England", "Pay"),
+            _company_card("Gamma", "Banking", "Zurich, Zurich", "Vault"),
+        ]
+    )
+
+    @classmethod
+    def _pages(cls) -> list[ExtractedSection]:
+        return [
+            extracted(
+                cls.PAGE_1,
+                [
+                    _company_ref("acme", "Acme"),
+                    _company_ref("beta", "Beta Ltd"),
+                    _company_ref("delta", "Delta"),
+                ],
+            ),
+            extracted(
+                cls.PAGE_2,
+                [_company_ref("beta", "Beta Ltd"), _company_ref("gamma", "Gamma")],
+            ),
+        ]
+
+    async def test_rows_are_parsed_per_page_and_deduped_by_url(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=self._pages(),
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await extractor.search_companies("fintech", max_pages=2)
+
+        assert [(row["name"], row["url"]) for row in result["companies"]] == [
+            ("Acme", "/company/acme/"),
+            ("Beta Ltd", "/company/beta/"),
+            ("Delta", "/company/delta/"),
+            ("Gamma", "/company/gamma/"),
+        ]
+        assert result["companies"][2] == {
+            "name": "Delta",
+            "industry": "Insurance",
+            "location": "Oslo, Oslo",
+            "tagline": "Cover",
+            "followers": 20000,
+            "url": "/company/delta/",
+        }
+        assert result["result_count"] == 5200
+        assert result["sections"]["search_results"] == (
+            self.PAGE_1 + "\n---\n" + self.PAGE_2
+        )
+
+    async def test_a_parser_failure_keeps_the_raw_text(self, mock_page, caplog):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=self._pages()[:1],
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.parse_company_cards",
+                side_effect=RuntimeError("parser bug"),
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            result = await extractor.search_companies("fintech")
+
+        assert result["companies"] == []
+        assert result["sections"]["search_results"] == self.PAGE_1
+        assert "Could not parse result cards on page 1" in caplog.text
+
+
 class TestBuildContentSearchUrl:
     """Tests for _build_content_search_url URL construction."""
 

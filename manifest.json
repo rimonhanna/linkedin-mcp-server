@@ -73,7 +73,7 @@
     },
     {
       "name": "search_companies",
-      "description": "Search for companies by keywords and/or facets (industry, headcount size, HQ location, has open jobs) with page-by-page pagination; facets narrow at search time so enrichment only pays for the shortlist"
+      "description": "Search for companies by keywords and/or facets (industry, headcount size, HQ location, has open jobs) with page-by-page pagination, returning structured company rows and a result count alongside the raw text; facets narrow at search time so enrichment only pays for the shortlist"
     },
     {
       "name": "get_company_employees",
@@ -93,7 +93,7 @@
     },
     {
       "name": "search_people",
-      "description": "Search for people on LinkedIn by Boolean keywords and/or Clay-style facets (location, connection degree, current/past company, title, industry, school, first/last name, profile language), paginating up to max_pages result pages (10 people per page)"
+      "description": "Search for people on LinkedIn by Boolean keywords and/or Clay-style facets (location, connection degree, current/past company, title, industry, school, first/last name, profile language), paginating up to max_pages result pages (10 people per page) and returning structured people rows and a result count alongside the raw text"
     },
     {
       "name": "get_inbox",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -56,6 +56,11 @@ from linkedin_mcp_server.scraping.identifiers import (
     normalize_thread_id,
     normalize_person_identifier,
     person_profile_url,
+)
+from linkedin_mcp_server.scraping.search_parse import (
+    parse_company_cards,
+    parse_people_cards,
+    parse_result_count,
 )
 from linkedin_mcp_server.scraping.link_metadata import (
     JOB_PATH_RE,
@@ -913,6 +918,43 @@ class ExtractedSection:
     text: str
     references: list[Reference]
     error: dict[str, Any] | None = None
+
+
+_CardParser = Callable[[str, Sequence[Mapping[str, Any]]], list[dict[str, Any]]]
+
+
+def _search_rows(
+    parser: _CardParser, pages: Sequence[ExtractedSection]
+) -> tuple[list[dict[str, Any]], int | None]:
+    """Rows across the fetched results pages, deduped by URL, plus the result
+    count from the first page.
+
+    Each page is parsed on its own: the pages are only joined into one text
+    for ``sections`` afterwards, so a card can never straddle the separator.
+    A parser failure is logged and yields no rows for that page; the raw text
+    still reaches the caller, and a parser bug must never take the tool down.
+    """
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    result_count: int | None = None
+    for index, page in enumerate(pages):
+        try:
+            if index == 0:
+                result_count = parse_result_count(page.text)
+            page_rows = parser(page.text, page.references)
+        except Exception:
+            logger.warning(
+                "Could not parse result cards on page %d", index + 1, exc_info=True
+            )
+            continue
+        for row in page_rows:
+            url = row.get("url")
+            if url is not None:
+                if url in seen:
+                    continue
+                seen.add(url)
+            rows.append(row)
+    return rows, result_count
 
 
 _FEED_RSC_MARKER = "sduiid=com.linkedin.sdui.pagers.feed.mainFeed"
@@ -5096,7 +5138,11 @@ class LinkedInExtractor:
                 list of two-letter ISO 639-1 codes (``"en"``, ``"de"``).
 
         Returns:
-            {url, sections: {search_results: text}} -- pages joined by ``\\n---\\n``
+            {url, sections: {search_results: text}, people: [...],
+            result_count} -- pages joined by ``\\n---\\n``; ``people`` holds one
+            row per card parsed from each page's text
+            (``search_parse.parse_people_cards``), deduped by URL, and
+            ``result_count`` the first page's "About N results" header or None.
         """
         if network is not None:
             invalid = [t for t in network if t not in _NETWORK_TOKENS]
@@ -5210,6 +5256,7 @@ class LinkedInExtractor:
 
         page_texts: list[str] = []
         page_references: list[Reference] = []
+        pages: list[ExtractedSection] = []
         section_errors: dict[str, dict[str, Any]] = {}
         seen_person_urls: set[str] = set()
 
@@ -5235,6 +5282,7 @@ class LinkedInExtractor:
                 break
 
             page_texts.append(extracted.text)
+            pages.append(extracted)
             if extracted.references:
                 page_references.extend(extracted.references)
 
@@ -5249,11 +5297,14 @@ class LinkedInExtractor:
                 break
             seen_person_urls |= new_people
 
+        people, result_count = _search_rows(parse_people_cards, pages)
         result: dict[str, Any] = {
             "url": base_url,
             "sections": {"search_results": "\n---\n".join(page_texts)}
             if page_texts
             else {},
+            "people": people,
+            "result_count": result_count,
         }
         if page_references:
             result["references"] = {
@@ -5309,7 +5360,11 @@ class LinkedInExtractor:
                 Stops early once a page adds no new companies. Default 1.
 
         Returns:
-            {url, sections: {search_results: text}} -- pages joined by ``\n---\n``
+            {url, sections: {search_results: text}, companies: [...],
+            result_count} -- pages joined by ``\\n---\\n``; ``companies`` holds
+            one row per card parsed from each page's text
+            (``search_parse.parse_company_cards``), deduped by URL, and
+            ``result_count`` the first page's "About N results" header or None.
         """
         industry_ids: list[str] = []
         for raw in industry or []:
@@ -5375,6 +5430,7 @@ class LinkedInExtractor:
 
         page_texts: list[str] = []
         page_references: list[Reference] = []
+        pages: list[ExtractedSection] = []
         section_errors: dict[str, dict[str, Any]] = {}
         seen_company_urls: set[str] = set()
 
@@ -5393,6 +5449,7 @@ class LinkedInExtractor:
                 break
 
             page_texts.append(extracted.text)
+            pages.append(extracted)
             if extracted.references:
                 page_references.extend(extracted.references)
 
@@ -5404,11 +5461,14 @@ class LinkedInExtractor:
                 break
             seen_company_urls |= new_companies
 
+        companies, result_count = _search_rows(parse_company_cards, pages)
         result: dict[str, Any] = {
             "url": base_url,
             "sections": {"search_results": "\n---\n".join(page_texts)}
             if page_texts
             else {},
+            "companies": companies,
+            "result_count": result_count,
         }
         if page_references:
             result["references"] = {
