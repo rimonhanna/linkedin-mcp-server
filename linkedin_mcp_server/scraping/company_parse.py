@@ -61,6 +61,19 @@ _ABOUT_FIELDS = {
     "specialties": re.compile(r"^\s*Specialties\s*[:\n]\s*(.+)$", re.I | re.M),
 }
 _URL = re.compile(r"https?://[^\s|,]+", re.I)
+# The About row labels, value or no value. A page carrying one of these is an
+# About page whatever its rows parse to; a page carrying none (a "page isn't
+# available" body, a redirect) is not, however much text it rendered.
+_ABOUT_LABELS = re.compile(
+    r"^\s*(?:Industry|Headquarters|Website|Founded|Company type|Company size"
+    r"|Specialties)\s*(?::|$)",
+    re.I | re.M,
+)
+
+
+def has_about_labels(text: str) -> bool:
+    """Whether the text carries any About row label, parsed or not."""
+    return bool(text) and _ABOUT_LABELS.search(text) is not None
 
 
 def _first_line(value: str) -> str:

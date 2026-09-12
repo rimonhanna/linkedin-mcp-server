@@ -36,7 +36,7 @@ import asyncio
 import logging
 import random
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -67,6 +67,7 @@ from linkedin_mcp_server.pacing import (
     step_delay,
 )
 from linkedin_mcp_server.scraping.company_parse import (
+    has_about_labels,
     parse_about,
     parse_company_cards,
     parse_job_search,
@@ -118,7 +119,10 @@ def register_company_enrichment_tools(
         # stale. A rate limit is raised as such, not as a generic failure:
         # the callers back off on RateLimitError and would otherwise keep
         # navigating while throttled. An About that *is* present but parses
-        # to nothing is a real page and is recorded as such.
+        # to nothing is a real page and is recorded as such -- provided it
+        # carries the About row labels. A rendered page with none of them (a
+        # "page isn't available" body, a redirect) is not an About at all,
+        # and recording it would stamp nothing fresh for the whole TTL.
         if "about" not in sections:
             error = result.get("section_errors", {}).get("about", {})
             message = error.get("error_message") or "About section did not load."
@@ -127,6 +131,8 @@ def register_company_enrichment_tools(
             raise ScrapingError(message)
         about = sections["about"]
         fields = parse_about(about)
+        if not fields and not has_about_labels(about):
+            raise ScrapingError("About page carried no firmographic rows")
         urn = _company_urn(result) or urn
         cache.record_firmographics(
             company,
@@ -278,6 +284,16 @@ def register_company_enrichment_tools(
                 about_loaded=about_loaded,
             )
 
+        async def _session_expired(e: AuthenticationError) -> NoReturn:
+            # An expired session fails every remaining navigation the same
+            # way, so the bunch stops here rather than burning one load per
+            # name left. The caller has charged the load that found it.
+            jobs.save(budget)
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "enrich_companies")
+
         # `bunch_searches` bounds the number of *navigations actually run*, not
         # the number of names looked at: a name resolved for free from the
         # cache (or in passing by an earlier search this call) must not burn a
@@ -313,6 +329,10 @@ def register_company_enrichment_tools(
                     budget.ledger.record(now)
                     spent += 1
                     return _rate_limited()
+                except AuthenticationError as e:
+                    budget.ledger.record(now)
+                    spent += 1
+                    await _session_expired(e)
                 except Exception as e:
                     logger.info("Company search failed for %s: %s", name, e)
                     served[name] = {"status": "search_failed", "error": str(e)[:160]}
@@ -385,6 +405,11 @@ def register_company_enrichment_tools(
                 if budget.remaining_today(now) <= 0:
                     stopped = "daily_budget_spent"
                     break
+                # The loop-top check ran before the search; a slow search can
+                # have carried past the deadline since.
+                if asyncio.get_running_loop().time() >= deadline:
+                    stopped = "tool_deadline"
+                    break
                 await asyncio.sleep(step_delay(rng=rng))
                 try:
                     await _load_about(
@@ -395,6 +420,10 @@ def register_company_enrichment_tools(
                     budget.ledger.record(now)
                     about_loaded += 1
                     return _rate_limited()
+                except AuthenticationError as e:
+                    budget.ledger.record(now)
+                    about_loaded += 1
+                    await _session_expired(e)
                 except Exception as e:
                     logger.info("About load failed for %s: %s", name, e)
                     # No search ran when the URL was already cached, so there
