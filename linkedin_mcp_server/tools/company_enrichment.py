@@ -359,7 +359,10 @@ def register_company_enrichment_tools(
                     return _rate_limited()
                 except Exception as e:
                     logger.info("About load failed for %s: %s", name, e)
-                    served[name]["about_error"] = str(e)[:160]
+                    # No search ran when the URL was already cached, so there
+                    # may be no view yet to hang the error on.
+                    view = served.setdefault(name, _firmographics_view(rec, "cache"))
+                    view["about_error"] = str(e)[:160]
                 else:
                     served[name] = _firmographics_view(cache.get(name), "company_page")
                 budget.ledger.record(now)  # the page load happened either way
@@ -555,8 +558,8 @@ def register_company_enrichment_tools(
         min_employees: Annotated[int | None, Field(ge=0)] = None,
         max_employees: Annotated[int | None, Field(ge=0)] = None,
         hiring: bool | None = None,
-        founded_after: int | None = None,
-        founded_before: int | None = None,
+        founded_after: Annotated[int | None, Field(ge=1000, le=2100)] = None,
+        founded_before: Annotated[int | None, Field(ge=1000, le=2100)] = None,
         limit: Annotated[int, Field(ge=1, le=500)] = 50,
     ) -> dict[str, Any]:
         """
@@ -584,6 +587,15 @@ def register_company_enrichment_tools(
             ``count`` of matches and ``companies``, each in the same shape
             get_company_cache serves, in cache-key order.
         """
+        if (
+            min_employees is not None
+            and max_employees is not None
+            and min_employees > max_employees
+        ):
+            raise ToolError(
+                f"min_employees ({min_employees}) exceeds "
+                f"max_employees ({max_employees})."
+            )
         matches = [
             rec
             for rec in cache.all_records()

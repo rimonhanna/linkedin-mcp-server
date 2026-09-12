@@ -252,7 +252,10 @@ class CompanyCache:
         # not (a) stamp a bare stub as fresh-for-90-days -- which would make
         # enrich_company_deep skip a company it never actually read -- nor
         # (b) reset the timestamp/source of a record a deep fetch already
-        # populated. So stamp only when the write brings a firmographic field.
+        # populated. So stamp only when the write brings a firmographic field
+        # -- or comes from the About page itself: that navigation happened and
+        # ``raw_about`` holds what it showed, so an About that parsed to
+        # nothing must not be re-spent on every call until the TTL.
         carries_firmographics = bool(
             industry
             or employee_count
@@ -262,7 +265,7 @@ class CompanyCache:
             or company_type
             or specialties
         )
-        if carries_firmographics:
+        if carries_firmographics or source == "company_page":
             rec.firmographics_source = source
             rec.firmographics_fetched_at = now.isoformat()
 
