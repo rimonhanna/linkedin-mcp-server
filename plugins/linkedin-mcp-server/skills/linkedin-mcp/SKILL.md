@@ -38,7 +38,12 @@ instances, clear profiles, or replace the user's browser session.
 ## Tool selection
 
 - Profiles: `get_my_profile`, `get_person_profile`, `search_people`, and
-  `get_sidebar_profiles`.
+  `get_sidebar_profiles`. `search_people` takes Boolean `keywords` and
+  optional `location`, `network`, `current_company`, `past_company`
+  (names, slugs or ids; lists accepted), `title`, `industry`, `school`,
+  `first_name`, `last_name` and `profile_language` facets plus `max_pages`;
+  every page is one navigation, and each company or school name that is not
+  already cached costs one or two more.
 - Companies: `get_company_profile`, `get_company_posts`, `search_companies`,
   and `get_company_employees`. `search_companies` takes optional `industry`,
   `size`, `hq_location` and `has_jobs` facets plus `max_pages`; narrow there

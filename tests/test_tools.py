@@ -21,6 +21,25 @@ async def get_tool_fn(
     return cast(FunctionTool, tool).fn
 
 
+def _people_kwargs(**overrides):
+    """The keyword set ``search_people`` forwards; every new facet defaults
+    to None so a test names only the ones it sets."""
+    kwargs = {
+        "network": None,
+        "current_company": None,
+        "max_pages": 1,
+        "title": None,
+        "past_company": None,
+        "industry": None,
+        "school": None,
+        "first_name": None,
+        "last_name": None,
+        "profile_language": None,
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
 def _make_mock_extractor(scrape_result: dict) -> MagicMock:
     """Create a mock LinkedInExtractor that returns the given result."""
     mock = MagicMock()
@@ -260,16 +279,15 @@ class TestPersonTool:
 
         tool_fn = await get_tool_fn(mcp, "search_people")
         result = await tool_fn(
-            "AI engineer", mock_context, location="New York", extractor=mock_extractor
+            mock_context,
+            keywords="AI engineer",
+            location="New York",
+            extractor=mock_extractor,
         )
         assert "search_results" in result["sections"]
         assert "pages_visited" not in result
         mock_extractor.search_people.assert_awaited_once_with(
-            "AI engineer",
-            "New York",
-            network=None,
-            current_company=None,
-            max_pages=1,
+            "AI engineer", "New York", **_people_kwargs()
         )
 
     async def test_search_people_with_network_and_company_filters(self, mock_context):
@@ -292,19 +310,93 @@ class TestPersonTool:
 
         tool_fn = await get_tool_fn(mcp, "search_people")
         result = await tool_fn(
-            "engineer",
             mock_context,
+            keywords="engineer",
             network=["F"],
-            current_company="1115",
+            current_company=["1115"],
             extractor=mock_extractor,
         )
         assert "search_results" in result["sections"]
         mock_extractor.search_people.assert_awaited_once_with(
             "engineer",
             None,
-            network=["F"],
-            current_company="1115",
-            max_pages=1,
+            **_people_kwargs(network=["F"], current_company=["1115"]),
+        )
+
+    async def test_search_people_forwards_every_facet(self, mock_context):
+        expected = {"url": "https://example.test", "sections": {"search_results": "x"}}
+        mock_extractor = _make_mock_extractor(expected)
+
+        from linkedin_mcp_server.tools.person import register_person_tools
+
+        mcp = FastMCP("test")
+        register_person_tools(mcp)
+
+        tool_fn = await get_tool_fn(mcp, "search_people")
+        await tool_fn(
+            mock_context,
+            title="Head of Sales",
+            past_company=["SAP", "1441"],
+            industry=["Software Development"],
+            school="1792",
+            first_name="Jane",
+            last_name="Doe",
+            profile_language=["en", "de"],
+            extractor=mock_extractor,
+        )
+        mock_extractor.search_people.assert_awaited_once_with(
+            None,
+            None,
+            **_people_kwargs(
+                title="Head of Sales",
+                past_company=["SAP", "1441"],
+                industry=["Software Development"],
+                school="1792",
+                first_name="Jane",
+                last_name="Doe",
+                profile_language=["en", "de"],
+            ),
+        )
+
+    async def test_search_people_accepts_stringified_facet_lists(self, monkeypatch):
+        """Same transport quirk as ``network`` (#739): the list facets accept
+        a bare string or a comma-separated one through pydantic."""
+        import linkedin_mcp_server.tools.person as person_module
+        from linkedin_mcp_server.tools.person import register_person_tools
+
+        mock_extractor = _make_mock_extractor(
+            {"url": "https://example.test", "sections": {"search_results": "x"}}
+        )
+
+        async def _fake_get_ready_extractor(ctx, tool_name):
+            return mock_extractor
+
+        monkeypatch.setattr(
+            person_module, "get_ready_extractor", _fake_get_ready_extractor
+        )
+
+        mcp = FastMCP("test")
+        register_person_tools(mcp)
+
+        await mcp.call_tool(
+            "search_people",
+            {
+                "current_company": "SAP",
+                "past_company": "1441,1115",
+                "industry": '["4"]',
+                "profile_language": "en, de",
+            },
+        )
+
+        mock_extractor.search_people.assert_awaited_once_with(
+            None,
+            None,
+            **_people_kwargs(
+                current_company=["SAP"],
+                past_company=["1441", "1115"],
+                industry=["4"],
+                profile_language=["en", "de"],
+            ),
         )
 
     async def test_search_people_forwards_max_pages(self, mock_context):
@@ -317,7 +409,9 @@ class TestPersonTool:
         register_person_tools(mcp)
 
         tool_fn = await get_tool_fn(mcp, "search_people")
-        await tool_fn("engineer", mock_context, max_pages=5, extractor=mock_extractor)
+        await tool_fn(
+            mock_context, keywords="engineer", max_pages=5, extractor=mock_extractor
+        )
         assert mock_extractor.search_people.await_args.kwargs["max_pages"] == 5
 
     @pytest.mark.parametrize(
@@ -376,11 +470,7 @@ class TestPersonTool:
         await mcp.call_tool("search_people", {"keywords": "engineer", "network": "F"})
 
         mock_extractor.search_people.assert_awaited_once_with(
-            "engineer",
-            None,
-            network=["F"],
-            current_company=None,
-            max_pages=1,
+            "engineer", None, **_people_kwargs(network=["F"])
         )
 
     async def test_search_people_validation_error_surfaced_as_tool_error(
@@ -405,9 +495,9 @@ class TestPersonTool:
 
         with pytest.raises(ToolError, match="must be a numeric URN"):
             await tool_fn(
-                "engineer",
                 mock_context,
-                current_company="SAP",
+                keywords="engineer",
+                current_company=["SAP"],
                 extractor=mock_extractor,
             )
 
