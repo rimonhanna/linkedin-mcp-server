@@ -235,6 +235,33 @@ class TestCache:
         assert rec is not None
         assert rec.has_firmographics()
 
+    def test_an_about_load_with_no_facets_still_stamps_freshness(self, tmp_path):
+        """The About navigation happened and raw_about holds what it showed;
+        leaving the record unstamped would re-spend that load every call."""
+        cache = CompanyCache(tmp_path)
+        cache.record_firmographics(
+            "Acme", NOW, source="company_page", raw_about="Acme\nnothing parseable"
+        )
+        rec = cache.get("Acme")
+        assert rec is not None
+        assert rec.has_firmographics()
+        assert rec.firmographics_source == "company_page"
+        assert rec.firmographics_fresh(
+            NOW + timedelta(days=89), cache.firmographics_ttl
+        )
+        assert not rec.firmographics_fresh(
+            NOW + timedelta(days=91), cache.firmographics_ttl
+        )
+
+    def test_a_search_hit_with_no_facets_still_does_not_stamp(self, tmp_path):
+        cache = CompanyCache(tmp_path)
+        cache.record_firmographics(
+            "Acme", NOW, source="search", linkedin_url="https://x/company/acme"
+        )
+        rec = cache.get("Acme")
+        assert rec is not None
+        assert not rec.has_firmographics()
+
     def test_a_cheap_search_hit_never_blanks_a_new_facet(self, tmp_path):
         cache = CompanyCache(tmp_path)
         cache.record_firmographics("Acme", NOW, source="company_page", founded="1999")

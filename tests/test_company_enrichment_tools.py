@@ -399,6 +399,69 @@ class TestEnrichCompanies:
         assert out["about_loaded"] == 1
         assert _spent(jobs) == 2  # the page load happened either way
 
+    async def test_about_failure_without_a_search_still_charges_the_load(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """A URL-only record skips the search, so no view was served before
+        the About load. Its failure must still land in the results and on
+        the ledger, and must not take the rest of the call down with it."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        cache, jobs = wired
+        cache.record_firmographics(
+            "Copado",
+            datetime.now().astimezone(),
+            source="search",
+            linkedin_url="https://www.linkedin.com/company/copado",
+        )
+        extractor = _search_extractor(["globex"])
+        extractor.scrape_company = AsyncMock(side_effect=RuntimeError("boom"))
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(
+            ["Copado", "Globex"], mock_context, about=True, extractor=extractor
+        )
+
+        served = out["results"]["Copado"]
+        assert served["about_error"] == "boom"
+        assert served["linkedin_url"] == "https://www.linkedin.com/company/copado"
+        assert out["about_loaded"] == 2  # Copado's failed load, Globex's failed load
+        assert out["fetched"] == 1  # Globex's search ran after Copado failed
+        assert out["results"]["Globex"]["about_error"] == "boom"
+        assert _spent(jobs) == 3  # Copado About + Globex search + Globex About
+
+    async def test_about_that_parses_to_nothing_is_not_reloaded(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """An About page with no recognisable facets still counts as read:
+        the second call serves it from cache instead of spending another
+        navigation on the same empty page."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        cache, jobs = wired
+        extractor = _search_extractor(["copado"])
+        extractor.scrape_company = AsyncMock(
+            return_value={
+                "url": "https://www.linkedin.com/company/copado/",
+                "sections": {"about": "Copado\nnothing parseable here"},
+                "references": {},
+            }
+        )
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        first = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+        assert first["about_loaded"] == 1
+        assert first["stopped_because"] == "all_done"
+        assert cache.get("Copado").has_firmographics()
+
+        second = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        assert second["stopped_because"] == "all_cached"
+        extractor.scrape_company.assert_awaited_once()
+        assert _spent(jobs) == 2  # search + one About, nothing more
+
 
 class TestEnrichCompanyDeep:
     def _deep_extractor(self):
@@ -654,3 +717,26 @@ class TestQueryCompanyCache:
     async def test_empty_cache(self, mcp, wired):
         fn = await get_tool_fn(mcp, "query_company_cache")
         assert await fn(industry="retail") == {"count": 0, "companies": []}
+
+    async def test_inverted_headcount_range_is_an_error(self, mcp, wired):
+        """A range nothing can satisfy is a mistake, not an empty result."""
+        from fastmcp.exceptions import ToolError
+
+        cache, _ = wired
+        self._seed(cache)
+
+        fn = await get_tool_fn(mcp, "query_company_cache")
+        with pytest.raises(ToolError, match="min_employees"):
+            await fn(min_employees=500, max_employees=100)
+
+    async def test_founded_year_out_of_range_is_rejected(self, mcp, wired):
+        """A year outside 1000-2100 matches no stored value, so accepting
+        it would return an empty page that reads like a real answer."""
+        # FastMCP wraps the pydantic error raised by Field() constraints in
+        # its own ValidationError, which does not subclass pydantic's.
+        from fastmcp.exceptions import ValidationError
+
+        with pytest.raises(ValidationError, match="founded_after"):
+            await mcp.call_tool("query_company_cache", {"founded_after": 20015})
+        with pytest.raises(ValidationError, match="founded_before"):
+            await mcp.call_tool("query_company_cache", {"founded_before": 999})
