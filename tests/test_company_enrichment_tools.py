@@ -22,6 +22,7 @@ from linkedin_mcp_server.pacing import (
     Schedule,
 )
 
+from test_search_parse import COMPANY_PAGE
 from test_tools import get_tool_fn
 
 # Always open: no weekend, no lunch, so tests never depend on the wall clock.
@@ -244,6 +245,56 @@ class TestEnrichCompanies:
         assert served["status"] == "no_confident_match"
         assert "Acme-Corp" in served["candidates"]
         assert "linkedin_url" not in served  # not attributed to a wrong company
+
+    async def test_search_records_what_the_result_card_shows(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """One search page yields each company's industry, location and
+        follower count from its card, served under source "search" and kept
+        for later free hits -- without stamping the record fresh, which is
+        reserved for an About read."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        cache, _ = wired
+        refs = [
+            {
+                "kind": "company",
+                "url": "/company/fintech-americas/",
+                "text": "Fintech Americas",
+            },
+            {
+                "kind": "company",
+                "url": "/company/fintechfutures/",
+                "text": "FinTech Futures",
+            },
+        ]
+        extractor = MagicMock()
+        extractor.search_companies = AsyncMock(
+            return_value={
+                "sections": {"search_results": COMPANY_PAGE},
+                "references": {"search_results": refs},
+            }
+        )
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(["Fintech Americas"], mock_context, extractor=extractor)
+
+        served = out["results"]["Fintech Americas"]
+        assert served["source"] == "search"
+        assert served["industry"] == "Financial Services"
+        assert served["headquarters"] == "Miami Beach, Florida"
+        assert served["followers"] == 27000
+        assert served["firmographics_fetched_at"] == ""
+
+        # Seen in passing: the second card is cached with its own fields.
+        rec = cache.get("FinTech Futures")
+        assert rec is not None
+        assert rec.industry == "Technology, Information and Media"
+        assert rec.headquarters == "London, England"
+        assert rec.followers == 102000
+        assert rec.firmographics_source == "search"
+        assert cache.needs_firmographics("FinTech Futures", datetime.now().astimezone())
 
     async def test_empty_input_rejected(self, mcp, mock_context):
         from fastmcp.exceptions import ToolError
@@ -669,7 +720,9 @@ class TestGetCompanyCache:
     async def test_lists_and_reads(self, mcp, wired):
         cache, _ = wired
         now = datetime.now().astimezone()
-        cache.record_firmographics("Acme", now, source="search", industry="Retail")
+        cache.record_firmographics(
+            "Acme", now, source="company_page", industry="Retail"
+        )
 
         fn = await get_tool_fn(mcp, "get_company_cache")
         listing = await fn()

@@ -28,6 +28,12 @@ from __future__ import annotations
 import re
 from typing import NamedTuple
 
+# The company-search card parser lives with its people-search twin; it is
+# re-exported here so enrichment reads every company parser from one module.
+from linkedin_mcp_server.scraping.search_parse import (
+    parse_company_cards as parse_company_cards,
+)
+
 # The headcount *band* is specifically a range or an open-ended top bucket:
 # "1,001-5,000 employees", "10,001+ employees", "51-200 employees". A bare
 # "1,234 employees" is NOT a band -- on real pages that is the follower /

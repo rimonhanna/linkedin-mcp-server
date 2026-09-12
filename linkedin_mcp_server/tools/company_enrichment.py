@@ -21,9 +21,10 @@ so a day's company research and a day's profile research cannot together exceed
 one account-safety budget -- LinkedIn counts activity per account, not per job.
 
 Note the two tiers deliver different depth: the search tier records a company's
-LinkedIn URL and the raw results text but does not itself parse industry or
-headcount (those live behind the company page). The typed firmographic fields
-come from an About-tab load: ``enrich_company_deep`` always does one, and
+LinkedIn URL plus the industry, location and follower count its result card
+shows, stored under ``source: "search"`` and never stamped fresh; headcount and
+the rest live behind the company page. The full typed firmographic set comes
+from an About-tab load: ``enrich_company_deep`` always does one, and
 ``enrich_companies(about=True)`` does one per company it resolves, at one extra
 navigation each. ``query_company_cache`` then filters what has been gathered
 without touching LinkedIn at all.
@@ -67,6 +68,7 @@ from linkedin_mcp_server.pacing import (
 )
 from linkedin_mcp_server.scraping.company_parse import (
     parse_about,
+    parse_company_cards,
     parse_job_search,
     parse_search_results,
 )
@@ -165,9 +167,10 @@ def register_company_enrichment_tools(
         other companies, which are cached in passing, so overlapping names get
         cheaper as you go.
 
-        A search alone yields a company's LinkedIn URL, not its facets. With
-        ``about=True`` each resolved company also gets its About tab read --
-        industry, headcount band, HQ, website, founded year, company type,
+        A search alone yields a company's LinkedIn URL and what its result
+        card shows: industry, location, follower count. With ``about=True``
+        each resolved company also gets its About tab read -- industry,
+        headcount band, HQ, website, founded year, company type,
         specialties, and the numeric id open-roles lookups need -- at the cost
         of one extra navigation per company, counted against the bunch and the
         shared budget exactly as enrich_company_deep counts it. A bunch
@@ -199,10 +202,10 @@ def register_company_enrichment_tools(
 
         # "Already resolved" for the search tier means we hold something worth
         # not re-searching: the company's LinkedIn URL, or fresh firmographics
-        # from a deep fetch. (Search itself never yields firmographics, only
-        # the URL, so keying serve-from-cache on firmographics alone would
-        # re-search every resolved company forever.) With ``about`` on the bar
-        # is fresh firmographics, since the URL alone is not what was asked.
+        # from a deep fetch. (A search write is never stamped fresh, so keying
+        # serve-from-cache on freshness alone would re-search every resolved
+        # company forever.) With ``about`` on the bar is fresh firmographics,
+        # since the URL alone is not what was asked.
         def _resolved(rec: Any) -> bool:
             if rec is None:
                 return False
@@ -319,18 +322,28 @@ def register_company_enrichment_tools(
                 text = result.get("sections", {}).get("search_results", "")
                 refs = result.get("references", {}).get("search_results", [])
                 hits = parse_search_results(refs)
+                cards = {
+                    _slug(card["url"]): card
+                    for card in parse_company_cards(text, refs)
+                    if card["url"]
+                }
 
                 # Cache every company the results page revealed, so overlapping
-                # names later in the list become free hits. Store only the URL --
-                # NOT the results-page text: that blob is the whole page (all ~10
+                # names later in the list become free hits: the URL, plus the
+                # industry, location and follower count its card showed. NOT
+                # the results-page text: that blob is the whole page (all ~10
                 # companies), not this company's About, so persisting a copy on
                 # every record would bloat the cache and mislead. The page text is
                 # still returned at call level below for the LLM to read.
                 for hit in hits:
+                    card = cards.get(hit["slug"], {})
                     cache.record_firmographics(
                         hit["name"],
                         now,
                         source="search",
+                        industry=card.get("industry") or "",
+                        headquarters=card.get("location") or "",
+                        followers=card.get("followers"),
                         linkedin_url=hit["url"],
                     )
                 # Attribute a hit to the requested name only when it actually
@@ -683,6 +696,7 @@ def _firmographics_view(
         "company_type": rec.company_type,
         "specialties": rec.specialties,
         "linkedin_url": rec.linkedin_url,
+        "followers": rec.followers,
         "open_roles_count": rec.open_roles_count,
         "open_roles_sample": rec.open_roles_sample,
         "source": source,
