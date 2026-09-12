@@ -5129,7 +5129,8 @@ class LinkedInExtractor:
             title: Optional current-title filter, free text
                 (``titleFreeText``). Measured live as ignored by the SDUI
                 results page; a title in ``keywords`` as a quoted phrase
-                does filter.
+                does filter. Refused as the only criterion, since it would
+                navigate and return the unfiltered worldwide list.
             past_company: Optional past-employer filter, same shapes and
                 resolution as ``current_company`` (``pastCompany``). Each
                 unresolved name may cost up to two navigations.
@@ -5187,25 +5188,32 @@ class LinkedInExtractor:
 
         current_companies = [c for c in _as_list(current_company) if c]
         past_companies = [c for c in _as_list(past_company) if c]
-        if not any(
-            (
-                keywords,
-                location,
-                network,
-                current_companies,
-                past_companies,
-                industry_ids,
-                title,
-                school,
-                first_name,
-                last_name,
-                languages,
-            )
-        ):
+        other_criteria = (
+            keywords,
+            location,
+            network,
+            current_companies,
+            past_companies,
+            industry_ids,
+            school,
+            first_name,
+            last_name,
+            languages,
+        )
+        if not any(other_criteria) and not title:
             raise FilterValidationError(
                 "search_people needs at least one of keywords, location, network, "
                 "current_company, past_company, title, industry, school, "
                 "first_name, last_name or profile_language"
+            )
+        # LinkedIn ignores titleFreeText (measured live), so a title on its
+        # own would navigate and return the unfiltered worldwide list.
+        if title and not any(other_criteria):
+            raise FilterValidationError(
+                "search_people cannot filter by title alone: LinkedIn ignores "
+                "titleFreeText. Put the title in keywords as a quoted phrase "
+                f"(keywords='\"{title}\"'), or combine title with another "
+                "facet such as location or current_company"
             )
 
         # LinkedIn ignores a name in currentCompany=/pastCompany=; resolve each

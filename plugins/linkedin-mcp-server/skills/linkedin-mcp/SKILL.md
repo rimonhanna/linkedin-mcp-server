@@ -45,6 +45,8 @@ instances, clear profiles, or replace the user's browser session.
   plus `max_pages`; every page is one navigation, and each company name that
   is not already cached costs one or two more. LinkedIn ignores `title` on
   its current results page: put the title in `keywords` as a quoted phrase.
+  `title` as the only criterion is refused rather than returning an
+  unfiltered list.
   The result carries `people` rows (`name`, `degree`, `headline`, `location`,
   `snippet`, `url`) parsed from the page text and a `result_count`; `url` is
   null when a card could not be paired with a profile link, so keep the raw
