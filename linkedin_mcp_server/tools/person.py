@@ -168,7 +168,8 @@ def register_person_tools(
         Recommended funnel for account-based prospecting: search_companies
         (industry/size/hq_location facets) -> enrich_companies(about=True)
         -> query_company_cache to pick the accounts -> search_people(
-        current_company=[...ids or names...], title=...) for the people.
+        current_company=[...ids or names...], keywords='"<title>"') for
+        the people.
 
         Args:
             ctx: FastMCP context for progress reporting
@@ -218,21 +219,32 @@ def register_person_tools(
                 (location, current_company, ...) or use keywords.
             past_company: Optional past-employer filter; same shapes and
                 resolution as current_company. Each unresolved name may cost
-                up to two navigations.
+                up to two navigations. The facet's URL parameter name is
+                unverified against live LinkedIn; a wrong name is ignored,
+                so cross-check results.
             industry: Optional industry filter, one or a list. Each is
                 LinkedIn's numeric industry id (e.g. "4") or a name this
                 server knows (e.g. "Software Development", "Financial
                 Services"; same table as search_companies). An unknown name
-                raises an error listing the known names.
+                raises an error listing the known names. The facet's URL
+                parameter name and values are unverified against live
+                LinkedIn; a wrong name is ignored, so cross-check results.
             school: Optional school filter, the numeric school id only (a
                 name raises an error: LinkedIn's schools search exposes no
                 id to resolve it from). To find the id: LinkedIn people
                 search -> All filters -> School -> pick one; the URL then
-                shows schoolFilter=["<id>"].
-            first_name: Optional first-name filter.
-            last_name: Optional last-name filter.
+                shows schoolFilter=["<id>"]. The facet's URL parameter name
+                is unverified against live LinkedIn; a wrong name is
+                ignored, so cross-check results.
+            first_name: Optional first-name filter (verified live).
+            last_name: Optional last-name filter. The facet's URL parameter
+                name is unverified against live LinkedIn; a wrong name is
+                ignored, so cross-check results.
             profile_language: Optional profile-language filter, one or a list
-                of two-letter ISO 639-1 codes (e.g. "en", "de", "fr").
+                of two-letter ISO 639-1 codes (e.g. "en", "de", "fr"). The
+                facet's URL parameter name and values are unverified against
+                live LinkedIn; a wrong name is ignored, so cross-check
+                results.
 
         Returns:
             Dict with url, sections (name -> raw text), people, result_count,

@@ -4802,6 +4802,12 @@ class TestSearchJobs:
                 "linkedin_mcp_server.scraping.extractor.asyncio.sleep",
                 side_effect=sleep,
             ),
+            # The arithmetic below assumes the delay is exactly _NAV_DELAY;
+            # human_pause jitters it by +/- 50%, and a long draw drops a page.
+            patch(
+                "linkedin_mcp_server.core.humanize.jitter",
+                side_effect=lambda base, spread=0.5: base,
+            ),
         ):
             result = await extractor.search_jobs("python", max_pages=10)
 
@@ -4861,6 +4867,12 @@ class TestSearchJobs:
             patch(
                 "linkedin_mcp_server.scraping.extractor.asyncio.sleep",
                 side_effect=sleep,
+            ),
+            # Same as above: the budget sits 0.1s either side of the two
+            # arithmetics, so a jittered delay decides the page count.
+            patch(
+                "linkedin_mcp_server.core.humanize.jitter",
+                side_effect=lambda base, spread=0.5: base,
             ),
         ):
             # 176.25 * _SEARCH_TIMEOUT_FRACTION is a 141s budget.
@@ -7154,12 +7166,18 @@ class TestResolveCompanyUrn:
     ):
         """A retry may succeed, so the second call searches again."""
         extractor = self._extractor(mock_page, tmp_path)
-        with patch.object(
-            extractor,
-            "extract_page",
-            new_callable=AsyncMock,
-            return_value=bad_page,
-        ) as nav:
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=bad_page,
+            ) as nav,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+        ):
             with pytest.raises(FilterValidationError):
                 await extractor._resolve_company_urn("SAP")
             with pytest.raises(FilterValidationError):
@@ -7167,6 +7185,63 @@ class TestResolveCompanyUrn:
 
         assert nav.await_count == 2
         assert "sap" not in extractor._company_urn_cache
+
+    async def test_every_hop_between_two_resolutions_is_paced(
+        self, mock_page, tmp_path
+    ):
+        """Two names resolve as search(A), about(A), search(B), about(B):
+        four navigations, so three pauses. The about(A) -> search(B) hop
+        is the one a per-resolution pause alone misses."""
+        extractor = self._extractor(mock_page, tmp_path)
+        pages = {
+            self.SEARCH: extracted("SAP", [self._company_ref("sap")]),
+            self.ABOUT: extracted("About SAP", [self._urn_ref("1115")]),
+            "https://www.linkedin.com/search/results/companies/?keywords=Bosch": (
+                extracted("Bosch", [self._company_ref("bosch")])
+            ),
+            "https://www.linkedin.com/company/bosch/about/": extracted(
+                "About Bosch", [self._urn_ref("2222")]
+            ),
+        }
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=lambda url, **_: pages[url],
+            ) as nav,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ) as pause,
+        ):
+            assert await extractor._resolve_company_urn("SAP") == "1115"
+            assert await extractor._resolve_company_urn("Bosch") == "2222"
+
+        assert nav.await_count == 4
+        assert pause.await_count == nav.await_count - 1
+
+    async def test_the_first_navigation_of_a_batch_is_not_paced(
+        self, mock_page, tmp_path
+    ):
+        extractor = self._extractor(mock_page, tmp_path)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=extracted("About SAP", [self._urn_ref("1115")]),
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ) as pause,
+        ):
+            await extractor._resolve_company_urn(
+                "https://www.linkedin.com/company/sap/"
+            )
+
+        pause.assert_not_awaited()
 
     async def test_a_failing_write_back_does_not_fail_the_resolution(
         self, mock_page, tmp_path, caplog
@@ -7674,6 +7749,53 @@ class TestSearchPeopleRows:
         assert result["sections"]["search_results"] == self.PAGE_1
         assert "Could not parse result cards on page 1" in caplog.text
 
+    async def test_anchors_without_rows_warn_of_an_unrecognised_layout(
+        self, mock_page, caplog
+    ):
+        """A page with profile anchors is a page of cards. Parsing none of
+        them is a layout the text parser does not know (or a locale whose
+        degree token differs), not an empty result, and must not pass as
+        one in silence."""
+        # The cards carry no ``• 2nd`` head, as a non-English page might.
+        page = "About 12 results\n\nAda\nIngenieurin\nBerlin\n\nBob\nGruender\nWien"
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=extracted(
+                    page, [_person_ref("ada", "Ada"), _person_ref("bob", "Bob")]
+                ),
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            result = await extractor.search_people("engineer")
+
+        assert result["people"] == []
+        assert [r.message for r in caplog.records if r.levelno == logging.WARNING] == [
+            "Page 1: 2 references but no result rows parsed (unrecognised card "
+            "layout or locale)"
+        ]
+
+    async def test_a_page_without_anchors_or_rows_does_not_warn(
+        self, mock_page, caplog
+    ):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=extracted("No results found"),
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            result = await extractor.search_people("engineer")
+
+        assert result["people"] == []
+        assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
     async def test_no_page_means_no_rows(self, mock_page):
         extractor = LinkedInExtractor(mock_page)
         with patch.object(
@@ -7720,6 +7842,30 @@ class TestSearchPeopleRows:
 
 class TestSearchCompaniesRows:
     """``companies`` rows, same wiring as ``TestSearchPeopleRows``."""
+
+    async def test_anchors_without_rows_warn_of_an_unrecognised_layout(
+        self, mock_page, caplog
+    ):
+        # Company cards are found by their followers line; a locale that
+        # spells it differently yields no rows from a page full of anchors.
+        page = "Acme\nSoftware\nOslo, Oslo\nFolgen\nTools\n1.200 Follower:innen"
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=extracted(page, [_company_ref("acme", "Acme")]),
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            result = await extractor.search_companies("tools")
+
+        assert result["companies"] == []
+        assert [r.message for r in caplog.records if r.levelno == logging.WARNING] == [
+            "Page 1: 1 references but no result rows parsed (unrecognised card "
+            "layout or locale)"
+        ]
 
     async def test_rows_pair_before_the_reference_cap(self, mock_page):
         # Sixteen cards is one past the section cap; the page is extracted
@@ -8042,6 +8188,98 @@ class TestContentSearchScroll:
 
         assert count == 5
         assert page.mouse.wheel.await_count == 1 + 3
+
+    async def test_a_stale_stop_below_max_posts_warns(self, caplog):
+        page = self._page([3, 5])
+        extractor = LinkedInExtractor(page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            await extractor._scroll_content_search_results(max_posts=50)
+
+        assert [r.message for r in caplog.records if r.levelno == logging.WARNING] == [
+            "content search stopped at 5 of max_posts 50: page stopped producing "
+            "new results"
+        ]
+
+    async def test_reaching_max_posts_does_not_warn(self, caplog):
+        page = self._page([4, 7, 10])
+        extractor = LinkedInExtractor(page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            await extractor._scroll_content_search_results(max_posts=10)
+
+        assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+    class _Clock:
+        """A monotonic clock the pauses move, so the budget is testable."""
+
+        def __init__(self) -> None:
+            self.now = 0.0
+
+        def monotonic(self) -> float:
+            return self.now
+
+    async def test_stops_at_the_scroll_budget_while_still_loading(self, caplog):
+        """A page that keeps answering one more card never goes stale and
+        would otherwise wheel all twenty rounds; the 60s budget stops it."""
+        clock = self._Clock()
+        page = self._page(list(range(1, 40)))
+        extractor = LinkedInExtractor(page)
+
+        async def pause(seconds: float, spread: float = 0.5) -> None:
+            clock.now += 30.0
+
+        with (
+            patch.object(extractor_module, "time", clock),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                side_effect=pause,
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            count = await extractor._scroll_content_search_results(max_posts=50)
+
+        # Two productive rounds land on the deadline; the third never wheels.
+        assert count == 3
+        assert page.mouse.wheel.await_count == 2
+        assert [r.message for r in caplog.records if r.levelno == logging.WARNING] == [
+            "content search stopped at 3 of max_posts 50: 60s scroll budget spent"
+        ]
+
+    async def test_the_budget_cuts_a_poll_short(self):
+        """The deadline is checked between polls too, so a stalled page does
+        not get its full six-second wait after the budget is gone."""
+        clock = self._Clock()
+        page = self._page([3])
+        extractor = LinkedInExtractor(page)
+
+        async def pause(seconds: float, spread: float = 0.5) -> None:
+            clock.now += 30.0
+
+        with (
+            patch.object(extractor_module, "time", clock),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                side_effect=pause,
+            ) as pauses,
+        ):
+            count = await extractor._scroll_content_search_results(max_posts=50)
+
+        assert count == 3
+        assert page.mouse.wheel.await_count == 1
+        # The second pause reaches the deadline; four more would follow
+        # without the check inside the poll loop.
+        assert pauses.await_count == 2
 
     async def test_loaded_section_routes_content_search_to_wheel_loop(self, mock_page):
         mock_page.evaluate = AsyncMock(return_value={"text": "", "references": []})

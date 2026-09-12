@@ -217,12 +217,17 @@ def register_company_tools(
                 A comma-separated string ("4,43") is also accepted, and a bare
                 string splits on every comma: a name that contains one, such
                 as "Technology, Information and Internet", must be passed
-                inside a JSON array or without its comma.
+                inside a JSON array or without its comma. The facet's URL
+                parameter name and values are unverified against live
+                LinkedIn; a wrong name is ignored, so cross-check results.
             size: Optional headcount filter. Each element is a bucket as
                 LinkedIn labels it ("self-employed", "1-10", "11-50",
                 "51-200", "201-500", "501-1000", "1001-5000", "5001-10000",
                 "10001+") or its facet letter "A"-"I" in that order.
                 A comma-separated string ("51-200,201-500") is also accepted.
+                The facet's URL parameter name and values are unverified
+                against live LinkedIn; a wrong name is ignored, so
+                cross-check results.
             hq_location: Optional headquarters filter: a country or city name
                 (e.g., "Germany", "Berlin"), resolved to LinkedIn's numeric geo
                 id through the site's own location dropdown. A name LinkedIn

@@ -948,7 +948,7 @@ _CardParser = Callable[[str, Sequence[Mapping[str, Any]]], list[dict[str, Any]]]
 
 
 def _search_rows(
-    parser: _CardParser, pages: Sequence[ExtractedSection]
+    parser: _CardParser, pages: Sequence[ExtractedSection], kind: str
 ) -> tuple[list[dict[str, Any]], int | None]:
     """Rows across the fetched results pages, deduped by URL, plus the result
     count from the first page.
@@ -957,6 +957,12 @@ def _search_rows(
     for ``sections`` afterwards, so a card can never straddle the separator.
     A parser failure is logged and yields no rows for that page; the raw text
     still reaches the caller, and a parser bug must never take the tool down.
+
+    ``kind`` is the reference kind the parser pairs rows with. A page that
+    carries such references but parses to no rows is a page of cards the
+    text parser did not recognise (a layout change, or a locale whose
+    degree and followers tokens differ), and is warned about rather than
+    passed off as an empty result.
     """
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -969,6 +975,15 @@ def _search_rows(
                 "Could not parse result cards on page %d", index + 1, exc_info=True
             )
             continue
+        if not page_rows:
+            anchors = sum(1 for ref in page.references if ref.get("kind") == kind)
+            if anchors:
+                logger.warning(
+                    "Page %d: %d references but no result rows parsed "
+                    "(unrecognised card layout or locale)",
+                    index + 1,
+                    anchors,
+                )
         for row in page_rows:
             url = row.get("url")
             if url is not None:
@@ -1296,6 +1311,9 @@ class LinkedInExtractor:
         # company name/slug (casefolded) -> numeric company URN id ("" means
         # "did not resolve"), same contract as ``_geo_cache``.
         self._company_urn_cache: dict[str, str] = {}
+        # Whether a company resolution has navigated on this extractor: the
+        # next one paces its first navigation like every later hop.
+        self._company_lookup_navigated = False
         # The on-disk company cache, opened on first use so an extractor that
         # never resolves a company name never touches the filesystem.
         self._company_cache: CompanyCache | None = None
@@ -1956,13 +1974,21 @@ class LinkedInExtractor:
         Same shape as the feed loop in ``_extract_feed_body``: the results
         live in their own scroll container, so ``window.scrollTo`` is a no-op
         and only a wheel over the viewport moves it. Stops once the card
-        count reaches ``max_posts`` or after ``_MAX_STALE`` rounds without a
-        new card. Returns the final count.
+        count reaches ``max_posts``, after ``_MAX_STALE`` rounds without a
+        new card, or when ``_SCROLL_BUDGET_TOTAL`` runs out: without the
+        deadline the worst case is every round polling to its full wait,
+        which is twice the tool timeout's comfortable share. Returns the
+        final count; any stop below ``max_posts`` is logged as a warning.
         """
+        # TODO(live-verify): wheel-scroll loading of content-search cards is
+        # unmeasured; the diagnosis (window.scrollTo never moved the results)
+        # was live, this loop was not.
         _MAX_STALE = 3
         _BATCH_WAIT = 6
         _WHEEL_DELTA = 2000
         stale_count = 0
+        deadline = time.monotonic() + _SCROLL_BUDGET_TOTAL
+        stop_reason: str | None = None
 
         viewport = self._page.viewport_size or {"width": 1280, "height": 720}
         cx, cy = viewport["width"] // 2, viewport["height"] // 2
@@ -1973,6 +1999,9 @@ class LinkedInExtractor:
             logger.debug("Content search scroll %d: %d results", i, count)
             if count >= max_posts:
                 break
+            if time.monotonic() >= deadline:
+                stop_reason = f"{_SCROLL_BUDGET_TOTAL:.0f}s scroll budget spent"
+                break
 
             await self._page.mouse.wheel(0, _WHEEL_DELTA)
 
@@ -1980,7 +2009,7 @@ class LinkedInExtractor:
             for _ in range(_BATCH_WAIT):
                 await human_pause(1.0)
                 new_count = await self._count_content_search_results()
-                if new_count > count:
+                if new_count > count or time.monotonic() >= deadline:
                     break
 
             if new_count > count:
@@ -1994,9 +2023,19 @@ class LinkedInExtractor:
                     new_count,
                 )
                 if stale_count >= _MAX_STALE:
-                    logger.debug("Content search stopped producing new results")
+                    stop_reason = "page stopped producing new results"
                     break
             count = new_count
+        else:
+            stop_reason = f"{_CONTENT_SEARCH_MAX_SCROLLS} scroll rounds spent"
+
+        if count < max_posts:
+            logger.warning(
+                "content search stopped at %d of max_posts %d: %s",
+                count,
+                max_posts,
+                stop_reason,
+            )
         return count
 
     async def extract_feed(
@@ -5015,10 +5054,15 @@ class LinkedInExtractor:
                 "https://www.linkedin.com/search/results/companies/"
                 f"?keywords={quote_plus(lookup)}"
             )
+            # A batch resolves names back to back, so the previous name's
+            # About page and this search are consecutive navigations.
+            if self._company_lookup_navigated:
+                await human_pause(_NAV_DELAY)
             extracted = await self.extract_page(
                 search_url, section_name="search_results"
             )
             searched = True
+            self._company_lookup_navigated = True
             throttled = extracted.text == _RATE_LIMITED_MSG
             failed = extracted.error is not None
             hits = parse_search_results([dict(ref) for ref in extracted.references])
@@ -5034,8 +5078,8 @@ class LinkedInExtractor:
             if hit is None and hits and not throttled and not failed:
                 self._company_urn_cache[key] = ""
                 raise FilterValidationError(
-                    f"Could not resolve current_company {name_or_urn!r}: no "
-                    f"company search card is named that. Candidates: "
+                    f"Could not resolve company {name_or_urn!r}: no company "
+                    f"search card is named that. Candidates: "
                     f"{[h['slug'] for h in hits]!r}. Pass the intended one as "
                     f"https://www.linkedin.com/company/<slug>/ instead."
                 )
@@ -5052,11 +5096,12 @@ class LinkedInExtractor:
                     urn = _company_urn_of_first_card(extracted.references)
 
         if slug is not None and urn is None:
-            if searched:
+            if searched or self._company_lookup_navigated:
                 await human_pause(_NAV_DELAY)
             about = await self.extract_page(
                 company_page_url(slug, "/about/"), section_name="about"
             )
+            self._company_lookup_navigated = True
             throttled = throttled or about.text == _RATE_LIMITED_MSG
             failed = failed or about.error is not None
             for ref in about.references:
@@ -5095,8 +5140,8 @@ class LinkedInExtractor:
             else "no company search hit or About page yielded an id"
         )
         return (
-            f"Could not resolve current_company {name!r} to a LinkedIn company "
-            f"URN ({why}). Pass the numeric id instead: get_company_profile "
+            f"Could not resolve company {name!r} to a LinkedIn company URN "
+            f"({why}). Pass the numeric id instead: get_company_profile "
             f'exposes it under references["about"] as kind "company_urn".'
         )
 
@@ -5340,7 +5385,7 @@ class LinkedInExtractor:
                 break
             seen_person_urls |= new_people
 
-        people, result_count = _search_rows(parse_people_cards, pages)
+        people, result_count = _search_rows(parse_people_cards, pages, "person")
         result: dict[str, Any] = {
             "url": base_url,
             "sections": {"search_results": "\n---\n".join(page_texts)}
@@ -5514,7 +5559,7 @@ class LinkedInExtractor:
                 break
             seen_company_urls |= new_companies
 
-        companies, result_count = _search_rows(parse_company_cards, pages)
+        companies, result_count = _search_rows(parse_company_cards, pages, "company")
         result: dict[str, Any] = {
             "url": base_url,
             "sections": {"search_results": "\n---\n".join(page_texts)}
