@@ -1135,6 +1135,43 @@ class TestProxyFailureIsNotAnAuthFailure:
         resolver.assert_awaited()
 
     @pytest.mark.asyncio
+    async def test_network_error_survives_the_remember_me_retry(self, monkeypatch):
+        # Same shape without a proxy: the retry raises NetworkError, and the
+        # outer generic handler used to catch it, re-probe the remember-me
+        # prompt on the failed page, and trace and log the failure twice.
+        monkeypatch.setattr(
+            "linkedin_mcp_server.config.get_config",
+            browser_module.get_config,
+        )
+        browser = _make_mock_browser()
+        browser.page.goto = AsyncMock(
+            side_effect=[None, Exception("Page.goto: Timeout 30000ms exceeded.")]
+        )
+
+        with (
+            patch(
+                "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as resolver,
+            patch(
+                "linkedin_mcp_server.drivers.browser.record_page_trace",
+                new_callable=AsyncMock,
+            ) as record_page_trace,
+            pytest.raises(NetworkError, match="no auth barrier was found") as excinfo,
+        ):
+            await _feed_auth_succeeds(browser)
+
+        resolver.assert_awaited_once()
+        steps = [call.args[1] for call in record_page_trace.await_args_list]
+        assert steps.count("feed-navigation-error") == 1
+        assert "feed-after-remember-me-error-recovery" not in steps
+        assert browser.page.goto.await_count == 2
+        assert not isinstance(excinfo.value, ProxyConnectionError)
+        # Wrapped once: the inner message must not be nested inside another.
+        assert str(excinfo.value).count("no auth barrier was found") == 1
+
+    @pytest.mark.asyncio
     async def test_proxy_password_is_not_in_the_message(self, monkeypatch):
         browser_module.get_config().browser.proxy_server = "http://gate.example:7000"
         browser_module.get_config().browser.proxy_password = "s3cr3t"

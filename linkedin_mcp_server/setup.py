@@ -360,8 +360,7 @@ async def _run_login(
                 detail = redact_proxy_credentials(f"{type(exc).__name__}: {exc}")
                 raise NetworkError(
                     f"The LinkedIn login page did not load ({detail}). "
-                    "No auth state was touched: the saved LinkedIn session "
-                    "is still in place."
+                    "The saved LinkedIn session was put back unchanged."
                 ) from exc
             # Let LinkedIn finish rendering the saved-account chooser, then retry
             # the same exact click target before the normal manual-login wait.

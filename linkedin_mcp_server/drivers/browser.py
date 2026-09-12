@@ -229,13 +229,20 @@ async def _feed_auth_succeeds(
             await _log_feed_failure_context(browser, barrier)
             return False
         return True
+    except NetworkError:
+        # Already classified: the remember-me retries above run inside this
+        # try, and the inner call has done the probing, tracing and logging
+        # below once. Letting it fall through re-probed the prompt on a page
+        # that had failed, wrote a second feed-navigation-error trace, and
+        # wrapped the message twice.
+        raise
     except Exception as exc:
         # Before anything else: a proxy fault is not a dead session. Returning
         # False here would have the caller retire a valid profile and tell the
         # user to log in again, which cannot fix an unreachable proxy. Checked
         # first because no page loaded, so there is no remember-me prompt to
-        # resolve, and it also catches a ProxyConnectionError raised by the
-        # recursive retries above, which run inside this try.
+        # resolve. The goto is already wrapped; this covers a raw driver error
+        # from the other awaits in the try.
         raise_if_proxy_error(exc)
         if allow_remember_me and await resolve_remember_me_prompt(browser.page):
             await stabilize_navigation(

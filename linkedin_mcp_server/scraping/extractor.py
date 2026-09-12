@@ -1823,12 +1823,16 @@ class LinkedInExtractor:
     async def _count_content_search_results(self) -> int:
         """Count result cards on a content-search page by their author anchor.
 
-        Every card links its author (``/in/`` or ``/company/``); nothing else
-        in ``<main>`` does on this page. Distinct hrefs so a card's repeated
-        author link (avatar plus name) counts once.
+        Every card links its author (``/in/`` or ``/company/``). Distinct
+        hrefs so a card's repeated author link (avatar plus name) counts once.
+
+        An estimate, and it errs in both directions. Two posts by one author
+        count as one card, so the loop may scroll a round further than
+        needed. An ``/in/`` @-mention inside a post body counts as a card that
+        does not exist, so the loop may stop with fewer cards than
+        ``max_posts`` when posts mention people. What it never does is report
+        fewer than the distinct anchors seen.
         """
-        # ponytail: two posts by one author count as one card, so the loop
-        # may scroll a round further than needed; it never stops early.
         return await self._page.evaluate(
             """() => {
                 const main = document.querySelector('main');

@@ -401,7 +401,7 @@ async def test_interactive_login_reports_a_login_page_that_did_not_load(
         await interactive_login(tmp_path / "profile")
 
     assert "Timeout 30000ms" in str(excinfo.value)
-    assert "still in place" in str(excinfo.value)
+    assert "put back unchanged" in str(excinfo.value)
     wait_mock.assert_not_awaited()
     restore.assert_called_once_with(retired, tmp_path / "profile")
 
