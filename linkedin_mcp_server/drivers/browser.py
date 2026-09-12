@@ -18,6 +18,7 @@ from linkedin_mcp_server.common_utils import harden_linkedin_tree, secure_mkdir
 from linkedin_mcp_server.core import (
     AuthenticationError,
     BrowserManager,
+    NetworkError,
     await_deferring_cancels,
     detect_auth_barrier_quick,
     detect_rate_limit,
@@ -189,7 +190,14 @@ async def _feed_auth_succeeds(
     *,
     allow_remember_me: bool = True,
 ) -> bool:
-    """Validate that /feed/ loads without an auth barrier."""
+    """Validate that /feed/ loads without an auth barrier.
+
+    False means a barrier was seen: the only evidence of an expired session.
+    A navigation that fails without one raises :class:`NetworkError` (or
+    :class:`ProxyConnectionError` under a proxy), so callers that turn False
+    into an ``AuthenticationError`` never do so for a page that merely did not
+    finish loading.
+    """
     try:
         await goto_reporting_proxy_errors(
             browser.page,
@@ -256,17 +264,27 @@ async def _feed_auth_succeeds(
         # and both destinations here outlive the call -- the trace is written to
         # disk and the log is what users paste into issue reports.
         await _log_feed_failure_context(browser, detail)
-        if barrier is None:
-            # Nothing loaded and no barrier, so nothing proves the session is
-            # dead -- and with a proxy in front, the most likely cause is the
-            # proxy. Wrong credentials in particular produce no proxy error code
-            # at all: Chromium retries the 407 challenge until the navigation
-            # times out (verified against a local authenticating relay), so the
-            # marker check above cannot catch it. Reporting False would hand the
-            # caller an AuthenticationError, whose recovery moves the stored
-            # profile aside and starts a login through the same broken proxy.
-            raise_if_proxy_configured(exc)
-        return False
+        if barrier is not None:
+            return False
+        # Nothing loaded and no barrier, so nothing proves the session is
+        # dead -- and with a proxy in front, the most likely cause is the
+        # proxy. Wrong credentials in particular produce no proxy error code
+        # at all: Chromium retries the 407 challenge until the navigation
+        # times out (verified against a local authenticating relay), so the
+        # marker check above cannot catch it. Reporting False would hand the
+        # caller an AuthenticationError, whose recovery moves the stored
+        # profile aside and starts a login through the same broken proxy.
+        raise_if_proxy_configured(exc)
+        # Without a proxy the same holds: a navigation that did not finish is
+        # not evidence of expiry, only a barrier is. Measured: /feed/ rendered
+        # logged in (title, name, li_at present) and the load event still ran
+        # past 30 s, and reporting False rotated that working session into
+        # invalid-state-*. NetworkError is routed to the tool error without a
+        # rotation; AuthenticationError is what triggers one.
+        raise NetworkError(
+            f"/feed/ did not finish loading and no auth barrier was found "
+            f"({detail}). The saved LinkedIn session was not changed."
+        ) from exc
 
 
 def _launch_options() -> tuple[dict[str, Any], dict[str, int]]:
