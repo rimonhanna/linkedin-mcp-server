@@ -93,10 +93,10 @@ _SECTION_CONTEXTS = {
 }
 
 _DEFAULT_REFERENCE_CAP = 12
-# A payload cap, not a parsing one: search_jobs, search_people and
-# search_companies extract uncapped, pair their rows against every anchor
-# (a people card carries its mutual connections' anchors too), and apply this
-# cap to what they return under ``references``.
+# A per-page cap, not a parsing one, same as search_jobs: each page's
+# references are extracted uncapped, its rows pair against that uncapped set
+# (a people card carries its mutual connections' anchors too), and only then
+# is this cap applied before the page's references join the merged list.
 _SEARCH_RESULTS_REFERENCE_CAP = 15
 _REFERENCE_CAPS = {
     "main_profile": 12,
