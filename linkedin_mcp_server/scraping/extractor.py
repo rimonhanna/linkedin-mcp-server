@@ -513,10 +513,11 @@ _CONTENT_DATE_POSTED_MAP = {
     "past_month": "past-month",
 }
 
-# Content search is an infinite scroll with no ``&start=`` pagination, so
-# ``max_pages`` caps scroll depth instead of fetching discrete pages. One
-# nominal "page" is this many scrolls.
-_CONTENT_SCROLLS_PER_REQUESTED_PAGE = 5
+# Content search is an infinite scroll with no ``&start=`` pagination, and
+# the results render in an inner scrollable region, so ``window.scrollTo``
+# never moves it. ``_scroll_content_search_results`` wheel-scrolls instead
+# and stops on a result count, so this is only a runaway guard.
+_CONTENT_SEARCH_MAX_SCROLLS = 20
 
 # Valid tokens for the people-search ``network`` facet.
 # LinkedIn accepts "F" (1st-degree), "S" (2nd-degree), "O" (3rd-degree and beyond).
@@ -1769,6 +1770,78 @@ class LinkedInExtractor:
             )
             await asyncio.sleep(pause_time)
 
+    async def _count_content_search_results(self) -> int:
+        """Count result cards on a content-search page by their author anchor.
+
+        Every card links its author (``/in/`` or ``/company/``); nothing else
+        in ``<main>`` does on this page. Distinct hrefs so a card's repeated
+        author link (avatar plus name) counts once.
+        """
+        # ponytail: two posts by one author count as one card, so the loop
+        # may scroll a round further than needed; it never stops early.
+        return await self._page.evaluate(
+            """() => {
+                const main = document.querySelector('main');
+                if (!main) return 0;
+                const seen = new Set();
+                for (const a of main.querySelectorAll(
+                    'a[href*="/in/"], a[href*="/company/"]'
+                )) {
+                    seen.add(a.getAttribute('href').split('?')[0]);
+                }
+                return seen.size;
+            }"""
+        )
+
+    async def _scroll_content_search_results(self, max_posts: int) -> int:
+        """Wheel-scroll content-search results until ``max_posts`` cards show.
+
+        Same shape as the feed loop in ``_extract_feed_body``: the results
+        live in their own scroll container, so ``window.scrollTo`` is a no-op
+        and only a wheel over the viewport moves it. Stops once the card
+        count reaches ``max_posts`` or after ``_MAX_STALE`` rounds without a
+        new card. Returns the final count.
+        """
+        _MAX_STALE = 3
+        _BATCH_WAIT = 6
+        _WHEEL_DELTA = 2000
+        stale_count = 0
+
+        viewport = self._page.viewport_size or {"width": 1280, "height": 720}
+        cx, cy = viewport["width"] // 2, viewport["height"] // 2
+        await self._page.mouse.move(cx, cy)
+
+        count = await self._count_content_search_results()
+        for i in range(_CONTENT_SEARCH_MAX_SCROLLS):
+            logger.debug("Content search scroll %d: %d results", i, count)
+            if count >= max_posts:
+                break
+
+            await self._page.mouse.wheel(0, _WHEEL_DELTA)
+
+            new_count = count
+            for _ in range(_BATCH_WAIT):
+                await human_pause(1.0)
+                new_count = await self._count_content_search_results()
+                if new_count > count:
+                    break
+
+            if new_count > count:
+                stale_count = 0
+            else:
+                stale_count += 1
+                logger.debug(
+                    "Content search stale scroll %d/%d (still at %d results)",
+                    stale_count,
+                    _MAX_STALE,
+                    new_count,
+                )
+                if stale_count >= _MAX_STALE:
+                    logger.debug("Content search stopped producing new results")
+                    break
+            count = new_count
+        return count
+
     async def extract_feed(
         self,
         num_posts: int = 10,
@@ -1956,8 +2029,12 @@ class LinkedInExtractor:
         url: str,
         section_name: str,
         max_scrolls: int | None = None,
+        max_posts: int | None = None,
     ) -> ExtractedSection:
         """Navigate to a URL, scroll to load lazy content, and extract innerText.
+
+        ``max_posts`` only applies to content-search result pages, where the
+        scroll is count-driven rather than depth-driven.
 
         Retries after a backoff when the page returns only LinkedIn chrome
         (sidebar/footer noise with no actual content), which indicates a soft
@@ -1968,13 +2045,17 @@ class LinkedInExtractor:
         Returns empty string for unexpected non-domain failures (error isolation).
         """
         try:
-            result = await self._extract_page_once(url, section_name, max_scrolls)
+            result = await self._extract_page_once(
+                url, section_name, max_scrolls, max_posts
+            )
             if result.text != _RATE_LIMITED_MSG:
                 return result
 
             if not await self._claim_soft_retry(url):
                 return result
-            return await self._extract_page_once(url, section_name, max_scrolls)
+            return await self._extract_page_once(
+                url, section_name, max_scrolls, max_posts
+            )
 
         except LinkedInScraperException:
             raise
@@ -1996,16 +2077,20 @@ class LinkedInExtractor:
         url: str,
         section_name: str,
         max_scrolls: int | None = None,
+        max_posts: int | None = None,
     ) -> ExtractedSection:
         """Single attempt to navigate, scroll, and extract innerText."""
         await self._navigate_to_page(url)
-        return await self._extract_loaded_section(url, section_name, max_scrolls)
+        return await self._extract_loaded_section(
+            url, section_name, max_scrolls, max_posts
+        )
 
     async def _extract_loaded_section(
         self,
         url: str,
         section_name: str,
         max_scrolls: int | None = None,
+        max_posts: int | None = None,
     ) -> ExtractedSection:
         """Run the post-navigation extraction pipeline on the current page.
 
@@ -2131,7 +2216,11 @@ class LinkedInExtractor:
                     break
 
         # Scroll to trigger lazy loading
-        if is_activity:
+        if "/search/results/content/" in path:
+            await self._scroll_content_search_results(
+                max_posts if max_posts is not None else 10
+            )
+        elif is_activity:
             scrolls = max_scrolls if max_scrolls is not None else 10
             await scroll_to_bottom(self._page, pause_time=1.0, max_scrolls=scrolls)
         else:
@@ -4881,7 +4970,7 @@ class LinkedInExtractor:
         self,
         keywords: str,
         date_posted: str | None = None,
-        max_pages: int = 3,
+        max_posts: int = 10,
     ) -> dict[str, Any]:
         """Search LinkedIn posts/content and extract the results page.
 
@@ -4896,19 +4985,21 @@ class LinkedInExtractor:
                 ``FilterValidationError`` (a ``ValueError`` subclass) rather
                 than reaching LinkedIn, which would ignore them silently and
                 return unfiltered results that look filtered.
-            max_pages: Scroll depth, expressed in result "pages" of roughly
-                ``_CONTENT_SCROLLS_PER_REQUESTED_PAGE`` scrolls each (default
-                3). Content search is an infinite scroll with no per-page URL,
-                so this caps how far the page is scrolled rather than fetching
-                discrete ``&start=`` pages.
+            max_posts: Stop scrolling once this many result cards are loaded
+                (default 10). Content search is an infinite scroll with no
+                per-page URL, so the loop counts cards rather than pages; the
+                page may hold a few more than this when a scroll batch
+                overshoots.
 
         Returns:
             {url, sections: {search_results: text}} plus optional ``references``
             (post authors, companies, linked jobs) and ``section_errors``.
             Verified live: the results page carries no per-post permalink
-            anchors, so a post is addressable only through its author.
-            The LLM should parse the raw text to extract each post's author,
-            headline, body, date, and reaction counts.
+            anchors, so a post is addressable only through its author; the
+            ``/in/`` entries in ``references["search_results"]`` make the
+            result usable as a prospect list. The LLM should parse the raw
+            text to extract each post's author, headline, body, date, and
+            reaction counts.
         """
         if (
             date_posted is not None
@@ -4921,9 +5012,8 @@ class LinkedInExtractor:
             )
 
         url = self._build_content_search_url(keywords, date_posted=date_posted)
-        max_scrolls = max(1, max_pages) * _CONTENT_SCROLLS_PER_REQUESTED_PAGE
         extracted = await self.extract_page(
-            url, section_name="search_results", max_scrolls=max_scrolls
+            url, section_name="search_results", max_posts=max_posts
         )
 
         sections: dict[str, str] = {}

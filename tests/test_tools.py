@@ -1475,7 +1475,7 @@ class TestPostTools:
         mock_extractor.search_posts.assert_awaited_once_with(
             "Buscamos Unity",
             date_posted="past-week",
-            max_pages=3,
+            max_posts=10,
         )
 
     async def test_search_posts_validation_error_surfaced_as_tool_error(

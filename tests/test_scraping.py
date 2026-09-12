@@ -6700,9 +6700,8 @@ class TestSearchPosts:
         assert "/search/results/content/" in result["url"]
         assert "origin=FACETED_SEARCH" in result["url"]
         assert result["sections"]["search_results"] == "We're hiring a Unity dev"
-        # max_pages default (3) -> 15 scrolls
         mock_extract.assert_awaited_once_with(
-            ANY, section_name="search_results", max_scrolls=15
+            ANY, section_name="search_results", max_posts=10
         )
 
     async def test_date_posted_in_url(self, mock_page):
@@ -6719,7 +6718,7 @@ class TestSearchPosts:
 
         assert "datePosted=%5B%22past-week%22%5D" in result["url"]
 
-    async def test_max_pages_controls_scroll_depth(self, mock_page):
+    async def test_max_posts_reaches_extract_page(self, mock_page):
         extractor = LinkedInExtractor(mock_page)
         with patch.object(
             extractor,
@@ -6727,10 +6726,10 @@ class TestSearchPosts:
             new_callable=AsyncMock,
             return_value=extracted("post"),
         ) as mock_extract:
-            await extractor.search_posts("python", max_pages=2)
+            await extractor.search_posts("python", max_posts=25)
 
         mock_extract.assert_awaited_once_with(
-            ANY, section_name="search_results", max_scrolls=10
+            ANY, section_name="search_results", max_posts=25
         )
 
     async def test_invalid_date_posted_raises(self, mock_page):
@@ -6782,6 +6781,99 @@ class TestSearchPosts:
             "error_type": "navigation_error",
             "error_message": "timeout",
         }
+
+
+@pytest.mark.asyncio
+class TestContentSearchScroll:
+    """The count-driven wheel loop behind ``search_posts``.
+
+    Content search renders in an inner scroll container, so the generic
+    ``scroll_to_bottom`` never moved it and every search came back with the
+    first paint. These drive ``_scroll_content_search_results`` with a page
+    whose ``evaluate`` answers a scripted card count per call.
+    """
+
+    @staticmethod
+    def _page(counts: list[int]) -> MagicMock:
+        page = MagicMock()
+        page.viewport_size = {"width": 1280, "height": 720}
+        page.mouse.move = AsyncMock()
+        page.mouse.wheel = AsyncMock()
+        # Repeat the last value once the script runs out, so a stalled page
+        # keeps answering the same count for as long as it is polled.
+        page.evaluate = AsyncMock(
+            side_effect=lambda *_: counts.pop(0) if len(counts) > 1 else counts[0]
+        )
+        return page
+
+    async def test_stops_once_count_reaches_max_posts(self):
+        # 4 on first paint, then a batch of 3 per wheel: 4 -> 7 -> 10. The
+        # second batch lands exactly on the cap, so a loop that only stops
+        # past it would wheel a third time and answer 13.
+        page = self._page([4, 7, 10, 13])
+        extractor = LinkedInExtractor(page)
+        with patch(
+            "linkedin_mcp_server.scraping.extractor.human_pause",
+            new_callable=AsyncMock,
+        ):
+            count = await extractor._scroll_content_search_results(max_posts=10)
+
+        assert count == 10
+        assert page.mouse.wheel.await_count == 2
+
+    async def test_max_posts_already_met_does_not_scroll(self):
+        page = self._page([6, 9])
+        extractor = LinkedInExtractor(page)
+        with patch(
+            "linkedin_mcp_server.scraping.extractor.human_pause",
+            new_callable=AsyncMock,
+        ):
+            count = await extractor._scroll_content_search_results(max_posts=6)
+
+        assert count == 6
+        page.mouse.wheel.assert_not_awaited()
+
+    async def test_stops_after_three_stale_rounds(self):
+        # One productive wheel (3 -> 5), then the page never grows again.
+        page = self._page([3, 5])
+        extractor = LinkedInExtractor(page)
+        with patch(
+            "linkedin_mcp_server.scraping.extractor.human_pause",
+            new_callable=AsyncMock,
+        ):
+            count = await extractor._scroll_content_search_results(max_posts=50)
+
+        assert count == 5
+        assert page.mouse.wheel.await_count == 1 + 3
+
+    async def test_loaded_section_routes_content_search_to_wheel_loop(self, mock_page):
+        mock_page.evaluate = AsyncMock(return_value={"text": "", "references": []})
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor, "_scroll_content_search_results", new_callable=AsyncMock
+            ) as wheel_loop,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.scroll_to_bottom",
+                new_callable=AsyncMock,
+            ) as body_scroll,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.detect_rate_limit",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.handle_modal_close",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await extractor._extract_loaded_section(
+                "https://www.linkedin.com/search/results/content/?keywords=x",
+                "search_results",
+                max_posts=7,
+            )
+
+        wheel_loop.assert_awaited_once_with(7)
+        body_scroll.assert_not_awaited()
 
 
 class TestStripLinkedInNoise:
