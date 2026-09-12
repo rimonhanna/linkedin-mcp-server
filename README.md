@@ -600,6 +600,53 @@ belongs behind something that provides it.
 <br/>
 <br/>
 
+## Multiple Sessions / Clients
+
+Each stdio MCP client (Claude Code, Claude Desktop, Codex, or several
+instances of one) spawns its own server process, and all of them want the
+same `~/.linkedin-mcp/profile` browser. Tool calls are serialized, so this is
+safe, but shows up as frequent "browser is busy" waits. Pick one option:
+
+**Option A: `--daemon` in each client's config.** The first process to start
+elects itself owner of the browser; the rest proxy to it over loopback
+instead of opening their own (experimental):
+
+```json
+{
+  "mcpServers": {
+    "mcp-server-linkedin": {
+      "command": "uvx",
+      "args": ["mcp-server-linkedin@latest", "--daemon"]
+    }
+  }
+}
+```
+
+**Option B: one long-lived `--transport streamable-http` server**, with every
+client pointed at it instead of spawning its own process:
+
+```json
+{ "mcpServers": { "mcp-server-linkedin": {
+  "type": "http", "url": "http://127.0.0.1:8000/mcp"
+} } }
+```
+
+Keep it running with the OS's own service manager, not a terminal window.
+macOS launchd
+(`~/Library/LaunchAgents/com.linkedin-mcp-server.plist`, loaded with
+`launchctl load`):
+
+```xml
+<key>ProgramArguments</key>
+<array><string>uv</string><string>run</string><string>-m</string>
+  <string>linkedin_mcp_server</string>
+  <string>--transport</string><string>streamable-http</string></array>
+<key>KeepAlive</key><true/>
+```
+
+Linux systemd: `ExecStart=uv run -m linkedin_mcp_server --transport
+streamable-http` with `Restart=always`.
+
 ## 🐍 Local Setup (Develop & Contribute)
 
 Contributions are welcome! See [CONTRIBUTING.md](https://github.com/stickerdaniel/linkedin-mcp-server/blob/main/CONTRIBUTING.md) for architecture guidelines and checklists. Please [open an issue](https://github.com/stickerdaniel/linkedin-mcp-server/issues) first to discuss the feature or bug fix before submitting a PR.
