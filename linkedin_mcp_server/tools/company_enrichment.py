@@ -385,6 +385,11 @@ def register_company_enrichment_tools(
                 if budget.remaining_today(now) <= 0:
                     stopped = "daily_budget_spent"
                     break
+                # The loop-top check ran before the search; a slow search can
+                # have carried past the deadline since.
+                if asyncio.get_running_loop().time() >= deadline:
+                    stopped = "tool_deadline"
+                    break
                 await asyncio.sleep(step_delay(rng=rng))
                 try:
                     await _load_about(
