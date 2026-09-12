@@ -8106,6 +8106,98 @@ class TestContentSearchScroll:
         assert count == 5
         assert page.mouse.wheel.await_count == 1 + 3
 
+    async def test_a_stale_stop_below_max_posts_warns(self, caplog):
+        page = self._page([3, 5])
+        extractor = LinkedInExtractor(page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            await extractor._scroll_content_search_results(max_posts=50)
+
+        assert [r.message for r in caplog.records if r.levelno == logging.WARNING] == [
+            "content search stopped at 5 of max_posts 50: page stopped producing "
+            "new results"
+        ]
+
+    async def test_reaching_max_posts_does_not_warn(self, caplog):
+        page = self._page([4, 7, 10])
+        extractor = LinkedInExtractor(page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            await extractor._scroll_content_search_results(max_posts=10)
+
+        assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
+    class _Clock:
+        """A monotonic clock the pauses move, so the budget is testable."""
+
+        def __init__(self) -> None:
+            self.now = 0.0
+
+        def monotonic(self) -> float:
+            return self.now
+
+    async def test_stops_at_the_scroll_budget_while_still_loading(self, caplog):
+        """A page that keeps answering one more card never goes stale and
+        would otherwise wheel all twenty rounds; the 60s budget stops it."""
+        clock = self._Clock()
+        page = self._page(list(range(1, 40)))
+        extractor = LinkedInExtractor(page)
+
+        async def pause(seconds: float, spread: float = 0.5) -> None:
+            clock.now += 30.0
+
+        with (
+            patch.object(extractor_module, "time", clock),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                side_effect=pause,
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            count = await extractor._scroll_content_search_results(max_posts=50)
+
+        # Two productive rounds land on the deadline; the third never wheels.
+        assert count == 3
+        assert page.mouse.wheel.await_count == 2
+        assert [r.message for r in caplog.records if r.levelno == logging.WARNING] == [
+            "content search stopped at 3 of max_posts 50: 60s scroll budget spent"
+        ]
+
+    async def test_the_budget_cuts_a_poll_short(self):
+        """The deadline is checked between polls too, so a stalled page does
+        not get its full six-second wait after the budget is gone."""
+        clock = self._Clock()
+        page = self._page([3])
+        extractor = LinkedInExtractor(page)
+
+        async def pause(seconds: float, spread: float = 0.5) -> None:
+            clock.now += 30.0
+
+        with (
+            patch.object(extractor_module, "time", clock),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                side_effect=pause,
+            ) as pauses,
+        ):
+            count = await extractor._scroll_content_search_results(max_posts=50)
+
+        assert count == 3
+        assert page.mouse.wheel.await_count == 1
+        # The second pause reaches the deadline; four more would follow
+        # without the check inside the poll loop.
+        assert pauses.await_count == 2
+
     async def test_loaded_section_routes_content_search_to_wheel_loop(self, mock_page):
         mock_page.evaluate = AsyncMock(return_value={"text": "", "references": []})
         extractor = LinkedInExtractor(mock_page)

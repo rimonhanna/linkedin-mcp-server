@@ -1959,13 +1959,21 @@ class LinkedInExtractor:
         Same shape as the feed loop in ``_extract_feed_body``: the results
         live in their own scroll container, so ``window.scrollTo`` is a no-op
         and only a wheel over the viewport moves it. Stops once the card
-        count reaches ``max_posts`` or after ``_MAX_STALE`` rounds without a
-        new card. Returns the final count.
+        count reaches ``max_posts``, after ``_MAX_STALE`` rounds without a
+        new card, or when ``_SCROLL_BUDGET_TOTAL`` runs out: without the
+        deadline the worst case is every round polling to its full wait,
+        which is twice the tool timeout's comfortable share. Returns the
+        final count; any stop below ``max_posts`` is logged as a warning.
         """
+        # TODO(live-verify): wheel-scroll loading of content-search cards is
+        # unmeasured; the diagnosis (window.scrollTo never moved the results)
+        # was live, this loop was not.
         _MAX_STALE = 3
         _BATCH_WAIT = 6
         _WHEEL_DELTA = 2000
         stale_count = 0
+        deadline = time.monotonic() + _SCROLL_BUDGET_TOTAL
+        stop_reason: str | None = None
 
         viewport = self._page.viewport_size or {"width": 1280, "height": 720}
         cx, cy = viewport["width"] // 2, viewport["height"] // 2
@@ -1976,6 +1984,9 @@ class LinkedInExtractor:
             logger.debug("Content search scroll %d: %d results", i, count)
             if count >= max_posts:
                 break
+            if time.monotonic() >= deadline:
+                stop_reason = f"{_SCROLL_BUDGET_TOTAL:.0f}s scroll budget spent"
+                break
 
             await self._page.mouse.wheel(0, _WHEEL_DELTA)
 
@@ -1983,7 +1994,7 @@ class LinkedInExtractor:
             for _ in range(_BATCH_WAIT):
                 await human_pause(1.0)
                 new_count = await self._count_content_search_results()
-                if new_count > count:
+                if new_count > count or time.monotonic() >= deadline:
                     break
 
             if new_count > count:
@@ -1997,9 +2008,19 @@ class LinkedInExtractor:
                     new_count,
                 )
                 if stale_count >= _MAX_STALE:
-                    logger.debug("Content search stopped producing new results")
+                    stop_reason = "page stopped producing new results"
                     break
             count = new_count
+        else:
+            stop_reason = f"{_CONTENT_SEARCH_MAX_SCROLLS} scroll rounds spent"
+
+        if count < max_posts:
+            logger.warning(
+                "content search stopped at %d of max_posts %d: %s",
+                count,
+                max_posts,
+                stop_reason,
+            )
         return count
 
     async def extract_feed(
