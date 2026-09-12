@@ -480,7 +480,18 @@ def register_company_enrichment_tools(
             # Firmographics from the About tab; also yields the numeric company
             # URN, which the open-roles lookup below is keyed on.
             if want_firmographics:
-                urn = await _load_about(extractor, company, slug, now, urn)
+                try:
+                    urn = await _load_about(extractor, company, slug, now, urn)
+                except (RateLimitError, AuthenticationError):
+                    raise
+                except Exception:
+                    # About failed (rate-limited, auth-walled, or crashed):
+                    # the navigation still happened, so charge it -- same as
+                    # enrich_companies -- and leave the record stale for a
+                    # retry rather than never recorded.
+                    budget.ledger.record(now)
+                    jobs.save(budget)
+                    raise
                 budget.ledger.record(now)
 
             # Open roles come from job SEARCH filtered by the company URN -- the

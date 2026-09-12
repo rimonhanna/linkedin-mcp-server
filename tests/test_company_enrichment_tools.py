@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 
 from linkedin_mcp_server.company_cache import CompanyCache
 from linkedin_mcp_server.core.exceptions import RateLimitError
@@ -623,6 +624,33 @@ class TestEnrichCompanyDeep:
         extractor.scrape_company.assert_not_awaited()  # firmographics still fresh
         extractor.extract_page.assert_awaited_once()  # only open roles refreshed
         assert "f_C=9999" in extractor.extract_page.await_args.args[0]
+
+    async def test_about_failure_still_charges_the_ledger(
+        self, mcp, wired, mock_context
+    ):
+        """scrape_company swallows a rate-limited/auth-walled/crashed About
+        into section_errors and returns no section; _load_about raises. The
+        navigation still happened, so it must be charged and the record left
+        stale, not silently dropped from the budget."""
+        cache, jobs = wired
+        extractor = self._deep_extractor()
+        extractor.scrape_company = AsyncMock(
+            return_value={
+                "url": "https://www.linkedin.com/company/acme/",
+                "sections": {},
+                "section_errors": {
+                    "about": {"error_type": "rate_limit", "error_message": "blocked"}
+                },
+            }
+        )
+
+        fn = await get_tool_fn(mcp, "enrich_company_deep")
+        with pytest.raises(ToolError):
+            await fn("Acme", mock_context, extractor=extractor)
+
+        assert _spent(jobs) == 1  # the About load was charged despite failing
+        rec = cache.get("Acme")
+        assert rec is None or not rec.has_firmographics()  # not stamped fresh
 
     async def test_include_jobs_false_skips_the_job_search(
         self, mcp, wired, mock_context
