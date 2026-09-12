@@ -1296,6 +1296,9 @@ class LinkedInExtractor:
         # company name/slug (casefolded) -> numeric company URN id ("" means
         # "did not resolve"), same contract as ``_geo_cache``.
         self._company_urn_cache: dict[str, str] = {}
+        # Whether a company resolution has navigated on this extractor: the
+        # next one paces its first navigation like every later hop.
+        self._company_lookup_navigated = False
         # The on-disk company cache, opened on first use so an extractor that
         # never resolves a company name never touches the filesystem.
         self._company_cache: CompanyCache | None = None
@@ -5015,10 +5018,15 @@ class LinkedInExtractor:
                 "https://www.linkedin.com/search/results/companies/"
                 f"?keywords={quote_plus(lookup)}"
             )
+            # A batch resolves names back to back, so the previous name's
+            # About page and this search are consecutive navigations.
+            if self._company_lookup_navigated:
+                await human_pause(_NAV_DELAY)
             extracted = await self.extract_page(
                 search_url, section_name="search_results"
             )
             searched = True
+            self._company_lookup_navigated = True
             throttled = extracted.text == _RATE_LIMITED_MSG
             failed = extracted.error is not None
             hits = parse_search_results([dict(ref) for ref in extracted.references])
@@ -5034,8 +5042,8 @@ class LinkedInExtractor:
             if hit is None and hits and not throttled and not failed:
                 self._company_urn_cache[key] = ""
                 raise FilterValidationError(
-                    f"Could not resolve current_company {name_or_urn!r}: no "
-                    f"company search card is named that. Candidates: "
+                    f"Could not resolve company {name_or_urn!r}: no company "
+                    f"search card is named that. Candidates: "
                     f"{[h['slug'] for h in hits]!r}. Pass the intended one as "
                     f"https://www.linkedin.com/company/<slug>/ instead."
                 )
@@ -5052,11 +5060,12 @@ class LinkedInExtractor:
                     urn = _company_urn_of_first_card(extracted.references)
 
         if slug is not None and urn is None:
-            if searched:
+            if searched or self._company_lookup_navigated:
                 await human_pause(_NAV_DELAY)
             about = await self.extract_page(
                 company_page_url(slug, "/about/"), section_name="about"
             )
+            self._company_lookup_navigated = True
             throttled = throttled or about.text == _RATE_LIMITED_MSG
             failed = failed or about.error is not None
             for ref in about.references:
@@ -5095,8 +5104,8 @@ class LinkedInExtractor:
             else "no company search hit or About page yielded an id"
         )
         return (
-            f"Could not resolve current_company {name!r} to a LinkedIn company "
-            f"URN ({why}). Pass the numeric id instead: get_company_profile "
+            f"Could not resolve company {name!r} to a LinkedIn company URN "
+            f"({why}). Pass the numeric id instead: get_company_profile "
             f'exposes it under references["about"] as kind "company_urn".'
         )
 

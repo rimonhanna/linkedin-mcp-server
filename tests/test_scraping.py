@@ -7154,12 +7154,18 @@ class TestResolveCompanyUrn:
     ):
         """A retry may succeed, so the second call searches again."""
         extractor = self._extractor(mock_page, tmp_path)
-        with patch.object(
-            extractor,
-            "extract_page",
-            new_callable=AsyncMock,
-            return_value=bad_page,
-        ) as nav:
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=bad_page,
+            ) as nav,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+        ):
             with pytest.raises(FilterValidationError):
                 await extractor._resolve_company_urn("SAP")
             with pytest.raises(FilterValidationError):
@@ -7167,6 +7173,63 @@ class TestResolveCompanyUrn:
 
         assert nav.await_count == 2
         assert "sap" not in extractor._company_urn_cache
+
+    async def test_every_hop_between_two_resolutions_is_paced(
+        self, mock_page, tmp_path
+    ):
+        """Two names resolve as search(A), about(A), search(B), about(B):
+        four navigations, so three pauses. The about(A) -> search(B) hop
+        is the one a per-resolution pause alone misses."""
+        extractor = self._extractor(mock_page, tmp_path)
+        pages = {
+            self.SEARCH: extracted("SAP", [self._company_ref("sap")]),
+            self.ABOUT: extracted("About SAP", [self._urn_ref("1115")]),
+            "https://www.linkedin.com/search/results/companies/?keywords=Bosch": (
+                extracted("Bosch", [self._company_ref("bosch")])
+            ),
+            "https://www.linkedin.com/company/bosch/about/": extracted(
+                "About Bosch", [self._urn_ref("2222")]
+            ),
+        }
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=lambda url, **_: pages[url],
+            ) as nav,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ) as pause,
+        ):
+            assert await extractor._resolve_company_urn("SAP") == "1115"
+            assert await extractor._resolve_company_urn("Bosch") == "2222"
+
+        assert nav.await_count == 4
+        assert pause.await_count == nav.await_count - 1
+
+    async def test_the_first_navigation_of_a_batch_is_not_paced(
+        self, mock_page, tmp_path
+    ):
+        extractor = self._extractor(mock_page, tmp_path)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=extracted("About SAP", [self._urn_ref("1115")]),
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ) as pause,
+        ):
+            await extractor._resolve_company_urn(
+                "https://www.linkedin.com/company/sap/"
+            )
+
+        pause.assert_not_awaited()
 
     async def test_a_failing_write_back_does_not_fail_the_resolution(
         self, mock_page, tmp_path, caplog
