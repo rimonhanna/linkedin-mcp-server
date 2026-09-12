@@ -17,6 +17,7 @@ from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 import pytest
 
 from linkedin_mcp_server.callbacks import ProgressCallback
+from linkedin_mcp_server.company_cache import CompanyCache
 from linkedin_mcp_server.core.exceptions import (
     AuthenticationError,
     InvalidReferenceError,
@@ -6457,17 +6458,49 @@ class TestSearchPeople:
         with pytest.raises(ValueError, match="Invalid network token"):
             await extractor.search_people("engineer", network=["X"])
 
-    async def test_search_people_rejects_plain_company_name(self, mock_page):
+    async def test_search_people_resolves_company_name(self, mock_page):
+        """A name goes through ``_resolve_company_urn`` and the facet carries
+        the id it returned, never the name."""
         extractor = LinkedInExtractor(mock_page)
-        with pytest.raises(ValueError, match="must be a numeric"):
-            await extractor.search_people("engineer", current_company="SAP")
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=extracted("Jane Doe"),
+            ),
+            patch.object(
+                extractor,
+                "_resolve_company_urn",
+                new_callable=AsyncMock,
+                return_value="1115",
+            ) as resolve,
+        ):
+            result = await extractor.search_people("engineer", current_company="SAP")
 
-    async def test_search_people_rejects_unicode_digit_company(self, mock_page):
-        """LinkedIn URN ids are ASCII decimal; reject Unicode digits even
-        though ``str.isdigit()`` would accept them."""
+        resolve.assert_awaited_once_with("SAP")
+        assert "currentCompany=%5B%221115%22%5D" in result["url"]
+        assert "SAP" not in result["url"]
+
+    async def test_search_people_unicode_digit_company_is_not_a_urn(
+        self, mock_page, tmp_path
+    ):
+        """LinkedIn URN ids are ASCII decimal; Unicode digits are a name to
+        resolve (``str.isdigit()`` would have passed them through), and one
+        nothing matches raises."""
         extractor = LinkedInExtractor(mock_page)
-        with pytest.raises(ValueError, match="must be a numeric"):
-            await extractor.search_people("engineer", current_company="١١١٥")
+        extractor._company_cache = CompanyCache(tmp_path)
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted("No results"),
+        ) as nav:
+            with pytest.raises(FilterValidationError, match="Could not resolve"):
+                await extractor.search_people("engineer", current_company="١١١٥")
+
+        assert nav.await_count == 1
+        assert "results/people" not in nav.await_args_list[-1].args[0]
 
     async def test_search_people_empty_current_company_is_noop(self, mock_page):
         extractor = LinkedInExtractor(mock_page)
@@ -6552,6 +6585,198 @@ class TestSearchPeople:
             # is not driven again, so no further navigation happens.
             assert await extractor._resolve_geo_urn("EGYPT") == "106155005"
             assert goto.await_count == 1
+
+
+class TestResolveCompanyUrn:
+    """``current_company`` accepts a name, a /company/ URL, or the numeric id."""
+
+    SEARCH = "https://www.linkedin.com/search/results/companies/?keywords=SAP"
+    ABOUT = "https://www.linkedin.com/company/sap/about/"
+
+    @staticmethod
+    def _extractor(mock_page, tmp_path):
+        extractor = LinkedInExtractor(mock_page)
+        extractor._company_cache = CompanyCache(tmp_path)
+        return extractor
+
+    @staticmethod
+    def _urn_ref(urn: str) -> Reference:
+        return {
+            "kind": "company_urn",
+            "url": f"/search/results/people/?currentCompany=%5B%22{urn}%22%5D",
+            "value": urn,
+        }
+
+    @staticmethod
+    def _company_ref(slug: str) -> Reference:
+        return {"kind": "company", "url": f"/company/{slug}/", "text": slug}
+
+    async def test_digits_pass_through_without_navigating(self, mock_page, tmp_path):
+        extractor = self._extractor(mock_page, tmp_path)
+        with patch.object(extractor, "extract_page", new_callable=AsyncMock) as nav:
+            assert await extractor._resolve_company_urn("1115") == "1115"
+
+        nav.assert_not_awaited()
+        assert extractor._company_urn_cache == {}
+
+    async def test_disk_cache_hit_costs_no_navigation(self, mock_page, tmp_path):
+        """A company the enrichment tools already researched is keyed by its
+        normalised name, so the spelling need not match."""
+        extractor = self._extractor(mock_page, tmp_path)
+        assert extractor._company_cache is not None
+        extractor._company_cache.record_firmographics(
+            "SAP, Inc.", datetime.now(), source="company_page", company_urn="1115"
+        )
+        with patch.object(extractor, "extract_page", new_callable=AsyncMock) as nav:
+            assert await extractor._resolve_company_urn("sap") == "1115"
+
+        nav.assert_not_awaited()
+        assert extractor._company_urn_cache["sap"] == "1115"
+
+    async def test_unresolvable_name_raises_and_is_remembered(
+        self, mock_page, tmp_path
+    ):
+        extractor = self._extractor(mock_page, tmp_path)
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted("No results found"),
+        ) as nav:
+            with pytest.raises(FilterValidationError) as excinfo:
+                await extractor._resolve_company_urn("Nowhere Corp")
+            # The miss is cached, so a repeated name in a batch does not search
+            # again -- and still raises rather than silently passing the name.
+            with pytest.raises(FilterValidationError):
+                await extractor._resolve_company_urn("nowhere corp")
+
+        assert "Nowhere Corp" in str(excinfo.value)
+        assert "get_company_profile" in str(excinfo.value)
+        assert nav.await_count == 1
+        assert extractor._company_cache is not None
+        assert extractor._company_cache.get("Nowhere Corp") is None
+
+    async def test_name_resolves_via_search_then_about(self, mock_page, tmp_path):
+        """Search finds the slug, the About page carries the id, and both
+        caches learn it so the next call (any spelling) is free."""
+        extractor = self._extractor(mock_page, tmp_path)
+        pages = {
+            self.SEARCH: extracted(
+                "SAP\nSoftware",
+                [self._company_ref("sap"), self._company_ref("sap-labs")],
+            ),
+            self.ABOUT: extracted("About SAP", [self._urn_ref("1115")]),
+        }
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=lambda url, **_: pages[url],
+            ) as nav,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+        ):
+            assert await extractor._resolve_company_urn("SAP") == "1115"
+            assert [c.args[0] for c in nav.await_args_list] == [
+                self.SEARCH,
+                self.ABOUT,
+            ]
+
+            assert await extractor._resolve_company_urn("sap") == "1115"
+            assert nav.await_count == 2
+
+        assert extractor._company_urn_cache["sap"] == "1115"
+        assert extractor._company_cache is not None
+        record = extractor._company_cache.get("SAP")
+        assert record is not None
+        assert record.company_urn == "1115"
+        assert record.linkedin_url == "https://www.linkedin.com/company/sap"
+        # Learning an id is not learning firmographics: the record must not
+        # read as fresh to the enrichment tools.
+        assert not record.has_firmographics()
+
+    async def test_search_card_with_own_urn_skips_about_page(self, mock_page, tmp_path):
+        """An id anchor between the top card's link and the next card's is the
+        top card's own, and saves the second navigation."""
+        extractor = self._extractor(mock_page, tmp_path)
+        refs = [
+            self._company_ref("sap"),
+            self._urn_ref("1115"),
+            self._company_ref("sap-labs"),
+            self._urn_ref("999"),
+        ]
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted("SAP", refs),
+        ) as nav:
+            assert await extractor._resolve_company_urn("SAP") == "1115"
+
+        assert nav.await_count == 1
+
+    async def test_urn_after_second_card_is_not_attributed(self, mock_page, tmp_path):
+        extractor = self._extractor(mock_page, tmp_path)
+        pages = {
+            self.SEARCH: extracted(
+                "SAP",
+                [
+                    self._company_ref("sap"),
+                    self._company_ref("sap-labs"),
+                    self._urn_ref("999"),
+                ],
+            ),
+            self.ABOUT: extracted("About SAP", [self._urn_ref("1115")]),
+        }
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                side_effect=lambda url, **_: pages[url],
+            ) as nav,
+            patch(
+                "linkedin_mcp_server.scraping.extractor.human_pause",
+                new_callable=AsyncMock,
+            ),
+        ):
+            assert await extractor._resolve_company_urn("SAP") == "1115"
+
+        assert nav.await_count == 2
+
+    async def test_company_url_goes_straight_to_about(self, mock_page, tmp_path):
+        extractor = self._extractor(mock_page, tmp_path)
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted("About SAP", [self._urn_ref("1115")]),
+        ) as nav:
+            urn = await extractor._resolve_company_urn(
+                "https://www.linkedin.com/company/sap/"
+            )
+
+        assert urn == "1115"
+        nav.assert_awaited_once()
+        assert nav.await_args_list[-1].args[0] == self.ABOUT
+        assert extractor._company_cache is not None
+        record = extractor._company_cache.get("sap")
+        assert record is not None
+        assert record.company_urn == "1115"
+
+    async def test_throttled_lookup_says_so(self, mock_page, tmp_path):
+        extractor = self._extractor(mock_page, tmp_path)
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted(_RATE_LIMITED_MSG),
+        ):
+            with pytest.raises(FilterValidationError, match="throttled"):
+                await extractor._resolve_company_urn("SAP")
 
 
 class TestSearchPeoplePagination:
