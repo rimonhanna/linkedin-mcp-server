@@ -212,7 +212,10 @@ def register_person_tools(
                 the title. Prefer putting the title in keywords as a quoted
                 phrase, e.g. '"VP Engineering"', which does filter; this
                 parameter is kept for a results-page variant that may still
-                read it and is never merged into keywords for you.
+                read it and is never merged into keywords for you. On its
+                own it is refused with an error rather than returning an
+                unfiltered worldwide list: combine it with another facet
+                (location, current_company, ...) or use keywords.
             past_company: Optional past-employer filter; same shapes and
                 resolution as current_company. Each unresolved name may cost
                 up to two navigations.

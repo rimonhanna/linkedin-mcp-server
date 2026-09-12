@@ -526,6 +526,30 @@ _CONTENT_DATE_POSTED_MAP = {
 # and stops on a result count, so this is only a runaway guard.
 _CONTENT_SEARCH_MAX_SCROLLS = 20
 
+# Counts result cards on a content-search page. Every card links its author
+# (``/in/`` or ``/company/``), but so does every @-mention in a post body,
+# and one mention-heavy post reached ``max_posts`` before the first wheel
+# when the count was distinct hrefs. Anchors are grouped by their nearest
+# list-item or article ancestor, which is structure rather than layout; where
+# no such ancestor exists the distinct hrefs stand in, which is the old
+# count. Either way the estimate errs toward scrolling further, never toward
+# reporting fewer cards than the anchors seen.
+# TODO(live-verify): the ancestor chain of a content-search card is
+# unverified live; the fallback is what makes an unexpected chain harmless.
+_CONTENT_SEARCH_COUNT_JS = r"""() => {
+    const main = document.querySelector('main');
+    if (!main) return 0;
+    const cards = new Set(), hrefs = new Set();
+    for (const a of main.querySelectorAll(
+        'a[href*="/in/"], a[href*="/company/"]'
+    )) {
+        hrefs.add(a.getAttribute('href').split('?')[0]);
+        const card = a.closest('li, article, [role="article"]');
+        if (card) cards.add(card);
+    }
+    return cards.size || hrefs.size;
+}"""
+
 # Valid tokens for the people-search ``network`` facet.
 # LinkedIn accepts "F" (1st-degree), "S" (2nd-degree), "O" (3rd-degree and beyond).
 _NETWORK_TOKENS = ("F", "S", "O")
@@ -1907,31 +1931,24 @@ class LinkedInExtractor:
             await asyncio.sleep(pause_time)
 
     async def _count_content_search_results(self) -> int:
-        """Count result cards on a content-search page by their author anchor.
+        """Count result cards on a content-search page.
 
-        Every card links its author (``/in/`` or ``/company/``). Distinct
-        hrefs so a card's repeated author link (avatar plus name) counts once.
+        Runs ``_CONTENT_SEARCH_COUNT_JS``: author and mention anchors
+        (``/in/`` or ``/company/``) grouped by their nearest ``li``,
+        ``article`` or ``role="article"`` ancestor, so a post with nine
+        @-mentions is one card rather than ten. Without such an ancestor the
+        count falls back to distinct hrefs, the previous behaviour, where a
+        mention-heavy post reached ``max_posts`` before the first wheel.
 
-        An estimate, and it errs in both directions. Two posts by one author
-        count as one card, so the loop may scroll a round further than
-        needed. An ``/in/`` @-mention inside a post body counts as a card that
-        does not exist, so the loop may stop with fewer cards than
-        ``max_posts`` when posts mention people. What it never does is report
-        fewer than the distinct anchors seen.
+        An estimate that errs toward over-scrolling, never truncation: under
+        the fallback two posts by one author count as one card, and a card
+        split across ancestors counts more than once, both of which only
+        cost the loop another round.
+
+        TODO(live-verify): the ancestor chain of content-search cards is
+        unverified live.
         """
-        return await self._page.evaluate(
-            """() => {
-                const main = document.querySelector('main');
-                if (!main) return 0;
-                const seen = new Set();
-                for (const a of main.querySelectorAll(
-                    'a[href*="/in/"], a[href*="/company/"]'
-                )) {
-                    seen.add(a.getAttribute('href').split('?')[0]);
-                }
-                return seen.size;
-            }"""
-        )
+        return await self._page.evaluate(_CONTENT_SEARCH_COUNT_JS)
 
     async def _scroll_content_search_results(self, max_posts: int) -> int:
         """Wheel-scroll content-search results until ``max_posts`` cards show.
@@ -5129,7 +5146,8 @@ class LinkedInExtractor:
             title: Optional current-title filter, free text
                 (``titleFreeText``). Measured live as ignored by the SDUI
                 results page; a title in ``keywords`` as a quoted phrase
-                does filter.
+                does filter. Refused as the only criterion, since it would
+                navigate and return the unfiltered worldwide list.
             past_company: Optional past-employer filter, same shapes and
                 resolution as ``current_company`` (``pastCompany``). Each
                 unresolved name may cost up to two navigations.
@@ -5187,25 +5205,32 @@ class LinkedInExtractor:
 
         current_companies = [c for c in _as_list(current_company) if c]
         past_companies = [c for c in _as_list(past_company) if c]
-        if not any(
-            (
-                keywords,
-                location,
-                network,
-                current_companies,
-                past_companies,
-                industry_ids,
-                title,
-                school,
-                first_name,
-                last_name,
-                languages,
-            )
-        ):
+        other_criteria = (
+            keywords,
+            location,
+            network,
+            current_companies,
+            past_companies,
+            industry_ids,
+            school,
+            first_name,
+            last_name,
+            languages,
+        )
+        if not any(other_criteria) and not title:
             raise FilterValidationError(
                 "search_people needs at least one of keywords, location, network, "
                 "current_company, past_company, title, industry, school, "
                 "first_name, last_name or profile_language"
+            )
+        # LinkedIn ignores titleFreeText (measured live), so a title on its
+        # own would navigate and return the unfiltered worldwide list.
+        if title and not any(other_criteria):
+            raise FilterValidationError(
+                "search_people cannot filter by title alone: LinkedIn ignores "
+                "titleFreeText. Put the title in keywords as a quoted phrase "
+                f"(keywords='\"{title}\"'), or combine title with another "
+                "facet such as location or current_company"
             )
 
         # LinkedIn ignores a name in currentCompany=/pastCompany=; resolve each

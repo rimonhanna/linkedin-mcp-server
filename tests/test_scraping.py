@@ -6610,14 +6610,36 @@ class TestSearchPeopleFacets:
 
         nav.assert_not_awaited()
 
-    async def test_title_alone_is_a_criterion(self, mock_page):
+    async def test_title_alone_is_refused(self, mock_page):
+        """LinkedIn ignores titleFreeText, so a lone title would navigate and
+        return the unfiltered worldwide list."""
         extractor = LinkedInExtractor(mock_page)
-        with self._run(extractor):
-            result = await extractor.search_people(title="Head of Sales")
+        with self._run(extractor) as nav:
+            with pytest.raises(FilterValidationError, match="title alone") as info:
+                await extractor.search_people(title="Head of Sales")
 
+        nav.assert_not_awaited()
+        assert "keywords='\"Head of Sales\"'" in str(info.value)
+
+    async def test_title_with_location_navigates(self, mock_page):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            self._run(extractor) as nav,
+            patch.object(
+                extractor,
+                "_resolve_geo_urn",
+                new_callable=AsyncMock,
+                return_value="104116203",
+            ),
+        ):
+            result = await extractor.search_people(
+                title="Head of Sales", location="Seattle"
+            )
+
+        nav.assert_awaited_once()
         assert result["url"] == (
             "https://www.linkedin.com/search/results/people/"
-            "?titleFreeText=Head+of+Sales"
+            "?geoUrn=%5B%22104116203%22%5D&titleFreeText=Head+of+Sales"
         )
 
     async def test_current_company_list_is_resolved_per_element(self, mock_page):
