@@ -7737,6 +7737,53 @@ class TestSearchPeopleRows:
         assert result["sections"]["search_results"] == self.PAGE_1
         assert "Could not parse result cards on page 1" in caplog.text
 
+    async def test_anchors_without_rows_warn_of_an_unrecognised_layout(
+        self, mock_page, caplog
+    ):
+        """A page with profile anchors is a page of cards. Parsing none of
+        them is a layout the text parser does not know (or a locale whose
+        degree token differs), not an empty result, and must not pass as
+        one in silence."""
+        # The cards carry no ``• 2nd`` head, as a non-English page might.
+        page = "About 12 results\n\nAda\nIngenieurin\nBerlin\n\nBob\nGruender\nWien"
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=extracted(
+                    page, [_person_ref("ada", "Ada"), _person_ref("bob", "Bob")]
+                ),
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            result = await extractor.search_people("engineer")
+
+        assert result["people"] == []
+        assert [r.message for r in caplog.records if r.levelno == logging.WARNING] == [
+            "Page 1: 2 references but no result rows parsed (unrecognised card "
+            "layout or locale)"
+        ]
+
+    async def test_a_page_without_anchors_or_rows_does_not_warn(
+        self, mock_page, caplog
+    ):
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=extracted("No results found"),
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            result = await extractor.search_people("engineer")
+
+        assert result["people"] == []
+        assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
     async def test_no_page_means_no_rows(self, mock_page):
         extractor = LinkedInExtractor(mock_page)
         with patch.object(
@@ -7783,6 +7830,30 @@ class TestSearchPeopleRows:
 
 class TestSearchCompaniesRows:
     """``companies`` rows, same wiring as ``TestSearchPeopleRows``."""
+
+    async def test_anchors_without_rows_warn_of_an_unrecognised_layout(
+        self, mock_page, caplog
+    ):
+        # Company cards are found by their followers line; a locale that
+        # spells it differently yields no rows from a page full of anchors.
+        page = "Acme\nSoftware\nOslo, Oslo\nFolgen\nTools\n1.200 Follower:innen"
+        extractor = LinkedInExtractor(mock_page)
+        with (
+            patch.object(
+                extractor,
+                "extract_page",
+                new_callable=AsyncMock,
+                return_value=extracted(page, [_company_ref("acme", "Acme")]),
+            ),
+            caplog.at_level(logging.WARNING, logger=extractor_module.__name__),
+        ):
+            result = await extractor.search_companies("tools")
+
+        assert result["companies"] == []
+        assert [r.message for r in caplog.records if r.levelno == logging.WARNING] == [
+            "Page 1: 1 references but no result rows parsed (unrecognised card "
+            "layout or locale)"
+        ]
 
     async def test_rows_pair_before_the_reference_cap(self, mock_page):
         # Sixteen cards is one past the section cap; the page is extracted

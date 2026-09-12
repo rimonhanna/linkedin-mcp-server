@@ -948,7 +948,7 @@ _CardParser = Callable[[str, Sequence[Mapping[str, Any]]], list[dict[str, Any]]]
 
 
 def _search_rows(
-    parser: _CardParser, pages: Sequence[ExtractedSection]
+    parser: _CardParser, pages: Sequence[ExtractedSection], kind: str
 ) -> tuple[list[dict[str, Any]], int | None]:
     """Rows across the fetched results pages, deduped by URL, plus the result
     count from the first page.
@@ -957,6 +957,12 @@ def _search_rows(
     for ``sections`` afterwards, so a card can never straddle the separator.
     A parser failure is logged and yields no rows for that page; the raw text
     still reaches the caller, and a parser bug must never take the tool down.
+
+    ``kind`` is the reference kind the parser pairs rows with. A page that
+    carries such references but parses to no rows is a page of cards the
+    text parser did not recognise (a layout change, or a locale whose
+    degree and followers tokens differ), and is warned about rather than
+    passed off as an empty result.
     """
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -969,6 +975,15 @@ def _search_rows(
                 "Could not parse result cards on page %d", index + 1, exc_info=True
             )
             continue
+        if not page_rows:
+            anchors = sum(1 for ref in page.references if ref.get("kind") == kind)
+            if anchors:
+                logger.warning(
+                    "Page %d: %d references but no result rows parsed "
+                    "(unrecognised card layout or locale)",
+                    index + 1,
+                    anchors,
+                )
         for row in page_rows:
             url = row.get("url")
             if url is not None:
@@ -5370,7 +5385,7 @@ class LinkedInExtractor:
                 break
             seen_person_urls |= new_people
 
-        people, result_count = _search_rows(parse_people_cards, pages)
+        people, result_count = _search_rows(parse_people_cards, pages, "person")
         result: dict[str, Any] = {
             "url": base_url,
             "sections": {"search_results": "\n---\n".join(page_texts)}
@@ -5544,7 +5559,7 @@ class LinkedInExtractor:
                 break
             seen_company_urls |= new_companies
 
-        companies, result_count = _search_rows(parse_company_cards, pages)
+        companies, result_count = _search_rows(parse_company_cards, pages, "company")
         result: dict[str, Any] = {
             "url": base_url,
             "sections": {"search_results": "\n---\n".join(page_texts)}
