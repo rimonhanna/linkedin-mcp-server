@@ -7648,6 +7648,7 @@ class TestSearchPeopleRows:
             result = await extractor.search_people("engineer")
 
         assert result["people"] == []
+        assert result["result_count"] == 1234
         assert result["sections"]["search_results"] == self.PAGE_1
         assert "Could not parse result cards on page 1" in caplog.text
 
@@ -7664,9 +7665,63 @@ class TestSearchPeopleRows:
         assert result["people"] == []
         assert result["result_count"] is None
 
+    async def test_rows_pair_before_the_reference_cap(self, mock_page):
+        # Six cards naming two mutual connections each is 18 ``/in/``
+        # anchors, three past the section cap. The page is extracted
+        # uncapped so card six still finds its own anchor; the cap lands on
+        # ``references`` instead.
+        cards, refs = [], []
+        for i in range(1, 7):
+            cards.append(
+                _person_card(f"Person {i}", "Engineer", "Oslo, Norway")
+                + f"\n\nMutual {i}A & Mutual {i}B are mutual connections"
+            )
+            refs.append(_person_ref(f"person-{i}", f"Person {i}"))
+            refs.append(_person_ref(f"mutual-{i}a", f"Mutual {i}A"))
+            refs.append(_person_ref(f"mutual-{i}b", f"Mutual {i}B"))
+        extractor = LinkedInExtractor(mock_page)
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted("\n\n".join(cards), refs),
+        ) as extract:
+            result = await extractor.search_people("engineer")
+
+        assert extract.await_args is not None
+        assert extract.await_args.kwargs["apply_cap"] is False
+        assert [r["url"] for r in result["people"]] == [
+            f"/in/person-{i}/" for i in range(1, 7)
+        ]
+        assert len(result["references"]["search_results"]) == 15
+
 
 class TestSearchCompaniesRows:
     """``companies`` rows, same wiring as ``TestSearchPeopleRows``."""
+
+    async def test_rows_pair_before_the_reference_cap(self, mock_page):
+        # Sixteen cards is one past the section cap; the page is extracted
+        # uncapped so the last card still finds its anchor.
+        cards = [
+            _company_card(f"Company {i}", "Banking", "Bern, Bern", "Vaults")
+            for i in range(1, 17)
+        ]
+        refs = [_company_ref(f"company-{i}", f"Company {i}") for i in range(1, 17)]
+        extractor = LinkedInExtractor(mock_page)
+        with patch.object(
+            extractor,
+            "extract_page",
+            new_callable=AsyncMock,
+            return_value=extracted("\n\n".join(cards), refs),
+        ) as extract:
+            result = await extractor.search_companies("bank")
+
+        assert extract.await_args is not None
+        assert extract.await_args.kwargs["apply_cap"] is False
+        assert [r["url"] for r in result["companies"]] == [
+            f"/company/company-{i}/" for i in range(1, 17)
+        ]
+        assert len(result["references"]["search_results"]) == 15
 
     # Beta is the repeat. Delta closes page 1: a company card is read
     # backwards from its followers line, and joined before parsing that line
@@ -7756,6 +7811,7 @@ class TestSearchCompaniesRows:
             result = await extractor.search_companies("fintech")
 
         assert result["companies"] == []
+        assert result["result_count"] == 5200
         assert result["sections"]["search_results"] == self.PAGE_1
         assert "Could not parse result cards on page 1" in caplog.text
 

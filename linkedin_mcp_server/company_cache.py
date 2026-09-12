@@ -231,7 +231,9 @@ class CompanyCache:
         # Nor may it overwrite one: a search card's industry and location are
         # the About page's own rows abbreviated, so once a deep fetch has
         # written the record its typed fields stand and a search only refreshes
-        # what the About page does not carry (URL, URN, followers).
+        # what the About page does not carry (URL, URN, followers). That holds
+        # even for a field the About page left empty: it is not back-filled
+        # from a later search card, so the source label stays honest.
         deep = rec.firmographics_source == "company_page"
         if source == "company_page" or not deep:
             if industry:

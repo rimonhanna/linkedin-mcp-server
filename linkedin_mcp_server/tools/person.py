@@ -239,8 +239,10 @@ def register_person_tools(
             snippet, url[, followers]} parsed from the raw text, deduplicated
             by url across pages; url is null when a card could not be paired
             with a profile link. result_count is the "About N results" header
-            of the first page, or null. Fall back to the raw text for
-            anything the rows do not carry.
+            of the first page, or null; the measured people-search page
+            renders no such header, so expect null here (company search
+            has one). Fall back to the raw text for anything the rows do
+            not carry.
         """
         try:
             extractor = extractor or await get_ready_extractor(

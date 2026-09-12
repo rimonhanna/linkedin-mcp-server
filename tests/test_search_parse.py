@@ -4,12 +4,17 @@ The fixtures are the innerText LinkedIn served live for a people search
 (``/search/results/people/``) and a company search
 (``/search/results/companies/?keywords=fintech&page=2``), so each test is a
 claim about LinkedIn's page shape, not only about the algorithm. The people
-page is anonymised: every name, mutual connection and identifying employer is
-replaced, while line structure -- the two-line and one-line degree markers,
-the snippet labels, the mutual-connections lines, the lone followers line and
-the surrounding chrome -- is kept exactly as captured. Company cards are
-public entities and are kept verbatim.
+page is anonymised: every name, mutual connection, identifying employer and
+distinctive headline or snippet is replaced, while line structure -- the
+two-line and one-line degree markers, the snippet labels, the
+mutual-connections lines, the lone followers line and the surrounding chrome
+-- is kept exactly as captured. Company cards are public entities and are
+kept as served, except for the first name on each "N other connections
+follow this page" line, which is a connection of the account that captured
+the page and is replaced.
 """
+
+import logging
 
 import pytest
 
@@ -61,11 +66,11 @@ Past: Lead Engineer at Example Health
 Person Four\x20
  • 2nd
 
-Distinguished Engineer | Head of AI Engineering | AI Platform & Robotics
+Staff Engineer | Head of ML Infrastructure | Data Platform & Tooling
 
-Los Altos, California, United States
+Sunnyvale, California, United States
 
-Current: * Head of AI Engineering (AI Platform & Robotics)
+Current: * Head of ML Infrastructure (Data Platform & Tooling)
 
 Person Five • 2nd
 
@@ -102,7 +107,7 @@ Sr. Software Engineer
 
 Menlo Park, California, United States
 
-Past: ...delivering new features as an individual contributor while managing a team of full-stack software engineers working in Bangalore, India
+Past: ...shipping features as an individual contributor while leading a team of full-stack engineers in another region
 
 Mutual D. is a mutual connection
 
@@ -122,7 +127,7 @@ Mutual Epsilon, MD PhD is a mutual connection
 Person T.\x20
  • 2nd
 
-🔥 Example PhD 🔥 Agentic Engineer 🔥 AI native 🔥 Software Engineer SWE 🔥 Open to new connections! 🔥 Python Golang Typescript React Java C++ 🔥 AWS 🔥 16+ YOE 🔥 Full work auth 🔥
+🚀 Example MSc 🚀 Platform Engineer 🚀 Cloud native 🚀 Software Engineer SWE 🚀 Open to new connections! 🚀 Python Rust Kotlin Vue Scala C# 🚀 GCP 🚀 10+ YOE 🚀 Remote friendly 🚀
 
 New York, New York, United States
 
@@ -203,7 +208,7 @@ Follow
 
 Custom AI, FinTech, Web3 and enterprise software | 110+ apps since 2013 | 5/5 on Clutch
 
-Ahmed & 14 other connections follow this page · 20K followers
+Alex & 14 other connections follow this page · 20K followers
 
 Fintech Americas
 
@@ -215,7 +220,7 @@ Follow
 
 Fintech Americas es una empresa creadora de comunidades y de aprendizaje, enfocada en la transformación digital.
 
-Francois & 13 other connections follow this page · 27K followers
+Blake & 13 other connections follow this page · 27K followers
 
 Fintech Saudi | فنتك السعودية
 
@@ -227,7 +232,7 @@ Follow
 
 ...تتطلبها شركات الفنتك المالية ودعم رواد الأعمال في مجال التقنية المالية في كل مرحلة من مراحل تطورهم. Fintech Saudi Fintech Saudi was launched by the Saudi Central Bank in partnership with the Capital Market Authority in April 2018 to act as a catalyst for the development of the financial services technology (fintech...
 
-Ahmed & 62 other connections follow this page · 69K followers
+Casey & 62 other connections follow this page · 69K followers
 
 FinTech Futures
 
@@ -239,7 +244,7 @@ Follow
 
 The #1 provider of global fintech news and intelligence
 
-Inna & 57 other connections follow this page · 102K followers
+Dana & 57 other connections follow this page · 102K followers
 
 Africa Fintech Summit
 
@@ -251,7 +256,7 @@ Follow
 
 The global initiative dedicated to building an ecosystem of investors, pioneers, industry leaders in African Fintech.
 
-Ahmed & 49 other connections follow this page · 61K followers
+Eli & 49 other connections follow this page · 61K followers
 
 #AFTSLIVE | Fintechs Powering the Dangote IPO
 
@@ -267,7 +272,7 @@ Follow
 
 Fintech Ekosisteminin Buluşma Adresi | The News Portal of the Fintech Ecosystem
 
-Lale & 5 other connections follow this page · 55K followers
+Finn & 5 other connections follow this page · 55K followers
 
 Contact us
 
@@ -281,7 +286,7 @@ Follow
 
 Welcome to FinTech Connector on LinkedIn! Our mission is to foster collaboration and innovation in the financial services industry. We're dedicated to bringing together financial and business professionals, visionary fintech entrepreneurs, forward-thinking organizations, and capital providers. By uniting these diverse...
 
-Raimonda & 15 other connections follow this page · 19K followers
+Gale & 15 other connections follow this page · 19K followers
 
 Fintech Executive Search Consultants\x20
 
@@ -293,7 +298,7 @@ Follow
 
 Executive Recruiting - Payments, Fintech, & SaaS
 
-Tara & 15 other connections follow this page · 18K followers
+Harper & 15 other connections follow this page · 18K followers
 
 FinTech Magazine
 
@@ -305,7 +310,7 @@ Follow
 
 Connecting the World’s FinTech Leaders
 
-Michael & 62 other connections follow this page · 112K followers
+Indy & 62 other connections follow this page · 112K followers
 
 Stealth FinTech Startup
 
@@ -317,7 +322,7 @@ Follow
 
 Stealth FinTech Startup
 
-Marina & 12 other connections follow this page · 44K followers
+Jules & 12 other connections follow this page · 44K followers
 
 Previous
 1
@@ -381,6 +386,13 @@ def _anchor(path: str, text: str) -> RawReference:
     return {"href": f"https://www.linkedin.com{path}", "text": text}
 
 
+def _company_block(name: str, industry: str, location: str, tagline: str) -> str:
+    return (
+        f"{name}\n\n{industry}\n\n{location}\n\nFollow\n\n{tagline}\n\n"
+        "Alex & 2 other connections follow this page · 2K followers"
+    )
+
+
 def _people_refs(apply_cap: bool = True) -> list[Reference]:
     """The people page's anchors run through the real reference builder: a
     card's own anchor, then each mutual connection's, as the DOM has them."""
@@ -419,9 +431,7 @@ def _company_refs() -> list[Reference]:
         raw.append(_anchor(f"/company/{slug}/", name))
         # The relationship blurb links the page too; clean_label drops it.
         raw.append(
-            _anchor(
-                f"/company/{slug}/", "Ahmed & 14 other connections follow this page"
-            )
+            _anchor(f"/company/{slug}/", "Alex & 14 other connections follow this page")
         )
         if slug == "the-africa-fintech-summit":
             raw.append(
@@ -538,13 +548,28 @@ class TestPeopleCards:
         assert rows[5]["url"] is None
         assert rows[6]["url"] == "/in/pseven/"
 
-    def test_the_reference_cap_only_cuts_trailing_mutual_anchors(self):
-        # 17 anchors, cap 15: what is cut are the last card's two mutual
-        # connections, so every card still finds its own anchor.
-        capped = parse_people_cards(PEOPLE_PAGE, _people_refs())
-        uncapped = parse_people_cards(PEOPLE_PAGE, _people_refs(apply_cap=False))
-        assert len(_people_refs()) == 15
-        assert [r["url"] for r in capped] == [r["url"] for r in uncapped]
+    def test_rows_must_pair_against_the_uncapped_anchors(self):
+        # Synthetic: eight cards, each naming two mutual connections, is 24
+        # ``/in/`` anchors. The section cap of 15 keeps cards 1-5 whole and
+        # cuts the rest, so a parser fed the capped list strands cards 6-8
+        # without a URL. That is why the extractor pairs before capping.
+        cards, raw = [], []
+        for i in range(1, 9):
+            cards.append(
+                f"Person {i} • 2nd\n\nEngineer\n\nOslo, Norway\n\n"
+                f"Mutual {i}A & Mutual {i}B are mutual connections"
+            )
+            raw.append(_anchor(f"/in/person-{i}/", f"Person {i}"))
+            raw.append(_anchor(f"/in/mutual-{i}a/", f"Mutual {i}A"))
+            raw.append(_anchor(f"/in/mutual-{i}b/", f"Mutual {i}B"))
+        page = "\n\n".join(cards)
+        capped = build_references(raw, "search_results")
+        assert len(capped) == 15
+        stranded = parse_people_cards(page, capped)
+        assert [r["url"] for r in stranded][5:] == [None, None, None]
+        uncapped = build_references(raw, "search_results", apply_cap=False)
+        rows = parse_people_cards(page, uncapped)
+        assert [r["url"] for r in rows] == [f"/in/person-{i}/" for i in range(1, 9)]
 
     def test_refs_without_text_pair_by_order(self):
         refs = [{"kind": "person", "url": f"/in/p{i}/"} for i in range(3)]
@@ -561,6 +586,41 @@ class TestPeopleCards:
         assert [r["name"] for r in rows] == ["Person Ay", "Person Bee", "Person Cee"]
         assert rows[0]["headline"] == "Founder • CEO"
         assert rows[0]["location"] == "Netherlands"
+
+    def test_a_numeric_headline_is_not_a_followers_line(self):
+        # Synthetic: "100 Employees" is a count and one word, which is the
+        # followers shape minus the ``·``; without the separator it stays a
+        # headline.
+        page = PEOPLE_PAGE_NO_KEYWORDS.replace(
+            "Cloud Solutions Architect at Example Corp", "100 Employees"
+        )
+        rows = parse_people_cards(page, [])
+        assert rows[0]["headline"] == "100 Employees"
+        assert rows[0]["location"] == "Netherlands"
+        assert rows[0]["followers"] == 2000
+
+    def test_a_year_after_a_bullet_does_not_open_a_card(self):
+        # Synthetic: ``• 2024`` starts with a digit 1-3 like a degree token
+        # but runs on into more digits, which no degree marker does.
+        page = PEOPLE_PAGE_NO_KEYWORDS.replace(
+            "Cloud Solutions Architect at Example Corp", "Founder @ X • 2024"
+        )
+        rows = parse_people_cards(page, [])
+        assert [r["name"] for r in rows] == ["Person Ay", "Person Bee", "Person Cee"]
+        assert rows[0]["headline"] == "Founder @ X • 2024"
+        assert rows[0]["location"] == "Netherlands"
+
+    def test_the_self_card_does_not_overwrite_the_previous_followers(self):
+        # Synthetic: the ``• You`` card has no digit-led marker, so it is
+        # absorbed into the card above; its followers line must not replace
+        # that card's own count.
+        page = PEOPLE_PAGE_NO_KEYWORDS.replace(
+            "Person Bee • 2nd",
+            "Me Myself • You\n\nOwner\n\nHere\n\n · 9K followers\n\nPerson Bee • 2nd",
+        )
+        rows = parse_people_cards(page, [])
+        assert [r["name"] for r in rows] == ["Person Ay", "Person Bee", "Person Cee"]
+        assert rows[0]["followers"] == 2000
 
     def test_other_kinds_are_ignored(self):
         refs = [{"kind": "company", "url": "/company/x/", "text": "Person Ay"}]
@@ -666,8 +726,53 @@ class TestCompanyCards:
         assert parse_company_cards("", []) == []
 
     def test_a_card_missing_a_line_is_skipped_not_guessed(self):
-        page = "About 3 results\n\nOnly Name\n\nSoftware\n\nFollow\n\n2K followers"
+        page = "About 3 results\n\nOnly Name\n\nSoftware\n\nFollow\n\n · 2K followers"
         assert parse_company_cards(page, []) == []
+
+    def test_a_short_card_after_an_event_block_is_skipped(self, caplog):
+        # Synthetic: with a block before it, a card short of its tagline
+        # still has five blocks above the followers line, and the window
+        # slides up into the event. The button slot then holds the card's
+        # "City, Region" location rather than a one-word button, which is
+        # the tell.
+        page = "\n\n".join(
+            [
+                "About 3 results",
+                "Big Summit | Fintechs Powering Growth",
+                "Tomorrow, 3:00 PM (your local time) • Online event",
+                "Only Name",
+                "Software",
+                "Las Vegas, Nevada",
+                "Follow",
+                "Alex & 2 other connections follow this page · 2K followers",
+                _company_block("Whole Co", "Banking", "Bern", "Vaults"),
+            ]
+        )
+        with caplog.at_level(logging.DEBUG):
+            rows = parse_company_cards(page, [])
+        assert [r["name"] for r in rows] == ["Whole Co"]
+        assert "short of a line" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("name", "tagline"),
+        [("500 Startups", "Seed fund"), ("Acme", "1 Team")],
+    )
+    def test_a_count_and_word_without_the_separator_is_not_a_followers_line(
+        self, name, tagline
+    ):
+        # Synthetic: a name or tagline that is a count and one word would
+        # read as a followers line and take the neighbouring card with it.
+        page = "\n\n".join(
+            [
+                "About 3 results",
+                _company_block(name, "Venture Capital", "Palo Alto", tagline),
+                _company_block("Next Co", "Banking", "Bern", "Vaults"),
+            ]
+        )
+        rows = parse_company_cards(page, [])
+        assert [r["name"] for r in rows] == [name, "Next Co"]
+        assert rows[0]["tagline"] == tagline
+        assert rows[0]["followers"] == 2000
 
     def test_reexported_from_company_parse(self):
         assert reexported_parse_company_cards is parse_company_cards
@@ -687,8 +792,10 @@ class TestResultCount:
         [
             ("About 5.200 results", 5200),
             ("Environ 5 200 résultats", 5200),
+            ("Cerca de 5.200 resultados", 5200),
             ("2,000+ results", 2000),
             ("12+ additional advanced filters", None),
+            ("Search with Sales Navigator\n\n12+ additional advanced filters", None),
         ],
     )
     def test_separators_and_upsell(self, header, count):

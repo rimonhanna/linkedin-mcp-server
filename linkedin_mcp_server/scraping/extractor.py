@@ -936,11 +936,9 @@ def _search_rows(
     """
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
-    result_count: int | None = None
+    result_count = parse_result_count(pages[0].text) if pages else None
     for index, page in enumerate(pages):
         try:
-            if index == 0:
-                result_count = parse_result_count(page.text)
             page_rows = parser(page.text, page.references)
         except Exception:
             logger.warning(
@@ -2172,11 +2170,15 @@ class LinkedInExtractor:
         section_name: str,
         max_scrolls: int | None = None,
         max_posts: int | None = None,
+        *,
+        apply_cap: bool = True,
     ) -> ExtractedSection:
         """Navigate to a URL, scroll to load lazy content, and extract innerText.
 
         ``max_posts`` only applies to content-search result pages, where the
-        scroll is count-driven rather than depth-driven.
+        scroll is count-driven rather than depth-driven. ``apply_cap=False``
+        returns every reference the page carries; the caller then owns the
+        section's reference cap.
 
         Retries after a backoff when the page returns only LinkedIn chrome
         (sidebar/footer noise with no actual content), which indicates a soft
@@ -2188,7 +2190,7 @@ class LinkedInExtractor:
         """
         try:
             result = await self._extract_page_once(
-                url, section_name, max_scrolls, max_posts
+                url, section_name, max_scrolls, max_posts, apply_cap=apply_cap
             )
             if result.text != _RATE_LIMITED_MSG:
                 return result
@@ -2196,7 +2198,7 @@ class LinkedInExtractor:
             if not await self._claim_soft_retry(url):
                 return result
             return await self._extract_page_once(
-                url, section_name, max_scrolls, max_posts
+                url, section_name, max_scrolls, max_posts, apply_cap=apply_cap
             )
 
         except LinkedInScraperException:
@@ -2220,11 +2222,13 @@ class LinkedInExtractor:
         section_name: str,
         max_scrolls: int | None = None,
         max_posts: int | None = None,
+        *,
+        apply_cap: bool = True,
     ) -> ExtractedSection:
         """Single attempt to navigate, scroll, and extract innerText."""
         await self._navigate_to_page(url)
         return await self._extract_loaded_section(
-            url, section_name, max_scrolls, max_posts
+            url, section_name, max_scrolls, max_posts, apply_cap=apply_cap
         )
 
     async def _extract_loaded_section(
@@ -2233,6 +2237,8 @@ class LinkedInExtractor:
         section_name: str,
         max_scrolls: int | None = None,
         max_posts: int | None = None,
+        *,
+        apply_cap: bool = True,
     ) -> ExtractedSection:
         """Run the post-navigation extraction pipeline on the current page.
 
@@ -2384,7 +2390,9 @@ class LinkedInExtractor:
         cleaned = _filter_linkedin_noise_lines(truncated)
         return ExtractedSection(
             text=cleaned,
-            references=build_references(raw_result["references"], section_name),
+            references=build_references(
+                raw_result["references"], section_name, apply_cap=apply_cap
+            ),
         )
 
     async def _extract_overlay(
@@ -5269,7 +5277,13 @@ class LinkedInExtractor:
                 await human_pause(_NAV_DELAY)
 
             url = base_url if page_num == 1 else f"{base_url}&page={page_num}"
-            extracted = await self.extract_page(url, section_name="search_results")
+            # Uncapped: the rows pair against every anchor on the page, and
+            # a people card carries up to two mutual-connection anchors of
+            # its own, so the section cap would strand the later cards
+            # without a URL. The cap is applied to ``references`` below.
+            extracted = await self.extract_page(
+                url, section_name="search_results", apply_cap=False
+            )
 
             if not extracted.text or extracted.text == _RATE_LIMITED_MSG:
                 # Rate limit first: it is the more specific diagnosis, and a
@@ -5284,7 +5298,11 @@ class LinkedInExtractor:
             page_texts.append(extracted.text)
             pages.append(extracted)
             if extracted.references:
-                page_references.extend(extracted.references)
+                page_references.extend(
+                    dedupe_references(
+                        extracted.references, cap=_SEARCH_RESULTS_REFERENCE_CAP
+                    )
+                )
 
             # Running past the last page yields a results page with no people on
             # it. Detect that by URL rather than by parsing LinkedIn's
@@ -5439,7 +5457,13 @@ class LinkedInExtractor:
                 await human_pause(_NAV_DELAY)
 
             url = base_url if page_num == 1 else f"{base_url}&page={page_num}"
-            extracted = await self.extract_page(url, section_name="search_results")
+            # Uncapped: the rows pair against every anchor on the page, and
+            # a people card carries up to two mutual-connection anchors of
+            # its own, so the section cap would strand the later cards
+            # without a URL. The cap is applied to ``references`` below.
+            extracted = await self.extract_page(
+                url, section_name="search_results", apply_cap=False
+            )
 
             if not extracted.text or extracted.text == _RATE_LIMITED_MSG:
                 if extracted.text == _RATE_LIMITED_MSG:
@@ -5451,7 +5475,11 @@ class LinkedInExtractor:
             page_texts.append(extracted.text)
             pages.append(extracted)
             if extracted.references:
-                page_references.extend(extracted.references)
+                page_references.extend(
+                    dedupe_references(
+                        extracted.references, cap=_SEARCH_RESULTS_REFERENCE_CAP
+                    )
+                )
 
             new_companies = {
                 ref["url"] for ref in extracted.references if ref["kind"] == "company"
