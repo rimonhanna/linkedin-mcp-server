@@ -393,6 +393,46 @@ def _company_block(name: str, industry: str, location: str, tagline: str) -> str
     )
 
 
+def _refs_for(*names: str) -> list[Reference]:
+    return [
+        {
+            "kind": "company",
+            "url": f"/company/{name.lower().replace(' ', '-')}/",
+            "text": name,
+        }
+        for name in names
+    ]
+
+
+# Synthetic: a card short of its tagline, with a promoted event above it.
+TAGLINE_LESS_AFTER_EVENT = "\n\n".join(
+    [
+        "About 3 results",
+        "Big Summit | Fintechs Powering Growth",
+        "Tomorrow, 3:00 PM (your local time) • Online event",
+        "Only Name",
+        "Software",
+        "Las Vegas, Nevada",
+        "Follow",
+        "Alex & 2 other connections follow this page · 2K followers",
+        _company_block("Whole Co", "Banking", "Bern", "Vaults"),
+    ]
+)
+
+# Synthetic, as reported: a tagline-less first card whose one-word location
+# lands in the button slot, so the five-line read starts at the header.
+TAGLINE_LESS_UNDER_HEADER = "\n\n".join(
+    [
+        "About 1 result",
+        "Acme",
+        "Software Development",
+        "Netherlands",
+        "Follow",
+        " · 3K followers",
+    ]
+)
+
+
 def _people_refs(apply_cap: bool = True) -> list[Reference]:
     """The people page's anchors run through the real reference builder: a
     card's own anchor, then each mutual connection's, as the DOM has them."""
@@ -735,23 +775,97 @@ class TestCompanyCards:
         # slides up into the event. The button slot then holds the card's
         # "City, Region" location rather than a one-word button, which is
         # the tell.
+        with caplog.at_level(logging.DEBUG):
+            rows = parse_company_cards(TAGLINE_LESS_AFTER_EVENT, [])
+        assert [r["name"] for r in rows] == ["Whole Co"]
+        assert "short of a line" in caplog.text
+
+    def test_a_tagline_less_card_after_an_event_block_is_read_with_refs(self):
+        # The same page with the card's anchor: the ref names the fourth
+        # slot above the followers line, so the card is read as four lines
+        # and the event block above it is left alone.
+        rows = parse_company_cards(TAGLINE_LESS_AFTER_EVENT, _refs_for("Only Name"))
+        assert rows[0] == {
+            "name": "Only Name",
+            "industry": "Software",
+            "location": "Las Vegas, Nevada",
+            "tagline": None,
+            "followers": 2000,
+            "url": "/company/only-name/",
+        }
+        assert [r["name"] for r in rows] == ["Only Name", "Whole Co"]
+
+    def test_a_tagline_less_card_under_the_header_is_read_with_refs(self):
+        # Reported: a one-word location passes the button-slot guard, so a
+        # five-line read of a tagline-less first card fabricated a row out
+        # of the header. The anchor says which slot is the name.
+        rows = parse_company_cards(TAGLINE_LESS_UNDER_HEADER, _refs_for("Acme"))
+        assert rows == [
+            {
+                "name": "Acme",
+                "industry": "Software Development",
+                "location": "Netherlands",
+                "tagline": None,
+                "followers": 3000,
+                "url": "/company/acme/",
+            }
+        ]
+
+    def test_a_tagline_less_card_under_the_header_is_skipped_without_refs(self, caplog):
+        # Without an anchor the five-line read is all there is, and its name
+        # slot is the results header: skipped, not fabricated.
+        with caplog.at_level(logging.DEBUG):
+            assert parse_company_cards(TAGLINE_LESS_UNDER_HEADER, []) == []
+        assert "under the header" in caplog.text
+
+    def test_a_tagline_less_card_after_a_full_card_is_read_with_refs(self):
         page = "\n\n".join(
             [
                 "About 3 results",
-                "Big Summit | Fintechs Powering Growth",
-                "Tomorrow, 3:00 PM (your local time) • Online event",
-                "Only Name",
-                "Software",
-                "Las Vegas, Nevada",
-                "Follow",
-                "Alex & 2 other connections follow this page · 2K followers",
                 _company_block("Whole Co", "Banking", "Bern", "Vaults"),
+                "Acme",
+                "Software Development",
+                "Netherlands",
+                "Follow",
+                " · 3K followers",
             ]
         )
-        with caplog.at_level(logging.DEBUG):
-            rows = parse_company_cards(page, [])
-        assert [r["name"] for r in rows] == ["Whole Co"]
-        assert "short of a line" in caplog.text
+        refs = _refs_for("Whole Co", "Acme")
+        rows = parse_company_cards(page, refs)
+        assert [(r["name"], r["tagline"], r["url"]) for r in rows] == [
+            ("Whole Co", "Vaults", "/company/whole-co/"),
+            ("Acme", None, "/company/acme/"),
+        ]
+        # Without the anchor the four-line card is one block short of a
+        # five-line read and is skipped, as before.
+        assert [r["name"] for r in parse_company_cards(page, [])] == ["Whole Co"]
+
+    def test_a_full_card_whose_industry_is_another_company_name_stays_five(self):
+        # Synthetic: "Banking" is both Whole Co's industry and a company on
+        # the page. The five-line read is tried first, so Whole Co's own
+        # anchor wins over the industry slot and the card keeps its tagline.
+        page = "\n\n".join(
+            [
+                "About 3 results",
+                _company_block("Whole Co", "Banking", "Bern", "Vaults"),
+                _company_block("Banking", "Financial Services", "Zug", "Loans"),
+            ]
+        )
+        rows = parse_company_cards(page, _refs_for("Whole Co", "Banking"))
+        assert [(r["name"], r["industry"], r["tagline"]) for r in rows] == [
+            ("Whole Co", "Banking", "Vaults"),
+            ("Banking", "Financial Services", "Loans"),
+        ]
+
+    def test_the_live_page_reads_the_same_with_and_without_refs(self):
+        # The ref-driven shape choice must not touch the captured page: every
+        # card there carries a tagline, including the first, whose anchor the
+        # builder drops for length and which is therefore read by fallback.
+        with_refs = parse_company_cards(COMPANY_PAGE, _company_refs())
+        without = parse_company_cards(COMPANY_PAGE, [])
+        assert [{**r, "url": None} for r in with_refs] == without
+        assert len(with_refs) == 10
+        assert all(r["tagline"] for r in with_refs)
 
     @pytest.mark.parametrize(
         ("name", "tagline"),

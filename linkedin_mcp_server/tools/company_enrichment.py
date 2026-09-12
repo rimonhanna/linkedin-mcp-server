@@ -115,13 +115,16 @@ def register_company_enrichment_tools(
         # returns without the section. Recording that would stamp an empty
         # record fresh for the whole TTL and never retry. Raise instead so the
         # caller's failure path charges the navigation and leaves the record
-        # stale. An About that *is* present but parses to nothing is a real
-        # page and is recorded as such.
+        # stale. A rate limit is raised as such, not as a generic failure:
+        # the callers back off on RateLimitError and would otherwise keep
+        # navigating while throttled. An About that *is* present but parses
+        # to nothing is a real page and is recorded as such.
         if "about" not in sections:
             error = result.get("section_errors", {}).get("about", {})
-            raise ScrapingError(
-                error.get("error_message") or "About section did not load."
-            )
+            message = error.get("error_message") or "About section did not load."
+            if error.get("error_type") == "rate_limit":
+                raise RateLimitError(message)
+            raise ScrapingError(message)
         about = sections["about"]
         fields = parse_about(about)
         urn = _company_urn(result) or urn
@@ -306,6 +309,9 @@ def register_company_enrichment_tools(
                     result = await extractor.search_companies(name)
                 except RateLimitError as e:
                     logger.warning("Rate limited during company enrichment: %s", e)
+                    # The refused navigation is one LinkedIn counted too.
+                    budget.ledger.record(now)
+                    spent += 1
                     return _rate_limited()
                 except Exception as e:
                     logger.info("Company search failed for %s: %s", name, e)
@@ -386,6 +392,8 @@ def register_company_enrichment_tools(
                     )
                 except RateLimitError as e:
                     logger.warning("Rate limited during About load: %s", e)
+                    budget.ledger.record(now)
+                    about_loaded += 1
                     return _rate_limited()
                 except Exception as e:
                     logger.info("About load failed for %s: %s", name, e)
@@ -495,17 +503,14 @@ def register_company_enrichment_tools(
             if want_firmographics:
                 try:
                     urn = await _load_about(extractor, company, slug, now, urn)
-                except (RateLimitError, AuthenticationError):
-                    raise
-                except Exception:
-                    # About failed (rate-limited, auth-walled, or crashed):
-                    # the navigation still happened, so charge it -- same as
-                    # enrich_companies -- and leave the record stale for a
-                    # retry rather than never recorded.
+                finally:
+                    # Charged whether About loaded, was rate-limited,
+                    # auth-walled or crashed: the navigation happened either
+                    # way -- same as enrich_companies -- and on failure the
+                    # record is left stale for a retry rather than never
+                    # recorded.
                     budget.ledger.record(now)
                     jobs.save(budget)
-                    raise
-                budget.ledger.record(now)
 
             # Open roles come from job SEARCH filtered by the company URN -- the
             # company Page's own /jobs/ tab is empty for most employers. Needs
@@ -514,7 +519,13 @@ def register_company_enrichment_tools(
                 jobs_url = (
                     f"https://www.linkedin.com/jobs/search/?f_C={urn}&geoId=92000000"
                 )
-                extracted = await extractor.extract_page(jobs_url, section_name="jobs")
+                try:
+                    extracted = await extractor.extract_page(
+                        jobs_url, section_name="jobs"
+                    )
+                finally:
+                    budget.ledger.record(now)
+                    jobs.save(budget)
                 text = extracted.text or ""
                 # extract_page can hand back an error section or the soft
                 # rate-limit sentinel *without raising*. Caching that would
@@ -531,14 +542,15 @@ def register_company_enrichment_tools(
                         sample=parsed.sample,
                         raw_jobs=text,
                     )
-                budget.ledger.record(now)
         except RateLimitError:
             jobs.save(budget)
             return {
                 "company": company,
-                "status": "rate_limited",
                 "next_run_after_seconds": 3600,
                 **_firmographics_view(cache.get(company) or rec, "cache"),
+                # After the view: an uncached company's view carries its own
+                # "unknown" status, and the rate limit is the answer here.
+                "status": "rate_limited",
             }
         except AuthenticationError as e:
             try:

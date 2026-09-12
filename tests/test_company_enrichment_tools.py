@@ -430,7 +430,27 @@ class TestEnrichCompanies:
         assert out["stopped_because"] == "rate_limited"
         assert out["fetched"] == 1  # the search that ran is not forgotten
         assert cache.get("Copado").linkedin_url  # its URL was persisted
+        # The About navigation LinkedIn refused is one it counted: charged.
+        assert out["about_loaded"] == 1
+        assert _spent(jobs) == 2
+
+    async def test_search_rate_limit_charges_the_refused_navigation(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        _, jobs = wired
+        extractor = _search_extractor(["copado"])
+        extractor.search_companies = AsyncMock(side_effect=RateLimitError("slow"))
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(["Copado", "Acme"], mock_context, extractor=extractor)
+
+        assert out["stopped_because"] == "rate_limited"
+        assert out["fetched"] == 1
         assert _spent(jobs) == 1
+        extractor.search_companies.assert_awaited_once()  # stopped, no second
 
     async def test_about_failure_keeps_the_search_view_and_charges_the_load(
         self, mcp, wired, mock_context, monkeypatch
@@ -514,19 +534,19 @@ class TestEnrichCompanies:
         extractor.scrape_company.assert_awaited_once()
         assert _spent(jobs) == 2  # search + one About, nothing more
 
-    async def test_a_rate_limited_about_is_not_stamped_fresh(
+    async def test_a_rate_limited_about_stops_the_bunch_and_is_not_stamped_fresh(
         self, mcp, wired, mock_context, monkeypatch
     ):
         """scrape_company swallows a rate-limited About into section_errors
-        and returns no section. That is a failed load, not an empty page:
-        it must surface as about_error, cost the navigation, and leave the
-        record stale so the next call retries instead of serving nothing
-        for 90 days."""
+        and returns no section. That is LinkedIn throttling, not an empty
+        page: the bunch must stop there rather than keep navigating, the
+        navigation is charged, and the record is left stale so the next
+        call retries instead of serving nothing for 90 days."""
         monkeypatch.setattr(
             "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
         )
         cache, jobs = wired
-        extractor = _search_extractor(["copado"])
+        extractor = _search_extractor(["copado", "acme"])
         extractor.scrape_company = AsyncMock(
             return_value={
                 "url": "https://www.linkedin.com/company/copado/",
@@ -538,9 +558,50 @@ class TestEnrichCompanies:
         )
 
         fn = await get_tool_fn(mcp, "enrich_companies")
+        first = await fn(
+            ["Copado", "Acme"], mock_context, about=True, extractor=extractor
+        )
+
+        assert first["stopped_because"] == "rate_limited"
+        assert (first["fetched"], first["about_loaded"]) == (1, 1)
+        assert _spent(jobs) == 2  # search + the About load LinkedIn refused
+        extractor.scrape_company.assert_awaited_once()  # Acme was not attempted
+        rec = cache.get("Copado")
+        assert rec is not None and rec.linkedin_url
+        assert not rec.has_firmographics()
+
+        second = await fn(["Copado"], mock_context, about=True, extractor=extractor)
+
+        assert second["stopped_because"] == "rate_limited"  # retried, not cached
+        assert extractor.scrape_company.await_count == 2
+        assert extractor.search_companies.await_count == 1  # URL was kept
+
+    async def test_a_failed_about_surfaces_as_about_error_and_is_not_stamped_fresh(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """A crashed or auth-walled About (any section error that is not a
+        rate limit) is a failed load, not an empty page: it surfaces as
+        about_error, costs the navigation, and leaves the record stale so
+        the next call retries."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        cache, jobs = wired
+        extractor = _search_extractor(["copado"])
+        extractor.scrape_company = AsyncMock(
+            return_value={
+                "url": "https://www.linkedin.com/company/copado/",
+                "sections": {},
+                "section_errors": {
+                    "about": {"error_type": "scraping", "error_message": "crashed"}
+                },
+            }
+        )
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
         first = await fn(["Copado"], mock_context, about=True, extractor=extractor)
 
-        assert first["results"]["Copado"]["about_error"] == "blocked"
+        assert first["results"]["Copado"]["about_error"] == "crashed"
         assert first["about_loaded"] == 1
         assert _spent(jobs) == 2  # search + the About load that came back empty
         rec = cache.get("Copado")
@@ -679,8 +740,8 @@ class TestEnrichCompanyDeep:
     async def test_about_failure_still_charges_the_ledger(
         self, mcp, wired, mock_context
     ):
-        """scrape_company swallows a rate-limited/auth-walled/crashed About
-        into section_errors and returns no section; _load_about raises. The
+        """scrape_company swallows an auth-walled/crashed About into
+        section_errors and returns no section; _load_about raises. The
         navigation still happened, so it must be charged and the record left
         stale, not silently dropped from the budget."""
         cache, jobs = wired
@@ -690,7 +751,7 @@ class TestEnrichCompanyDeep:
                 "url": "https://www.linkedin.com/company/acme/",
                 "sections": {},
                 "section_errors": {
-                    "about": {"error_type": "rate_limit", "error_message": "blocked"}
+                    "about": {"error_type": "scraping", "error_message": "crashed"}
                 },
             }
         )
@@ -700,8 +761,54 @@ class TestEnrichCompanyDeep:
             await fn("Acme", mock_context, extractor=extractor)
 
         assert _spent(jobs) == 1  # the About load was charged despite failing
+        extractor.extract_page.assert_not_awaited()
         rec = cache.get("Acme")
         assert rec is None or not rec.has_firmographics()  # not stamped fresh
+
+    @pytest.mark.parametrize("shape", ["soft", "hard"])
+    async def test_a_rate_limited_about_is_charged_and_reported(
+        self, mcp, wired, mock_context, shape
+    ):
+        """The soft rate-limit shape (section_errors, no raise) and the hard
+        one (RateLimitError) both end the call as rate_limited, with the
+        refused About navigation charged and the record left stale."""
+        cache, jobs = wired
+        extractor = self._deep_extractor()
+        if shape == "soft":
+            extractor.scrape_company = AsyncMock(
+                return_value={
+                    "url": "https://www.linkedin.com/company/acme/",
+                    "sections": {},
+                    "section_errors": {
+                        "about": {
+                            "error_type": "rate_limit",
+                            "error_message": "blocked",
+                        }
+                    },
+                }
+            )
+        else:
+            extractor.scrape_company = AsyncMock(side_effect=RateLimitError("slow"))
+
+        fn = await get_tool_fn(mcp, "enrich_company_deep")
+        out = await fn("Acme", mock_context, extractor=extractor)
+
+        assert out["status"] == "rate_limited"
+        assert _spent(jobs) == 1  # the refused About navigation was charged
+        extractor.extract_page.assert_not_awaited()  # stopped at About
+        rec = cache.get("Acme")
+        assert rec is None or not rec.has_firmographics()
+
+    async def test_a_rate_limited_job_search_is_charged(self, mcp, wired, mock_context):
+        _, jobs = wired
+        extractor = self._deep_extractor()
+        extractor.extract_page = AsyncMock(side_effect=RateLimitError("slow"))
+
+        fn = await get_tool_fn(mcp, "enrich_company_deep")
+        out = await fn("Acme", mock_context, extractor=extractor)
+
+        assert out["status"] == "rate_limited"
+        assert _spent(jobs) == 2  # About plus the refused job search
 
     async def test_include_jobs_false_skips_the_job_search(
         self, mcp, wired, mock_context
