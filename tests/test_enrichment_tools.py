@@ -607,6 +607,41 @@ class TestRunBunch:
         assert out["stopped_because"] == "rate_limited"
         assert store.load("j").pending == ["a", "b"]
 
+    async def test_a_profile_that_empties_twice_is_struck_out(
+        self, mcp, store, mock_context
+    ):
+        """A deleted or private URL comes back as the same empty shell a
+        throttle does, on every call. The first is read as a rate limit and
+        stays queued; the second strikes it out so the queue moves on."""
+        await self._seed(mcp, store, ["a", "b"])
+        empty = {
+            "url": "x",
+            "sections": {},
+            "section_errors": {
+                "main_profile": {"error_type": "rate_limit", "error_message": "x"}
+            },
+        }
+        loaded = {"url": "x", "sections": {"main_profile": "Jane"}}
+        extractor = MagicMock()
+        extractor.scrape_person = AsyncMock(
+            side_effect=lambda username, *a, **k: empty if username == "a" else loaded
+        )
+
+        fn = await get_tool_fn(mcp, "run_enrichment_bunch")
+        first = await fn("j", mock_context, extractor=extractor)
+
+        assert first["stopped_because"] == "rate_limited"
+        assert store.load("j").pending == ["a", "b"]
+        assert store.load("j").strikes == {"a": 1}
+
+        second = await fn("j", mock_context, extractor=extractor)
+
+        assert second["stopped_because"] == "queue_empty"
+        assert store.load("j").pending == []
+        assert "empty page on 2 consecutive visits" in store.load("j").failed["a"]
+        assert store.load("j").strikes == {}
+        assert "b" in store.load("j").done
+
     async def test_extra_sections_each_cost_budget(
         self, mcp, store, mock_context, monkeypatch
     ):

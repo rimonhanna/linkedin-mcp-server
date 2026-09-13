@@ -58,6 +58,10 @@ DEADLINE_FRACTION = 0.75
 # nothing ran, so the pause is a tool-call gap, not a between-bunches one.
 RETRY_AFTER_QUEUED_OUT = 10.0
 
+# Empty pages in a row before a profile is filed as failed rather than read
+# as a rate limit: a deleted or private URL looks exactly like a throttle.
+EMPTY_PAGE_STRIKES = 2
+
 _CLOSED_TARGET_MSG = "Target page, context or browser has been closed"
 
 
@@ -466,6 +470,24 @@ def register_enrichment_tools(
                 # `failed` (which an auth error, a sibling of RateLimitError,
                 # would otherwise do by falling through to the generic handler).
                 is_auth = isinstance(e, AuthenticationError)
+                if not is_auth:
+                    # The heuristic cannot tell a throttle from a profile that
+                    # is gone; both come back as an empty shell. A real limit
+                    # clears between calls, a dead URL does not, so the same
+                    # username emptying twice in a row is struck out here
+                    # rather than heading the queue on every call forever.
+                    job.strikes[username] = job.strikes.get(username, 0) + 1
+                    if job.strikes[username] >= EMPTY_PAGE_STRIKES:
+                        job.pending.pop(0)
+                        del job.strikes[username]
+                        job.failed[username] = (
+                            f"empty page on {EMPTY_PAGE_STRIKES} consecutive visits "
+                            "(heuristic rate limit); profile is probably deleted "
+                            "or private"
+                        )
+                        store.save(job)
+                        logger.info("Enrichment struck out %s: %s", username, e)
+                        continue
                 logger.warning(
                     "%s during enrichment bunch: %s",
                     "Auth expired" if is_auth else "Rate limited",
@@ -501,6 +523,7 @@ def register_enrichment_tools(
                 continue
 
             job.pending.pop(0)
+            job.strikes.pop(username, None)
             job.done[username] = result
             gathered[username] = result
             # Every page load counts against the shared budget, extras included.
