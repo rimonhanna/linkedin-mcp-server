@@ -641,6 +641,52 @@ class TestRunBunch:
         assert "empty page on 2 consecutive visits" in store.load("j").failed["a"]
         assert store.load("j").strikes == {}
         assert "b" in store.load("j").done
+        # The striking visit of "a" and the load of "b"; the first empty
+        # visit of "a" was not charged.
+        assert second["account_spent_last_24h"] == 2
+
+    async def test_a_hard_rate_limit_is_never_struck_out(
+        self, mcp, store, mock_context
+    ):
+        """An HTTP 429 or a checkpoint challenge the extractor raises is a
+        real limit, not an ambiguous empty shell: under sustained pressure it
+        must keep backing off, never drain the queue into `failed`."""
+        await self._seed(mcp, store, ["a", "b"])
+        extractor = _extractor(error=RateLimitError("HTTP 429"))
+
+        fn = await get_tool_fn(mcp, "run_enrichment_bunch")
+        for _ in range(2):
+            out = await fn("j", mock_context, extractor=extractor)
+
+            assert out["stopped_because"] == "rate_limited"
+            assert store.load("j").pending == ["a", "b"]
+            assert store.load("j").failed == {}
+            assert store.load("j").strikes == {}
+
+    async def test_a_strike_is_cleared_once_the_profile_loads(
+        self, mcp, store, mock_context
+    ):
+        await self._seed(mcp, store, ["a"])
+        empty = {
+            "url": "x",
+            "sections": {},
+            "section_errors": {
+                "main_profile": {"error_type": "rate_limit", "error_message": "x"}
+            },
+        }
+        loaded = {"url": "x", "sections": {"main_profile": "Jane"}}
+        extractor = MagicMock()
+        extractor.scrape_person = AsyncMock(side_effect=[empty, loaded])
+
+        fn = await get_tool_fn(mcp, "run_enrichment_bunch")
+        await fn("j", mock_context, extractor=extractor)
+        assert store.load("j").strikes == {"a": 1}
+
+        out = await fn("j", mock_context, extractor=extractor)
+
+        assert out["stopped_because"] == "queue_empty"
+        assert "a" in store.load("j").done
+        assert store.load("j").strikes == {}
 
     async def test_extra_sections_each_cost_budget(
         self, mcp, store, mock_context, monkeypatch

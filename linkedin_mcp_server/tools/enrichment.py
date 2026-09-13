@@ -122,6 +122,16 @@ class _RelaunchFailed(Exception):
         self.cause = cause
 
 
+class _EmptyPage(RateLimitError):
+    """A profile that came back as an empty shell, filed as a soft rate limit.
+
+    Kept apart from the hard kind (an HTTP 429, a checkpoint or authwall
+    challenge raised by the extractor) because only this shape is ambiguous
+    with a deleted or private profile and may be struck out; a hard limit
+    under sustained pressure must never drain the queue into ``failed``.
+    """
+
+
 def _soft_rate_limit(result: dict[str, Any]) -> str | None:
     """The message of a rate-limit section error, if the scrape filed one.
 
@@ -402,7 +412,7 @@ def register_enrichment_tools(
                 # With nothing loaded, a filed rate limit is the whole answer,
                 # and it is a rate limit, not a dead browser.
                 if limit := _soft_rate_limit(result):
-                    raise RateLimitError(limit)
+                    raise _EmptyPage(limit)
                 errors = result.get("section_errors", {})
                 if _closed_target_filed(errors):
                     raise _BrowserGone("every section failed", errors)
@@ -470,7 +480,7 @@ def register_enrichment_tools(
                 # `failed` (which an auth error, a sibling of RateLimitError,
                 # would otherwise do by falling through to the generic handler).
                 is_auth = isinstance(e, AuthenticationError)
-                if not is_auth:
+                if isinstance(e, _EmptyPage):
                     # The heuristic cannot tell a throttle from a profile that
                     # is gone; both come back as an empty shell. A real limit
                     # clears between calls, a dead URL does not, so the same
@@ -485,7 +495,12 @@ def register_enrichment_tools(
                             "(heuristic rate limit); profile is probably deleted "
                             "or private"
                         )
+                        # The striking visit was a real page load, so it is
+                        # charged like any other; the first stays uncharged.
+                        for _ in range(cost):
+                            budget.ledger.record(now)
                         store.save(job)
+                        store.save(budget)
                         logger.info("Enrichment struck out %s: %s", username, e)
                         continue
                 logger.warning(
@@ -517,6 +532,7 @@ def register_enrichment_tools(
                 )
             except Exception as e:
                 job.pending.pop(0)
+                job.strikes.pop(username, None)
                 job.failed[username] = str(e)[:200]
                 store.save(job)
                 logger.info("Enrichment failed for %s: %s", username, e)
