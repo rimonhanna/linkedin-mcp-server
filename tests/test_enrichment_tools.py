@@ -608,11 +608,14 @@ class TestRunBunch:
         assert store.load("j").pending == ["a", "b"]
 
     async def test_a_profile_that_empties_twice_is_struck_out(
-        self, mcp, store, mock_context
+        self, mcp, store, mock_context, monkeypatch
     ):
         """A deleted or private URL comes back as the same empty shell a
         throttle does, on every call. The first is read as a rate limit and
         stays queued; the second strikes it out so the queue moves on."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.enrichment.step_delay", lambda **k: 0
+        )
         await self._seed(mcp, store, ["a", "b"])
         empty = {
             "url": "x",
@@ -644,6 +647,64 @@ class TestRunBunch:
         # The striking visit of "a" and the load of "b"; the first empty
         # visit of "a" was not charged.
         assert second["account_spent_last_24h"] == 2
+
+    async def test_a_strike_out_followed_by_another_empty_page_is_undone(
+        self, mcp, store, mock_context, monkeypatch
+    ):
+        """When the profile visited right after a strike-out empties too, the
+        session is throttled, not the profile gone: the struck username goes
+        back to the front of the queue and the call backs off."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.enrichment.step_delay", lambda **k: 0
+        )
+        await self._seed(mcp, store, ["a", "b"])
+        extractor = _extractor(
+            result={
+                "url": "x",
+                "sections": {},
+                "section_errors": {
+                    "main_profile": {"error_type": "rate_limit", "error_message": "x"}
+                },
+            }
+        )
+
+        fn = await get_tool_fn(mcp, "run_enrichment_bunch")
+        first = await fn("j", mock_context, extractor=extractor)
+
+        assert first["stopped_because"] == "rate_limited"
+        assert store.load("j").strikes == {"a": 1}
+
+        second = await fn("j", mock_context, extractor=extractor)
+
+        assert second["stopped_because"] == "rate_limited"
+        assert store.load("j").pending == ["a", "b"]
+        assert store.load("j").failed == {}
+        assert store.load("j").strikes == {"a": 2, "b": 1}
+        # The strike-out charged a real page load; undoing it does not refund.
+        assert second["account_spent_last_24h"] == 1
+
+    async def test_a_strike_is_cleared_when_the_profile_fails_outright(
+        self, mcp, store, mock_context
+    ):
+        await self._seed(mcp, store, ["a"])
+        empty = {
+            "url": "x",
+            "sections": {},
+            "section_errors": {
+                "main_profile": {"error_type": "rate_limit", "error_message": "x"}
+            },
+        }
+        extractor = MagicMock()
+        extractor.scrape_person = AsyncMock(side_effect=[empty, ValueError("boom")])
+
+        fn = await get_tool_fn(mcp, "run_enrichment_bunch")
+        await fn("j", mock_context, extractor=extractor)
+        assert store.load("j").strikes == {"a": 1}
+
+        await fn("j", mock_context, extractor=extractor)
+
+        assert store.load("j").failed == {"a": "boom"}
+        assert store.load("j").strikes == {}
 
     async def test_a_hard_rate_limit_is_never_struck_out(
         self, mcp, store, mock_context

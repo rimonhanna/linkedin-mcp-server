@@ -396,6 +396,9 @@ def register_enrichment_tools(
 
         gathered: dict[str, Any] = {}
         stopped = "bunch_complete"
+        # The username struck out by the previous visit of this call, if any:
+        # the next visit emptying too says the whole session is throttled.
+        struck_this_call: str | None = None
 
         async def _scrape(username: str) -> dict[str, Any]:
             """One profile visit, with both shapes of a dead browser raised
@@ -482,12 +485,24 @@ def register_enrichment_tools(
                 is_auth = isinstance(e, AuthenticationError)
                 if isinstance(e, _EmptyPage):
                     # The heuristic cannot tell a throttle from a profile that
-                    # is gone; both come back as an empty shell. A real limit
-                    # clears between calls, a dead URL does not, so the same
-                    # username emptying twice in a row is struck out here
-                    # rather than heading the queue on every call forever.
+                    # is gone; both come back as an empty shell. The same
+                    # username emptying on consecutive calls is struck out
+                    # rather than heading the queue on every call forever --
+                    # unless the very next profile in the same call empties
+                    # too, which is a session-wide throttle, not a dead URL:
+                    # then the strike-out is undone and the call backs off.
                     job.strikes[username] = job.strikes.get(username, 0) + 1
-                    if job.strikes[username] >= EMPTY_PAGE_STRIKES:
+                    if struck_this_call is not None:
+                        job.pending.insert(0, struck_this_call)
+                        del job.failed[struck_this_call]
+                        job.strikes[struck_this_call] = EMPTY_PAGE_STRIKES
+                        logger.info(
+                            "%s emptied right after %s was struck out; "
+                            "re-queued it as a throttle",
+                            username,
+                            struck_this_call,
+                        )
+                    elif job.strikes[username] >= EMPTY_PAGE_STRIKES:
                         job.pending.pop(0)
                         del job.strikes[username]
                         job.failed[username] = (
@@ -496,12 +511,16 @@ def register_enrichment_tools(
                             "or private"
                         )
                         # The striking visit was a real page load, so it is
-                        # charged like any other; the first stays uncharged.
+                        # charged and paced like any other; the first stays
+                        # uncharged.
                         for _ in range(cost):
                             budget.ledger.record(now)
                         store.save(job)
                         store.save(budget)
                         logger.info("Enrichment struck out %s: %s", username, e)
+                        struck_this_call = username
+                        if index != planned - 1:
+                            await asyncio.sleep(step_delay(rng=rng))
                         continue
                 logger.warning(
                     "%s during enrichment bunch: %s",
@@ -536,10 +555,12 @@ def register_enrichment_tools(
                 job.failed[username] = str(e)[:200]
                 store.save(job)
                 logger.info("Enrichment failed for %s: %s", username, e)
+                struck_this_call = None
                 continue
 
             job.pending.pop(0)
             job.strikes.pop(username, None)
+            struck_this_call = None
             job.done[username] = result
             gathered[username] = result
             # Every page load counts against the shared budget, extras included.
