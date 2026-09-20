@@ -1775,7 +1775,7 @@ class TestSearchJobs:
                 return_value=None,
             ),
             patch(
-                "linkedin_mcp_server.scraping.jobs.asyncio.sleep",
+                "linkedin_mcp_server.scraping.session.asyncio.sleep",
                 new_callable=AsyncMock,
             ),
         ):
@@ -1820,7 +1820,7 @@ class TestSearchJobs:
                 return_value=None,
             ),
             patch(
-                "linkedin_mcp_server.scraping.jobs.asyncio.sleep",
+                "linkedin_mcp_server.scraping.session.asyncio.sleep",
                 new_callable=AsyncMock,
             ),
         ):
@@ -1876,7 +1876,7 @@ class TestSearchJobs:
                 return_value=None,
             ),
             patch(
-                "linkedin_mcp_server.scraping.jobs.asyncio.sleep",
+                "linkedin_mcp_server.scraping.session.asyncio.sleep",
                 new_callable=AsyncMock,
             ),
         ):
