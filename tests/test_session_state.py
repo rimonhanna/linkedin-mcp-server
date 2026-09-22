@@ -689,6 +689,15 @@ class TestClearAuthState:
         assert quarantine_dirs(profile_dir) == []
         assert not profile_dir.exists()
 
+    def test_removes_the_probe_record(self, isolate_profile_dir):
+        profile_dir = isolate_profile_dir
+        _seed_session(profile_dir)
+        write_auth_probe("abc", profile_dir)
+
+        assert clear_auth_state(profile_dir) is True
+
+        assert not auth_probe_path(profile_dir).exists()
+
 
 class TestRestoreSourceProfile:
     def test_puts_a_retired_session_back(self, isolate_profile_dir):

@@ -1212,8 +1212,13 @@ def clear_auth_state(source_profile_dir: Path | None = None) -> bool:
     with _exclusive_profile(profile_dir, action="clearing the stored session"):
         # Quarantines hold previous sessions' cookies, so a logout that left them
         # behind would not be the "clear all stored auth state" the CLI
-        # advertises.
-        targets = _auth_state_targets(profile_dir) + quarantine_dirs(profile_dir)
+        # advertises. The probe record holds only a hash, but it is about the
+        # session being cleared, so it goes too.
+        targets = (
+            _auth_state_targets(profile_dir)
+            + quarantine_dirs(profile_dir)
+            + [auth_probe_path(profile_dir)]
+        )
 
         success = True
         for target in targets:

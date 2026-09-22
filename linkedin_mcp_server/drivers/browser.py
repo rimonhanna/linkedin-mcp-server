@@ -396,6 +396,9 @@ def _probe_still_trusted(cookies: dict[str, str]) -> bool:
         )
     except ValueError:
         return False
+    if verified_at.tzinfo is None:
+        # Subtracting a naive time from an aware one raises TypeError.
+        return False
     age = (datetime.now(UTC) - verified_at).total_seconds()
     return 0 <= age <= ttl
 
@@ -414,6 +417,8 @@ async def _authenticate_existing_profile(
     try:
         await browser.start()
         if _probe_still_trusted(await auth_cookies(browser.page)):
+            # On purpose the page stays on about:blank: the first tool call
+            # navigates, and its own barrier check has the same second look.
             logger.info(
                 "Skipping the /feed/ probe: verified recently with these cookies"
             )

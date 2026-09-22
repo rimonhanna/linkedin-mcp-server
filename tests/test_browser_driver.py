@@ -1623,6 +1623,28 @@ class TestAVerifiedProbeIsReusedAcrossOwnerStarts:
         source_browser.page.goto.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_a_naive_timestamp_probes_instead_of_raising(self, tmp_path):
+        _write_source_state(tmp_path, runtime_id="macos-arm64-host")
+        auth_probe_path().write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "verified_at": "2026-09-21T10:00:00",
+                    "cookie_fingerprint": browser_module._cookie_fingerprint(
+                        self._COOKIES
+                    ),
+                }
+            )
+        )
+        source_browser = _make_mock_browser()
+
+        runtime_id, ctor, barrier = self._start_source_owner(source_browser)
+        with runtime_id, ctor, barrier:
+            await get_or_create_browser()
+
+        source_browser.page.goto.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_a_record_for_other_cookies_probes(self, tmp_path):
         _write_source_state(tmp_path, runtime_id="macos-arm64-host")
         write_auth_probe(
