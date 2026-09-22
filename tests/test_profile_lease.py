@@ -438,15 +438,21 @@ class TestHolderRecord:
 
 
 class TestRefusingAForeignHolder:
-    """A process outside the daemon election never waits for a live holder.
+    """A holder on another package version is never waited for.
 
     On 2026-09-17 a contender waited ``browser_wait_seconds`` and lost twenty-two
-    times in a row while the holder kept the profile for a login. The wait is
-    only for peers that share the owner; everybody else is told who holds it
-    and refused before any browser opens.
+    times in a row while the holder kept the profile for a login. Waiting is how
+    the profile changes hands between processes on one version, and the only
+    way a waiter announces itself, so it stays; a holder on another version is
+    named and refused before any browser opens.
     """
 
-    async def test_a_direct_server_is_refused_at_once(self, tmp_path: Path) -> None:
+    async def test_a_holder_on_another_version_is_refused_at_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "linkedin_mcp_server.profile_lease.__version__", "0.0.0+elsewhere"
+        )
         holder = _spawn("hold", str(tmp_path), "10")
         try:
             _await_line(holder, "HELD")
@@ -459,8 +465,26 @@ class TestRefusingAForeignHolder:
             message = str(excinfo.value)
             assert f"pid {holder.pid}" in message
             assert f"version {__version__}" in message
+            assert "0.0.0+elsewhere" in message
+            # Waiting and retrying cannot help against a version mismatch.
+            assert "--daemon" not in message
+            assert "Wait a moment" not in message
         finally:
             holder.kill()
+            holder.wait(timeout=10)
+
+    async def test_a_direct_server_waits_for_a_same_version_holder(
+        self, tmp_path: Path
+    ) -> None:
+        holder = _spawn("hold", str(tmp_path), "0.5")
+        try:
+            _await_line(holder, "HELD")
+            lease = ProfileLease(tmp_path)
+            started = time.monotonic()
+            assert await lease.acquire_or_refuse(timeout=10)
+            assert time.monotonic() - started >= 0.2
+            lease.release()
+        finally:
             holder.wait(timeout=10)
 
     async def test_a_same_version_frontend_still_waits(self, tmp_path: Path) -> None:
@@ -476,22 +500,15 @@ class TestRefusingAForeignHolder:
         finally:
             holder.wait(timeout=10)
 
-    async def test_a_frontend_on_another_version_is_refused(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        set_process_role(ServerRole.OWNER)
-        monkeypatch.setattr(
-            "linkedin_mcp_server.profile_lease.__version__", "0.0.0+elsewhere"
-        )
-        holder = _spawn("hold", str(tmp_path), "10")
+    async def test_an_unreadable_record_gets_the_wait(self, tmp_path: Path) -> None:
+        holder = _spawn("hold", str(tmp_path), "0.5")
         try:
             _await_line(holder, "HELD")
-            started = time.monotonic()
-            with pytest.raises(BrowserBusyError, match=f"version {__version__}"):
-                await ProfileLease(tmp_path).acquire_or_refuse(timeout=3)
-            assert time.monotonic() - started < 1
+            (tmp_path / "profile.holder").write_text("{not json", encoding="utf-8")
+            lease = ProfileLease(tmp_path)
+            assert await lease.acquire_or_refuse(timeout=10)
+            lease.release()
         finally:
-            holder.kill()
             holder.wait(timeout=10)
 
     async def test_a_free_lease_is_simply_taken(self, tmp_path: Path) -> None:

@@ -7,6 +7,9 @@ overwrites the other's cookies. A live session is lost without any error.
 
 The lease makes ownership explicit. One process holds it, keeps the browser open
 across tool calls as before, and hands over when another process asks for it.
+That handover is only for processes on the same package version: a holder on
+another version is refused at once, with the holder named, rather than waited
+for (:meth:`ProfileLease.acquire_or_refuse`).
 
 Two files under the auth root, neither ever unlinked:
 
@@ -56,9 +59,10 @@ from linkedin_mcp_server.common_utils import (
     harden_linkedin_tree,
     is_still_at,
     secure_mkdir,
+    secure_write_text,
 )
 from linkedin_mcp_server.exceptions import BrowserBusyError
-from linkedin_mcp_server.server_role import ServerRole, process_role
+from linkedin_mcp_server.server_role import process_role
 
 logger = logging.getLogger(__name__)
 
@@ -403,12 +407,7 @@ def _write_holder(path: Path) -> None:
         role=process_role().value,
         started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
-    cloexec = getattr(os, "O_CLOEXEC", 0)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | cloexec, 0o600)
-    try:
-        os.write(fd, json.dumps(asdict(record)).encode("utf-8"))
-    finally:
-        os.close(fd)
+    secure_write_text(path, json.dumps(asdict(record)))
 
 
 class ProfileLease:
@@ -542,7 +541,7 @@ class ProfileLease:
         except OSError:
             # The record only ever names a holder for someone else's error
             # message; failing to write it must not cost this process the lease.
-            logger.debug("Could not record the lease holder", exc_info=True)
+            logger.warning("Could not record the lease holder", exc_info=True)
         logger.debug("Profile lease acquired for %s", self._auth_root)
         return True
 
@@ -589,21 +588,20 @@ class ProfileLease:
         """Who last took the lease, or ``None`` when nothing readable says."""
         return _read_holder(self._holder_path)
 
-    def _may_wait_behind(self, holder: LeaseHolder | None) -> bool:
+    def _may_wait_behind(self, holder: LeaseHolder) -> bool:
         """Whether this process is entitled to contend with the live holder.
 
-        Only a same-version daemon participant is: the owner and its frontends
-        are meant to share one browser, and the wait is how the profile changes
-        hands between them. Anything else that finds a live holder has already
-        lost the argument. A direct server is not in any election, and a
-        frontend whose version differs from the holder's has a stand-down
-        protocol for that (``daemon_version``) which does not run through here.
-        Waiting out ``browser_wait_seconds`` and then fighting for the lease is
-        what let a loser open the profile and run the auth probe that rotated it.
+        Every process on the holder's version is, and only that: the wait is
+        how the profile changes hands, whether between an owner and its
+        frontends or between two ``--no-daemon`` servers, and :meth:`acquire`
+        is the only place a waiter announces itself, which is the holder's
+        only cue to let go. A holder whose version differs is another matter.
+        Waiting out ``browser_wait_seconds`` and then fighting it for the lease
+        is what let a loser open the profile and run the auth probe that rotated
+        it, and the daemon's own stand-down protocol (``daemon_version``) is the
+        way to replace it, not this.
         """
-        if process_role() is ServerRole.DIRECT:
-            return False
-        return holder is None or holder.version == __version__
+        return holder.version == __version__
 
     async def acquire_or_refuse(self, timeout: float) -> bool:
         """Acquire within *timeout*, unless the holder is not ours to wait for.
@@ -614,17 +612,24 @@ class ProfileLease:
         if self.try_acquire():
             return True
         holder = self.holder()
-        if self._may_wait_behind(holder):
+        # No readable record cannot say either way, and gets the wait.
+        if holder is None or self._may_wait_behind(holder):
             return await self.acquire(timeout)
-        described = holder.describe() if holder else "an unidentified process"
         logger.warning(
             "Refusing to contend for the profile at %s as %s %s: held by %s",
             self._auth_root,
             process_role().value,
             __version__,
-            described,
+            holder.describe(),
         )
-        raise BrowserBusyError(holder=described)
+        raise BrowserBusyError(
+            f"Another LinkedIn MCP server on version {holder.version} is using "
+            f"the browser ({holder.describe()}), and this one is version "
+            f"{__version__}. Two versions cannot share one profile, so this "
+            f"call was refused without waiting and your saved session was not "
+            f"changed. Stop or update the older process, then call this tool "
+            f"again."
+        )
 
     def hold(self) -> _LeaseHandle:
         """Context manager taking a reference, raising when it cannot."""

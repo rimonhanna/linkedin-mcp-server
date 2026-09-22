@@ -36,7 +36,9 @@ class SequentialToolExecutionMiddleware(Middleware):
     * an ``asyncio.Lock`` serializes calls inside this process, where several MCP
       sessions can share one server;
     * the profile lease serializes calls across processes, where each MCP client
-      instance spawns its own server against the same Chromium profile.
+      instance spawns its own server against the same Chromium profile. A
+      process on the holder's version waits for the handoff; one on another
+      version is refused at once, with the holder named.
 
     Without the second layer two processes open that profile simultaneously and
     the last one to close silently overwrites the other's cookies.
