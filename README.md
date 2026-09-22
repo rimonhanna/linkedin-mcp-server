@@ -740,10 +740,14 @@ The budget is charged per page load, not per tool call: a `get_person_profile`
 asking for every section is fourteen loads. Profile loads, search pages,
 invitations and messages each have a rolling cap of their own on top of the
 daily one; when a call would break one it is refused before anything loads,
-with `limit_exceeded` and the time to resume in the error. The account budget
-keeps a working-hours schedule, business hours by default (09:00-18:00 local
-time, lunch 12:00-13:00 and weekends off; a ledger that already exists keeps
-the schedule it stored). Outside it invitations and messages are refused
+with `limit_exceeded` and the time to resume in the error. A multi-section
+call that reaches a cap partway returns the sections already loaded and files
+the refusal once, under `section_errors`, with `limit`, `window` and
+`resume_at`. The account budget keeps a working-hours schedule, business
+hours by default (09:00-18:00, lunch 12:00-13:00 and weekends off; a ledger
+that already exists keeps the schedule it stored). Those hours are read off
+the clock of the machine running the server -- in Docker that is UTC unless
+the container is given `TZ`. Outside it invitations and messages are refused
 until it reopens, with the reopening time in the error, and profile and
 search loads run on half their cap. Bulk enrichment runs wait for it unless
 called with `ignore_schedule`. `WORKING_HOURS_DISABLED=1` turns all of that
