@@ -690,9 +690,14 @@ class TestBarrierConfirmed:
     """The second look is one /feed/ load, paced, and classified like any other."""
 
     @pytest.mark.asyncio
-    async def test_the_second_look_waits_five_to_ten_seconds(self, monkeypatch):
-        # The suite zeroes the pause everywhere else; this is where it is real.
-        monkeypatch.setattr(auth_module, "_BARRIER_REPROBE_DELAY_RANGE", (5.0, 10.0))
+    async def test_the_second_look_waits_five_to_ten_seconds(
+        self, monkeypatch, no_barrier_reprobe_delay
+    ):
+        # The suite zeroes the pause everywhere else; this is where it is real:
+        # the fixture hands back the module's own range, which is what is pinned.
+        monkeypatch.setattr(
+            auth_module, "_BARRIER_REPROBE_DELAY_RANGE", no_barrier_reprobe_delay
+        )
         sleep = AsyncMock()
         monkeypatch.setattr("linkedin_mcp_server.core.auth.asyncio.sleep", sleep)
         page = _reprobe_page()
