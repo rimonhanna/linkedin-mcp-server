@@ -7,10 +7,12 @@ automatic profile persistence.
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import random
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from collections.abc import Coroutine
 from typing import Any, TypeVar
@@ -37,6 +39,7 @@ from linkedin_mcp_server.core import (
 from linkedin_mcp_server.browser_launch import build_launch_options, describe_launch
 from linkedin_mcp_server.common_utils import utcnow_iso
 from linkedin_mcp_server.config import get_config
+from linkedin_mcp_server.config.loaders import EnvironmentKeys
 from linkedin_mcp_server.debug_trace import record_page_trace
 from linkedin_mcp_server.debug_utils import stabilize_navigation
 from linkedin_mcp_server.exceptions import (
@@ -45,6 +48,7 @@ from linkedin_mcp_server.exceptions import (
     BrowserShutdownUnconfirmedError,
     ProfileRootRefusedError,
 )
+from linkedin_mcp_server.limits import env_int
 from linkedin_mcp_server.privacy import redact_private_navigation_value
 from linkedin_mcp_server.process_tree import (
     release_browser_guardian,
@@ -57,12 +61,14 @@ from linkedin_mcp_server.session_state import (
     clear_runtime_profile,
     get_runtime_id,
     get_source_profile_dir,
+    load_auth_probe,
     load_runtime_state,
     load_source_state,
     portable_cookie_path,
     profile_exists as session_profile_exists,
     runtime_profile_dir,
     runtime_storage_state_path,
+    write_auth_probe,
     write_runtime_state,
 )
 
@@ -81,6 +87,7 @@ _BARRIER_REPROBE_DELAY_RANGE = (5.0, 10.0)
 # and clears them on the next load.
 _LOGIN_REDIRECT_PATHS = ("/login", "/uas/login", "/authwall")
 _AUTH_COOKIE_NAMES = ("li_at", "JSESSIONID")
+DEFAULT_AUTH_PROBE_CACHE_SECONDS = 1800
 # Global browser instance (singleton)
 _browser: BrowserManager | None = None
 _browser_cookie_export_path: Path | None = None
@@ -413,6 +420,39 @@ async def _close_holding_back_cancels(browser: BrowserManager) -> tuple[bool, bo
     return await await_deferring_cancels(browser.close())
 
 
+def _cookie_fingerprint(cookies: dict[str, str]) -> str:
+    """A hash of the auth cookies, so the record never holds a cookie value."""
+    material = "\n".join(cookies.get(name, "") for name in _AUTH_COOKIE_NAMES)
+    return hashlib.sha256(material.encode()).hexdigest()
+
+
+def _probe_still_trusted(cookies: dict[str, str]) -> bool:
+    """Whether the last successful /feed/ probe still vouches for these cookies.
+
+    An owner start used to load /feed/ every time, and under lease contention
+    that is a start every few minutes on the same session, each one a chance
+    to meet an interstitial. A probe that passed inside the window with the
+    same ``li_at`` and ``JSESSIONID`` is as good as a fresh one; a login
+    changes both, so the record cannot vouch for cookies it never saw.
+    """
+    ttl = env_int(
+        EnvironmentKeys.AUTH_PROBE_CACHE_SECONDS, DEFAULT_AUTH_PROBE_CACHE_SECONDS
+    )
+    if ttl <= 0 or "li_at" not in cookies:
+        return False
+    record = load_auth_probe()
+    if not record or record.get("cookie_fingerprint") != _cookie_fingerprint(cookies):
+        return False
+    try:
+        verified_at = datetime.fromisoformat(
+            str(record.get("verified_at")).replace("Z", "+00:00")
+        )
+    except ValueError:
+        return False
+    age = (datetime.now(UTC) - verified_at).total_seconds()
+    return 0 <= age <= ttl
+
+
 async def _authenticate_existing_profile(
     profile_dir: Path,
     *,
@@ -426,11 +466,18 @@ async def _authenticate_existing_profile(
     )
     try:
         await browser.start()
-        if not await _feed_auth_succeeds(browser):
+        if _probe_still_trusted(await _auth_cookies(browser)):
+            logger.info(
+                "Skipping the /feed/ probe: verified recently with these cookies"
+            )
+        elif not await _feed_auth_succeeds(browser):
             raise AuthenticationError(
                 f"Stored runtime profile is invalid: {profile_dir}. "
                 f"Run with --login to refresh the source session.{proxy_hint()}"
             )
+        else:
+            # Read again: the probe itself can rotate JSESSIONID.
+            write_auth_probe(_cookie_fingerprint(await _auth_cookies(browser)))
         browser.is_authenticated = True
         return browser
     except BaseException as exc:

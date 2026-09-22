@@ -18,11 +18,13 @@ from linkedin_mcp_server.drivers.browser import (
 )
 import linkedin_mcp_server.drivers.browser as browser_module
 from linkedin_mcp_server.session_state import (
+    auth_probe_path,
     portable_cookie_path,
     runtime_profile_dir,
     runtime_state_path,
     runtime_storage_state_path,
     source_state_path,
+    write_auth_probe,
 )
 
 
@@ -1485,6 +1487,108 @@ class TestABarrierIsBelievedOnlyWhenSeenTwice:
             assert await _feed_auth_succeeds(browser) is True
 
         assert browser.page.goto.await_count == 2
+
+
+class TestAVerifiedProbeIsReusedAcrossOwnerStarts:
+    """A /feed/ load per owner start is a barrier chance per owner start."""
+
+    _COOKIES = {"li_at": "li-at-value", "JSESSIONID": "ajax:1"}
+
+    @staticmethod
+    def _start_source_owner(source_browser):
+        return (
+            patch(
+                "linkedin_mcp_server.drivers.browser.get_runtime_id",
+                return_value="macos-arm64-host",
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.BrowserManager",
+                return_value=source_browser,
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_fresh_record_with_matching_cookies_skips_the_probe(self, tmp_path):
+        _write_source_state(tmp_path, runtime_id="macos-arm64-host")
+        write_auth_probe(browser_module._cookie_fingerprint(self._COOKIES))
+        source_browser = _make_mock_browser()
+
+        runtime_id, ctor, barrier = self._start_source_owner(source_browser)
+        with runtime_id, ctor, barrier as barrier_check:
+            result = await get_or_create_browser()
+
+        assert result is source_browser
+        source_browser.page.goto.assert_not_awaited()
+        barrier_check.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_stale_record_probes(self, tmp_path):
+        _write_source_state(tmp_path, runtime_id="macos-arm64-host")
+        auth_probe_path().write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "verified_at": "2026-03-12T17:00:00Z",
+                    "cookie_fingerprint": browser_module._cookie_fingerprint(
+                        self._COOKIES
+                    ),
+                }
+            )
+        )
+        source_browser = _make_mock_browser()
+
+        runtime_id, ctor, barrier = self._start_source_owner(source_browser)
+        with runtime_id, ctor, barrier:
+            await get_or_create_browser()
+
+        source_browser.page.goto.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_record_for_other_cookies_probes(self, tmp_path):
+        _write_source_state(tmp_path, runtime_id="macos-arm64-host")
+        write_auth_probe(
+            browser_module._cookie_fingerprint({**self._COOKIES, "li_at": "older"})
+        )
+        source_browser = _make_mock_browser()
+
+        runtime_id, ctor, barrier = self._start_source_owner(source_browser)
+        with runtime_id, ctor, barrier:
+            await get_or_create_browser()
+
+        source_browser.page.goto.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_successful_probe_writes_the_record(self, tmp_path):
+        _write_source_state(tmp_path, runtime_id="macos-arm64-host")
+        source_browser = _make_mock_browser()
+
+        runtime_id, ctor, barrier = self._start_source_owner(source_browser)
+        with runtime_id, ctor, barrier:
+            await get_or_create_browser()
+
+        record = json.loads(auth_probe_path().read_text())
+        assert record["cookie_fingerprint"] == browser_module._cookie_fingerprint(
+            self._COOKIES
+        )
+        assert "li-at-value" not in auth_probe_path().read_text()
+
+    @pytest.mark.asyncio
+    async def test_zero_disables_the_cache(self, tmp_path, monkeypatch):
+        _write_source_state(tmp_path, runtime_id="macos-arm64-host")
+        write_auth_probe(browser_module._cookie_fingerprint(self._COOKIES))
+        monkeypatch.setenv("AUTH_PROBE_CACHE_SECONDS", "0")
+        source_browser = _make_mock_browser()
+
+        runtime_id, ctor, barrier = self._start_source_owner(source_browser)
+        with runtime_id, ctor, barrier:
+            await get_or_create_browser()
+
+        source_browser.page.goto.assert_awaited_once()
 
 
 class TestFeedFailureDoesNotLeakCredentials:
