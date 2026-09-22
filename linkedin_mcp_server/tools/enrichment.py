@@ -38,6 +38,7 @@ from linkedin_mcp_server.dependencies import get_ready_extractor
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.pacing import (
     ACCOUNT_BUDGET_JOB,
+    ACCOUNT_COOLDOWN_JOB,
     PROFILE,
     Job,
     JobStore,
@@ -45,10 +46,13 @@ from linkedin_mcp_server.pacing import (
     account_budget_in_use,
     bunch_size_max,
     default_daily_actions,
+    hourly_cap_resume_at,
+    hourly_headroom,
+    kind_headroom,
     load_account_budget,
     max_daily_actions,
-    kind_headroom,
     next_bunch_delay,
+    note_throttle_signal,
     request_arrived_at,
     schedule_ignored,
     step_delay,
@@ -171,7 +175,7 @@ def _refuse_reserved(job_name: str) -> None:
     overwrite the account's pacing state, and loading it would hand the
     private action history back as if it were a user's results.
     """
-    if job_name == ACCOUNT_BUDGET_JOB:
+    if job_name in (ACCOUNT_BUDGET_JOB, ACCOUNT_COOLDOWN_JOB):
         raise ToolError(f"{job_name!r} is a reserved internal name; choose another.")
 
 
@@ -424,6 +428,26 @@ def register_enrichment_tools(
                     ),
                 )
 
+            # The rolling-hour cap, planned against rather than tripped over:
+            # the middleware lets this tool through on purpose, because a
+            # bunch planned past the headroom would run through the cap in
+            # its middle.
+            hourly = hourly_headroom(budget, now)
+            if hourly < cost:
+                return _status(
+                    job,
+                    budget,
+                    now,
+                    stopped="hourly_cap_reached",
+                    next_run_after=_seconds_until_hourly_release(budget, now, cost),
+                    gathered={},
+                    detail=(
+                        f"The account's rolling-hour cap admits {hourly} more "
+                        f"action(s), {cost} needed. It frees up as the hour's "
+                        "oldest actions age out."
+                    ),
+                )
+
             # From arrival at the middleware, not from here: the frontend proxy
             # gives up tool_timeout + 30 s (210 s at the defaults) after it sent
             # the call, and a call queued behind another session's spends that
@@ -452,9 +476,14 @@ def register_enrichment_tools(
                 ctx, tool_name="run_enrichment_bunch"
             )
 
-            # Never plan more profiles than the budgets can pay for at `cost` each.
+            # Never plan more profiles than the budgets -- daily, per kind,
+            # per hour -- can pay for at `cost` each.
             planned = min(
-                bunch_size, remaining // cost, headroom // cost, len(job.pending)
+                bunch_size,
+                remaining // cost,
+                headroom // cost,
+                hourly // cost,
+                len(job.pending),
             )
 
             gathered: dict[str, Any] = {}
@@ -586,6 +615,11 @@ def register_enrichment_tools(
                                 username,
                                 struck_this_call,
                             )
+                            # Two profiles emptying back to back is the
+                            # judgement above made concrete; a single empty
+                            # stays ambiguous with a deleted profile and is
+                            # not recorded.
+                            note_throttle_signal("empty_page_pair")
                         elif job.strikes[username] >= EMPTY_PAGE_STRIKES:
                             job.pending.pop(0)
                             del job.strikes[username]
@@ -683,6 +717,9 @@ def register_enrichment_tools(
             elif not job.pending:
                 stopped = "queue_empty"
                 wait = None
+            elif hourly_headroom(budget, now) < cost:
+                stopped = "hourly_cap_reached"
+                wait = _seconds_until_hourly_release(budget, now, cost)
             else:
                 # More queue and more budget remain (bunch_complete or tool_deadline);
                 # tell the caller when to come back for the next bunch.
@@ -723,7 +760,11 @@ def register_enrichment_tools(
             if job_name is None:
                 # Hide the internal shared-budget record; it is not a job.
                 return {
-                    "jobs": [j for j in store.list_jobs() if j != ACCOUNT_BUDGET_JOB]
+                    "jobs": [
+                        j
+                        for j in store.list_jobs()
+                        if j not in (ACCOUNT_BUDGET_JOB, ACCOUNT_COOLDOWN_JOB)
+                    ]
                 }
 
             _refuse_reserved(job_name)
@@ -740,6 +781,14 @@ def register_enrichment_tools(
             raise ToolError(f"No job named {job_name!r}.") from None
         except Exception as e:
             raise_tool_error(e, "get_enrichment_status")  # NoReturn
+
+
+def _seconds_until_hourly_release(budget: Job, now: datetime, needed: int = 1) -> float:
+    """How long until the rolling-hour cap admits ``needed`` more actions."""
+    resume_at = hourly_cap_resume_at(budget, now, needed=needed)
+    if resume_at is None:
+        return 0.0
+    return max((resume_at - now.astimezone(resume_at.tzinfo)).total_seconds(), 0.0)
 
 
 def _status(
