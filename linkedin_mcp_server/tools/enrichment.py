@@ -39,6 +39,7 @@ from linkedin_mcp_server.pacing import (
     ACCOUNT_BUDGET_JOB,
     Job,
     JobStore,
+    account_budget_in_use,
     bunch_size_max,
     default_daily_actions,
     load_account_budget,
@@ -194,8 +195,9 @@ def register_enrichment_tools(
             usernames: LinkedIn usernames or profile URLs. Deduplicated;
                 already-completed people are skipped when a job is resumed.
             daily_cap: Profile views allowed per rolling 24 hours (default
-                100, ceiling 150; DAILY_ACTIONS_DEFAULT / DAILY_ACTIONS_MAX
-                move both). Anything above the ceiling is clamped to it. This
+                100, ceiling 150; DAILY_ACTIONS_DEFAULT moves the default,
+                DAILY_ACTIONS_MAX can only lower the ceiling). Anything above
+                the ceiling is clamped to it. This
                 is a behavioral budget, not a LinkedIn API limit -- LinkedIn
                 publishes no official number.
             warmup: Ramp the cap over four weeks (10/day in week 1, 20 in
@@ -322,6 +324,9 @@ def register_enrichment_tools(
         now = datetime.now().astimezone()
         rng = random.Random()
         budget = load_account_budget(store, now)
+        # The page loads below file their kind into this copy, which is the
+        # one saved after every profile; `actions` is recorded here, per load.
+        account_budget_in_use.set(budget)
 
         # Schedule gate. Checked before the budget so a closed window reports
         # the real reason rather than "no budget".

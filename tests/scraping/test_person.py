@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -15,12 +16,15 @@ from patchright._impl._errors import TargetClosedError
 
 from linkedin_mcp_server.callbacks import ProgressCallback
 from linkedin_mcp_server.company_cache import CompanyCache
+from linkedin_mcp_server.config.loaders import EnvironmentKeys
 from linkedin_mcp_server.core.exceptions import (
     AuthenticationError,
     InvalidReferenceError,
     LinkedInScraperException,
     ProxyConnectionError,
 )
+from linkedin_mcp_server.exceptions import ActionLimitError
+from linkedin_mcp_server.pacing import PROFILE, JobStore, load_account_budget
 from linkedin_mcp_server.scraping import person as person_module
 from linkedin_mcp_server.scraping import search_pages as search_pages_module
 from linkedin_mcp_server.scraping import text as text_module
@@ -747,6 +751,66 @@ class TestScrapePersonSectionOutcomes:
 
         assert result["sections"]["main_profile"] == "Profile text"
         assert result["section_errors"]["posts"]["error_type"] == "rate_limit"
+
+    async def test_every_section_is_a_page_load_and_charged_as_one(
+        self, mock_page, tmp_path
+    ):
+        """One unit per navigation, not per call (#58): a call asking for
+        three sections spends three, all filed under ``profile``."""
+        scraper = _scraper(mock_page)
+        with (
+            patch.object(
+                scraper._capture,
+                "_extract_loaded_section",
+                new_callable=AsyncMock,
+                return_value=extracted("text"),
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.navigation.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            _sleep(),
+        ):
+            result = await scraper.scrape_person(
+                "testuser", {"main_profile", "experience", "education"}
+            )
+
+        assert len(result["sections"]) == 3
+        assert mock_page.goto.await_count == 3
+        now = datetime.now()
+        # The jobs root the autouse ledger-isolation fixture hands the navigator.
+        budget = load_account_budget(JobStore(tmp_path / "jobs"), now)
+        assert budget.ledger.spent(now) == 3
+        assert budget.ledger.spent_kind(PROFILE, now) == 3
+
+    async def test_a_cap_reached_mid_walk_stops_it_like_a_rate_limit(
+        self, mock_page, tmp_path, monkeypatch
+    ):
+        """Filing the refusal per remaining section would be one error entry
+        each, with an issue template attached to what is the cap working."""
+        monkeypatch.setenv(EnvironmentKeys.PROFILE_LOADS_MAX, "2")
+        scraper = _scraper(mock_page)
+        with (
+            patch.object(
+                scraper._capture,
+                "_extract_loaded_section",
+                new_callable=AsyncMock,
+                return_value=extracted("text"),
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.navigation.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            _sleep(),
+            pytest.raises(ActionLimitError, match="profile limit of 2"),
+        ):
+            await scraper.scrape_person(
+                "testuser", {"main_profile", "experience", "education"}
+            )
+
+        assert mock_page.goto.await_count == 2
 
     async def test_scrape_person_reraises_closed_target(self, mock_page):
         """A dead browser fails the call, not the section.

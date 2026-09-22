@@ -196,18 +196,21 @@ def isolate_profile_dir(ignore_the_developers_environment, tmp_path, monkeypatch
 def isolate_the_account_ledger(tmp_path, monkeypatch):
     """Keep the shared action budget out of the developer's real home.
 
-    Every tool call the middleware runs records one action against
-    ``~/.linkedin-mcp/jobs``, so without this a test run spends the daily
-    budget of whoever ran it and the next real job finds it half gone.
+    Every page load the navigator makes, and every invite or message the
+    tools submit, is charged against ``~/.linkedin-mcp/jobs``, so without
+    this a test run spends the daily budget of whoever ran it -- or is
+    refused by a cap the real ledger has already reached.
     """
-    from linkedin_mcp_server import sequential_tool_middleware
     from linkedin_mcp_server.pacing import JobStore
+    from linkedin_mcp_server.scraping import navigation
+    from linkedin_mcp_server.tools import messaging, person
 
-    monkeypatch.setattr(
-        sequential_tool_middleware,
-        "JobStore",
-        lambda *args, **kwargs: JobStore(tmp_path / "jobs"),
-    )
+    for module in (navigation, person, messaging):
+        monkeypatch.setattr(
+            module,
+            "JobStore",
+            lambda *args, **kwargs: JobStore(tmp_path / "jobs"),
+        )
 
 
 @pytest.fixture

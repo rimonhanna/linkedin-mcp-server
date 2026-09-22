@@ -25,10 +25,12 @@ from linkedin_mcp_server.core.exceptions import (
 from linkedin_mcp_server.exceptions import BrowserBusyError
 from linkedin_mcp_server.pacing import (
     ACCOUNT_BUDGET_JOB,
+    PROFILE,
     Job,
     JobStore,
     Ledger,
     Schedule,
+    charge_navigation,
     request_arrived_at,
 )
 from linkedin_mcp_server.tools.enrichment import (
@@ -341,6 +343,45 @@ class TestRunBunch:
 
         assert out["done"] == 1
         assert out["account_spent_last_24h"] == 3  # not 15
+
+    async def test_page_loads_inside_a_bunch_are_charged_exactly_once(
+        self, mcp, store, mock_context, monkeypatch
+    ):
+        """The navigator charges every page load (#58), and this tool records
+        one `actions` unit per load itself. Both writing `actions` would
+        double the count; the navigator writing to disk while this tool saves
+        its own copy would lose the kinds. So the tool hands its copy over and
+        the navigator files only the kind into it."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.enrichment.step_delay", lambda **k: 0
+        )
+        await self._seed(mcp, store, ["a", "b"])
+
+        async def scrape_person(username, sections, callbacks=None):
+            # What the real navigator does for the main profile and each
+            # extra section, with the store the navigator would construct.
+            now = datetime.now().astimezone()
+            base = f"https://www.linkedin.com/in/{username}/"
+            charge_navigation(store, base, now)
+            for section in sections:
+                charge_navigation(store, f"{base}details/{section}/", now)
+            return {"url": base, "sections": {"main_profile": "Jane"}}
+
+        extractor = MagicMock()
+        extractor.scrape_person = AsyncMock(side_effect=scrape_person)
+        fn = await get_tool_fn(mcp, "run_enrichment_bunch")
+        out = await fn(
+            "j",
+            mock_context,
+            bunch_size=2,
+            sections="experience,education",  # cost = 3
+            extractor=extractor,
+        )
+
+        assert out["done"] == 2
+        assert out["account_spent_last_24h"] == 6  # two profiles, three loads each
+        now = datetime.now().astimezone()
+        assert store.load(ACCOUNT_BUDGET_JOB).ledger.spent_kind(PROFILE, now) == 6
 
     async def test_budget_below_one_profile_cost_stops_cleanly(
         self, mcp, store, mock_context
@@ -880,16 +921,31 @@ class TestConfigurableLimits:
     applied at call time instead; these prove the environment reaches them.
     """
 
-    async def test_daily_cap_above_the_default_ceiling_is_honoured_when_raised(
-        self, mcp, store, monkeypatch
+    async def test_daily_cap_ceiling_cannot_be_raised_from_the_environment(
+        self, mcp, store, monkeypatch, caplog
     ):
         monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "200")
         monkeypatch.setenv(EnvironmentKeys.DAILY_CAP_JITTER, "0")
         fn = await get_tool_fn(mcp, "start_enrichment_job")
+        with caplog.at_level(logging.WARNING):
+            out = await fn("j", ["a"], daily_cap=200, warmup=False)
+
+        assert store.load(ACCOUNT_BUDGET_JOB).daily_cap == 150
+        assert out["account_daily_cap_today"] == 150
+        assert any(
+            EnvironmentKeys.DAILY_ACTIONS_MAX in r.getMessage() for r in caplog.records
+        )
+
+    async def test_daily_cap_ceiling_can_be_lowered_from_the_environment(
+        self, mcp, store, monkeypatch
+    ):
+        monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "120")
+        monkeypatch.setenv(EnvironmentKeys.DAILY_CAP_JITTER, "0")
+        fn = await get_tool_fn(mcp, "start_enrichment_job")
         out = await fn("j", ["a"], daily_cap=200, warmup=False)
 
-        assert store.load(ACCOUNT_BUDGET_JOB).daily_cap == 200
-        assert out["account_daily_cap_today"] == 200
+        assert store.load(ACCOUNT_BUDGET_JOB).daily_cap == 120
+        assert out["account_daily_cap_today"] == 120
 
     async def test_daily_cap_above_the_ceiling_is_clamped_not_rejected(
         self, mcp, store, caplog

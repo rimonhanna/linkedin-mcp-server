@@ -63,6 +63,7 @@ from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_er
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.pacing import (
     JobStore,
+    account_budget_in_use,
     bunch_searches_max,
     load_account_budget,
     next_bunch_delay,
@@ -243,6 +244,9 @@ def register_company_enrichment_tools(
 
         now = datetime.now().astimezone()
         budget = load_account_budget(jobs, now)
+        # The navigations below file their kind into this copy, which is the
+        # one saved as it goes; `actions` is recorded here, per navigation.
+        account_budget_in_use.set(budget)
 
         # "Already resolved" for the search tier means we hold something worth
         # not re-searching: the company's LinkedIn URL, or fresh firmographics
@@ -665,6 +669,7 @@ def register_company_enrichment_tools(
             }
 
         budget = load_account_budget(jobs, now)
+        account_budget_in_use.set(budget)
         needed = int(want_firmographics) + int(want_jobs)
         if budget.remaining_today(now) < needed:
             return {

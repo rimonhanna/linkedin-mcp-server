@@ -12,11 +12,13 @@ from unittest.mock import patch
 import asyncio
 import inspect
 import json
+import tempfile
 
 from patchright.async_api import Page
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.callbacks import ProgressCallback
+from linkedin_mcp_server.pacing import JobStore
 from linkedin_mcp_server.scraping import capture as capture_module
 from linkedin_mcp_server.scraping import company as company_module
 from linkedin_mcp_server.scraping import feed as feed_module
@@ -125,6 +127,22 @@ def _diagnostics_bindings(diagnostics: Any) -> Iterator[None]:
         yield
 
 
+@contextmanager
+def _isolated_ledger() -> Iterator[None]:
+    """Charge the scripted navigations to a throwaway ledger.
+
+    This runs outside pytest too (`scripts/check_scraping_policy_traces.py`),
+    where the autouse isolation fixture is not there to keep the charges out
+    of the home directory -- or to keep a cap the real ledger has reached
+    from refusing a scripted page.
+    """
+    with (
+        tempfile.TemporaryDirectory() as root,
+        patch.object(navigation_module, "JobStore", lambda *a, **kw: JobStore(root)),
+    ):
+        yield
+
+
 @asynccontextmanager
 async def boundaries(
     recorder: TraceRecorder,
@@ -209,6 +227,7 @@ async def boundaries(
         return None
 
     with (
+        _isolated_ledger(),
         patch.object(navigation_module, "record_page_trace", trace),
         patch.object(navigation_module, "detect_auth_barrier_quick", auth_quick),
         patch.object(navigation_module, "detect_auth_barrier", auth),
