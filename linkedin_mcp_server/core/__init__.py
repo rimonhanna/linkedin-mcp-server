@@ -3,6 +3,9 @@
 from typing import TYPE_CHECKING
 
 from .auth import (
+    AUTH_COOKIE_NAMES,
+    auth_cookies,
+    barrier_confirmed,
     detect_auth_barrier,
     detect_auth_barrier_quick,
     is_logged_in,
@@ -51,9 +54,12 @@ def __getattr__(name: str) -> object:
 
 
 __all__ = [
+    "AUTH_COOKIE_NAMES",
     "AuthenticationError",
     "BrowserManager",
+    "auth_cookies",
     "await_deferring_cancels",
+    "barrier_confirmed",
     "detect_auth_barrier",
     "detect_auth_barrier_quick",
     "ElementNotFoundError",

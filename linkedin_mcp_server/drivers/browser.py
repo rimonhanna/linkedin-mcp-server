@@ -10,20 +10,22 @@ import asyncio
 import hashlib
 import logging
 import os
-import random
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from collections.abc import Coroutine
 from typing import Any, TypeVar
-from urllib.parse import urlparse
 
 from linkedin_mcp_server.common_utils import harden_linkedin_tree, secure_mkdir
 from linkedin_mcp_server.core import (
+    AUTH_COOKIE_NAMES,
     AuthenticationError,
     BrowserManager,
     NetworkError,
+    RateLimitError,
+    auth_cookies,
     await_deferring_cancels,
+    barrier_confirmed,
     detect_auth_barrier_quick,
     detect_rate_limit,
     goto_reporting_proxy_errors,
@@ -49,12 +51,15 @@ from linkedin_mcp_server.exceptions import (
     ProfileRootRefusedError,
 )
 from linkedin_mcp_server.limits import env_int
-from linkedin_mcp_server.privacy import redact_private_navigation_value
 from linkedin_mcp_server.process_tree import (
     release_browser_guardian,
     start_browser_guardian,
 )
 from linkedin_mcp_server.profile_lease import ProfileLease, get_profile_lease
+from linkedin_mcp_server.scraping.rate_limit import (
+    HTTP_TOO_MANY_REQUESTS,
+    REDIRECT_LOOP_NAV_FAILURE,
+)
 from linkedin_mcp_server.server_role import a_held_profile_means_this_owner_must_go
 from linkedin_mcp_server.session_state import (
     SourceState,
@@ -77,16 +82,6 @@ logger = logging.getLogger(__name__)
 
 # Default persistent profile directory
 DEFAULT_PROFILE_DIR = Path.home() / ".linkedin-mcp" / "profile"
-_FEED_URL = "https://www.linkedin.com/feed/"
-# Seconds to wait before loading /feed/ a second time after one barrier
-# sighting. Long enough for an interstitial to clear, short enough that a dead
-# session is still reported inside one tool timeout.
-_BARRIER_REPROBE_DELAY_RANGE = (5.0, 10.0)
-# Auth routes that only a signed-out browser is sent to. ``/checkpoint`` and
-# ``/challenge`` are not here: LinkedIn shows those to signed-in sessions too,
-# and clears them on the next load.
-_LOGIN_REDIRECT_PATHS = ("/login", "/uas/login", "/authwall")
-_AUTH_COOKIE_NAMES = ("li_at", "JSESSIONID")
 DEFAULT_AUTH_PROBE_CACHE_SECONDS = 1800
 # Global browser instance (singleton)
 _browser: BrowserManager | None = None
@@ -205,69 +200,6 @@ async def _log_feed_failure_context(
     )
 
 
-async def _auth_cookies(browser: BrowserManager) -> dict[str, str]:
-    """The auth cookies this context would send to /feed/, by name."""
-    cookies = await browser.page.context.cookies(_FEED_URL)
-    return {
-        cookie["name"]: cookie["value"]
-        for cookie in cookies
-        if cookie.get("name") in _AUTH_COOKIE_NAMES and cookie.get("value")
-    }
-
-
-async def _barrier_confirmed(browser: BrowserManager, barrier: str) -> bool:
-    """Load /feed/ once more before believing *barrier*.
-
-    One sighting used to be the verdict, and every caller turns False into an
-    ``AuthenticationError`` whose recovery rotates the session into
-    ``invalid-state-*``. A ``/checkpoint`` interstitial that LinkedIn clears on
-    the next load therefore cost the whole session: three rotations in 25
-    minutes, measured under lease contention. Only a login redirect with no
-    ``li_at`` in the context is believed at once; everything else has to be
-    seen twice, which costs one extra page load in the rare case and none in
-    the common one.
-    """
-    page = browser.page
-    path = urlparse(page.url).path
-    if "li_at" not in await _auth_cookies(browser) and any(
-        path == prefix or path.startswith(f"{prefix}/")
-        for prefix in _LOGIN_REDIRECT_PATHS
-    ):
-        return True
-    logger.warning(
-        "Auth barrier on /feed/ (%s); re-probing once before treating the "
-        "session as expired",
-        redact_private_navigation_value(barrier),
-    )
-    await asyncio.sleep(random.uniform(*_BARRIER_REPROBE_DELAY_RANGE))
-    load_error: str | None = None
-    try:
-        await goto_reporting_proxy_errors(
-            page, _FEED_URL, wait_until="domcontentloaded"
-        )
-        await stabilize_navigation("feed re-probe", logger)
-    except NetworkError:
-        raise
-    except Exception as exc:
-        # The same reasoning as the caller's error path: a failed load still
-        # leaves a URL behind, and a barrier on it is evidence.
-        raise_if_proxy_error(exc)
-        load_error = redact_proxy_credentials(f"{type(exc).__name__}: {exc}")
-    again = await detect_auth_barrier_quick(page)
-    await record_page_trace(
-        page, "feed-reprobe", extra={"barrier": again, "error": load_error}
-    )
-    if again is not None:
-        return True
-    if load_error is not None:
-        raise NetworkError(
-            f"/feed/ re-probe did not finish loading and no auth barrier was "
-            f"found ({load_error}). The saved LinkedIn session was not changed."
-        )
-    logger.info("Auth barrier on /feed/ cleared on re-probe; keeping the session")
-    return False
-
-
 async def _feed_auth_succeeds(
     browser: BrowserManager,
     *,
@@ -282,11 +214,19 @@ async def _feed_auth_succeeds(
     finish loading.
     """
     try:
-        await goto_reporting_proxy_errors(
+        response = await goto_reporting_proxy_errors(
             browser.page,
             "https://www.linkedin.com/feed/",
             wait_until="domcontentloaded",
         )
+        if response is not None and response.status == HTTP_TOO_MANY_REQUESTS:
+            # Throttling, not expiry, and checked before anything reads the
+            # page: a 429 on /feed/ inside the probe rotated a live profile
+            # twice on 2026-09-17.
+            raise RateLimitError(
+                "LinkedIn rate-limited /feed/ (HTTP 429). The saved LinkedIn "
+                "session was not changed; wait before retrying."
+            )
         await stabilize_navigation("feed navigation", logger)
         await record_page_trace(
             browser.page,
@@ -310,9 +250,9 @@ async def _feed_auth_succeeds(
                 extra={"barrier": barrier},
             )
             await _log_feed_failure_context(browser, barrier)
-            return not await _barrier_confirmed(browser, barrier)
+            return not await barrier_confirmed(browser.page, barrier)
         return True
-    except NetworkError:
+    except (NetworkError, RateLimitError):
         # Already classified: the remember-me retries above run inside this
         # try, and the inner call has done the probing, tracing and logging
         # below once. Letting it fall through re-probed the prompt on a page
@@ -339,12 +279,19 @@ async def _feed_auth_succeeds(
                 },
             )
             return await _feed_auth_succeeds(browser, allow_remember_me=False)
+        detail = redact_proxy_credentials(f"{type(exc).__name__}: {exc}")
+        if REDIRECT_LOOP_NAV_FAILURE in str(exc):
+            # Throttling's other shape. The loop can pass through an auth
+            # route, so the URL it stops on is not evidence of anything.
+            raise NetworkError(
+                f"/feed/ ended in a redirect loop ({detail}), which LinkedIn "
+                f"uses to throttle. The saved LinkedIn session was not changed."
+            ) from exc
         # A failed navigation still leaves a URL and a title behind, and the
         # quick check reads only those. LinkedIn may have committed a redirect
         # to /login and merely missed the load event, which is real evidence
         # about the session and must outrank the proxy explanation below.
         barrier = await detect_auth_barrier_quick(browser.page)
-        detail = redact_proxy_credentials(f"{type(exc).__name__}: {exc}")
         await record_page_trace(
             browser.page,
             "feed-navigation-error",
@@ -355,7 +302,7 @@ async def _feed_auth_succeeds(
         # disk and the log is what users paste into issue reports.
         await _log_feed_failure_context(browser, detail)
         if barrier is not None:
-            return not await _barrier_confirmed(browser, barrier)
+            return not await barrier_confirmed(browser.page, barrier)
         # Nothing loaded and no barrier, so nothing proves the session is
         # dead -- and with a proxy in front, the most likely cause is the
         # proxy. Wrong credentials in particular produce no proxy error code
@@ -422,7 +369,7 @@ async def _close_holding_back_cancels(browser: BrowserManager) -> tuple[bool, bo
 
 def _cookie_fingerprint(cookies: dict[str, str]) -> str:
     """A hash of the auth cookies, so the record never holds a cookie value."""
-    material = "\n".join(cookies.get(name, "") for name in _AUTH_COOKIE_NAMES)
+    material = "\n".join(cookies.get(name, "") for name in AUTH_COOKIE_NAMES)
     return hashlib.sha256(material.encode()).hexdigest()
 
 
@@ -466,7 +413,7 @@ async def _authenticate_existing_profile(
     )
     try:
         await browser.start()
-        if _probe_still_trusted(await _auth_cookies(browser)):
+        if _probe_still_trusted(await auth_cookies(browser.page)):
             logger.info(
                 "Skipping the /feed/ probe: verified recently with these cookies"
             )
@@ -477,7 +424,7 @@ async def _authenticate_existing_profile(
             )
         else:
             # Read again: the probe itself can rotate JSESSIONID.
-            write_auth_probe(_cookie_fingerprint(await _auth_cookies(browser)))
+            write_auth_probe(_cookie_fingerprint(await auth_cookies(browser.page)))
         browser.is_authenticated = True
         return browser
     except BaseException as exc:

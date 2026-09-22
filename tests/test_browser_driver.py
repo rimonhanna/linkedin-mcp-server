@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from linkedin_mcp_server.config.schema import AppConfig
-from linkedin_mcp_server.core.exceptions import NetworkError, ProxyConnectionError
+from linkedin_mcp_server.core.exceptions import (
+    NetworkError,
+    ProxyConnectionError,
+    RateLimitError,
+)
 from linkedin_mcp_server.exceptions import BrowserShutdownUnconfirmedError
 from linkedin_mcp_server.drivers.browser import (
     _feed_auth_succeeds,
@@ -36,8 +40,19 @@ def _reset_browser():
 
 
 @pytest.fixture(autouse=True)
-def _no_reprobe_delay(monkeypatch):
-    monkeypatch.setattr(browser_module, "_BARRIER_REPROBE_DELAY_RANGE", (0.0, 0.0))
+def _reprobe_reads_the_same_barrier(monkeypatch):
+    """The /feed/ re-probe in core.auth sees whatever this module patched.
+
+    Tests here patch the driver's imported name; the second look runs inside
+    ``barrier_confirmed`` and would otherwise read the mock page for real.
+    """
+
+    async def delegate(page):
+        return await browser_module.detect_auth_barrier_quick(page)
+
+    monkeypatch.setattr(
+        "linkedin_mcp_server.core.auth.detect_auth_barrier_quick", delegate
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -1417,7 +1432,7 @@ class TestABarrierIsBelievedOnlyWhenSeenTwice:
             if r.levelno == logging.WARNING and "re-probing" in r.getMessage()
         ]
         assert len(reprobe_warnings) == 1
-        assert any("cleared on re-probe" in r.getMessage() for r in caplog.records)
+        assert any("cleared on the /feed/" in r.getMessage() for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_a_barrier_seen_twice_is_an_expired_session(self):
@@ -1487,6 +1502,65 @@ class TestABarrierIsBelievedOnlyWhenSeenTwice:
             assert await _feed_auth_succeeds(browser) is True
 
         assert browser.page.goto.await_count == 2
+
+
+class TestThrottlingOnTheProbeIsNotExpiry:
+    """A 429 on /feed/ inside the probe rotated a live profile twice (2026-09-17).
+
+    On the owner the chain is _feed_auth_succeeds -> AuthenticationError ->
+    handle_auth_error -> AuthStaleOnOwnerError -> the frontend's
+    _repair_auth_locally("stale") -> invalidate_auth_and_trigger_relogin ->
+    rotation. Nothing along it probes again, so the verdict has to be right
+    here.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_429_response_is_a_rate_limit(self):
+        browser = _make_mock_browser()
+        response = MagicMock()
+        response.status = 429
+        browser.page.goto = AsyncMock(return_value=response)
+
+        with (
+            patch(
+                "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                return_value="auth blocker URL: /checkpoint/lg/x",
+            ) as barrier,
+            pytest.raises(RateLimitError),
+        ):
+            await _feed_auth_succeeds(browser)
+
+        barrier.assert_not_awaited()
+        browser.page.goto.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_redirect_loop_never_reads_a_barrier(self, monkeypatch):
+        monkeypatch.setattr(
+            "linkedin_mcp_server.config.get_config", browser_module.get_config
+        )
+        browser = _make_mock_browser()
+        browser.page.goto = AsyncMock(
+            side_effect=Exception("net::ERR_TOO_MANY_REDIRECTS")
+        )
+        browser.page.url = "https://www.linkedin.com/checkpoint/lg/x"
+
+        with (
+            patch(
+                "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                return_value="auth blocker URL: /checkpoint/lg/x",
+            ) as barrier,
+            pytest.raises(NetworkError, match="redirect loop"),
+        ):
+            await _feed_auth_succeeds(browser)
+
+        barrier.assert_not_awaited()
 
 
 class TestAVerifiedProbeIsReusedAcrossOwnerStarts:

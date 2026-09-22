@@ -104,6 +104,14 @@ def ignore_the_developers_environment(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_barrier_reprobe_delay(monkeypatch):
+    """The re-probe pause is real time nothing under test needs to spend."""
+    from linkedin_mcp_server.core import auth
+
+    monkeypatch.setattr(auth, "_BARRIER_REPROBE_DELAY_RANGE", (0.0, 0.0))
+
+
+@pytest.fixture(autouse=True)
 def isolate_profile_dir(ignore_the_developers_environment, tmp_path, monkeypatch):
     """Redirect profile directory to tmp_path via config and DEFAULT_PROFILE_DIR.
 

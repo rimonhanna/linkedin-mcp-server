@@ -54,6 +54,12 @@ RATE_LIMIT_RETRY_BUDGET = 2
 # refusal is re-raised as the navigation error it already was.
 HTTP_STATUS_NAV_FAILURE = "ERR_HTTP_RESPONSE_CODE_FAILURE"
 
+# Throttling's other shape: LinkedIn bounces a request it will not serve
+# between routes until Chromium gives up. The loop can pass through an auth
+# route, so the URL it stops on says nothing about the session, and no barrier
+# is read off a page that ended this way.
+REDIRECT_LOOP_NAV_FAILURE = "ERR_TOO_MANY_REDIRECTS"
+
 # The status on Chromium's own error page, as digits. The words around it are
 # translated; the number is not, which is the whole reason to match on it
 # rather than on "too many requests". Bounded by a word boundary so a 429 in a
