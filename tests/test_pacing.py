@@ -5,6 +5,7 @@ Every function under test takes ``now`` explicitly, so nothing here sleeps.
 
 import logging
 from datetime import date, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -30,12 +31,15 @@ from linkedin_mcp_server.pacing import (
     account_budget_in_use,
     charge_navigation,
     jittered_cap,
+    kind_headroom,
     load_account_budget,
+    max_daily_actions,
     navigation_kind,
     next_bunch_delay,
     record_action,
     refuse_action,
     refuse_if_limited,
+    schedule_ignored,
     step_delay,
     tool_call_gap,
     warmup_cap,
@@ -401,6 +405,23 @@ class TestConfigurableLimits:
             assert job.effective_cap(WED_10AM) == 150
         assert self._warned(caplog, EnvironmentKeys.DAILY_ACTIONS_MAX)
 
+    def test_the_clamp_warns_once_per_value_not_once_per_read(
+        self, monkeypatch, caplog
+    ):
+        """The ceiling is read on every page load; measured with
+        DAILY_ACTIONS_MAX=250, one warning per navigation."""
+        monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "250")
+        with caplog.at_level(logging.WARNING):
+            assert max_daily_actions() == 150
+            assert max_daily_actions() == 150
+            monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "300")
+            assert max_daily_actions() == 150
+        clamps = [r for r in caplog.records if "Clamping" in r.getMessage()]
+        assert [r.getMessage() for r in clamps] == [
+            "Clamping DAILY_ACTIONS_MAX=250 to the ceiling 150",
+            "Clamping DAILY_ACTIONS_MAX=300 to the ceiling 150",
+        ]
+
     def test_a_persisted_cap_above_the_ceiling_is_clamped_on_read(self, tmp_path):
         store = JobStore(tmp_path)
         path = store.root / f"{ACCOUNT_BUDGET_JOB}.json"
@@ -580,6 +601,24 @@ class TestConfigurableLimits:
         assert all(8.0 <= g <= 12.0 for g in gaps)
         assert len(gaps) > 1
         assert self._warned(caplog, EnvironmentKeys.TOOL_CALL_GAP_JITTER)
+
+
+class TestAccountBudgetSchedule:
+    """The account budget defaults to business hours; a stored one is kept."""
+
+    def test_a_fresh_account_budget_is_on_business_hours(self, tmp_path):
+        budget = load_account_budget(JobStore(tmp_path), WED_10AM)
+        assert budget.schedule == BH()
+        # And it is what the file says, not only what this call returned.
+        assert load_account_budget(JobStore(tmp_path), WED_10AM).schedule == BH()
+
+    def test_an_existing_ledger_keeps_its_stored_schedule(self, tmp_path):
+        store = JobStore(tmp_path)
+        load_account_budget(store, WED_10AM, schedule=Schedule())
+        assert load_account_budget(store, WED_10AM).schedule == Schedule()
+
+    def test_a_per_work_job_still_defaults_to_always_open(self):
+        assert Job(name="j", started_on=date(2020, 1, 1)).schedule == Schedule()
 
 
 class TestNavigationKind:
@@ -829,10 +868,67 @@ class TestWorkingHours:
         _spend(budget, PROFILE, 79, WED_8PM)
         refuse_if_limited(budget, PROFILE, WED_8PM)
 
+    def test_ignore_schedule_lifts_the_halving_for_one_caller(self):
+        budget = _budget(BH())
+        _spend(budget, PROFILE, 45, WED_8PM)
+        with pytest.raises(ActionLimitError):
+            refuse_if_limited(budget, PROFILE, WED_8PM)
+        refuse_if_limited(budget, PROFILE, WED_8PM, ignore_schedule=True)
+
+    def test_a_navigation_under_schedule_ignored_runs_on_the_full_cap(self, tmp_path):
+        store = JobStore(tmp_path)
+        held = load_account_budget(store, WED_8PM, schedule=BH())
+        _spend(held, PROFILE, 45, WED_8PM)
+        token = account_budget_in_use.set(held)
+        ignored = schedule_ignored.set(True)
+        try:
+            charge_navigation(store, "https://www.linkedin.com/in/u/", WED_8PM)
+        finally:
+            schedule_ignored.reset(ignored)
+            account_budget_in_use.reset(token)
+        assert held.ledger.spent_kind(PROFILE, WED_8PM) == 46
+
     def test_the_opt_out_needs_a_truthy_value(self, monkeypatch):
         monkeypatch.setenv(EnvironmentKeys.WORKING_HOURS_DISABLED, "0")
         with pytest.raises(ActionLimitError):
             refuse_if_limited(_budget(BH()), INVITES, WED_8PM)
+
+
+class TestKindHeadroom:
+    """What a bulk tool plans against before it starts."""
+
+    def test_headroom_is_the_tightest_cap_less_what_is_spent(self):
+        budget = _budget()
+        _spend(budget, PROFILE, 30, WED_10AM - timedelta(hours=2))
+        headroom, wait = kind_headroom(budget, PROFILE, WED_10AM)
+        assert headroom == 50
+        assert wait == pytest.approx(22 * 3600, abs=1)
+
+    def test_headroom_never_goes_negative(self):
+        budget = _budget()
+        _spend(budget, PROFILE, 90, WED_10AM)
+        assert kind_headroom(budget, PROFILE, WED_10AM)[0] == 0
+
+    def test_the_weekly_invite_cap_can_be_the_tight_one(self):
+        budget = _budget()
+        _spend(budget, INVITES, 95, WED_10AM - timedelta(days=3))
+        headroom, wait = kind_headroom(budget, INVITES, WED_10AM)
+        assert headroom == 5
+        assert wait == pytest.approx(4 * 24 * 3600, abs=1)
+
+    def test_off_hours_halves_the_headroom_and_waits_for_the_window(self):
+        budget = _budget(BH())
+        _spend(budget, PROFILE, 30, WED_8PM)
+        headroom, wait = kind_headroom(budget, PROFILE, WED_8PM)
+        assert headroom == 10
+        assert wait == 13 * 3600  # 09:00 next morning, not 24 h on
+        assert kind_headroom(budget, PROFILE, WED_8PM, ignore_schedule=True) == (
+            50,
+            pytest.approx(24 * 3600, abs=1),
+        )
+
+    def test_an_uncapped_kind_reports_the_daily_ceiling(self):
+        assert kind_headroom(_budget(), "company", WED_10AM) == (150, 0.0)
 
 
 class TestChargeNavigation:
@@ -904,6 +1000,31 @@ class TestWriteActions:
             load_account_budget(store, WED_10AM).ledger.spent_kind(INVITES, WED_10AM)
             == 1
         )
+
+    def test_a_ledger_that_cannot_be_saved_costs_the_count_not_the_write(
+        self, tmp_path, caplog
+    ):
+        """The message has left; a full home directory must not turn a
+        delivered message into a tool error."""
+        store = JobStore(tmp_path)
+        with (
+            patch.object(store, "save", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING),
+        ):
+            record_action(store, MESSAGES, WED_10AM)
+        assert any(
+            "Could not count the messages" in r.getMessage() for r in caplog.records
+        )
+
+    def test_a_ledger_that_cannot_be_read_refuses_nothing(self, tmp_path, caplog):
+        store = JobStore(tmp_path)
+        with (
+            patch.object(store, "exists", return_value=True),
+            patch.object(store, "load", side_effect=OSError("unreadable")),
+            caplog.at_level(logging.WARNING),
+        ):
+            refuse_action(store, INVITES, WED_10AM)
+        assert any("allowing the invites" in r.getMessage() for r in caplog.records)
 
     def test_a_write_is_not_an_action_of_the_daily_budget(self, tmp_path):
         """Its page loads were charged one by one as they happened."""

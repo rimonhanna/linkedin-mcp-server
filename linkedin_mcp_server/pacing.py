@@ -17,10 +17,16 @@ The model mirrors what the established LinkedIn automation tools converged on:
   ages out exactly 24 hours after it happened. A midnight reset lets a job
   spend its whole budget at 23:00 and again at 00:01, which is precisely the
   burst shape that gets flagged.
-* **Working hours**, opt-in via ``Schedule.business_hours()`` (09:00-18:00
-  local, weekends off, lunch skipped), because a member who views profiles at
-  04:00 on a Sunday is not browsing. The default schedule is permissive (24/7)
-  so the pacing never blocks a run the operator did not ask to restrict.
+* **Working hours** (09:00-18:00 local, weekends off, lunch skipped, via
+  ``Schedule.business_hours()``), because a member who views profiles at
+  04:00 on a Sunday is not browsing. A per-work job still defaults to 24/7,
+  and the shared account budget once did too: a restrictive default used to
+  refuse whole bunches in the evening for operators who had never asked for
+  a working-hours limit. That no longer applies, since the schedule no
+  longer blocks reads -- it halves their caps outside the window and gates
+  only invitations and messages -- so the account budget now defaults to
+  business hours; ``WORKING_HOURS_DISABLED`` opts out, and an existing
+  ledger keeps whatever schedule it stored.
 * **Randomized** gaps and a jittered daily cap, so the traffic carries no
   fixed period and no suspiciously round daily total.
 * A **warm-up ramp**, because the pattern change matters as much as the level:
@@ -134,10 +140,18 @@ def max_daily_actions() -> int:
     return _env_at_most(EnvironmentKeys.DAILY_ACTIONS_MAX, MAX_DAILY_ACTIONS)
 
 
+# Clamps already warned about, as (key, value). The ceilings are read on
+# every page load, and an operator with DAILY_ACTIONS_MAX=250 in the
+# environment would otherwise see the same line once per navigation.
+_clamp_warned: set[tuple[str, int]] = set()
+
+
 def _env_at_most(key: str, ceiling: int) -> int:
     value = env_int(key, ceiling, minimum=1)
     if value > ceiling:
-        logger.warning("Clamping %s=%d to the ceiling %d", key, value, ceiling)
+        if (key, value) not in _clamp_warned:
+            _clamp_warned.add((key, value))
+            logger.warning("Clamping %s=%d to the ceiling %d", key, value, ceiling)
         return ceiling
     return value
 
@@ -188,6 +202,8 @@ def navigation_kind(url: str) -> str:
         return PROFILE
     if path.startswith("/company/"):
         return COMPANY
+    # Not `/jobs/search/`: that is a job board page, filed as `other` on
+    # purpose, and only the people and company search pages spend this cap.
     if path.startswith("/search/"):
         return SEARCH
     if path.startswith("/messaging/"):
@@ -686,7 +702,8 @@ def load_account_budget(
     A non-None ``daily_cap``/``warmup``/``schedule`` updates the stored budget
     (last writer wins) and is persisted, so a caller can set the account-wide
     cap once and every subsystem then honours it. With all three None this is a
-    pure read (still materialising a default budget on first use).
+    pure read (still materialising a default budget on first use, on business
+    hours -- see the module docstring for why that default is safe here).
     """
     if store.exists(ACCOUNT_BUDGET_JOB):
         budget = store.load(ACCOUNT_BUDGET_JOB)
@@ -709,7 +726,7 @@ def load_account_budget(
         started_on=now.date(),
         daily_cap=daily_cap if daily_cap is not None else default_daily_actions(),
         warmup=warmup if warmup is not None else False,
-        schedule=schedule if schedule is not None else Schedule(),
+        schedule=schedule if schedule is not None else Schedule.business_hours(),
     )
     store.save(budget)
     return budget
@@ -720,9 +737,16 @@ def load_account_budget(
 #: copy after every profile -- so a navigation inside it must add its kind to
 #: that copy, not to the file the tool is about to overwrite. ``None`` when no
 #: such tool is running, and the charge goes straight to disk. Set by the tool
-#: once it has loaded its budget; the middleware clears it after every call.
+#: once it has loaded its budget and reset by the same tool on its way out.
 account_budget_in_use: contextvars.ContextVar[Job | None] = contextvars.ContextVar(
     "linkedin_mcp_account_budget_in_use", default=None
+)
+
+#: Set alongside ``account_budget_in_use`` by a bulk tool called with
+#: ``ignore_schedule``: its page loads run on the full caps, not the halved
+#: off-hours ones, since the caller asked for the catch-up knowingly.
+schedule_ignored: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "linkedin_mcp_schedule_ignored", default=False
 )
 
 
@@ -730,14 +754,64 @@ def _window_label(window: int) -> str:
     return "7 d" if window >= WEEK_SECONDS else "24 h"
 
 
-def refuse_if_limited(budget: Job, kind: str, now: datetime) -> None:
+def _effective_caps(
+    budget: Job, kind: str, now: datetime, *, ignore_schedule: bool
+) -> tuple[bool, list[tuple[int, int]]]:
+    """Whether the schedule is closed, and `kind`'s caps as they apply now.
+
+    A read outside the window is let through on half its cap: a member who
+    browses at 03:00 is odd, one who sends invitations then is odder.
+    """
+    off_hours = (
+        working_hours_enforced()
+        and not ignore_schedule
+        and not budget.schedule.is_open(now)
+    )
+    caps = [
+        (max(limit // 2, 1) if off_hours else limit, window)
+        for limit, window in kind_caps(kind)
+    ]
+    return off_hours, caps
+
+
+def kind_headroom(
+    budget: Job, kind: str, now: datetime, *, ignore_schedule: bool = False
+) -> tuple[int, float]:
+    """Units of `kind` left under its tightest cap, and seconds until one frees.
+
+    For a bulk tool to plan against before it starts, the way it plans
+    against the daily cap: a bunch must not start what it cannot finish.
+    Uncapped kinds report the daily cap's own ceiling and no wait.
+    """
+    off_hours, caps = _effective_caps(
+        budget, kind, now, ignore_schedule=ignore_schedule
+    )
+    headroom: int | None = None
+    wait = 0.0
+    for limit, window in caps:
+        left = limit - budget.ledger.spent_kind(kind, now, window)
+        if headroom is None or left < headroom:
+            headroom = left
+            wait = budget.ledger.kind_expiry(kind, now, window)
+    if headroom is None:
+        return MAX_DAILY_ACTIONS, 0.0
+    if off_hours:
+        # The full cap is back the moment the schedule reopens.
+        wait = min(wait, (budget.schedule.next_open(now) - now).total_seconds())
+    return max(headroom, 0), wait
+
+
+def refuse_if_limited(
+    budget: Job, kind: str, now: datetime, *, ignore_schedule: bool = False
+) -> None:
     """Raise ``ActionLimitError`` before one more `kind` would break a cap.
 
     Outside the schedule a write waits for it to reopen, and a read is let
-    through on half its cap: a member who browses at 03:00 is odd, one who
-    sends invitations then is odder. Nothing is charged for a refusal.
+    through on half its cap. Nothing is charged for a refusal.
     """
-    off_hours = working_hours_enforced() and not budget.schedule.is_open(now)
+    off_hours, caps = _effective_caps(
+        budget, kind, now, ignore_schedule=ignore_schedule
+    )
     if off_hours and kind in (INVITES, MESSAGES):
         raise ActionLimitError(
             kind,
@@ -745,9 +819,7 @@ def refuse_if_limited(budget: Job, kind: str, now: datetime) -> None:
             window="working hours",
             resume_at=budget.schedule.next_open(now),
         )
-    for limit, window in kind_caps(kind):
-        if off_hours:
-            limit = max(limit // 2, 1)
+    for limit, window in caps:
         if budget.ledger.spent_kind(kind, now, window) < limit:
             continue
         resume_at = now + timedelta(
@@ -770,7 +842,7 @@ def charge_navigation(store: JobStore, url: str, now: datetime) -> None:
     kind = navigation_kind(url)
     held = account_budget_in_use.get()
     budget = held if held is not None else load_account_budget(store, now)
-    refuse_if_limited(budget, kind, now)
+    refuse_if_limited(budget, kind, now, ignore_schedule=schedule_ignored.get())
     budget.ledger.record_kind(kind, now)
     if held is None:
         budget.ledger.record(now)
@@ -781,13 +853,33 @@ def charge_navigation(store: JobStore, url: str, now: datetime) -> None:
 
 
 def refuse_action(store: JobStore, kind: str, now: datetime) -> None:
-    """Refuse a write before it is attempted when its cap or the schedule says so."""
-    refuse_if_limited(load_account_budget(store, now), kind, now)
+    """Refuse a write before it is attempted when its cap or the schedule says so.
+
+    Best-effort on the ledger, like the navigation charge: a home directory
+    that cannot be read refuses nothing, since nothing has been sent yet.
+    """
+    try:
+        budget = load_account_budget(store, now)
+    except Exception:
+        logger.warning(
+            "Could not read the account budget; allowing the %s", kind, exc_info=True
+        )
+        return
+    refuse_if_limited(budget, kind, now)
 
 
 def record_action(store: JobStore, kind: str, now: datetime) -> None:
-    """Count one write that was submitted, or may have been."""
-    budget = load_account_budget(store, now)
-    budget.ledger.record_kind(kind, now)
-    budget.ledger.prune(now)
-    store.save(budget)
+    """Count one write that was submitted, or may have been.
+
+    Best-effort: the write has happened, and a ledger that cannot be saved
+    must cost the count, never turn a delivered message into a tool error.
+    """
+    try:
+        budget = load_account_budget(store, now)
+        budget.ledger.record_kind(kind, now)
+        budget.ledger.prune(now)
+        store.save(budget)
+    except Exception:
+        logger.warning(
+            "Could not count the %s against the account budget", kind, exc_info=True
+        )

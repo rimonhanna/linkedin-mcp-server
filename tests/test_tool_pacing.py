@@ -15,7 +15,6 @@ import pytest
 from linkedin_mcp_server.config.loaders import EnvironmentKeys
 from linkedin_mcp_server.pacing import (
     JobStore,
-    account_budget_in_use,
     load_account_budget,
     request_arrived_at,
 )
@@ -103,20 +102,6 @@ class TestTheMiddlewareChargesNoBudgetItself:
         await _timed_call(paced)
         await _timed_call(paced, "run_enrichment_bunch")
         assert load_account_budget(store, now).ledger.spent(now) == 0
-
-    async def test_a_budget_a_tool_held_is_let_go_after_the_call(self, paced, tmp_path):
-        """A bulk tool hands its in-memory budget to its navigations through
-        a context variable and has no natural place to clear it; a later call
-        in the same context must not charge into that dead copy."""
-        held = load_account_budget(JobStore(tmp_path / "jobs"), datetime.now())
-
-        async def call_next(context):
-            account_budget_in_use.set(held)
-            return None
-
-        await paced.on_call_tool(_call_context("run_enrichment_bunch"), call_next)
-
-        assert account_budget_in_use.get() is None
 
 
 class TestLocalOnlyToolsAreNotPaced:

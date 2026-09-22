@@ -17,7 +17,6 @@ from linkedin_mcp_server.config import get_config
 from linkedin_mcp_server.config.loaders import EnvironmentKeys
 from linkedin_mcp_server.exceptions import BrowserBusyError
 from linkedin_mcp_server.pacing import (
-    account_budget_in_use,
     request_arrived_at,
     tool_call_gap,
 )
@@ -204,9 +203,6 @@ class SequentialToolExecutionMiddleware(Middleware):
                 hold_seconds,
             )
             note_activity()
-            # A bulk tool hands its in-memory budget to the navigations it
-            # makes; the next call in this context must not charge into it.
-            account_budget_in_use.set(None)
             # Inside this finally rather than around the whole call: a call
             # that gave up waiting for the lease never reached this point and
             # never touched LinkedIn, so it owes no gap. Still inside the

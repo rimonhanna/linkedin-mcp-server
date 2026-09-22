@@ -201,7 +201,10 @@ def isolate_the_account_ledger(tmp_path, monkeypatch):
     this a test run spends the daily budget of whoever ran it -- or is
     refused by a cap the real ledger has already reached.
     """
-    from linkedin_mcp_server.pacing import JobStore
+    from datetime import datetime
+
+    from linkedin_mcp_server import pacing
+    from linkedin_mcp_server.pacing import JobStore, Schedule, load_account_budget
     from linkedin_mcp_server.scraping import navigation
     from linkedin_mcp_server.tools import messaging, person
 
@@ -211,6 +214,16 @@ def isolate_the_account_ledger(tmp_path, monkeypatch):
             "JobStore",
             lambda *args, **kwargs: JobStore(tmp_path / "jobs"),
         )
+    # A fresh account budget is on business hours, so a test that let one
+    # materialise would be refused an invite in the evening and given half a
+    # profile cap at the weekend. Seed it open; a test about the schedule
+    # stores its own.
+    load_account_budget(
+        JobStore(tmp_path / "jobs"), datetime.now(), schedule=Schedule()
+    )
+    # The clamp warning fires once per (key, value) per process, and a test
+    # asserting it must not depend on which test asked first.
+    monkeypatch.setattr(pacing, "_clamp_warned", set())
 
 
 @pytest.fixture

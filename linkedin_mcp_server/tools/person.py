@@ -25,10 +25,12 @@ from linkedin_mcp_server.scraping.contracts import FilterValidationError
 
 logger = logging.getLogger(__name__)
 
-# Outcomes after which an invitation exists, or may: the two unverified ones
-# are counted because a repeat can invite twice. ``not_sent`` and
+# Outcomes after which an invitation exists, or may: the unverified one is
+# counted because a repeat can invite twice. ``not_sent`` and
 # ``dialog_not_found`` are LinkedIn declining, and a decline is not an invite.
-_INVITE_SUBMITTED = frozenset({"connected", "send_unverified", "outcome_unknown"})
+# (``outcome_unknown`` is synthesised by the frontend proxy when the daemon
+# went away mid-call, so this tool body never sees it.)
+_INVITE_SUBMITTED = frozenset({"connected", "send_unverified"})
 
 
 def _coerce_str_list(value: Any) -> Any:

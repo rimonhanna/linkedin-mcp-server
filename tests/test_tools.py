@@ -1455,6 +1455,32 @@ class TestWritesAreCappedAtTheAction:
 
         assert _kind_spent(tmp_path, MESSAGES) == 1
 
+    @staticmethod
+    def _unwritable_store(tmp_path):
+        store = MagicMock(wraps=JobStore(tmp_path / "jobs"))
+        store.save.side_effect = OSError("read-only home")
+        return lambda *a, **k: store
+
+    async def test_a_ledger_failure_never_fails_a_delivered_message(
+        self, mock_context, tmp_path, monkeypatch
+    ):
+        from linkedin_mcp_server.tools import messaging
+
+        monkeypatch.setattr(messaging, "JobStore", self._unwritable_store(tmp_path))
+        extractor = await self._send(
+            {"status": "sent", "sent": True, "retry_safe": False}, mock_context
+        )
+        extractor.send_message.assert_awaited_once()
+
+    async def test_a_ledger_failure_never_fails_a_delivered_invite(
+        self, mock_context, tmp_path, monkeypatch
+    ):
+        from linkedin_mcp_server.tools import person
+
+        monkeypatch.setattr(person, "JobStore", self._unwritable_store(tmp_path))
+        extractor = await self._connect("connected", mock_context)
+        extractor.connect_with_person.assert_awaited_once()
+
     async def test_a_dry_run_is_not_gated(self, mock_context, tmp_path, monkeypatch):
         monkeypatch.setenv(EnvironmentKeys.MESSAGES_MAX, "1")
         await self._send(

@@ -24,6 +24,8 @@ from linkedin_mcp_server.exceptions import (
     AuthenticationStartedError,
     BrowserBusyError,
 )
+from linkedin_mcp_server.exceptions import ActionLimitError
+from linkedin_mcp_server.scraping.contracts import limit_exceeded_section_error
 from linkedin_mcp_server.pacing import (
     ACCOUNT_BUDGET_JOB,
     Job,
@@ -317,6 +319,43 @@ class TestEnrichCompanies:
         # load the daily cap never learns about.
         now = datetime.now().astimezone()
         assert jobs.load(ACCOUNT_BUDGET_JOB).ledger.spent(now) == 1
+
+    @pytest.mark.parametrize("shape", ["raised", "filed"])
+    async def test_a_cap_refusal_stops_the_bunch_uncharged(
+        self, mcp, wired, mock_context, shape
+    ):
+        """A search the cap refused never loaded, so it is not recorded, not
+        filed as the name's own failure, and not repeated for every name
+        left: the bunch stops and says when to come back. Both shapes reach
+        here -- the navigator raising for a single page, and the search walk
+        filing the refusal and returning what it had."""
+        _, jobs = wired
+        now = datetime.now().astimezone()
+        resume_at = now + timedelta(hours=3)
+        refusal = ActionLimitError(
+            "search", limit=60, window="24 h", resume_at=resume_at
+        )
+        extractor = MagicMock()
+        if shape == "raised":
+            extractor.search_companies = AsyncMock(side_effect=refusal)
+        else:
+            extractor.search_companies = AsyncMock(
+                return_value={
+                    "sections": {},
+                    "section_errors": {
+                        "search_results": limit_exceeded_section_error(refusal)
+                    },
+                }
+            )
+
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(["NewCo", "OtherCo"], mock_context, extractor=extractor)
+
+        assert out["stopped_because"] == "limit_exceeded"
+        assert out["next_run_after_seconds"] == pytest.approx(3 * 3600, abs=5)
+        assert extractor.search_companies.await_count == 1
+        assert "NewCo" not in out["results"] and "OtherCo" not in out["results"]
+        assert _spent(jobs) == 0
 
     async def test_no_confident_match_does_not_serve_a_different_company(
         self, mcp, wired, mock_context, monkeypatch

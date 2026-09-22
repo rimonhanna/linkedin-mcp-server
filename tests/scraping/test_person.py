@@ -784,11 +784,12 @@ class TestScrapePersonSectionOutcomes:
         assert budget.ledger.spent(now) == 3
         assert budget.ledger.spent_kind(PROFILE, now) == 3
 
-    async def test_a_cap_reached_mid_walk_stops_it_like_a_rate_limit(
+    async def test_a_cap_reached_mid_walk_keeps_the_paid_sections(
         self, mock_page, tmp_path, monkeypatch
     ):
-        """Filing the refusal per remaining section would be one error entry
-        each, with an issue template attached to what is the cap working."""
+        """The refused section is filed once with the fields to wait on, and
+        the walk stops there: raising would discard sections already paid
+        for, and going on would file the same refusal per section left."""
         monkeypatch.setenv(EnvironmentKeys.PROFILE_LOADS_MAX, "2")
         scraper = _scraper(mock_page)
         with (
@@ -804,13 +805,25 @@ class TestScrapePersonSectionOutcomes:
                 return_value=None,
             ),
             _sleep(),
-            pytest.raises(ActionLimitError, match="profile limit of 2"),
         ):
-            await scraper.scrape_person(
-                "testuser", {"main_profile", "experience", "education"}
+            result = await scraper.scrape_person(
+                "testuser", {"main_profile", "experience", "education", "skills"}
             )
 
+        # Two loaded, the third refused, and the fourth never asked for.
         assert mock_page.goto.await_count == 2
+        assert set(result["sections"]) == {"main_profile", "experience"}
+        error = result["section_errors"]["education"]
+        assert error["error_type"] == "limit_exceeded"
+        assert (error["kind"], error["limit"], error["window"]) == (
+            "profile",
+            2,
+            "24 h",
+        )
+        assert ActionLimitError.from_section_error(error).resume_at == (
+            datetime.fromisoformat(error["resume_at"])
+        )
+        assert set(result["section_errors"]) == {"education"}
 
     async def test_scrape_person_reraises_closed_target(self, mock_page):
         """A dead browser fails the call, not the section.
