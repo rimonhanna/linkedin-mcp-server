@@ -731,14 +731,27 @@ the tool. The budget they bound is not per profile, though: the ledger lives in
 `~/.linkedin-mcp/jobs`, so every profile under one home directory draws on the
 same daily cap, and two processes with different `DAILY_ACTIONS_MAX` share one
 ledger. Unset means the default; an unusable value falls back to the default
-with a warning. None is a hard ceiling any more: the defaults are the
-deliberate ceiling, and raising `DAILY_ACTIONS_MAX` raises detection exposure
-in step. Published limits for comparable tools are far lower than most people
-expect, on the order of one action a minute.
+with a warning. The caps are ceilings: a variable may lower one and never
+raise it (a higher value is clamped with a warning), because raising them
+raises detection exposure in step. Published limits for comparable tools are
+far lower than most people expect, on the order of one action a minute.
+
+The budget is charged per page load, not per tool call: a `get_person_profile`
+asking for every section is fourteen loads. Profile loads, search pages,
+invitations and messages each have a rolling cap of their own on top of the
+daily one; when a call would break one it is refused before anything loads,
+with `limit_exceeded` and the time to resume in the error. Invitations and
+messages also wait for the ledger's working-hours schedule, and outside it
+profile and search loads run on half their cap.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `DAILY_ACTIONS_MAX` | `150` | Ceiling on any enrichment job's `daily_cap` |
+| `DAILY_ACTIONS_MAX` | `150` | Ceiling on any enrichment job's `daily_cap`; may only be lowered |
+| `PROFILE_LOADS_MAX` | `80` | Profile page loads per rolling 24 h; may only be lowered |
+| `SEARCH_PAGES_MAX` | `60` | Search result pages per rolling 24 h; may only be lowered |
+| `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `100` | Invitations per rolling 24 h / 7 d; may only be lowered |
+| `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may only be lowered |
+| `WORKING_HOURS_DISABLED` | off | `1` lets invitations and messages go outside the schedule and lifts the halved read caps |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one |
 | `DAILY_CAP_JITTER` | `0.15` | Fraction shaved off the daily cap at random each day |
 | `WARMUP_CAPS` | `10,20,50` | Per-day caps during the warm-up ramp |
