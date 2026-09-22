@@ -410,3 +410,30 @@ class TestBothEntryPaths:
         target = pyproject["project"]["scripts"]["mcp-server-linkedin"]
 
         assert target.split(":")[0].startswith("linkedin_mcp_server.")
+
+    def test_exceptions_is_a_leaf_import(self):
+        # The guard is imported from the package ``__init__`` and raises an
+        # error class from ``linkedin_mcp_server.exceptions``, so that module
+        # must load with no third-party package on the path: ``-S`` takes
+        # site-packages away and ``-I`` the environment, leaving only what
+        # the interpreter ships with. ``core/__init__`` sits on its import
+        # chain and every sibling of ``core.exceptions`` reaches patchright
+        # or dotenv at the top, which is why they resolve lazily there.
+        repo_root = Path(__file__).resolve().parent.parent
+        finished = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                "-c",
+                "import sys\n"
+                f"sys.path.insert(0, {str(repo_root)!r})\n"
+                "import linkedin_mcp_server.exceptions\n"
+                "import linkedin_mcp_server.core.exceptions\n",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=repo_root,
+        )
+
+        assert finished.returncode == 0, finished.stderr
