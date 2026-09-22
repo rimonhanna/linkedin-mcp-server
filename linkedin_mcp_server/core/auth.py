@@ -4,6 +4,7 @@ import asyncio
 import logging
 import random
 import re
+from collections.abc import Awaitable, Callable
 from urllib.parse import urlparse
 
 from patchright.async_api import (
@@ -16,12 +17,13 @@ from linkedin_mcp_server.debug_trace import record_page_trace
 from linkedin_mcp_server.debug_utils import stabilize_navigation
 from linkedin_mcp_server.privacy import redact_private_navigation_value
 
-from .exceptions import AuthenticationError, NetworkError
+from .exceptions import AuthenticationError, NetworkError, RateLimitError
 from .proxy_errors import (
     goto_reporting_proxy_errors,
     raise_if_proxy_error,
     redact_proxy_credentials,
 )
+from .rate_limit_markers import HTTP_TOO_MANY_REQUESTS, REDIRECT_LOOP_NAV_FAILURE
 
 logger = logging.getLogger(__name__)
 
@@ -328,7 +330,12 @@ async def auth_cookies(page: Page) -> dict[str, str]:
     }
 
 
-async def barrier_confirmed(page: Page, barrier: str) -> bool:
+async def barrier_confirmed(
+    page: Page,
+    barrier: str,
+    *,
+    detect: Callable[[Page], Awaitable[str | None]] | None = None,
+) -> bool:
     """Load /feed/ once more before believing *barrier*.
 
     One sighting used to be the verdict, and every caller turns it into an
@@ -342,6 +349,11 @@ async def barrier_confirmed(page: Page, barrier: str) -> bool:
 
     Leaves the page on /feed/ either way. A caller that was reading another
     page has lost it and must navigate again rather than read on.
+
+    *detect* is the check to repeat on the re-load, the quick one unless the
+    caller sighted the barrier with another: a picker only the body text
+    reveals would otherwise always read as cleared, and the caller would keep
+    reporting a transient where a re-login is due.
     """
     path = urlparse(page.url).path
     if "li_at" not in await auth_cookies(page) and any(
@@ -358,18 +370,35 @@ async def barrier_confirmed(page: Page, barrier: str) -> bool:
     await asyncio.sleep(random.uniform(*_BARRIER_REPROBE_DELAY_RANGE))
     load_error: str | None = None
     try:
-        await goto_reporting_proxy_errors(
+        response = await goto_reporting_proxy_errors(
             page, _AUTH_COOKIE_URL, wait_until="domcontentloaded"
         )
+        if response is not None and response.status == HTTP_TOO_MANY_REQUESTS:
+            # Throttling on the second look is still throttling, and it is
+            # read before the detector: whatever the page shows now is not
+            # the session's doing.
+            raise RateLimitError(
+                "LinkedIn rate-limited /feed/ (HTTP 429) while re-checking an "
+                "auth barrier. The saved LinkedIn session was not changed; "
+                "wait before retrying."
+            )
         await stabilize_navigation("feed re-probe", logger)
-    except NetworkError:
+    except (NetworkError, RateLimitError):
         raise
     except Exception as exc:
-        # A failed load still leaves a URL behind, and a barrier on it is
-        # evidence; a load that fails without one is not.
         raise_if_proxy_error(exc)
         load_error = redact_proxy_credentials(f"{type(exc).__name__}: {exc}")
-    again = await detect_auth_barrier_quick(page)
+        if REDIRECT_LOOP_NAV_FAILURE in str(exc):
+            # The loop can stop on an auth route, and the detector would
+            # confirm it.
+            raise NetworkError(
+                f"/feed/ re-probe ended in a redirect loop ({load_error}), "
+                f"which LinkedIn uses to throttle. The saved LinkedIn session "
+                f"was not changed."
+            ) from exc
+        # A failed load still leaves a URL behind, and a barrier on it is
+        # evidence; a load that fails without one is not.
+    again = await (detect or detect_auth_barrier_quick)(page)
     await record_page_trace(
         page, "feed-reprobe", extra={"barrier": again, "error": load_error}
     )

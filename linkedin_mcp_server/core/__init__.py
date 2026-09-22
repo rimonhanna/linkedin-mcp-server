@@ -21,6 +21,7 @@ from .exceptions import (
     ProxyConnectionError,
     RateLimitError,
     ScrapingError,
+    TransientBarrierError,
 )
 from .proxy_errors import (
     as_proxy_error,
@@ -69,6 +70,7 @@ __all__ = [
     "ProxyConnectionError",
     "RateLimitError",
     "ScrapingError",
+    "TransientBarrierError",
     "as_proxy_error",
     "goto_reporting_proxy_errors",
     "is_proxy_error",

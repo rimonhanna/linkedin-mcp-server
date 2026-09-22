@@ -19,8 +19,8 @@ from linkedin_mcp_server.core.auth import (
 )
 from linkedin_mcp_server.core.exceptions import (
     AuthenticationError,
-    NetworkError,
     RateLimitError,
+    TransientBarrierError,
 )
 from linkedin_mcp_server.core.humanize import humanize_after_nav
 from linkedin_mcp_server.core.proxy_errors import (
@@ -189,7 +189,11 @@ class PageNavigator:
             redact_private_navigation_value(url),
             barrier,
         )
-        if confirm and not await barrier_confirmed(self._session.page, barrier):
+        # Re-checked with the same detector that sighted it: a picker only the
+        # body text reveals would read as cleared to the quick one every time.
+        if confirm and not await barrier_confirmed(
+            self._session.page, barrier, detect=detect_auth_barrier
+        ):
             return True
         message = (
             "LinkedIn requires interactive re-authentication. "
@@ -209,11 +213,12 @@ class PageNavigator:
 
         A barrier that clears on the /feed/ re-load is not an expired session
         and must not rotate one, but the page this call was guarding is gone
-        with it, so it raises all the same -- as a :class:`NetworkError`, which
-        the tool reports without touching the session.
+        with it, so it raises all the same -- as a
+        :class:`TransientBarrierError`, which the tool reports in these words
+        without touching the session.
         """
         if await self._auth_barrier_cleared(url, navigation_error=navigation_error):
-            raise NetworkError(
+            raise TransientBarrierError(
                 f"A LinkedIn interstitial interrupted "
                 f"{redact_private_navigation_value(url)} and cleared on the "
                 f"next load. Retry the call; the saved LinkedIn session was "

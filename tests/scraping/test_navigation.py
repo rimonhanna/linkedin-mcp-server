@@ -13,9 +13,9 @@ import pytest
 
 from linkedin_mcp_server.core.exceptions import (
     AuthenticationError,
-    NetworkError,
     ProxyConnectionError,
     RateLimitError,
+    TransientBarrierError,
 )
 from linkedin_mcp_server.scraping import session as session_module
 from linkedin_mcp_server.scraping.navigation import PageNavigator
@@ -728,6 +728,28 @@ class TestABarrierMidScrapeIsBelievedOnlyWhenSeenTwice:
         assert not isinstance(excinfo.value, AuthenticationError)
         mock_page.goto.assert_awaited_once()
 
+    async def test_a_picker_only_the_full_read_sees_is_still_expiry(
+        self, mock_page, monkeypatch
+    ):
+        # Sighted by the full detector, so it has to be re-checked by the full
+        # detector: the quick one would call it cleared every time and the job
+        # readers would report a transient forever instead of a re-login.
+        monkeypatch.setattr(
+            "linkedin_mcp_server.core.auth.detect_auth_barrier_quick",
+            AsyncMock(return_value=None),
+        )
+        navigator = PageNavigator(ScrapingSession(mock_page))
+
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.navigation.detect_auth_barrier",
+                new_callable=AsyncMock,
+                return_value="auth barrier text: welcome back + join now",
+            ),
+            pytest.raises(AuthenticationError),
+        ):
+            await navigator._raise_if_auth_barrier(self.TARGET)
+
     async def test_a_guarded_page_lost_to_a_cleared_barrier_is_not_expiry(
         self, mock_page
     ):
@@ -746,7 +768,7 @@ class TestABarrierMidScrapeIsBelievedOnlyWhenSeenTwice:
                 new_callable=AsyncMock,
                 return_value=None,
             ),
-            pytest.raises(NetworkError, match="Retry the call"),
+            pytest.raises(TransientBarrierError, match="Retry the call"),
         ):
             await navigator._raise_if_auth_barrier(self.TARGET)
 

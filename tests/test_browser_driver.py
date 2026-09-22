@@ -1563,6 +1563,62 @@ class TestThrottlingOnTheProbeIsNotExpiry:
         barrier.assert_not_awaited()
 
 
+class TestThrottlingOnTheSecondLookIsNotExpiryEither:
+    """The confirming /feed/ load is a navigation like the first one."""
+
+    @pytest.mark.asyncio
+    async def test_a_429_on_the_reprobe_raises_instead_of_false(self):
+        browser = _make_mock_browser()
+        throttled = MagicMock()
+        throttled.status = 429
+        browser.page.goto = AsyncMock(side_effect=[MagicMock(status=200), throttled])
+
+        with (
+            patch(
+                "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                return_value="auth blocker URL: /checkpoint/lg/x",
+            ),
+            pytest.raises(RateLimitError),
+        ):
+            await _feed_auth_succeeds(browser)
+
+    @pytest.mark.asyncio
+    async def test_a_redirect_loop_on_the_reprobe_raises_instead_of_false(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "linkedin_mcp_server.config.get_config", browser_module.get_config
+        )
+        browser = _make_mock_browser()
+        browser.page.goto = AsyncMock(
+            side_effect=[
+                MagicMock(status=200),
+                Exception("net::ERR_TOO_MANY_REDIRECTS"),
+            ]
+        )
+
+        with (
+            patch(
+                "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                return_value="auth blocker URL: /checkpoint/lg/x",
+            ),
+            pytest.raises(NetworkError, match="redirect loop"),
+        ):
+            await _feed_auth_succeeds(browser)
+
+
 class TestAVerifiedProbeIsReusedAcrossOwnerStarts:
     """A /feed/ load per owner start is a barrier chance per owner start."""
 

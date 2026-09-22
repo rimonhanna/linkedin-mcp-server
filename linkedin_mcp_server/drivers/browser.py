@@ -17,6 +17,10 @@ from collections.abc import Coroutine
 from typing import Any, TypeVar
 
 from linkedin_mcp_server.common_utils import harden_linkedin_tree, secure_mkdir
+from linkedin_mcp_server.core.rate_limit_markers import (
+    HTTP_TOO_MANY_REQUESTS,
+    REDIRECT_LOOP_NAV_FAILURE,
+)
 from linkedin_mcp_server.core import (
     AUTH_COOKIE_NAMES,
     AuthenticationError,
@@ -56,10 +60,6 @@ from linkedin_mcp_server.process_tree import (
     start_browser_guardian,
 )
 from linkedin_mcp_server.profile_lease import ProfileLease, get_profile_lease
-from linkedin_mcp_server.scraping.rate_limit import (
-    HTTP_TOO_MANY_REQUESTS,
-    REDIRECT_LOOP_NAV_FAILURE,
-)
 from linkedin_mcp_server.server_role import a_held_profile_means_this_owner_must_go
 from linkedin_mcp_server.session_state import (
     SourceState,

@@ -17,6 +17,10 @@ import logging
 import re
 
 from linkedin_mcp_server.config.loaders import EnvironmentKeys
+from linkedin_mcp_server.core.rate_limit_markers import (
+    HTTP_TOO_MANY_REQUESTS,
+    REDIRECT_LOOP_NAV_FAILURE,
+)
 from linkedin_mcp_server.limits import env_float, env_int
 
 logger = logging.getLogger(__name__)
@@ -54,25 +58,15 @@ RATE_LIMIT_RETRY_BUDGET = 2
 # refusal is re-raised as the navigation error it already was.
 HTTP_STATUS_NAV_FAILURE = "ERR_HTTP_RESPONSE_CODE_FAILURE"
 
-# Throttling's other shape: LinkedIn bounces a request it will not serve
-# between routes until Chromium gives up. The loop can pass through an auth
-# route, so the URL it stops on says nothing about the session, and no barrier
-# is read off a page that ended this way.
-REDIRECT_LOOP_NAV_FAILURE = "ERR_TOO_MANY_REDIRECTS"
-
 # The status on Chromium's own error page, as digits. The words around it are
 # translated; the number is not, which is the whole reason to match on it
 # rather than on "too many requests". Bounded by a word boundary so a 429 in a
 # URL or a timestamp elsewhere on the page cannot stand in for the status.
 HTTP_STATUS_ON_INTERSTITIAL = re.compile(r"\b429\b")
 
-# The other shape of the same thing, and the reason `page.goto`'s return value
-# is no longer discarded: a 429 that Chromium *does* commit comes back as an
-# ordinary response. Measured against a local server answering 429, with and
-# without a body, under both `wait_until="domcontentloaded"` and `"commit"`:
-# `goto` returns rather than raising, `status` is 429 and `Retry-After`
-# survives on `headers`. No `wait_until` change is needed to see it.
-HTTP_TOO_MANY_REQUESTS = 429
+# The committed 429 and the redirect loop live in ``core.rate_limit_markers``,
+# where the auth probe can read them too; re-exported here for the navigator.
+__all__ = ["HTTP_TOO_MANY_REQUESTS", "REDIRECT_LOOP_NAV_FAILURE"]
 
 # Pause before a hard rate limit is reported, doubling per hit within one
 # scrape and jittered like every other deliberate pause here. Bounded well

@@ -147,7 +147,7 @@ async def boundaries(
         recorder.record("boundary.auth", result=auth_result)
         return auth_result
 
-    async def confirmed(_page: Any, barrier: str) -> bool:
+    async def confirmed(_page: Any, barrier: str, *, detect: Any = None) -> bool:
         # The second look at a barrier is a /feed/ load of its own; here it
         # stands, so a detected barrier propagates the way it always did.
         recorder.record("boundary.barrier_confirmed", barrier=barrier, result=True)
