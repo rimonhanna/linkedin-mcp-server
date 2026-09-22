@@ -411,14 +411,24 @@ class TestBothEntryPaths:
 
         assert target.split(":")[0].startswith("linkedin_mcp_server.")
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="the guard imports greenlet, which -S puts out of reach; "
+        "bootstrap._installer_supervisor_command keeps -P -m there for that",
+    )
     def test_exceptions_is_a_leaf_import(self):
-        # The guard is imported from the package ``__init__`` and raises an
-        # error class from ``linkedin_mcp_server.exceptions``, so that module
-        # must load with no third-party package on the path: ``-S`` takes
-        # site-packages away and ``-I`` the environment, leaving only what
-        # the interpreter ships with. ``core/__init__`` sits on its import
-        # chain and every sibling of ``core.exceptions`` reaches patchright
-        # or dotenv at the top, which is why they resolve lazily there.
+        # The POSIX installer supervisor runs under ``-I -S`` so no startup
+        # hook can precede it, re-adds its own root by hand and imports the
+        # package from there, which runs ``__init__`` and with it
+        # ``linkedin_mcp_server.exceptions``. Under ``-S`` only what the
+        # interpreter ships with is importable, so that chain must reach no
+        # third-party package: ``core/__init__`` sits on it and every sibling
+        # of ``core.exceptions`` imports patchright or dotenv at the top,
+        # which is why they resolve lazily there. The one thing on the chain
+        # that does need a third-party package is the guard's greenlet probe,
+        # and it is skipped on POSIX, so this is the chain as the supervisor
+        # sees it. On Windows the probe runs and ``-S`` would starve it, which
+        # is why the supervisor keeps ``-P -m`` there and this test is skipped.
         repo_root = Path(__file__).resolve().parent.parent
         finished = subprocess.run(
             [
@@ -428,6 +438,8 @@ class TestBothEntryPaths:
                 "-c",
                 "import sys\n"
                 f"sys.path.insert(0, {str(repo_root)!r})\n"
+                "import linkedin_mcp_server.process_protocol\n"
+                "import linkedin_mcp_server.process_tree\n"
                 "import linkedin_mcp_server.exceptions\n"
                 "import linkedin_mcp_server.core.exceptions\n",
             ],
