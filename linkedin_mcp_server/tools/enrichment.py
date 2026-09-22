@@ -41,6 +41,7 @@ from linkedin_mcp_server.pacing import (
     PROFILE,
     Job,
     JobStore,
+    Schedule,
     account_budget_in_use,
     bunch_size_max,
     default_daily_actions,
@@ -301,11 +302,13 @@ def register_enrichment_tools(
         Visit the next few profiles in a job, pacing them like a human would.
 
         Stops early -- persisting everything gathered -- when the bunch is
-        done, the rolling 24-hour budget is spent, the working window closes,
-        the tool timeout approaches, LinkedIn signals a rate limit, or the
-        browser has gone away and a relaunch did not bring it back
-        (browser_unavailable: the profile stays pending and nothing is
-        charged).
+        done, the rolling 24-hour budget is spent, the profile-load cap is
+        reached (limit_exceeded: the profile stays pending, the refused load
+        is uncharged, and next_run_after says when the cap frees up), the
+        working window closes, the tool timeout approaches, LinkedIn signals
+        a rate limit, or the browser has gone away and a relaunch did not
+        bring it back (browser_unavailable: the profile stays pending and
+        nothing is charged).
 
         Args:
             job_name: The job created by start_enrichment_job.
@@ -349,11 +352,12 @@ def register_enrichment_tools(
         try:
             # Schedule gate. Checked before the budget so a closed window reports
             # the real reason rather than "no budget".
-            if (
-                not ignore_schedule
-                and working_hours_enforced()
-                and not budget.schedule.is_open(now)
-            ):
+            # With the gate lifted the bunches are spread over the clock, not
+            # over a window that is closed: spacing them by a closed schedule
+            # answers every off-hours bunch with the maximum pause.
+            gate_lifted = ignore_schedule or not working_hours_enforced()
+            pacing_schedule = Schedule() if gate_lifted else budget.schedule
+            if not gate_lifted and not budget.schedule.is_open(now):
                 opens = budget.schedule.next_open(now)
                 return _status(
                     job,
@@ -539,9 +543,9 @@ def register_enrichment_tools(
                 except _BrowserGone as e:
                     return _browser_unavailable(e)
                 except ActionLimitError as e:
-                    # The ledger refused a load before it happened: nothing
-                    # charged, the profile still pending, and the error says
-                    # when to come back. Ahead of the generic handler, which
+                    # The ledger refused a load before it happened: the
+                    # refused load is uncharged, the profile still pending,
+                    # and the error says when to come back. Ahead of the generic handler, which
                     # would file it as the profile's own failure and go on
                     # to drain the whole queue into `failed` the same way.
                     store.save(job)
@@ -683,7 +687,7 @@ def register_enrichment_tools(
                 # More queue and more budget remain (bunch_complete or tool_deadline);
                 # tell the caller when to come back for the next bunch.
                 wait = next_bunch_delay(
-                    remaining, bunch_size, now, budget.schedule, rng
+                    remaining, bunch_size, now, pacing_schedule, rng
                 )
 
             return _status(

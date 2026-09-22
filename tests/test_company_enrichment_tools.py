@@ -357,6 +357,45 @@ class TestEnrichCompanies:
         assert "NewCo" not in out["results"] and "OtherCo" not in out["results"]
         assert _spent(jobs) == 0
 
+    @pytest.mark.parametrize("how", ["ignore_schedule", "opt_out"])
+    async def test_a_lifted_gate_paces_the_next_bunch_over_the_clock(
+        self, mcp, wired, mock_context, monkeypatch, how
+    ):
+        """See the same test on run_enrichment_bunch: a closed schedule used
+        for spacing answers every off-hours bunch with the maximum pause."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.company_enrichment.step_delay", lambda **k: 0
+        )
+        monkeypatch.setenv(EnvironmentKeys.BUNCH_PAUSE_MIN_SECONDS, "1")
+        monkeypatch.setenv(EnvironmentKeys.BUNCH_PAUSE_MAX_SECONDS, "100000")
+        if how == "opt_out":
+            monkeypatch.setenv(EnvironmentKeys.WORKING_HOURS_DISABLED, "1")
+        _, jobs = wired
+        now = datetime.now().astimezone()
+        opens = (now.hour + 2) % 24
+        budget = jobs.load(ACCOUNT_BUDGET_JOB)
+        budget.schedule = Schedule(work_start=opens, work_end=min(opens + 1, 24))
+        jobs.save(budget)
+
+        # One hit per search, so the second name stays outstanding.
+        extractor = MagicMock()
+        extractor.search_companies = AsyncMock(
+            side_effect=lambda name: (
+                _search_extractor([name.lower()]).search_companies.return_value
+            )
+        )
+        fn = await get_tool_fn(mcp, "enrich_companies")
+        out = await fn(
+            ["Acme", "Globex"],
+            mock_context,
+            bunch_searches=1,
+            ignore_schedule=how == "ignore_schedule",
+            extractor=extractor,
+        )
+
+        assert out["stopped_because"] == "bunch_complete"
+        assert 1 <= out["next_run_after_seconds"] < 100000
+
     async def test_no_confident_match_does_not_serve_a_different_company(
         self, mcp, wired, mock_context, monkeypatch
     ):

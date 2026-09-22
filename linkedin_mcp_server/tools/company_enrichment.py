@@ -63,6 +63,7 @@ from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_er
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.pacing import (
     JobStore,
+    Schedule,
     account_budget_in_use,
     bunch_searches_max,
     load_account_budget,
@@ -149,6 +150,10 @@ def register_company_enrichment_tools(
         # dead browser looks like from here -- but only when the filed error
         # says so (see ``_BrowserGone``); a timed-out or auth-walled About is
         # a failed load like any other.
+        # Unreachable while the company kind carries no cap; the day one is
+        # added, a refused About must stop the bunch, not read as a bad page.
+        if refused := _limit_filed(result):
+            raise refused
         if "about" not in sections:
             errors = result.get("section_errors", {})
             error = errors.get("about", {})
@@ -300,11 +305,10 @@ def register_company_enrichment_tools(
                     "stopped_because": "all_cached",
                 }
 
-            if (
-                not ignore_schedule
-                and working_hours_enforced()
-                and not budget.schedule.is_open(now)
-            ):
+            # See run_enrichment_bunch: a lifted gate paces over the clock.
+            gate_lifted = ignore_schedule or not working_hours_enforced()
+            pacing_schedule = Schedule() if gate_lifted else budget.schedule
+            if not gate_lifted and not budget.schedule.is_open(now):
                 opens = budget.schedule.next_open(now)
                 return _paced_return(
                     served,
@@ -656,7 +660,7 @@ def register_company_enrichment_tools(
                 stopped, wait = "all_done", None
             else:
                 wait = next_bunch_delay(
-                    remaining, bunch_searches, now, budget.schedule, rng
+                    remaining, bunch_searches, now, pacing_schedule, rng
                 )
             jobs.save(budget)
             return _paced_return(

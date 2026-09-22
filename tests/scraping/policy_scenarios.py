@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from difflib import unified_diff
 from pathlib import Path
 from typing import Any, cast
@@ -128,18 +128,25 @@ def _diagnostics_bindings(diagnostics: Any) -> Iterator[None]:
 
 
 @contextmanager
-def _isolated_ledger() -> Iterator[None]:
-    """Charge the scripted navigations to a throwaway ledger.
+def _navigation_bindings(**boundaries: Any) -> Iterator[None]:
+    """Bind the navigator's boundaries, and charge its loads to a throwaway
+    ledger.
 
-    This runs outside pytest too (`scripts/check_scraping_policy_traces.py`),
-    where the autouse isolation fixture is not there to keep the charges out
-    of the home directory -- or to keep a cap the real ledger has reached
-    from refusing a scripted page.
+    One context for the whole module because ``boundaries()`` below sits at
+    the interpreter's limit of statically nested blocks, and each ``with``
+    item is one. The ledger is isolated here rather than left to the autouse
+    fixture because this runs outside pytest too
+    (`scripts/check_scraping_policy_traces.py`), where nothing else keeps the
+    charges out of the home directory -- or keeps a cap the real ledger has
+    reached from refusing a scripted page.
     """
-    with (
-        tempfile.TemporaryDirectory() as root,
-        patch.object(navigation_module, "JobStore", lambda *a, **kw: JobStore(root)),
-    ):
+    with ExitStack() as stack:
+        root = stack.enter_context(tempfile.TemporaryDirectory())
+        stack.enter_context(
+            patch.object(navigation_module, "JobStore", lambda *a, **kw: JobStore(root))
+        )
+        for name, binding in boundaries.items():
+            stack.enter_context(patch.object(navigation_module, name, binding))
         yield
 
 
@@ -227,13 +234,15 @@ async def boundaries(
         return None
 
     with (
-        _isolated_ledger(),
-        patch.object(navigation_module, "record_page_trace", trace),
-        patch.object(navigation_module, "detect_auth_barrier_quick", auth_quick),
-        patch.object(navigation_module, "detect_auth_barrier", auth),
-        patch.object(navigation_module, "barrier_confirmed", confirmed),
-        patch.object(navigation_module, "resolve_remember_me_prompt", remember),
-        patch.object(navigation_module, "stabilize_navigation", stabilize),
+        _navigation_bindings(
+            record_page_trace=trace,
+            detect_auth_barrier_quick=auth_quick,
+            detect_auth_barrier=auth,
+            barrier_confirmed=confirmed,
+            resolve_remember_me_prompt=remember,
+            stabilize_navigation=stabilize,
+            humanize_after_nav=humanize,
+        ),
         # Every binding of each shared boundary, because the workflows that
         # reach it are split across the modules mid-relocation: generic
         # capture, the feed, conversation reader and message sender go through
@@ -259,7 +268,6 @@ async def boundaries(
             staticmethod(drain),
         ),
         patch.object(session_module, "jitter", jitter),
-        patch.object(navigation_module, "humanize_after_nav", humanize),
         patch.object(session_module.asyncio, "sleep", clock.sleep),
         patch.object(session_module.time, "monotonic", clock.monotonic),
     ):

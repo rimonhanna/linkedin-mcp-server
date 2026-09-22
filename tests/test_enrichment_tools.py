@@ -534,6 +534,40 @@ class TestRunBunch:
         assert out["stopped_because"] != "outside_working_hours"
         assert out["done"] == 1
 
+    @pytest.mark.parametrize("how", ["ignore_schedule", "opt_out"])
+    async def test_a_lifted_gate_paces_the_next_bunch_over_the_clock(
+        self, mcp, store, mock_context, monkeypatch, how
+    ):
+        """Spacing off-hours bunches by the closed schedule answered every
+        one of them with the maximum pause, whichever way the gate was
+        lifted; the caller then waited an hour between one-profile bunches."""
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.enrichment.step_delay", lambda **k: 0
+        )
+        monkeypatch.setenv(EnvironmentKeys.BUNCH_PAUSE_MIN_SECONDS, "1")
+        monkeypatch.setenv(EnvironmentKeys.BUNCH_PAUSE_MAX_SECONDS, "100000")
+        if how == "opt_out":
+            monkeypatch.setenv(EnvironmentKeys.WORKING_HOURS_DISABLED, "1")
+        now = datetime.now().astimezone()
+        opens = (now.hour + 2) % 24
+        _seed_budget(
+            store, schedule=Schedule(work_start=opens, work_end=min(opens + 1, 24))
+        )
+        await self._seed(mcp, store, ["a", "b", "c"])
+
+        fn = await get_tool_fn(mcp, "run_enrichment_bunch")
+        out = await fn(
+            "j",
+            mock_context,
+            bunch_size=1,
+            ignore_schedule=how == "ignore_schedule",
+            extractor=_extractor(),
+        )
+
+        assert out["stopped_because"] == "bunch_complete"
+        # Spread over what is left of the day, never the closed-window maximum.
+        assert 1 <= out["next_run_after_seconds"] < 100000
+
     async def test_the_held_budget_is_let_go_on_the_way_out(
         self, mcp, store, mock_context
     ):
