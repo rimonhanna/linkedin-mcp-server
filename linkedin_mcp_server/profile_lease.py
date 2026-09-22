@@ -394,7 +394,7 @@ def _read_holder(path: Path) -> LeaseHolder | None:
             started_at=str(record["started_at"]),
         )
     except (OSError, ValueError, TypeError, KeyError):
-        # Missing, half-written or from a build that never wrote one. Not
+        # Missing, hand-edited or from a build that never wrote one. Not
         # knowing who holds the lease is not the same as it being free, so the
         # caller still treats the lock as held; it merely cannot name the holder.
         return None
