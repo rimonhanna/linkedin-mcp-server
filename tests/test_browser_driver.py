@@ -34,6 +34,11 @@ def _reset_browser():
 
 
 @pytest.fixture(autouse=True)
+def _no_reprobe_delay(monkeypatch):
+    monkeypatch.setattr(browser_module, "_BARRIER_REPROBE_DELAY_RANGE", (0.0, 0.0))
+
+
+@pytest.fixture(autouse=True)
 def _mock_config(monkeypatch, tmp_path):
     config = AppConfig()
     config.browser.user_data_dir = str(tmp_path / "profile")
@@ -55,6 +60,12 @@ def _make_mock_browser() -> MagicMock:
     locator = MagicMock()
     locator.count = AsyncMock(return_value=0)
     browser.page.locator = MagicMock(return_value=locator)
+    browser.page.context.cookies = AsyncMock(
+        return_value=[
+            {"name": "li_at", "value": "li-at-value"},
+            {"name": "JSESSIONID", "value": "ajax:1"},
+        ]
+    )
     browser.import_cookies = AsyncMock(return_value=False)
     browser.export_cookies = AsyncMock(return_value=False)
     browser.export_storage_state = AsyncMock(return_value=True)
@@ -598,7 +609,12 @@ async def test_experimental_matching_derived_runtime_failure_rebridges_from_sour
         patch(
             "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
             new_callable=AsyncMock,
-            side_effect=["login title: linkedin login", None],
+            # A dead session is seen twice: once, and again on the re-probe.
+            side_effect=[
+                "login title: linkedin login",
+                "login title: linkedin login",
+                None,
+            ],
         ),
     ):
         result = await get_or_create_browser()
@@ -675,7 +691,7 @@ async def test_experimental_checkpoint_reopen_failure_clears_runtime_dir(
     reopened_browser = _make_mock_browser()
     monkeypatch.setenv("LINKEDIN_EXPERIMENTAL_PERSIST_DERIVED_SESSION", "1")
 
-    barrier_mock = AsyncMock(side_effect=[None, "checkpoint"])
+    barrier_mock = AsyncMock(side_effect=[None, "checkpoint", "checkpoint"])
     with (
         patch(
             "linkedin_mcp_server.drivers.browser.get_runtime_id",
@@ -1360,6 +1376,115 @@ class TestAmbiguousProxyFailureKeepsTheSession:
             ),
         ):
             assert await _feed_auth_succeeds(browser) is False
+
+
+class TestABarrierIsBelievedOnlyWhenSeenTwice:
+    """One /checkpoint sighting used to rotate the session (issue #9).
+
+    Every caller turns False into an AuthenticationError whose recovery moves
+    the session into invalid-state-*, so the probe must load /feed/ again
+    before answering False -- unless the browser is signed out outright.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_barrier_that_clears_on_reprobe_keeps_the_session(self, caplog):
+        browser = _make_mock_browser()
+
+        with (
+            patch(
+                "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                side_effect=[
+                    "auth blocker URL: https://www.linkedin.com/checkpoint/lg/x",
+                    None,
+                ],
+            ),
+            caplog.at_level(logging.INFO),
+        ):
+            assert await _feed_auth_succeeds(browser) is True
+
+        assert browser.page.goto.await_count == 2
+        reprobe_warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "re-probing" in r.getMessage()
+        ]
+        assert len(reprobe_warnings) == 1
+        assert any("cleared on re-probe" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_a_barrier_seen_twice_is_an_expired_session(self):
+        browser = _make_mock_browser()
+
+        with (
+            patch(
+                "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                side_effect=[
+                    "auth blocker URL: https://www.linkedin.com/checkpoint/lg/x",
+                    "auth blocker URL: https://www.linkedin.com/checkpoint/lg/x",
+                ],
+            ),
+        ):
+            assert await _feed_auth_succeeds(browser) is False
+
+        assert browser.page.goto.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_a_login_redirect_without_li_at_needs_no_second_look(self):
+        browser = _make_mock_browser()
+        browser.page.url = "https://www.linkedin.com/login"
+        browser.page.context.cookies = AsyncMock(return_value=[])
+
+        with (
+            patch(
+                "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                return_value="auth blocker URL: https://www.linkedin.com/login",
+            ),
+        ):
+            assert await _feed_auth_succeeds(browser) is False
+
+        browser.page.goto.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_checkpoint_without_li_at_is_still_reprobed(self):
+        # The one-sighting shortcut is for login redirects only: a checkpoint
+        # can be served mid-login before li_at is set.
+        browser = _make_mock_browser()
+        browser.page.url = "https://www.linkedin.com/checkpoint/lg/x"
+        browser.page.context.cookies = AsyncMock(return_value=[])
+
+        with (
+            patch(
+                "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                side_effect=["auth blocker URL: /checkpoint/lg/x", None],
+            ),
+        ):
+            assert await _feed_auth_succeeds(browser) is True
+
+        assert browser.page.goto.await_count == 2
 
 
 class TestFeedFailureDoesNotLeakCredentials:
