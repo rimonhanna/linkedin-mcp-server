@@ -740,9 +740,14 @@ The budget is charged per page load, not per tool call: a `get_person_profile`
 asking for every section is fourteen loads. Profile loads, search pages,
 invitations and messages each have a rolling cap of their own on top of the
 daily one; when a call would break one it is refused before anything loads,
-with `limit_exceeded` and the time to resume in the error. Invitations and
-messages also wait for the ledger's working-hours schedule, and outside it
-profile and search loads run on half their cap.
+with `limit_exceeded` and the time to resume in the error. The account budget
+keeps a working-hours schedule, business hours by default (09:00-18:00 local
+time, lunch 12:00-13:00 and weekends off; a ledger that already exists keeps
+the schedule it stored). Outside it invitations and messages are refused
+until it reopens, with the reopening time in the error, and profile and
+search loads run on half their cap. Bulk enrichment runs wait for it unless
+called with `ignore_schedule`. `WORKING_HOURS_DISABLED=1` turns all of that
+off.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
@@ -751,7 +756,7 @@ profile and search loads run on half their cap.
 | `SEARCH_PAGES_MAX` | `60` | Search result pages per rolling 24 h; may only be lowered |
 | `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `100` | Invitations per rolling 24 h / 7 d; may only be lowered |
 | `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may only be lowered |
-| `WORKING_HOURS_DISABLED` | off | `1` lets invitations and messages go outside the schedule and lifts the halved read caps |
+| `WORKING_HOURS_DISABLED` | off | `1` lets invitations and messages go outside working hours and lifts the halved read caps |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one |
 | `DAILY_CAP_JITTER` | `0.15` | Fraction shaved off the daily cap at random each day |
 | `WARMUP_CAPS` | `10,20,50` | Per-day caps during the warm-up ramp |

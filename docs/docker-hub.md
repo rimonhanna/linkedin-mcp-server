@@ -142,7 +142,7 @@ Use `$env:USERPROFILE\.linkedin-mcp` when constructing the host path outside JSO
 | `SEARCH_PAGES_MAX` | `60` | Search result pages per rolling 24 h. May only be lowered. |
 | `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `100` | Invitations per rolling 24 h / 7 d. May only be lowered. |
 | `MESSAGES_MAX` | `50` | Messages per rolling 24 h. May only be lowered. |
-| `WORKING_HOURS_DISABLED` | off | `1` lets invitations and messages go outside the ledger's working-hours schedule and lifts the halved profile/search caps outside it. |
+| `WORKING_HOURS_DISABLED` | off | The account budget is on business hours by default (09:00-18:00 local, lunch and weekends off): invitations and messages wait for the window, and profile/search loads run on half their cap outside it. `1` turns both off. |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one. |
 | `DAILY_CAP_JITTER` | `0.15` | Fraction shaved off the daily cap at random each day. |
 | `WARMUP_CAPS` | `10,20,50` | Per-day caps during the warm-up ramp, one per step. |
