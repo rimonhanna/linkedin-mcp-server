@@ -19,6 +19,15 @@ Two files under the auth root, neither ever unlinked:
     it waits; the owner probes it *exclusively* and non-blocking. The probe fails
     exactly when at least one waiter is present, which is the cue to release.
 
+``profile.holder``
+    Who holds the lease: pid, package version, role and start time, written by
+    each new holder and never unlinked. Kept apart from ``profile.lock`` because
+    a Windows exclusive lock also refuses other processes' *reads* of the locked
+    bytes, so a record inside the lock file could not be read by the process
+    that needs it. Only consulted after a lock attempt failed, so the record is
+    at worst the previous holder's for the instant between another process
+    taking the lock and writing its own.
+
 Why not Chromium's own ``SingletonLock``: the default ``chrome-headless-shell``
 never writes one (only full Chrome does), so it cannot see the case that matters.
 :func:`linkedin_mcp_server.session_state.profile_in_use_by` still covers foreign
@@ -33,22 +42,29 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import json
 import logging
 import os
 import time
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from types import TracebackType
 
+from linkedin_mcp_server import __version__
 from linkedin_mcp_server.common_utils import (
     harden_linkedin_tree,
     is_still_at,
     secure_mkdir,
 )
+from linkedin_mcp_server.exceptions import BrowserBusyError
+from linkedin_mcp_server.server_role import ServerRole, process_role
 
 logger = logging.getLogger(__name__)
 
 _LEASE_FILE = "profile.lock"
 _HANDOFF_FILE = "profile.handoff"
+_HOLDER_FILE = "profile.holder"
 
 # Interval between non-blocking acquisition attempts. Short enough that a handoff
 # feels immediate, long enough to be free: one probe costs ~40 microseconds.
@@ -351,6 +367,50 @@ def _release_locked_fd(fd: int) -> None:
 # --------------------------------------------------------------------------- #
 
 
+@dataclass(frozen=True)
+class LeaseHolder:
+    """What the last process to take the lease said about itself."""
+
+    pid: int
+    version: str
+    role: str
+    started_at: str
+
+    def describe(self) -> str:
+        return f"pid {self.pid}, version {self.version}, since {self.started_at}"
+
+
+def _read_holder(path: Path) -> LeaseHolder | None:
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+        return LeaseHolder(
+            pid=int(record["pid"]),
+            version=str(record["version"]),
+            role=str(record["role"]),
+            started_at=str(record["started_at"]),
+        )
+    except (OSError, ValueError, TypeError, KeyError):
+        # Missing, half-written or from a build that never wrote one. Not
+        # knowing who holds the lease is not the same as it being free, so the
+        # caller still treats the lock as held; it merely cannot name the holder.
+        return None
+
+
+def _write_holder(path: Path) -> None:
+    record = LeaseHolder(
+        pid=os.getpid(),
+        version=__version__,
+        role=process_role().value,
+        started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+    cloexec = getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | cloexec, 0o600)
+    try:
+        os.write(fd, json.dumps(asdict(record)).encode("utf-8"))
+    finally:
+        os.close(fd)
+
+
 class ProfileLease:
     """Reference-counted ownership of one auth root's browser profile.
 
@@ -371,6 +431,7 @@ class ProfileLease:
         auth_root = self._auth_root
         self._lease_path = auth_root / _LEASE_FILE
         self._handoff_path = auth_root / _HANDOFF_FILE
+        self._holder_path = auth_root / _HOLDER_FILE
         self._fd: int | None = None
         self._refs = 0
         self._owner_pid: int | None = None
@@ -476,6 +537,12 @@ class ProfileLease:
         self._refs = 1
         self._owner_pid = os.getpid()
         self._acquired_at = time.monotonic()
+        try:
+            _write_holder(self._holder_path)
+        except OSError:
+            # The record only ever names a holder for someone else's error
+            # message; failing to write it must not cost this process the lease.
+            logger.debug("Could not record the lease holder", exc_info=True)
         logger.debug("Profile lease acquired for %s", self._auth_root)
         return True
 
@@ -517,6 +584,47 @@ class ProfileLease:
                     # and hand the browser straight back.
                     return True
         return False
+
+    def holder(self) -> LeaseHolder | None:
+        """Who last took the lease, or ``None`` when nothing readable says."""
+        return _read_holder(self._holder_path)
+
+    def _may_wait_behind(self, holder: LeaseHolder | None) -> bool:
+        """Whether this process is entitled to contend with the live holder.
+
+        Only a same-version daemon participant is: the owner and its frontends
+        are meant to share one browser, and the wait is how the profile changes
+        hands between them. Anything else that finds a live holder has already
+        lost the argument. A direct server is not in any election, and a
+        frontend whose version differs from the holder's has a stand-down
+        protocol for that (``daemon_version``) which does not run through here.
+        Waiting out ``browser_wait_seconds`` and then fighting for the lease is
+        what let a loser open the profile and run the auth probe that rotated it.
+        """
+        if process_role() is ServerRole.DIRECT:
+            return False
+        return holder is None or holder.version == __version__
+
+    async def acquire_or_refuse(self, timeout: float) -> bool:
+        """Acquire within *timeout*, unless the holder is not ours to wait for.
+
+        Raises :class:`BrowserBusyError` naming the holder, without waiting,
+        when :meth:`_may_wait_behind` says no. Otherwise exactly :meth:`acquire`.
+        """
+        if self.try_acquire():
+            return True
+        holder = self.holder()
+        if self._may_wait_behind(holder):
+            return await self.acquire(timeout)
+        described = holder.describe() if holder else "an unidentified process"
+        logger.warning(
+            "Refusing to contend for the profile at %s as %s %s: held by %s",
+            self._auth_root,
+            process_role().value,
+            __version__,
+            described,
+        )
+        raise BrowserBusyError(holder=described)
 
     def hold(self) -> _LeaseHandle:
         """Context manager taking a reference, raising when it cannot."""
