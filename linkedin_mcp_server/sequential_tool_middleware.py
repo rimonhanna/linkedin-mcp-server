@@ -96,8 +96,9 @@ class SequentialToolExecutionMiddleware(Middleware):
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
-        # Read, never charged, from here: the cooldown and the hourly count
-        # are checked before a call is let through.
+        # Never charged from here -- the cooldown and the hourly count are
+        # only checked before a call is let through -- though a first read
+        # does materialise the budget file, as every reader of it does.
         self._store = JobStore()
         # Monotonic instant the next call may start at. 0 lets the first call
         # of the process run immediately -- the gap is between calls, and there
@@ -209,7 +210,9 @@ class SequentialToolExecutionMiddleware(Middleware):
             # answer with a status dict and a wait; refusing them here would
             # turn that into an error for a call that only needed to plan zero.
             if resume_at is None and tool_name not in self._BULK_TOOLS:
-                budget = load_account_budget(self._store, now)
+                # Local and aware, as the navigator hands it: the budget's
+                # schedule and start date are read in the operator's time.
+                budget = load_account_budget(self._store, datetime.now().astimezone())
                 resume_at = hourly_cap_resume_at(budget, now)
                 reason = "the hourly action cap is reached"
         except Exception:

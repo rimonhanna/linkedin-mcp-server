@@ -801,7 +801,9 @@ for it. The bulk tools (`run_enrichment_bunch`, `enrich_companies`,
 hour's remaining headroom, so a bunch is cut short rather than run through
 the cap, and one with no headroom returns its usual status
 (`stopped_because: hourly_cap_reached`) with `next_run_after_seconds` set to
-when the oldest action ages out.
+when the oldest action ages out. A cap below what one call costs (a profile
+with extra sections, a deep company fetch with jobs) is answered as
+`hourly_cap_below_cost`, naming the variable, since no wait would fix it.
 
 When LinkedIn pushes back — an HTTP 429, a `/checkpoint` redirect, a
 rate-limit page, an About or search page that comes back as an empty shell,

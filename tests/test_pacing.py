@@ -53,6 +53,7 @@ from linkedin_mcp_server.pacing import (
     read_account_cooldown,
     record_action,
     record_throttle_signal,
+    seconds_until_hourly_release,
     refuse_action,
     refuse_if_limited,
     schedule_ignored,
@@ -1286,6 +1287,20 @@ class TestAccountCooldown:
         assert cooldown_resume_at(store, second) is None
         assert read_account_cooldown(store).half_at == second
 
+    def test_a_full_signal_spends_a_pending_half(self, tmp_path):
+        """A half after a full strike must not read as strike two."""
+        store = JobStore(tmp_path)
+        record_throttle_signal(store, T0, "payload_timeout", half=True)
+        _strike(store, T0 + timedelta(minutes=2))  # a 429 arrives instead
+        assert read_account_cooldown(store).half_at is None
+
+        later = T0 + timedelta(minutes=5)
+        assert (
+            record_throttle_signal(store, later, "payload_timeout", half=True) is None
+        )
+        assert read_account_cooldown(store).strikes == 1
+        assert read_account_cooldown(store).half_at == later
+
     def test_the_default_ledger_helper_writes_the_same_record(
         self, tmp_path, monkeypatch
     ):
@@ -1470,6 +1485,27 @@ class TestHourlyCap:
         assert hourly_cap_resume_at(budget, now, cap=4, needed=1) is None
         assert hourly_cap_resume_at(budget, now, cap=4, needed=2) == T0 + timedelta(
             seconds=HOURLY_WINDOW_SECONDS
+        )
+
+    def test_needing_more_than_the_cap_does_not_index_past_the_hour(self, monkeypatch):
+        """Reproduced: cap=3, needed=5 raised IndexError, as did cap=1,
+        needed=2 on an empty ledger. Reachable whenever HOURLY_ACTIONS_MAX
+        sits below one profile's cost."""
+        empty = Job(name=ACCOUNT_BUDGET_JOB, started_on=T0.date())
+        assert hourly_cap_resume_at(empty, T0, cap=1, needed=2) is None
+        assert seconds_until_hourly_release(empty, T0, needed=2) == 0.0
+
+        budget = Job(name=ACCOUNT_BUDGET_JOB, started_on=T0.date())
+        for i in range(3):
+            budget.ledger.record(T0 + timedelta(minutes=i))
+        now = T0 + timedelta(minutes=30)
+        # Past the last entry the answer is when the whole hour has drained.
+        assert hourly_cap_resume_at(budget, now, cap=3, needed=5) == T0 + timedelta(
+            minutes=2, seconds=HOURLY_WINDOW_SECONDS
+        )
+        monkeypatch.setenv(EnvironmentKeys.HOURLY_ACTIONS_MAX, "3")
+        assert seconds_until_hourly_release(budget, now, needed=5) == pytest.approx(
+            32 * 60
         )
 
     def test_headroom_is_what_the_hour_still_admits(self):

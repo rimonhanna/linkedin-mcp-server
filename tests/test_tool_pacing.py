@@ -259,15 +259,24 @@ class TestAPausedAccountRefusesEveryLinkedInCall:
 
         call_next.assert_not_awaited()
 
-    async def test_a_refused_call_is_not_charged(self, paced, tmp_path):
-        store = JobStore(tmp_path / "jobs")
-        now = datetime.now()
+    async def test_a_refused_call_never_takes_the_lease(
+        self, paced, tmp_path, monkeypatch
+    ):
+        """Refused before the profile is touched: the budget is charged per
+        navigation, and a call that never takes the lease never navigates."""
         _pause_the_account(tmp_path)
+        lease = MagicMock()
+        monkeypatch.setattr(
+            "linkedin_mcp_server.sequential_tool_middleware.get_profile_lease",
+            lambda: lease,
+        )
+        call_next = AsyncMock()
 
         with pytest.raises(ToolError):
-            await paced.on_call_tool(_call_context("get_inbox"), AsyncMock())
+            await paced.on_call_tool(_call_context("get_inbox"), call_next)
 
-        assert load_account_budget(store, now).ledger.spent(now) == 0
+        lease.try_acquire.assert_not_called()
+        call_next.assert_not_awaited()
 
     async def test_a_local_tool_still_answers(self, paced, tmp_path):
         _pause_the_account(tmp_path)

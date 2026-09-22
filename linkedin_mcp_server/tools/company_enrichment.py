@@ -62,18 +62,18 @@ from linkedin_mcp_server.core.exceptions import (
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.pacing import (
-    Job,
     JobStore,
     Schedule,
     account_budget_in_use,
     bunch_searches_max,
-    hourly_cap_resume_at,
+    hourly_actions_max,
     hourly_headroom,
     load_account_budget,
     next_bunch_delay,
     note_throttle_signal,
     request_arrived_at,
     schedule_ignored,
+    seconds_until_hourly_release,
     step_delay,
     working_hours_enforced,
 )
@@ -345,7 +345,7 @@ def register_company_enrichment_tools(
                     served,
                     0,
                     "hourly_cap_reached",
-                    _seconds_until_hourly_release(budget, now),
+                    seconds_until_hourly_release(budget, now),
                     detail=(
                         "The account's rolling-hour cap is reached; it frees up "
                         "as the hour's oldest actions age out."
@@ -694,7 +694,7 @@ def register_company_enrichment_tools(
                 stopped, wait = "all_done", None
             elif hourly_headroom(budget, now) <= 0:
                 stopped = "hourly_cap_reached"
-                wait = _seconds_until_hourly_release(budget, now)
+                wait = seconds_until_hourly_release(budget, now)
             else:
                 wait = next_bunch_delay(
                     remaining, bunch_searches, now, pacing_schedule, rng
@@ -775,13 +775,26 @@ def register_company_enrichment_tools(
                     "status": "daily_budget_spent",
                     "next_run_after_seconds": round(budget.ledger.next_expiry(now)),
                 }
+            if hourly_actions_max() < needed:
+                # No hour will ever admit both loads: configuration, not a wait.
+                return {
+                    "company": company,
+                    **_firmographics_view(rec, "cache"),
+                    "status": "hourly_cap_below_cost",
+                    "detail": (
+                        f"{EnvironmentKeys.HOURLY_ACTIONS_MAX}="
+                        f"{hourly_actions_max()} is below the {needed} page "
+                        "loads this call needs. Raise it or leave out "
+                        "include_jobs."
+                    ),
+                }
             if hourly_headroom(budget, now) < needed:
                 return {
                     "company": company,
                     **_firmographics_view(rec, "cache"),
                     "status": "hourly_cap_reached",
                     "next_run_after_seconds": round(
-                        _seconds_until_hourly_release(budget, now, needed)
+                        seconds_until_hourly_release(budget, now, needed)
                     ),
                 }
 
@@ -1042,14 +1055,6 @@ def _firmographics_view(
             "header was not recognised (English only); the sample is intact."
         )
     return view
-
-
-def _seconds_until_hourly_release(budget: Job, now: datetime, needed: int = 1) -> float:
-    """How long until the rolling-hour cap admits ``needed`` more actions."""
-    resume_at = hourly_cap_resume_at(budget, now, needed=needed)
-    if resume_at is None:
-        return 0.0
-    return max((resume_at - now.astimezone(resume_at.tzinfo)).total_seconds(), 0.0)
 
 
 def _paced_return(

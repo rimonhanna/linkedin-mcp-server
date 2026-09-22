@@ -33,6 +33,7 @@ from linkedin_mcp_server.core.exceptions import (
     RateLimitError,
     ScrapingError,
 )
+from linkedin_mcp_server.config.loaders import EnvironmentKeys
 from linkedin_mcp_server.exceptions import ActionLimitError
 from linkedin_mcp_server.dependencies import get_ready_extractor
 from linkedin_mcp_server.error_handler import raise_tool_error
@@ -46,7 +47,7 @@ from linkedin_mcp_server.pacing import (
     account_budget_in_use,
     bunch_size_max,
     default_daily_actions,
-    hourly_cap_resume_at,
+    hourly_actions_max,
     hourly_headroom,
     kind_headroom,
     load_account_budget,
@@ -55,6 +56,7 @@ from linkedin_mcp_server.pacing import (
     note_throttle_signal,
     request_arrived_at,
     schedule_ignored,
+    seconds_until_hourly_release,
     step_delay,
     working_hours_enforced,
 )
@@ -433,13 +435,29 @@ def register_enrichment_tools(
             # bunch planned past the headroom would run through the cap in
             # its middle.
             hourly = hourly_headroom(budget, now)
+            if hourly_actions_max() < cost:
+                # No hour will ever admit it: configuration, not a wait.
+                return _status(
+                    job,
+                    budget,
+                    now,
+                    stopped="hourly_cap_below_cost",
+                    next_run_after=None,
+                    gathered={},
+                    detail=(
+                        f"{EnvironmentKeys.HOURLY_ACTIONS_MAX}="
+                        f"{hourly_actions_max()} is below the {cost} page "
+                        "loads one profile costs here. Raise it or request "
+                        "fewer sections."
+                    ),
+                )
             if hourly < cost:
                 return _status(
                     job,
                     budget,
                     now,
                     stopped="hourly_cap_reached",
-                    next_run_after=_seconds_until_hourly_release(budget, now, cost),
+                    next_run_after=seconds_until_hourly_release(budget, now, cost),
                     gathered={},
                     detail=(
                         f"The account's rolling-hour cap admits {hourly} more "
@@ -719,7 +737,7 @@ def register_enrichment_tools(
                 wait = None
             elif hourly_headroom(budget, now) < cost:
                 stopped = "hourly_cap_reached"
-                wait = _seconds_until_hourly_release(budget, now, cost)
+                wait = seconds_until_hourly_release(budget, now, cost)
             else:
                 # More queue and more budget remain (bunch_complete or tool_deadline);
                 # tell the caller when to come back for the next bunch.
@@ -781,14 +799,6 @@ def register_enrichment_tools(
             raise ToolError(f"No job named {job_name!r}.") from None
         except Exception as e:
             raise_tool_error(e, "get_enrichment_status")  # NoReturn
-
-
-def _seconds_until_hourly_release(budget: Job, now: datetime, needed: int = 1) -> float:
-    """How long until the rolling-hour cap admits ``needed`` more actions."""
-    resume_at = hourly_cap_resume_at(budget, now, needed=needed)
-    if resume_at is None:
-        return 0.0
-    return max((resume_at - now.astimezone(resume_at.tzinfo)).total_seconds(), 0.0)
 
 
 def _status(

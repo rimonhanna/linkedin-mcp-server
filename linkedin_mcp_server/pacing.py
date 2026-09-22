@@ -1156,7 +1156,9 @@ def record_throttle_signal(
                     COOLDOWN_HALF_SIGNAL_WINDOW_SECONDS // 60,
                 )
                 return None
-            cooldown.half_at = None
+        # Spent by this strike, whether it completed a pair or a full signal
+        # arrived instead: a half after a full strike is not strike two.
+        cooldown.half_at = None
 
         strikes = cooldown.strikes
         since_last = None
@@ -1241,8 +1243,26 @@ def hourly_cap_resume_at(
     must_expire = len(recent) - cap + needed
     if must_expire <= 0:
         return None
+    if not recent:
+        # Nothing to wait for: `needed` exceeds the cap itself, which no
+        # amount of waiting fixes. The callers name that as configuration.
+        return None
     # The k-th oldest is the one whose expiry frees the last of them;
-    # everything older has expired by then anyway.
+    # everything older has expired by then anyway. Clamped: past the last
+    # entry the answer is "when the whole hour has drained", and the cap
+    # itself is the limit after that.
+    k = min(must_expire, len(recent))
     return datetime.fromtimestamp(
-        recent[must_expire - 1] + HOURLY_WINDOW_SECONDS, tz=timezone.utc
+        recent[k - 1] + HOURLY_WINDOW_SECONDS, tz=timezone.utc
     )
+
+
+def seconds_until_hourly_release(budget: Job, now: datetime, needed: int = 1) -> float:
+    """How long until the rolling-hour cap admits ``needed`` more actions.
+
+    For the bulk tools' ``next_run_after``; 0 when they are admitted now.
+    """
+    resume_at = hourly_cap_resume_at(budget, now, needed=needed)
+    if resume_at is None:
+        return 0.0
+    return max((resume_at - _utc(now)).total_seconds(), 0.0)

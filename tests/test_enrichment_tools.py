@@ -330,6 +330,29 @@ class TestRunBunch:
         assert store.load("j").pending == ["a"]
         browser.assert_not_awaited()
 
+    async def test_an_hourly_cap_below_the_profile_cost_is_named_as_such(
+        self, mcp, store, mock_context, monkeypatch
+    ):
+        """Reproduced as an IndexError: no hour will ever admit three loads
+        under a cap of two, and a 0 s next_run_after would be a retry loop."""
+        monkeypatch.setenv(EnvironmentKeys.HOURLY_ACTIONS_MAX, "2")
+        await self._seed(mcp, store, ["a"])
+        _seed_budget(store, cap=100)
+
+        fn = await get_tool_fn(mcp, "run_enrichment_bunch")
+        out = await fn(
+            "j",
+            mock_context,
+            sections="experience,contact_info",  # cost 3 > cap 2
+            extractor=_extractor(),
+        )
+
+        assert out["stopped_because"] == "hourly_cap_below_cost"
+        assert "next_run_after_seconds" not in out
+        assert "HOURLY_ACTIONS_MAX=2" in out["detail"]
+        assert "3 page loads" in out["detail"]
+        assert store.load("j").pending == ["a"]
+
     async def test_a_rate_limit_keeps_the_profile_queued(
         self, mcp, store, mock_context
     ):

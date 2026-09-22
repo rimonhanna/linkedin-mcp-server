@@ -1503,6 +1503,22 @@ class TestEnrichCompanyDeep:
         assert 540 <= out["next_run_after_seconds"] <= 600
         extractor.scrape_company.assert_not_awaited()
 
+    async def test_an_hourly_cap_below_the_call_cost_is_named_as_such(
+        self, mcp, wired, mock_context, monkeypatch
+    ):
+        """Reproduced as an IndexError on an empty ledger with a cap of one."""
+        monkeypatch.setenv(EnvironmentKeys.HOURLY_ACTIONS_MAX, "1")
+        extractor = self._deep_extractor()
+
+        fn = await get_tool_fn(mcp, "enrich_company_deep")
+        out = await fn("Acme", mock_context, extractor=extractor)
+
+        assert out["status"] == "hourly_cap_below_cost"
+        assert "next_run_after_seconds" not in out
+        assert "HOURLY_ACTIONS_MAX=1" in out["detail"]
+        assert "2 page loads" in out["detail"]
+        extractor.scrape_company.assert_not_awaited()
+
     async def test_cache_fresh_skips_the_fetch(self, mcp, wired, mock_context):
         cache, _ = wired
         now = datetime.now().astimezone()
