@@ -46,7 +46,7 @@ a page-owning collaborator.
 | `search_parse` | `parse_company_cards()`, `parse_count()`, `parse_people_cards()`, `parse_result_count()` | `browser-free` |
 | `search_urls` | `COMPANY_INDUSTRY_IDS`, `COMPANY_SIZE_LETTERS`, `CONTENT_DATE_POSTED_MAP`, `EXPERIENCE_LEVEL_MAP`, `JOB_DATE_POSTED_MAP`, `JOB_TYPE_MAP`, `NETWORK_TOKENS`, `SORT_BY_MAP`, `WORK_TYPE_MAP`, `as_list()`, `build_company_search_url()`, `build_content_search_url()`, `build_job_search_url()`, `build_people_search_url()`, `company_size_letters()`, `industry_ids()`, `network_tokens()`, `profile_languages()`, `require_company_criteria()`, `require_people_criteria()`, `school_id()` | `browser-free` |
 | `session` | `NAV_DELAY`, `ScrapingSession`, `nav_delay()` | `page-owning` |
-| `text` | `DETAIL_CAPTURE_EN_US`, `DetailCaptureTextTable`, `JOB_SEARCH_EN_US`, `JobSearchTextTable`, `SIDEBAR_CHROME_EN`, `SidebarChromeTable`, `filter_linkedin_noise_lines()`, `strip_conversation_chrome()`, `strip_linkedin_noise()`, `truncate_linkedin_noise()` | `browser-free` |
+| `text` | `DETAIL_CAPTURE_EN_US`, `DetailCaptureTextTable`, `JOB_POSTING_EN_US`, `JOB_SEARCH_EN_US`, `JobPostingTextTable`, `JobSearchTextTable`, `SIDEBAR_CHROME_EN`, `SidebarChromeTable`, `filter_linkedin_noise_lines()`, `strip_conversation_chrome()`, `strip_linkedin_noise()`, `truncate_linkedin_noise()` | `browser-free` |
 
 ## Internal import graph
 
