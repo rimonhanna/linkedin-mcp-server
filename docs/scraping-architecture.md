@@ -16,7 +16,7 @@ a page-owning collaborator.
 | Module | Canonical public owners | Source classification |
 | --- | --- | --- |
 | `__init__` | _(no public definitions)_ | `browser-free` |
-| `capture` | `CONTENT_SEARCH_COUNT_JS`, `CONTENT_SEARCH_MAX_SCROLLS`, `CONTENT_SEARCH_SCROLL_BUDGET`, `CaptureMode`, `CapturePlan`, `SectionCapture`, `capture_plan_for_url()` | `page-owning` |
+| `capture` | `CONTENT_SEARCH_COUNT_JS`, `CONTENT_SEARCH_MAX_SCROLLS`, `CONTENT_SEARCH_SCROLL_BUDGET`, `CaptureMode`, `CapturePlan`, `OverlayRootNotFoundError`, `SectionCapture`, `capture_plan_for_url()` | `page-owning` |
 | `company` | `CompanyScraper` | `browser-free` |
 | `company_parse` | `ParsedJobs`, `has_about_labels()`, `parse_about()`, `parse_job_search()`, `parse_search_results()` | `browser-free` |
 | `connection` | `ActionSignals`, `ConnectionState`, `detect_connection_state()` | `browser-free` |
