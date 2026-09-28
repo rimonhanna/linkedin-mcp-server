@@ -366,7 +366,11 @@ def normalize_person_identifier(value: str, *, allow_self_alias: bool = False) -
 def normalize_company_identifier(value: str) -> str:
     """The page slug for an organization, from a link or from the slug itself.
 
-    Idempotent, and raises the same way :func:`normalize_person_identifier` does.
+    Raises the same way :func:`normalize_person_identifier` does. **Not**
+    idempotent for a host-shaped slug: ``/company/linkedin.com/`` yields
+    ``linkedin.com``, which a second pass reads as a host and refuses (same for
+    ``de.linkedin.com`` and ``lnkd.in``). Callers normalize exactly once and
+    pass the caller's own form on — see ``tools/company.py``.
     """
     value = value.strip()
     if not value:
