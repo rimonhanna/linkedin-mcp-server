@@ -983,6 +983,7 @@ class TestInviteDialog:
                 new_callable=AsyncMock,
                 return_value=True,
             ),
+            patch.object(actions, "_dismiss_dialog", new_callable=AsyncMock),
             patch.object(
                 actions,
                 "_get_premium_upsell_message",
