@@ -501,8 +501,10 @@ class TestGetConversation:
         self, mock_page
     ):
         first = _conversation("2-first", username="ada")
-        second = _conversation("2-second", username="ada")
-        capture = FakeCapture([_inbox(first, second)])
+        # A non-matching neighbour: the refusal counts the participant's own
+        # threads, not every thread the inbox handed over.
+        stranger = _conversation("2-second", title="Grace Hopper", username="grace")
+        capture = FakeCapture([_inbox(first, stranger)])
         reader = _reader(mock_page)
         with (
             patch(
@@ -519,9 +521,9 @@ class TestGetConversation:
             ),
         ):
             with pytest.raises(LinkedInScraperException) as error:
-                await reader.get_conversation(linkedin_username="ada", index=2)
+                await reader.get_conversation(linkedin_username="ada", index=1)
 
-        assert "only 2 thread(s) exist for ada" in str(error.value)
+        assert "only 1 thread(s) exist for ada" in str(error.value)
         assert "thread_id" in str(error.value)
         assert capture.fetch_calls == []
 

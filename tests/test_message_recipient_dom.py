@@ -455,7 +455,7 @@ class TestProfileMessageTargetDom:
         """
 
     async def test_resolves_nested_top_card_with_h2_name(self, dom_page):
-        await _set_composer_content(
+        await _set_profile_content(
             dom_page,
             self._nested_page(
                 """<div><a href="/in/testuser/"><h2>Test User</h2></a></div>
@@ -473,7 +473,7 @@ class TestProfileMessageTargetDom:
         assert result["composeHrefs"] == ["/messaging/compose/?recipient=ACoAAB"]
 
     async def test_nested_top_card_without_message_is_unavailable(self, dom_page):
-        await _set_composer_content(
+        await _set_profile_content(
             dom_page, self._nested_page("<h2>Test User</h2><button>Follow</button>")
         )
 
@@ -482,7 +482,7 @@ class TestProfileMessageTargetDom:
         assert result["status"] == "unavailable"
 
     async def test_top_card_without_its_name_yet_is_unresolved(self, dom_page):
-        await _set_composer_content(
+        await _set_profile_content(
             dom_page,
             self._nested_page(
                 '<div><a href="/messaging/compose/?recipient=ACoAAB">Message</a></div>'
@@ -494,7 +494,7 @@ class TestProfileMessageTargetDom:
         assert result == {"status": "unresolved"}
 
     async def test_sidebar_is_never_taken_for_an_unrendered_top_card(self, dom_page):
-        await _set_composer_content(
+        await _set_profile_content(
             dom_page,
             """<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
               <main><div><div>
@@ -513,7 +513,7 @@ class TestProfileMessageTargetDom:
         assert result == {"status": "unresolved"}
 
     async def test_nested_top_card_with_two_headings_fails_closed(self, dom_page):
-        await _set_composer_content(
+        await _set_profile_content(
             dom_page,
             self._nested_page(
                 """<h2>Test User</h2><h3>Other User</h3>
@@ -524,6 +524,49 @@ class TestProfileMessageTargetDom:
         result = await dom_page.evaluate(_PROFILE_MESSAGE_TARGET_JS)
 
         assert result == {"status": "unresolved"}
+
+    # A main with no top card at all. Measured, not desired: "the first
+    # section that wraps no other section" is the only structural handle the
+    # legacy fallback has, so when the card is absent the next section inherits
+    # its role. Nothing in the markup distinguishes an unrendered top card from
+    # a section that was never one, and inventing a discriminator would mean
+    # selecting on LinkedIn's layout. Both answers below are wrong and both are
+    # final: _PROFILE_MESSAGE_TARGET_READY_JS polls for 'resolved' only, so the
+    # first is handed back as message_unavailable for a messageable person
+    # after one second, and the second addresses another member. Narrowing the
+    # search back to main's direct children answers 'unresolved' for both and
+    # fails these two, which is what pins the cost of reaching any depth.
+    _CARDLESS_MAIN = """<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
+      <main><div><div>
+        <section><div><div>
+          <section>{card}</section>
+        </div></div></section>
+      </div></div></main>
+    </body></html>
+    """
+
+    async def test_cardless_main_reports_the_next_section_unavailable(self, dom_page):
+        await _set_profile_content(
+            dom_page, self._CARDLESS_MAIN.format(card="<h2>Experience</h2>")
+        )
+
+        result = await dom_page.evaluate(_PROFILE_MESSAGE_TARGET_JS)
+
+        assert result["status"] == "unavailable"
+
+    async def test_cardless_main_reaches_another_members_compose_anchor(self, dom_page):
+        await _set_profile_content(
+            dom_page,
+            self._CARDLESS_MAIN.format(
+                card="""<h2>People also viewed</h2>
+                <a href="/messaging/compose/?recipient=OTHER">Message</a>"""
+            ),
+        )
+
+        result = await dom_page.evaluate(_PROFILE_MESSAGE_TARGET_JS)
+
+        assert result["status"] == "resolved"
+        assert result["composeHrefs"] == ["/messaging/compose/?recipient=OTHER"]
 
 
 class TestMessageComposerDom:
