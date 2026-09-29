@@ -421,4 +421,14 @@ def daemon_would_be_used(config: AppConfig) -> bool:
             "daemon cannot outlive the virtual display owned by this server"
         )
         return False
+    if config.browser.chrome_path:
+        # Only the bundled browser is shared. A custom executable keeps the
+        # Direct server this configuration had before the daemon existed.
+        # A warning, like the container case above: the daemon is opt-in here,
+        # so reaching this line means the operator asked for it.
+        logger.warning(
+            "DAEMON_ENABLED is ignored because CHROME_PATH is set; this server "
+            "drives its own browser instead of sharing one"
+        )
+        return False
     return True

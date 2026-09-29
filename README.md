@@ -699,6 +699,10 @@ instead of opening their own (experimental):
 }
 ```
 
+`--daemon` (or `DAEMON_ENABLED`) is ignored when a custom browser is set with
+`CHROME_PATH` or `--chrome-path`: only the bundled browser is shared, so each
+such client drives its own browser.
+
 **Option B: one long-lived `--transport streamable-http` server**, with every
 client pointed at it instead of spawning its own process:
 
