@@ -2006,6 +2006,8 @@ class TestTwoStageInstall:
         clock = [loop.time()]
 
         def slow_mkdir(path: Path) -> None:
+            # Scheduling the worker must not spend its blocked-work allowance.
+            fallback.start()
             blocked.set()
             release.wait()
 
@@ -2023,9 +2025,8 @@ class TestTwoStageInstall:
         )
         monkeypatch.setattr(bootstrap, "_BACKGROUND_BROWSER_SETUP_SECONDS", 0.01)
 
-        setup = asyncio.create_task(bootstrap._run_background_browser_setup())
         fallback = threading.Timer(1.0, release_fallback)
-        fallback.start()
+        setup = asyncio.create_task(bootstrap._run_background_browser_setup())
         try:
             assert await asyncio.to_thread(blocked.wait, 5), (
                 "cache preparation did not enter its worker thread"
