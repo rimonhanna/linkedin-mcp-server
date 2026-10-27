@@ -11,7 +11,10 @@ import re
 from patchright._impl._errors import TargetClosedError
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+from linkedin_mcp_server.core.exceptions import (
+    InvalidReferenceError,
+    LinkedInScraperException,
+)
 from linkedin_mcp_server.exceptions import ActionLimitError
 from linkedin_mcp_server.error_diagnostics import build_issue_diagnostics
 from linkedin_mcp_server.scraping.capture import CaptureMode, SectionCapture
@@ -48,6 +51,23 @@ if TYPE_CHECKING:
     from linkedin_mcp_server.callbacks import ProgressCallback
 
 logger = logging.getLogger(__name__)
+
+_OPAQUE_MEMBER_PATH_RE = re.compile(r"^ACo[A-Za-z0-9_-]{20,}$")
+
+
+def _public_profile_url(loaded_url: str) -> str | None:
+    """Return a public person URL only from the loaded profile's actual URL."""
+    parsed = urlparse(loaded_url)
+    parts = [part for part in parsed.path.split("/") if part]
+    if parsed.scheme != "https" or len(parts) != 2 or parts[0].lower() != "in":
+        return None
+    try:
+        slug = normalize_person_identifier(loaded_url)
+    except InvalidReferenceError:
+        return None
+    if _OPAQUE_MEMBER_PATH_RE.fullmatch(slug):
+        return None
+    return person_profile_url(slug, "/")
 
 
 def _js_literal(value: str, quote: str) -> str:
@@ -237,6 +257,8 @@ class PersonScraper:
         references: dict[str, list[Reference]] = {}
         section_errors: dict[str, dict[str, Any]] = {}
         profile_urn: str | None = None
+        public_profile_url: str | None = None
+        loaded_profile_url: str | None = None
         rate_limited = False
 
         requested_ordered = [
@@ -294,6 +316,9 @@ class PersonScraper:
 
                     if extracted.text and extracted.text != RATE_LIMITED_SECTION_TEXT:
                         sections[section_name] = extracted.text
+                        if section_name == "main_profile":
+                            loaded_profile_url = self._session.page.url
+                            public_profile_url = _public_profile_url(loaded_profile_url)
                         if extracted.references:
                             references[section_name] = extracted.references
                     elif extracted.text == RATE_LIMITED_SECTION_TEXT:
@@ -316,7 +341,16 @@ class PersonScraper:
                         and profile_urn is None
                         and not rate_limited
                     ):
-                        profile_urn = await self._profile_page._extract_profile_urn()
+                        if _OPAQUE_MEMBER_PATH_RE.fullmatch(username):
+                            profile_urn = await self._profile_page._extract_profile_urn(
+                                expected_loaded_url=(
+                                    loaded_profile_url or self._session.page.url
+                                )
+                            )
+                        else:
+                            profile_urn = (
+                                await self._profile_page._extract_profile_urn()
+                            )
                 except ActionLimitError as e:
                     # Refused before it loaded, so nothing was charged; the
                     # sections before it were, and are returned. Stops like
@@ -363,6 +397,10 @@ class PersonScraper:
         }
         if profile_urn:
             result["profile_urn"] = profile_urn
+        if public_profile_url and (
+            not _OPAQUE_MEMBER_PATH_RE.fullmatch(username) or profile_urn == username
+        ):
+            result["public_profile_url"] = public_profile_url
         if references:
             result["references"] = references
         if section_errors:
