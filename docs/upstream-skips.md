@@ -2,8 +2,10 @@
 
 Every upstream commit a drift review has judged, and what it decided. The next
 review starts from the newest `upstream-reviewed-*` tag, so it only reads what
-landed after it. Read this file before triaging anything older. Do not
-re-triage a row here unless new upstream work changes its verdict.
+landed after it. If no such tag exists, use the end SHA of the newest dated
+range below: `1770114` for the 2026-09-29 review. Read this file before triaging
+anything older. Do not re-triage a row here unless new upstream work changes
+its verdict.
 
 This fork ports by hand, cherry-pick and squash merge, so a ported commit keeps
 showing in `main..upstream/main`, usually under another subject. Presence in
