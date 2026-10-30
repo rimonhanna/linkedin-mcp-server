@@ -22,6 +22,10 @@ from linkedin_mcp_server.limits import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOOL_TIMEOUT_SECONDS: float = 180.0
+# Tools whose work cannot fit the default (the owner registers them with
+# ``max(tool_timeout, this)``; the daemon proxy reads the same table so its own
+# deadline does not cut the call short).
+PER_TOOL_TIMEOUT_SECONDS: dict[str, float] = {"withdraw_invitations": 600.0}
 DEFAULT_LOGIN_TIMEOUT_SECONDS: float = 1800.0  # 30 min; 0 = no limit
 DEFAULT_LOGIN_INLINE_WAIT_SECONDS: float = 25.0  # bounded inline wait
 # Clamp ceiling: scrape time stacks on top of the inline wait inside one tool

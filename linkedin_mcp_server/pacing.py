@@ -113,6 +113,9 @@ PROFILE, COMPANY, SEARCH, MESSAGING, FEED, OTHER = (
 )
 # Kinds counted at the write, not at a URL: an invite submitted, a message sent.
 INVITES, MESSAGES = "invites", "messages"
+# A withdrawn invitation: a write like the two above (refused outside working
+# hours, counted in the hourly cap) but with no daily cap of its own.
+WITHDRAWALS = "withdrawals"
 
 # Slice shaved off the daily cap by the per-day draw (DAILY_CAP_JITTER):
 # uniform(1 - jitter, 1.0), so the total is never a round number.
@@ -929,7 +932,7 @@ def refuse_if_limited(
     off_hours, caps = _effective_caps(
         budget, kind, now, ignore_schedule=ignore_schedule
     )
-    if off_hours and kind in (INVITES, MESSAGES):
+    if off_hours and kind in (INVITES, MESSAGES, WITHDRAWALS):
         raise ActionLimitError(
             kind,
             limit=0,
@@ -1002,6 +1005,38 @@ def record_action(store: JobStore, kind: str, now: datetime) -> None:
         with store.locked():
             budget = load_account_budget(store, now)
             budget.ledger.record_kind(kind, now)
+            budget.ledger.prune(now)
+            store.save(budget)
+    except Exception:
+        logger.warning(
+            "Could not count the %s against the account budget", kind, exc_info=True
+        )
+
+
+def admit_write(store: JobStore, kind: str, now: datetime) -> None:
+    """Refuse one more `kind` write when the schedule or the hourly cap says so.
+
+    For loops that perform several writes in one call: ``refuse_action`` only
+    knows the per-kind caps, and the rolling-hour cap is otherwise checked
+    once, before the call. Raises ``ActionLimitError``; ``window`` is
+    ``"1 h"`` when the hourly cap is the one that refused.
+    """
+    budget = load_account_budget(store, now)
+    refuse_if_limited(budget, kind, now)
+    if hourly_headroom(budget, now) <= 0:
+        resume_at = hourly_cap_resume_at(budget, now) or _utc(now)
+        raise ActionLimitError(
+            kind, limit=hourly_actions_max(), window="1 h", resume_at=resume_at
+        )
+
+
+def record_write(store: JobStore, kind: str, now: datetime) -> None:
+    """Count one write against its kind and the hourly cap, best-effort."""
+    try:
+        with store.locked():
+            budget = load_account_budget(store, now)
+            budget.ledger.record_kind(kind, now)
+            budget.ledger.record(now)
             budget.ledger.prune(now)
             store.save(budget)
     except Exception:

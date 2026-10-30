@@ -7,6 +7,7 @@ with configurable section selection.
 
 import json
 import logging
+import time
 from datetime import datetime
 from typing import Annotated, Any
 
@@ -15,14 +16,25 @@ from fastmcp.exceptions import ToolError
 from pydantic import BeforeValidator, Field
 
 from linkedin_mcp_server.callbacks import MCPContextProgressCallback
-from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
+from linkedin_mcp_server.config.schema import (
+    DEFAULT_TOOL_TIMEOUT_SECONDS,
+    PER_TOOL_TIMEOUT_SECONDS,
+)
 from linkedin_mcp_server.core.exceptions import AuthenticationError
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
-from linkedin_mcp_server.pacing import INVITES, JobStore, record_action, refuse_action
+from linkedin_mcp_server.pacing import (
+    INVITES,
+    JobStore,
+    record_action,
+    refuse_action,
+    request_arrived_at,
+)
 from linkedin_mcp_server.scraping import parse_person_sections
 from linkedin_mcp_server.scraping.contracts import FilterValidationError
 from linkedin_mcp_server.scraping.identifiers import normalize_person_identifier
+from linkedin_mcp_server.scraping.invitation_withdrawal import MAX_WITHDRAWALS_LIMIT
+from linkedin_mcp_server.tools.enrichment import DEADLINE_FRACTION
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +82,11 @@ def register_person_tools(
     mcp: FastMCP, *, tool_timeout: float = DEFAULT_TOOL_TIMEOUT_SECONDS
 ) -> None:
     """Register all person-related tools with the MCP server."""
+    # Loading the sent list and the paced withdrawals of a full run (up to 50,
+    # seconds apart) do not fit the default; a larger configured value wins.
+    withdraw_timeout = max(
+        tool_timeout, PER_TOOL_TIMEOUT_SECONDS["withdraw_invitations"]
+    )
 
     @mcp.tool(
         timeout=tool_timeout,
@@ -343,6 +360,7 @@ def register_person_tools(
         linkedin_username: str,
         ctx: Context,
         note: str | None = None,
+        include_profile: bool = False,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -355,9 +373,11 @@ def register_person_tools(
             linkedin_username: LinkedIn username (e.g., "stickerdaniel", "williamhgates"). A full profile URL is accepted too and is reduced to the username.
             ctx: FastMCP context for progress reporting
             note: Optional note to include with the invitation
+            include_profile: Also return the scraped profile page text under ``profile``. Off by default to keep the result small.
 
         Returns:
-            Dict with url, status, message, and note_sent.
+            Dict with url, status, message, and note_sent, plus ``profile``
+            when include_profile is true.
             Statuses: pending, already_connected, connect_unavailable,
             unavailable, dialog_not_found, not_sent, send_unverified,
             send_failed, custom_note_limit_reached, connected, or accepted.
@@ -410,6 +430,8 @@ def register_person_tools(
 
             await ctx.report_progress(progress=100, total=100, message="Complete")
 
+            if not include_profile:
+                result = {k: v for k, v in result.items() if k != "profile"}
             return result
 
         except AuthenticationError as e:
@@ -419,6 +441,93 @@ def register_person_tools(
                 raise_tool_error(relogin_exc, "connect_with_person")
         except Exception as e:
             raise_tool_error(e, "connect_with_person")  # NoReturn
+
+    @mcp.tool(
+        timeout=withdraw_timeout,
+        title="Withdraw Invitations",
+        annotations={"destructiveHint": True, "openWorldHint": True},
+        tags={"person", "actions"},
+        exclude_args=["extractor"],
+    )
+    async def withdraw_invitations(
+        ctx: Context,
+        older_than_days: Annotated[int, Field(ge=1)] = 30,
+        exclude_usernames: StrList | None = None,
+        max_withdrawals: Annotated[int, Field(ge=1, le=MAX_WITHDRAWALS_LIMIT)] = 20,
+        dry_run: bool = True,
+        extractor: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        Withdraw pending sent connection invitations older than a threshold.
+
+        The tool is annotated with destructiveHint so MCP clients will
+        prompt for user confirmation before execution. It defaults to a
+        dry run: nothing is withdrawn until dry_run is set to false (a dry run
+        still scrolls the list to load every invitation).
+
+        Args:
+            older_than_days: Withdraw invitations sent at least this many days ago (minimum 1, default 30). Ages are read from LinkedIn's "Sent 3 weeks ago" text and are approximate (a week is 7 days, a month 30). An invitation whose age cannot be read is never withdrawn.
+            ctx: FastMCP context for progress reporting
+            exclude_usernames: LinkedIn usernames or /in/ profile URLs that must never be withdrawn
+            max_withdrawals: Hard upper bound on withdrawals in one call (1-50, default 20); the oldest invitations go first
+            dry_run: When true (default), only list what would be withdrawn
+
+        Returns:
+            Dict with withdrawn, unconfirmed and skipped_excluded and skipped_unparsed_age
+            (usernames), would_withdraw (dry run only), rows_seen (invitations read
+            from the page) and stopped_reason.
+            withdrawn and would_withdraw rows carry username, name and
+            age_text; withdrawn and unconfirmed rows also carry alert_text,
+            the raw toast or banner text seen after the withdrawal. stopped_reason is null when the run finished; otherwise
+            it says why it stopped early (no_rows_found when the page showed no
+            invitations, so an empty result with rows_seen 0 means the page could
+            not be read, not that nothing is old enough; list_not_fully_loaded when the list did not finish loading before the call deadline, nothing is withdrawn then; confirmation_dialog_name_mismatch when the dialog named someone else, nothing is pressed; account cooldown, the hourly cap, the call deadline, a LinkedIn
+            throttle, or a withdraw control that could not be confirmed),
+            and withdrawn holds what was done before that. unconfirmed lists an
+            invitation whose confirm button was pressed but whose removal
+            could not be verified (it may or may not be withdrawn; check the
+            sent list before retrying).
+        """
+        try:
+            # From arrival at the middleware, as the bulk tools do: the pauses
+            # between withdrawals can outlast the tool timeout, and a call
+            # cancelled by it would lose the report of what was withdrawn.
+            arrived = request_arrived_at.get()
+            deadline = (
+                time.monotonic() if arrived is None else arrived
+            ) + withdraw_timeout * DEADLINE_FRACTION
+            extractor = extractor or await get_ready_extractor(
+                ctx, tool_name="withdraw_invitations"
+            )
+            logger.info(
+                "Withdrawing invitations older than %s days (dry_run=%s)",
+                older_than_days,
+                dry_run,
+            )
+
+            await ctx.report_progress(
+                progress=0, total=100, message="Reading sent invitations"
+            )
+
+            result = await extractor.withdraw_invitations(
+                older_than_days,
+                exclude_usernames=exclude_usernames,
+                max_withdrawals=max_withdrawals,
+                dry_run=dry_run,
+                deadline=deadline,
+            )
+
+            await ctx.report_progress(progress=100, total=100, message="Complete")
+
+            return result
+
+        except AuthenticationError as e:
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "withdraw_invitations")
+        except Exception as e:
+            raise_tool_error(e, "withdraw_invitations")  # NoReturn
 
     @mcp.tool(
         timeout=tool_timeout,

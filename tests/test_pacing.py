@@ -30,6 +30,7 @@ from linkedin_mcp_server.pacing import (
     Ledger,
     MAX_BUNCH_PAUSE,
     MESSAGES,
+    WITHDRAWALS,
     MIN_BUNCH_PAUSE,
     PROFILE,
     READ_TOOL_CALL_GAP,
@@ -864,10 +865,28 @@ class TestPerKindCaps:
         )
 
 
+class TestAdmitAndRecordWrite:
+    def test_a_withdrawal_is_counted_in_the_hourly_cap_and_refused_at_it(
+        self, tmp_path
+    ):
+        from linkedin_mcp_server.pacing import admit_write, record_write
+
+        store = JobStore(tmp_path)
+        now = WED_10AM
+        with patch("linkedin_mcp_server.pacing.hourly_actions_max", return_value=2):
+            admit_write(store, WITHDRAWALS, now)
+            record_write(store, WITHDRAWALS, now)
+            record_write(store, WITHDRAWALS, now)
+            with pytest.raises(ActionLimitError) as excinfo:
+                admit_write(store, WITHDRAWALS, now)
+        assert excinfo.value.window == "1 h"
+        assert load_account_budget(store, now).ledger.spent_kind(WITHDRAWALS, now) == 2
+
+
 class TestWorkingHours:
     """Writes wait for the schedule; reads run on half their cap outside it."""
 
-    @pytest.mark.parametrize("kind", [INVITES, MESSAGES])
+    @pytest.mark.parametrize("kind", [INVITES, MESSAGES, WITHDRAWALS])
     def test_a_write_outside_the_schedule_is_refused_until_it_reopens(self, kind):
         with pytest.raises(ActionLimitError) as excinfo:
             refuse_if_limited(_budget(BH()), kind, WED_8PM)

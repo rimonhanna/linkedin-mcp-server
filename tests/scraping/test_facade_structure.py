@@ -49,6 +49,7 @@ PUBLIC_SIGNATURES = {
     "search_jobs": "(self, keywords: 'str', location: 'str | None' = None, max_pages: 'int' = 3, date_posted: 'str | None' = None, job_type: 'str | None' = None, experience_level: 'str | None' = None, work_type: 'str | None' = None, easy_apply: 'bool' = False, sort_by: 'str | None' = None, tool_timeout: 'float' = 180.0) -> 'dict[str, Any]'",
     "search_people": "(self, keywords: 'str | None' = None, location: 'str | None' = None, network: 'list[str] | None' = None, current_company: 'str | list[str] | None' = None, max_pages: 'int' = 1, *, title: 'str | None' = None, past_company: 'str | list[str] | None' = None, industry: 'str | list[str] | None' = None, school: 'str | None' = None, first_name: 'str | None' = None, last_name: 'str | None' = None, profile_language: 'str | list[str] | None' = None) -> 'dict[str, Any]'",
     "search_posts": "(self, keywords: 'str', date_posted: 'str | None' = None, max_posts: 'int' = 10) -> 'dict[str, Any]'",
+    "withdraw_invitations": "(self, older_than_days: 'int', *, exclude_usernames: 'list[str] | None' = None, max_withdrawals: 'int' = 20, dry_run: 'bool' = True, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
 }
 
@@ -73,6 +74,7 @@ DELEGATES = {
     "search_people": ("_person", "search_people"),
     "search_posts": ("_posts", "search_posts"),
     "send_message": ("_message_sender", "send_message"),
+    "withdraw_invitations": ("_connection", "withdraw_invitations"),
 }
 
 DELEGATE_CALLS = {
@@ -96,6 +98,7 @@ DELEGATE_CALLS = {
     "search_people": "self._person.search_people(keywords, location=location, network=network, current_company=current_company, max_pages=max_pages, title=title, past_company=past_company, industry=industry, school=school, first_name=first_name, last_name=last_name, profile_language=profile_language)",
     "search_posts": "self._posts.search_posts(keywords, date_posted=date_posted, max_posts=max_posts)",
     "send_message": "self._message_sender.send_message(linkedin_username, message, confirm_send=confirm_send, profile_urn=profile_urn)",
+    "withdraw_invitations": "self._connection.withdraw_invitations(older_than_days, exclude_usernames=exclude_usernames, max_withdrawals=max_withdrawals, dry_run=dry_run, deadline=deadline)",
 }
 
 FACADE_STATE = {
