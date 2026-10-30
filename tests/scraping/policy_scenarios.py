@@ -1007,6 +1007,47 @@ async def _connect_scenario() -> dict[str, Any]:
     )
 
 
+async def _withdraw_invitations_scenario() -> dict[str, Any]:
+    name = "withdraw_invitations__dry_run"
+    recorder = TraceRecorder(name, _COMMON_ALLOWED)
+    clock = FakeClock(recorder)
+    page = _page(recorder)
+    page.declare_locator('main [role="listitem"]', "sent_rows")
+    page.declare_derived("sent_rows", "first", "sent_rows.first")
+    page.script("sent_rows.first.wait_for", None)
+    page.script(
+        "evaluate:sent_invitation_rows",
+        [
+            {
+                "href": "/in/ada-lovelace/",
+                "name": "Ada Lovelace",
+                "text": "Ada Lovelace\nSent 3 weeks ago\nWithdraw",
+            },
+            {
+                "href": "/in/charles-babbage/",
+                "name": "Charles Babbage",
+                "text": "Charles Babbage\nSent 2 days ago\nWithdraw",
+            },
+            {
+                "href": "/in/grace-hopper/",
+                "name": "Grace Hopper",
+                "text": "Grace Hopper\nWithdraw",
+            },
+        ],
+    )
+    page.script("evaluate:sent_invitation_row_count", *([3] * 37))
+    page.script("evaluate:sent_invitation_scroll", *([True] * 3))
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context("withdraw_invitations"):
+            result = await extractor.withdraw_invitations(14)
+    page.assert_clean()
+    return recorder.trace(
+        {"method": "withdraw_invitations", "arguments": {"older_than_days": 14}},
+        result,
+    )
+
+
 async def _sidebar_scenario() -> dict[str, Any]:
     name = "get_sidebar_profiles__baseline"
     recorder = TraceRecorder(name, _COMMON_ALLOWED)
@@ -1165,6 +1206,7 @@ TOOL_FACADE_METHODS = {
     "search_people",
     "search_posts",
     "send_message",
+    "withdraw_invitations",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
 
@@ -1226,6 +1268,7 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "message-del.json": await _invalid_message_scenario("text\x7f", "del"),
         "connect.json": await _connect_scenario(),
         "get-my-profile.json": await _get_my_profile_scenario(),
+        "withdraw-invitations.json": await _withdraw_invitations_scenario(),
         "sidebar-profiles.json": await _sidebar_scenario(),
         "company-employees.json": await _single_capture_facade_scenario(
             "get_company_employees"

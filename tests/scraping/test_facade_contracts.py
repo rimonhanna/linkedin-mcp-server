@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, patch
@@ -15,11 +16,13 @@ from patchright.async_api import Page
 
 from linkedin_mcp_server import dependencies
 from linkedin_mcp_server.core.exceptions import InvalidReferenceError
+from linkedin_mcp_server.exceptions import ActionLimitError
 from linkedin_mcp_server.scraping import LinkedInExtractor
 from linkedin_mcp_server.scraping import connection, contracts, text
 from linkedin_mcp_server.scraping.capture import SectionCapture
 from linkedin_mcp_server.scraping.connection import ActionSignals
 from linkedin_mcp_server.scraping.connection_actions import ConnectionActions
+from linkedin_mcp_server.scraping.contracts import limit_exceeded_section_error
 from linkedin_mcp_server.scraping.conversations import ConversationReader
 from linkedin_mcp_server.scraping.extractor import (
     ExtractedSection,
@@ -57,6 +60,7 @@ TOOL_DELEGATES = {
     "search_people": "search_people",
     "search_posts": "search_posts",
     "send_message": "send_message",
+    "withdraw_invitations": "withdraw_invitations",
 }
 # Enrichment tools compose several facade calls, or none when they only read
 # the on-disk cache or the job ledger; a tuple lists every facade method a
@@ -129,9 +133,9 @@ async def test_registered_tools_and_extractor_delegates_are_counted_separately()
     tools = await create_mcp_server().list_tools()
     tool_names = {tool.name for tool in tools}
 
-    assert len(tool_names) == 26
+    assert len(tool_names) == 27
     assert tool_names == {*TOOL_DELEGATES, *ENRICHMENT_TOOL_DELEGATES, "close_session"}
-    assert len(TOOL_DELEGATES) == 18
+    assert len(TOOL_DELEGATES) == 19
     assert len(ENRICHMENT_TOOL_DELEGATES) == 7
     assert TOOL_DELEGATES.keys().isdisjoint(ENRICHMENT_TOOL_DELEGATES)
     assert set(TOOL_DELEGATES.values()) == TOOL_FACADE_METHODS
@@ -247,6 +251,25 @@ async def test_connection_profile_read_resolves_the_facade_delegate_late(mock_pa
 
     assert result["status"] == "connect_unavailable"
     replacement.assert_awaited_once_with("target", {"main_profile"})
+
+
+async def test_connect_surfaces_the_profile_cap_instead_of_unavailable(mock_page):
+    resume_at = datetime(2026, 10, 30, 19, 6, tzinfo=timezone(timedelta(hours=1)))
+    refusal = ActionLimitError("profile", limit=80, window="24 h", resume_at=resume_at)
+    extractor = LinkedInExtractor(cast(Page, mock_page))
+    extractor.scrape_person = AsyncMock(  # ty: ignore[invalid-assignment]
+        return_value={
+            "url": "https://www.linkedin.com/in/target/",
+            "sections": {},
+            "section_errors": {"main_profile": limit_exceeded_section_error(refusal)},
+        }
+    )
+
+    with pytest.raises(ActionLimitError) as raised:
+        await extractor.connect_with_person("target")
+
+    assert raised.value.resume_at == resume_at
+    assert raised.value.limit == 80
 
 
 async def test_profile_urn_read_resolves_the_sender_delegate_late(mock_page):
@@ -458,7 +481,7 @@ def test_facade_methods_are_exactly_the_frozen_coroutine_surface():
     }
 
     assert actual == expected
-    assert len(TOOL_FACADE_METHODS) == 18
+    assert len(TOOL_FACADE_METHODS) == 19
     assert len(COMPATIBILITY_METHODS) == 2
 
 

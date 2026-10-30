@@ -30,6 +30,7 @@ a page-owning collaborator.
 | `feed_payload` | `POST_SLUG_URL_RE`, `build_feed_references()`, `is_feed_payload_response()` | `browser-free` |
 | `fields` | `COMPANY_SECTIONS`, `PERSON_SECTIONS`, `parse_company_sections()`, `parse_person_sections()` | `browser-free` |
 | `identifiers` | `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_company_identifier()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_person_identifier()`, `normalize_profile_urn()`, `normalize_thread_id()`, `person_profile_url()` | `browser-free` |
+| `invitation_withdrawal` | `InvitationWithdrawer`, `MAX_WITHDRAWALS_LIMIT`, `age_text()`, `normalize_exclusions()`, `parse_age_days()`, `plan_withdrawals()`, `username_from_href()` | `browser-free` |
 | `job_pages` | `JOB_IDS_JS`, `JobPageCapture`, `JobPageReader`, `PROMOTED_JOB_IDS_JS` | `page-owning` |
 | `job_policy` | `JOB_SEARCH_PATHS`, `RESULTS_PER_LINKEDIN_PAGE`, `SAVED_JOBS_PAGE_SIZE`, `SAVED_JOBS_PATHS`, `SAVED_JOBS_URL`, `SCROLL_BUDGET_TOTAL`, `SCROLL_DEADLINE_MAX`, `SEARCH_TIMEOUT_FRACTION`, `dropped_filters_section_error()`, `dropped_offset_section_error()`, `label_similar_jobs()`, `lost_keywords_section_error()`, `missing_description_section_error()`, `no_matching_jobs_section_error()`, `reconcile_search_references()`, `route()`, `same_job_search()` | `browser-free` |
 | `jobs` | `JobScraper` | `browser-free` |
@@ -56,7 +57,7 @@ a page-owning collaborator.
 - `company` -> `capture`, `contracts`, `facets`, `fields`, `identifiers`, `link_metadata`, `search_pages`, `search_parse`, `search_urls`, `session`
 - `company_parse` -> `search_parse`
 - `connection` -> _(none)_
-- `connection_actions` -> `connection`, `identifiers`, `navigation`, `session`
+- `connection_actions` -> `connection`, `identifiers`, `invitation_withdrawal`, `navigation`, `session`
 - `content` -> `session`, `text`
 - `contracts` -> `identifiers`, `link_metadata`
 - `conversations` -> `content`, `identifiers`, `link_metadata`, `messaging_api`, `messaging_payload`, `messaging_read_state`, `navigation`, `profile_page`, `session`, `text`
@@ -66,6 +67,7 @@ a page-owning collaborator.
 - `feed_payload` -> `link_metadata`
 - `fields` -> `capture`
 - `identifiers` -> _(none)_
+- `invitation_withdrawal` -> `identifiers`
 - `job_pages` -> `content`, `contracts`, `job_policy`, `link_metadata`, `navigation`, `rate_limit`, `session`, `text`
 - `job_policy` -> `link_metadata`
 - `jobs` -> `capture`, `contracts`, `identifiers`, `job_pages`, `job_policy`, `link_metadata`, `navigation`, `search_urls`, `session`, `text`
@@ -107,6 +109,7 @@ a page-owning collaborator.
 - `search_people`
 - `search_posts`
 - `send_message`
+- `withdraw_invitations`
 
 ## `LinkedInExtractor` construction-state allowlist
 

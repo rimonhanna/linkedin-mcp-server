@@ -33,11 +33,13 @@ import logging
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 import linkedin_mcp_server.scraping.connection as connection
+from linkedin_mcp_server.exceptions import ActionLimitError
 from linkedin_mcp_server.scraping.connection import ActionSignals
 from linkedin_mcp_server.scraping.identifiers import (
     normalize_person_identifier,
     person_profile_url,
 )
+from linkedin_mcp_server.scraping.invitation_withdrawal import InvitationWithdrawer
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession
 
@@ -868,6 +870,27 @@ class ConnectionActions:
         await self._dismiss_dialog()
         return note_limit_message
 
+    async def withdraw_invitations(
+        self,
+        older_than_days: int,
+        *,
+        exclude_usernames: list[str] | None = None,
+        max_withdrawals: int = 20,
+        dry_run: bool = True,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """Withdraw (or list, on a dry run) old pending sent invitations."""
+        return await InvitationWithdrawer(
+            self,
+            sent_list_url=_SENT_INVITATIONS_URL,
+        ).withdraw_invitations(
+            older_than_days,
+            exclude_usernames=exclude_usernames,
+            max_withdrawals=max_withdrawals,
+            dry_run=dry_run,
+            deadline=deadline,
+        )
+
     async def connect_with_person(
         self,
         username: str,
@@ -895,6 +918,12 @@ class ConnectionActions:
         profile = await self._read_main_profile(username)
         page_text = profile.get("sections", {}).get("main_profile", "")
         if not page_text:
+            refusal = profile.get("section_errors", {}).get("main_profile")
+            if (
+                isinstance(refusal, dict)
+                and refusal.get("error_type") == "limit_exceeded"
+            ):
+                raise ActionLimitError.from_section_error(refusal)
             return _connection_result(
                 url, "unavailable", "Could not read profile page."
             )

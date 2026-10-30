@@ -5312,7 +5312,7 @@ class TestRealOwner:
             # in a `register_*` call.
             assert "get_person_profile" in names
             assert "close_session" in names
-            assert len(names) == 26, sorted(
+            assert len(names) == 27, sorted(
                 names
             )  # every @mcp.tool, query_company_cache included
         finally:

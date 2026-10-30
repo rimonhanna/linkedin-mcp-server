@@ -134,6 +134,24 @@ class LinkedInExtractor:
         """Send a LinkedIn connection request or accept an incoming one."""
         return await self._connection.connect_with_person(username, note=note)
 
+    async def withdraw_invitations(
+        self,
+        older_than_days: int,
+        *,
+        exclude_usernames: list[str] | None = None,
+        max_withdrawals: int = 20,
+        dry_run: bool = True,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """Withdraw (or list, on a dry run) old pending sent invitations."""
+        return await self._connection.withdraw_invitations(
+            older_than_days,
+            exclude_usernames=exclude_usernames,
+            max_withdrawals=max_withdrawals,
+            dry_run=dry_run,
+            deadline=deadline,
+        )
+
     async def get_sidebar_profiles(self, username: str) -> dict[str, Any]:
         """Extract profile links from sidebar sections on a profile page."""
         return await self._person.get_sidebar_profiles(username)

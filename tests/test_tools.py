@@ -708,6 +708,35 @@ class TestPersonTool:
             note=None,
         )
 
+    async def test_connect_with_person_profile_text_is_opt_in(self, mock_context):
+        full = {
+            "url": "https://www.linkedin.com/in/test-user/",
+            "status": "pending",
+            "message": "A connection request is already pending for this profile.",
+            "note_sent": False,
+            "profile": "Test User\nEngineer at Example",
+        }
+
+        from linkedin_mcp_server.tools.person import register_person_tools
+
+        mcp = FastMCP("test")
+        register_person_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "connect_with_person")
+
+        default = await tool_fn(
+            "test-user", mock_context, extractor=_make_mock_extractor(dict(full))
+        )
+        assert "profile" not in default
+        assert default == {k: v for k, v in full.items() if k != "profile"}
+
+        opted_in = await tool_fn(
+            "test-user",
+            mock_context,
+            include_profile=True,
+            extractor=_make_mock_extractor(dict(full)),
+        )
+        assert opted_in == full
+
     async def test_connect_with_person_custom_note_limit_reached(self, mock_context):
         """The custom_note_limit_reached status returns LinkedIn's message."""
         expected = {

@@ -1,0 +1,568 @@
+{
+  "call": {
+    "arguments": {
+      "older_than_days": 14
+    },
+    "method": "withdraw_invitations"
+  },
+  "events": [
+    {
+      "call": "withdraw_invitations",
+      "callback_id": "callback-1",
+      "event": "framenavigated",
+      "kind": "listener.add"
+    },
+    {
+      "call": "withdraw_invitations",
+      "extra": {
+        "target_url": "https://www.linkedin.com/mynetwork/invitation-manager/sent/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/mynetwork/invitation-manager/sent/",
+      "requested_url": "https://www.linkedin.com/mynetwork/invitation-manager/sent/",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "wait_for_load_state",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "withdraw_invitations",
+      "description": "goto https://www.linkedin.com/mynetwork/invitation-manager/sent/",
+      "kind": "boundary.stabilize",
+      "result": null
+    },
+    {
+      "call": "withdraw_invitations",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/mynetwork/invitation-manager/sent/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "boundary.auth_quick",
+      "result": null
+    },
+    {
+      "call": "withdraw_invitations",
+      "callback_id": "callback-1",
+      "event": "framenavigated",
+      "kind": "listener.remove"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "locator.create",
+      "locator": "sent_rows",
+      "parent": null,
+      "selector": "main [role=\"listitem\"]"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "locator.derive",
+      "locator": "sent_rows.first",
+      "operation": "first",
+      "parent": "sent_rows"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "locator.wait_for",
+      "locator": "sent_rows.first",
+      "state": "visible",
+      "timeout_ms": 10000
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_scroll",
+      "program_digest": "354137ab0a79"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_scroll",
+      "program_digest": "354137ab0a79"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_scroll",
+      "program_digest": "354137ab0a79"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_row_count",
+      "program_digest": "1dcd78ab0da1"
+    },
+    {
+      "call": "withdraw_invitations",
+      "kind": "evaluate",
+      "operation": "sent_invitation_rows",
+      "program_digest": "432e62ba6814"
+    }
+  ],
+  "result": {
+    "rows_seen": 3,
+    "skipped_excluded": [],
+    "skipped_unparsed_age": [
+      "grace-hopper"
+    ],
+    "stopped_reason": null,
+    "unconfirmed": [],
+    "withdrawn": [],
+    "would_withdraw": [
+      {
+        "age_text": "Sent 3 weeks ago",
+        "name": "Ada Lovelace",
+        "username": "ada-lovelace"
+      }
+    ]
+  },
+  "scenario": "withdraw_invitations__dry_run",
+  "schema_version": 1
+}

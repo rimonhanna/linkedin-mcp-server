@@ -39,6 +39,8 @@ from linkedin_mcp_server.daemon_descriptor import build, new_instance_id, new_to
 from linkedin_mcp_server import daemon_descriptor
 from linkedin_mcp_server.daemon_proxy import (
     DaemonProxyBackend,
+    _CallBinding,
+    _call_being_made,
     create_proxy_provider,
 )
 
@@ -256,6 +258,36 @@ class TestReachingTheOwner:
         client = _backend(_attachment(tmp_path), tmp_path).open_client(timeout=1.0)
 
         assert isinstance(client, ProxyClient)
+
+
+class TestPerToolDeadline:
+    """A tool with a longer budget of its own keeps it through the proxy."""
+
+    @staticmethod
+    def _deadline(client: ProxyClient) -> float:
+        deadline = client._session_kwargs["read_timeout_seconds"]
+        assert deadline is not None
+        return deadline.total_seconds()
+
+    def _client_for(self, tmp_path: Path, tool: str | None) -> ProxyClient:
+        attachment = _attachment(tmp_path)
+        backend = _backend(attachment, tmp_path)
+        marked = _call_being_made.set(
+            None if tool is None else _CallBinding("c1", attachment, tool)
+        )
+        try:
+            return backend.open_client(timeout=210.0)
+        finally:
+            _call_being_made.reset(marked)
+
+    def test_withdraw_invitations_gets_its_own_budget(self, tmp_path: Path):
+        assert self._deadline(self._client_for(tmp_path, "withdraw_invitations")) == 630
+
+    def test_other_tools_keep_the_global_deadline(self, tmp_path: Path):
+        assert self._deadline(self._client_for(tmp_path, "get_person_profile")) == 210
+
+    def test_a_listing_outside_a_call_keeps_the_global_deadline(self, tmp_path: Path):
+        assert self._deadline(self._client_for(tmp_path, None)) == 210
 
 
 class TestCallingTheOwner:

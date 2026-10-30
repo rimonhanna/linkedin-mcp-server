@@ -91,6 +91,10 @@
       "send_message": {
         "coroutine": true,
         "signature": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'"
+      },
+      "withdraw_invitations": {
+        "coroutine": true,
+        "signature": "(self, older_than_days: 'int', *, exclude_usernames: 'list[str] | None' = None, max_withdrawals: 'int' = 20, dry_run: 'bool' = True, deadline: 'float | None' = None) -> 'dict[str, Any]'"
       }
     },
     "tool_methods": [
@@ -111,7 +115,8 @@
       "search_jobs",
       "search_people",
       "search_posts",
-      "send_message"
+      "send_message",
+      "withdraw_invitations"
     ],
     "tool_schemas": {
       "close_session": {
@@ -129,6 +134,11 @@
         "input": {
           "additionalProperties": false,
           "properties": {
+            "include_profile": {
+              "default": false,
+              "description": "Also return the scraped profile page text under ``profile``. Off by default to keep the result small.",
+              "type": "boolean"
+            },
             "linkedin_username": {
               "description": "LinkedIn username (e.g., \"stickerdaniel\", \"williamhgates\"). A full profile URL is accepted too and is reduced to the username.",
               "type": "string"
@@ -1244,6 +1254,51 @@
             "job_name",
             "usernames"
           ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "withdraw_invitations": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "dry_run": {
+              "default": true,
+              "description": "When true (default), only list what would be withdrawn",
+              "type": "boolean"
+            },
+            "exclude_usernames": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "LinkedIn usernames or /in/ profile URLs that must never be withdrawn"
+            },
+            "max_withdrawals": {
+              "default": 20,
+              "description": "Hard upper bound on withdrawals in one call (1-50, default 20); the oldest invitations go first",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "older_than_days": {
+              "default": 30,
+              "description": "Withdraw invitations sent at least this many days ago (minimum 1, default 30). Ages are read from LinkedIn's \"Sent 3 weeks ago\" text and are approximate (a week is 7 days, a month 30). An invitation whose age cannot be read is never withdrawn.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
           "type": "object"
         },
         "output": {

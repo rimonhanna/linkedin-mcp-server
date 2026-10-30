@@ -55,6 +55,7 @@ from fastmcp.utilities.timeout import normalize_timeout_to_timedelta
 from opentelemetry.trace import Status, StatusCode
 
 from linkedin_mcp_server import daemon_owner
+from linkedin_mcp_server.config.schema import PER_TOOL_TIMEOUT_SECONDS
 from linkedin_mcp_server.daemon_auth import a_repeat_could_change_something
 from linkedin_mcp_server.daemon_liveness import (
     CALL_HEADER,
@@ -89,6 +90,7 @@ class _CallBinding:
 
     call_id: str
     attachment: Attachment
+    tool_name: str = ""
 
 
 #: The call the current task is making, for the factory to address and stamp.
@@ -667,6 +669,13 @@ class DaemonProxyBackend:
         # pair for one owner, and a token kept across an address change would
         # authenticate against a process it was never issued for.
         token = attachment.token
+        # A tool with a longer budget of its own keeps it end to end; every
+        # other call, and any listing outside a call, uses the global one.
+        if bound is not None and bound.tool_name in PER_TOOL_TIMEOUT_SECONDS:
+            timeout = max(
+                timeout,
+                PER_TOOL_TIMEOUT_SECONDS[bound.tool_name] + _TIMEOUT_MARGIN_SECONDS,
+            )
 
         return _tells_which_owner_failed()(
             StreamableHttpTransport(
@@ -1002,7 +1011,9 @@ class FrontendCallHeartbeatMiddleware(Middleware):
             return await call_next(context)
 
         beating = asyncio.create_task(self._keep_saying(attachment, call_id))
-        marked = _call_being_made.set(_CallBinding(call_id, attachment))
+        marked = _call_being_made.set(
+            _CallBinding(call_id, attachment, context.message.name)
+        )
         try:
             return await call_next(context)
         finally:

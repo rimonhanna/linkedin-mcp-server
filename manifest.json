@@ -60,6 +60,10 @@
       "description": "Send a connection request or accept an incoming one, with optional note"
     },
     {
+      "name": "withdraw_invitations",
+      "description": "Withdraw pending sent connection invitations older than a given number of days; dry run by default, with exclusions and a per-call cap; reports rows_seen and stops with no_rows_found when the list could not be read"
+    },
+    {
       "name": "get_sidebar_profiles",
       "description": "Extract profile URLs from LinkedIn sidebar recommendation sections on a profile page"
     },
