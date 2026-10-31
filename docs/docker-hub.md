@@ -142,7 +142,7 @@ Use `$env:USERPROFILE\.linkedin-mcp` when constructing the host path outside JSO
 | `DAILY_ACTIONS_MAX` | `150` | Ceiling on any enrichment job's `daily_cap`; may be raised or lowered. Raising it raises detection exposure in step. |
 | `PROFILE_LOADS_MAX` | `150` | Profile page loads per rolling 24 h; may be raised or lowered. The budget is charged per page load, and a call that would break a cap is refused with `limit_exceeded` and the time to resume. |
 | `SEARCH_PAGES_MAX` | `100` | Search result pages per rolling 24 h; may be raised or lowered. |
-| `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / 7 d. Both may be raised or lowered. |
+| `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / per calendar week (resets Monday 00:00 local time). Both may be raised or lowered. |
 | `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may be raised or lowered. |
 | `WORKING_HOURS_DISABLED` | off | The account budget is on business hours by default (09:00-18:00, lunch and weekends off): invitations and messages wait for the window, and profile/search loads run on half their cap outside it. `1` turns both off. The hours follow the container's clock, which is UTC unless `TZ` is set (`-e TZ=Europe/Berlin`). |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one. |

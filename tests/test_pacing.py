@@ -10,6 +10,7 @@ import os
 import random
 import subprocess
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -39,6 +40,8 @@ from linkedin_mcp_server.pacing import (
     SEARCH_PAGES_MAX,
     Schedule,
     WEEK_SECONDS,
+    _next_week_start,
+    _week_start,
     WINDOW_SECONDS,
     WRITE_TOOL_CALL_GAP,
     account_budget_in_use,
@@ -768,9 +771,9 @@ class TestPerKindCaps:
 
     def test_invites_are_also_capped_per_week(self):
         budget = _budget()
-        # 40 a day on each of the last four days: none today, 160 this week.
-        for day in range(4):
-            _spend(budget, INVITES, 40, WED_10AM - timedelta(days=day + 1))
+        # 80 on Monday and 80 on Tuesday: none today, 160 this calendar week.
+        _spend(budget, INVITES, 80, WED_10AM - timedelta(days=2))
+        _spend(budget, INVITES, 80, WED_10AM - timedelta(days=1))
         now = WED_10AM + timedelta(hours=1)
         assert budget.ledger.spent_kind(INVITES, now) == 0
 
@@ -779,10 +782,39 @@ class TestPerKindCaps:
 
         assert excinfo.value.limit == 160
         assert excinfo.value.window == "7 d"
-        # The oldest forty were sent four days ago and free up three days on.
-        assert excinfo.value.resume_at == WED_10AM - timedelta(days=4) + timedelta(
-            days=7
-        )
+        assert excinfo.value.resume_at == datetime(2026, 8, 10, 0, 0)
+
+    def test_sunday_invites_do_not_count_after_monday_midnight(self):
+        budget = _budget()
+        _spend(budget, INVITES, 160, datetime(2026, 8, 9, 23, 0))
+        sunday = datetime(2026, 8, 9, 23, 30)
+        assert budget.ledger.spent_kind(INVITES, sunday, WEEK_SECONDS) == 160
+        monday = datetime(2026, 8, 10, 0, 1)
+        assert budget.ledger.spent_kind(INVITES, monday, WEEK_SECONDS) == 0
+
+    def test_week_boundaries_are_local_midnight_across_a_dst_change(self, monkeypatch):
+        monkeypatch.setenv("TZ", "Europe/Amsterdam")
+        time.tzset()
+        try:
+            # DST ended Sunday 2026-10-25, so this week is 7 d + 1 h long.
+            now = datetime(2026, 10, 25, 12, 0).astimezone()
+            start = _week_start(now)
+            assert (start.year, start.month, start.day) == (2026, 10, 19)
+            assert (start.hour, start.minute) == (0, 0)
+            following = _next_week_start(now)
+            assert (following.year, following.month, following.day) == (2026, 10, 26)
+            assert (following.hour, following.minute) == (0, 0)
+        finally:
+            monkeypatch.undo()
+            time.tzset()
+
+    def test_a_saturday_weekly_refusal_resumes_next_monday_midnight(self):
+        budget = _budget()
+        _spend(budget, INVITES, 160, datetime(2026, 8, 6, 10, 0))
+        with pytest.raises(ActionLimitError) as excinfo:
+            refuse_if_limited(budget, INVITES, SAT_10AM)
+        assert excinfo.value.window == "7 d"
+        assert excinfo.value.resume_at == datetime(2026, 8, 10, 0, 0)
 
     def test_uncapped_kinds_are_counted_but_never_refused(self):
         budget = _budget()
@@ -979,10 +1011,10 @@ class TestKindHeadroom:
 
     def test_the_weekly_invite_cap_can_be_the_tight_one(self):
         budget = _budget()
-        _spend(budget, INVITES, 155, WED_10AM - timedelta(days=3))
+        _spend(budget, INVITES, 155, WED_10AM - timedelta(days=2))
         headroom, wait = kind_headroom(budget, INVITES, WED_10AM)
         assert headroom == 5
-        assert wait == pytest.approx(4 * 24 * 3600, abs=1)
+        assert wait == pytest.approx((4 * 24 + 14) * 3600, abs=1)
 
     def test_off_hours_halves_the_headroom_and_waits_for_the_window(self):
         budget = _budget(BH())

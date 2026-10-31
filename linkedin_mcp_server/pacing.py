@@ -47,7 +47,7 @@ import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -68,6 +68,36 @@ logger = logging.getLogger(__name__)
 
 WINDOW_SECONDS = 24 * 60 * 60
 WEEK_SECONDS = 7 * WINDOW_SECONDS
+
+
+def _monday_midnight(now: datetime, weeks: int) -> datetime:
+    """Local Monday 00:00 `weeks` from the current week's.
+
+    Built from the wall-clock date so the system timezone picks the UTC offset:
+    `now` carries a fixed offset, which is an hour off across a DST change.
+    """
+    monday = now.date() - timedelta(days=now.weekday()) + timedelta(weeks=weeks)
+    boundary = datetime.combine(monday, time())
+    return boundary.astimezone() if now.tzinfo is not None else boundary
+
+
+def _week_start(now: datetime) -> datetime:
+    """The most recent Monday 00:00 on the clock the schedule reads."""
+    return _monday_midnight(now, 0)
+
+
+def _next_week_start(now: datetime) -> datetime:
+    return _monday_midnight(now, 1)
+
+
+def _window_cutoff(now: datetime, window: int) -> float:
+    """Entries newer than this count. A ``WEEK_SECONDS`` window is the calendar
+    week since Monday 00:00 (LinkedIn's invitation limit resets then); any other
+    window rolls back from `now`."""
+    if window == WEEK_SECONDS:
+        return _week_start(now).timestamp()
+    return now.timestamp() - window
+
 
 #: Monotonic instant (``time.monotonic()``) at which the current MCP tool
 #: request reached the middleware -- before it queued for the scraper lock, not
@@ -94,7 +124,7 @@ DEFAULT_DAILY_ACTIONS = 100
 PROFILE_LOADS_MAX = 150  # PROFILE_LOADS_MAX, per 24 h (Linked Helper's recommendation)
 SEARCH_PAGES_MAX = 100  # SEARCH_PAGES_MAX, per 24 h (Linked Helper's recommendation)
 INVITES_MAX = 20  # INVITES_MAX, per 24 h
-INVITES_WEEKLY_MAX = 160  # INVITES_WEEKLY_MAX, per 7 d
+INVITES_WEEKLY_MAX = 160  # INVITES_WEEKLY_MAX, per calendar week (resets Monday 00:00)
 MESSAGES_MAX = 50  # MESSAGES_MAX, per 24 h
 
 # Kinds a navigation is filed under, by URL. Only ``profile`` and ``search``
@@ -423,7 +453,8 @@ class Ledger:
         cutoff = now.timestamp() - WINDOW_SECONDS
         self.actions = [t for t in self.actions if t > cutoff]
         # A week is the longest window any kind is held to.
-        week_cutoff = now.timestamp() - WEEK_SECONDS
+        # An hour of slack: the calendar week is 7 d + 1 h long across a DST change.
+        week_cutoff = now.timestamp() - WEEK_SECONDS - 3600
         self.kinds = {
             kind: [t for t in stamps if t > week_cutoff]
             for kind, stamps in self.kinds.items()
@@ -436,17 +467,19 @@ class Ledger:
         self.kinds.setdefault(kind, []).append(now.timestamp())
 
     def spent_kind(self, kind: str, now: datetime, window: int = WINDOW_SECONDS) -> int:
-        cutoff = now.timestamp() - window
+        cutoff = _window_cutoff(now, window)
         return sum(1 for t in self.kinds.get(kind, ()) if t > cutoff)
 
     def kind_expiry(
         self, kind: str, now: datetime, window: int = WINDOW_SECONDS
     ) -> float:
         """Seconds until the oldest `kind` entry inside `window` ages out."""
-        cutoff = now.timestamp() - window
+        cutoff = _window_cutoff(now, window)
         inside = [t for t in self.kinds.get(kind, ()) if t > cutoff]
         if not inside:
             return 0.0
+        if window == WEEK_SECONDS:
+            return max(_next_week_start(now).timestamp() - now.timestamp(), 0.0)
         return max(min(inside) + window - now.timestamp(), 0.0)
 
     def spent(self, now: datetime) -> int:
@@ -925,9 +958,12 @@ def refuse_if_limited(
     for limit, window in caps:
         if budget.ledger.spent_kind(kind, now, window) < limit:
             continue
-        resume_at = now + timedelta(
-            seconds=budget.ledger.kind_expiry(kind, now, window)
-        )
+        if window == WEEK_SECONDS:
+            resume_at = _next_week_start(now)
+        else:
+            resume_at = now + timedelta(
+                seconds=budget.ledger.kind_expiry(kind, now, window)
+            )
         if off_hours:
             # The full cap is back the moment the schedule reopens.
             resume_at = min(resume_at, budget.schedule.next_open(now))
