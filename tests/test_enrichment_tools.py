@@ -26,6 +26,7 @@ from linkedin_mcp_server.exceptions import ActionLimitError, BrowserBusyError
 from linkedin_mcp_server.pacing import (
     ACCOUNT_BUDGET_JOB,
     PROFILE,
+    PROFILE_LOADS_MAX,
     Job,
     JobStore,
     Ledger,
@@ -530,7 +531,7 @@ class TestRunBunch:
             "linkedin_mcp_server.tools.enrichment.step_delay", lambda **k: 0
         )
         await self._seed(mcp, store, ["a", "b", "c", "d", "e"])
-        self._profile_loads(store, 75)
+        self._profile_loads(store, PROFILE_LOADS_MAX - 5)
 
         fn = await get_tool_fn(mcp, "run_enrichment_bunch")
         out = await fn(
@@ -549,7 +550,7 @@ class TestRunBunch:
         self, mcp, store, mock_context
     ):
         await self._seed(mcp, store, ["a"])
-        self._profile_loads(store, 79)
+        self._profile_loads(store, PROFILE_LOADS_MAX - 1)
         extractor = _extractor()
 
         fn = await get_tool_fn(mcp, "run_enrichment_bunch")
@@ -1223,20 +1224,16 @@ class TestConfigurableLimits:
     applied at call time instead; these prove the environment reaches them.
     """
 
-    async def test_daily_cap_ceiling_cannot_be_raised_from_the_environment(
-        self, mcp, store, monkeypatch, caplog
+    async def test_daily_cap_ceiling_can_be_raised_from_the_environment(
+        self, mcp, store, monkeypatch
     ):
         monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "200")
         monkeypatch.setenv(EnvironmentKeys.DAILY_CAP_JITTER, "0")
         fn = await get_tool_fn(mcp, "start_enrichment_job")
-        with caplog.at_level(logging.WARNING):
-            out = await fn("j", ["a"], daily_cap=200, warmup=False)
+        out = await fn("j", ["a"], daily_cap=200, warmup=False)
 
-        assert store.load(ACCOUNT_BUDGET_JOB).daily_cap == 150
-        assert out["account_daily_cap_today"] == 150
-        assert any(
-            EnvironmentKeys.DAILY_ACTIONS_MAX in r.getMessage() for r in caplog.records
-        )
+        assert store.load(ACCOUNT_BUDGET_JOB).daily_cap == 200
+        assert out["account_daily_cap_today"] == 200
 
     async def test_daily_cap_ceiling_can_be_lowered_from_the_environment(
         self, mcp, store, monkeypatch

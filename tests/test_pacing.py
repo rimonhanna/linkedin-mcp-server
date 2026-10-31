@@ -33,8 +33,10 @@ from linkedin_mcp_server.pacing import (
     WITHDRAWALS,
     MIN_BUNCH_PAUSE,
     PROFILE,
+    PROFILE_LOADS_MAX,
     READ_TOOL_CALL_GAP,
     SEARCH,
+    SEARCH_PAGES_MAX,
     Schedule,
     WEEK_SECONDS,
     WINDOW_SECONDS,
@@ -45,6 +47,7 @@ from linkedin_mcp_server.pacing import (
     hourly_cap_resume_at,
     hourly_headroom,
     jittered_cap,
+    kind_caps,
     kind_headroom,
     load_account_budget,
     max_daily_actions,
@@ -448,34 +451,19 @@ class TestConfigurableLimits:
         job = Job(name="j", started_on=self.START, daily_cap=200, warmup=True)
         assert job.effective_cap(WED_10AM) == 120
 
-    def test_daily_max_cannot_raise_the_ceiling(self, monkeypatch, caplog):
-        """150 is the ceiling, and the environment used to lift it: the live
-        ledger this was written against read ``daily_cap: 250``."""
+    def test_daily_max_raises_the_ceiling(self, monkeypatch):
         monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "200")
         monkeypatch.setenv(EnvironmentKeys.DAILY_CAP_JITTER, "0")
         job = Job(name="j", started_on=self.START, daily_cap=200, warmup=True)
-        with caplog.at_level(logging.WARNING):
-            assert job.effective_cap(WED_10AM) == 150
-        assert self._warned(caplog, EnvironmentKeys.DAILY_ACTIONS_MAX)
+        assert job.effective_cap(WED_10AM) == 200
 
-    def test_the_clamp_warns_once_per_value_not_once_per_read(
-        self, monkeypatch, caplog
+    def test_a_cap_env_above_its_default_is_honored(self, monkeypatch):
+        monkeypatch.setenv(EnvironmentKeys.PROFILE_LOADS_MAX, "200")
+        assert kind_caps(PROFILE)[0][0] == 200
+
+    def test_a_persisted_cap_above_the_ceiling_is_kept_on_read(
+        self, tmp_path, monkeypatch
     ):
-        """The ceiling is read on every page load; measured with
-        DAILY_ACTIONS_MAX=250, one warning per navigation."""
-        monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "250")
-        with caplog.at_level(logging.WARNING):
-            assert max_daily_actions() == 150
-            assert max_daily_actions() == 150
-            monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "300")
-            assert max_daily_actions() == 150
-        clamps = [r for r in caplog.records if "Clamping" in r.getMessage()]
-        assert [r.getMessage() for r in clamps] == [
-            "Clamping DAILY_ACTIONS_MAX=250 to the ceiling 150",
-            "Clamping DAILY_ACTIONS_MAX=300 to the ceiling 150",
-        ]
-
-    def test_a_persisted_cap_above_the_ceiling_is_clamped_on_read(self, tmp_path):
         store = JobStore(tmp_path)
         path = store.root / f"{ACCOUNT_BUDGET_JOB}.json"
         path.write_text(
@@ -483,7 +471,13 @@ class TestConfigurableLimits:
             '"daily_cap": 250}',
             encoding="utf-8",
         )
-        assert store.load(ACCOUNT_BUDGET_JOB).daily_cap == 150
+        monkeypatch.setenv(EnvironmentKeys.DAILY_CAP_JITTER, "0")
+        job = store.load(ACCOUNT_BUDGET_JOB)
+        assert job.daily_cap == 250
+        job.warmup = False
+        assert job.effective_cap(WED_10AM) <= max_daily_actions()
+        monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "250")
+        assert job.effective_cap(WED_10AM) == 250
 
     def test_daily_max_garbage_falls_back_with_a_warning(self, monkeypatch, caplog):
         monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "lots")
@@ -753,7 +747,7 @@ class TestPerKindCaps:
     """Each kind refuses at N+1 and says when the oldest unit frees up."""
 
     @pytest.mark.parametrize(
-        ("kind", "cap"), [(PROFILE, 80), (SEARCH, 60), (INVITES, 20), (MESSAGES, 50)]
+        ("kind", "cap"), [(PROFILE, 150), (SEARCH, 100), (INVITES, 20), (MESSAGES, 50)]
     )
     def test_the_daily_cap_refuses_one_past_it(self, kind, cap):
         budget = _budget()
@@ -815,24 +809,20 @@ class TestPerKindCaps:
     @pytest.mark.parametrize(
         ("key", "kind", "default"),
         [
-            (EnvironmentKeys.PROFILE_LOADS_MAX, PROFILE, 80),
-            (EnvironmentKeys.SEARCH_PAGES_MAX, SEARCH, 60),
+            (EnvironmentKeys.PROFILE_LOADS_MAX, PROFILE, 150),
+            (EnvironmentKeys.SEARCH_PAGES_MAX, SEARCH, 100),
             (EnvironmentKeys.MESSAGES_MAX, MESSAGES, 50),
         ],
     )
-    def test_the_environment_cannot_raise_a_cap(
-        self, monkeypatch, caplog, key, kind, default
-    ):
+    def test_the_environment_can_raise_a_cap(self, monkeypatch, key, kind, default):
         monkeypatch.setenv(key, str(default * 2))
         budget = _budget()
         _spend(budget, kind, default, WED_10AM)
-        with (
-            caplog.at_level(logging.WARNING),
-            pytest.raises(ActionLimitError) as excinfo,
-        ):
+        refuse_if_limited(budget, kind, WED_10AM)  # past the default, under the env
+        _spend(budget, kind, default, WED_10AM)
+        with pytest.raises(ActionLimitError) as excinfo:
             refuse_if_limited(budget, kind, WED_10AM)
-        assert excinfo.value.limit == default
-        assert any(key in r.getMessage() for r in caplog.records)
+        assert excinfo.value.limit == default * 2
 
     def test_the_environment_can_raise_the_daily_invite_cap(self, monkeypatch):
         monkeypatch.setenv(EnvironmentKeys.INVITES_MAX, "40")
@@ -844,7 +834,7 @@ class TestPerKindCaps:
             refuse_if_limited(budget, INVITES, WED_10AM)
         assert (excinfo.value.limit, excinfo.value.window) == (40, "24 h")
 
-    def test_the_weekly_invite_cap_lowers_but_never_raises(self, monkeypatch, caplog):
+    def test_the_weekly_invite_cap_can_be_lowered_and_raised(self, monkeypatch):
         monkeypatch.setenv(EnvironmentKeys.INVITES_WEEKLY_MAX, "30")
         budget = _budget()
         _spend(budget, INVITES, 30, WED_10AM - timedelta(days=2))
@@ -854,15 +844,7 @@ class TestPerKindCaps:
 
         monkeypatch.setenv(EnvironmentKeys.INVITES_WEEKLY_MAX, "300")
         _spend(budget, INVITES, 130, WED_10AM - timedelta(days=2))
-        with (
-            caplog.at_level(logging.WARNING),
-            pytest.raises(ActionLimitError) as excinfo,
-        ):
-            refuse_if_limited(budget, INVITES, WED_10AM)
-        assert excinfo.value.limit == 160
-        assert any(
-            EnvironmentKeys.INVITES_WEEKLY_MAX in r.getMessage() for r in caplog.records
-        )
+        refuse_if_limited(budget, INVITES, WED_10AM)  # 160 spent, 300 allowed
 
 
 class TestAdmitAndRecordWrite:
@@ -921,7 +903,10 @@ class TestWorkingHours:
     def test_a_write_inside_the_schedule_passes(self):
         refuse_if_limited(_budget(BH()), INVITES, WED_10AM)
 
-    @pytest.mark.parametrize(("kind", "half"), [(PROFILE, 40), (SEARCH, 30)])
+    @pytest.mark.parametrize(
+        ("kind", "half"),
+        [(PROFILE, PROFILE_LOADS_MAX // 2), (SEARCH, SEARCH_PAGES_MAX // 2)],
+    )
     def test_reads_outside_the_schedule_run_on_half_the_cap(self, kind, half):
         budget = _budget(BH())
         _spend(budget, kind, half - 1, WED_8PM)
@@ -953,7 +938,7 @@ class TestWorkingHours:
 
     def test_ignore_schedule_lifts_the_halving_for_one_caller(self):
         budget = _budget(BH())
-        _spend(budget, PROFILE, 45, WED_8PM)
+        _spend(budget, PROFILE, PROFILE_LOADS_MAX // 2 + 5, WED_8PM)
         with pytest.raises(ActionLimitError):
             refuse_if_limited(budget, PROFILE, WED_8PM)
         refuse_if_limited(budget, PROFILE, WED_8PM, ignore_schedule=True)
@@ -961,7 +946,7 @@ class TestWorkingHours:
     def test_a_navigation_under_schedule_ignored_runs_on_the_full_cap(self, tmp_path):
         store = JobStore(tmp_path)
         held = load_account_budget(store, WED_8PM, schedule=BH())
-        _spend(held, PROFILE, 45, WED_8PM)
+        _spend(held, PROFILE, PROFILE_LOADS_MAX // 2 + 5, WED_8PM)
         token = account_budget_in_use.set(held)
         ignored = schedule_ignored.set(True)
         try:
@@ -969,7 +954,7 @@ class TestWorkingHours:
         finally:
             schedule_ignored.reset(ignored)
             account_budget_in_use.reset(token)
-        assert held.ledger.spent_kind(PROFILE, WED_8PM) == 46
+        assert held.ledger.spent_kind(PROFILE, WED_8PM) == PROFILE_LOADS_MAX // 2 + 6
 
     def test_the_opt_out_needs_a_truthy_value(self, monkeypatch):
         monkeypatch.setenv(EnvironmentKeys.WORKING_HOURS_DISABLED, "0")
@@ -984,12 +969,12 @@ class TestKindHeadroom:
         budget = _budget()
         _spend(budget, PROFILE, 30, WED_10AM - timedelta(hours=2))
         headroom, wait = kind_headroom(budget, PROFILE, WED_10AM)
-        assert headroom == 50
+        assert headroom == PROFILE_LOADS_MAX - 30
         assert wait == pytest.approx(22 * 3600, abs=1)
 
     def test_headroom_never_goes_negative(self):
         budget = _budget()
-        _spend(budget, PROFILE, 90, WED_10AM)
+        _spend(budget, PROFILE, PROFILE_LOADS_MAX + 10, WED_10AM)
         assert kind_headroom(budget, PROFILE, WED_10AM)[0] == 0
 
     def test_the_weekly_invite_cap_can_be_the_tight_one(self):
@@ -1003,10 +988,10 @@ class TestKindHeadroom:
         budget = _budget(BH())
         _spend(budget, PROFILE, 30, WED_8PM)
         headroom, wait = kind_headroom(budget, PROFILE, WED_8PM)
-        assert headroom == 10
+        assert headroom == PROFILE_LOADS_MAX // 2 - 30
         assert wait == 13 * 3600  # 09:00 next morning, not 24 h on
         assert kind_headroom(budget, PROFILE, WED_8PM, ignore_schedule=True) == (
-            50,
+            PROFILE_LOADS_MAX - 30,
             pytest.approx(24 * 3600, abs=1),
         )
 

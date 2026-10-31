@@ -246,9 +246,6 @@ def isolate_the_account_ledger(tmp_path, monkeypatch):
     load_account_budget(
         JobStore(tmp_path / "jobs"), datetime.now(), schedule=Schedule()
     )
-    # The clamp warning fires once per (key, value) per process, and a test
-    # asserting it must not depend on which test asked first.
-    monkeypatch.setattr(pacing, "_clamp_warned", set())
 
 
 @pytest.fixture

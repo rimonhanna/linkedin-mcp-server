@@ -221,8 +221,8 @@ def register_enrichment_tools(
                 already-completed people are skipped when a job is resumed.
             daily_cap: Profile views allowed per rolling 24 hours (default
                 100, ceiling 150; DAILY_ACTIONS_DEFAULT moves the default,
-                DAILY_ACTIONS_MAX can only lower the ceiling). Anything above
-                the ceiling is clamped to it. This
+                DAILY_ACTIONS_MAX moves the ceiling either way). Anything
+                above the ceiling is clamped to it. This
                 is a behavioral budget, not a LinkedIn API limit -- LinkedIn
                 publishes no official number.
             warmup: Ramp the cap over four weeks (10/day in week 1, 20 in
