@@ -139,11 +139,11 @@ Use `$env:USERPROFILE\.linkedin-mcp` when constructing the host path outside JSO
 | `ACCOUNT_COOLDOWN_DISABLED` | unset | `1` stops a throttle signal (HTTP 429, rate-limit page) from pausing the account. By default one signal pauses every session for 30 min, escalating to 2 h, 4 h and 8 h for further signals within a day; delete `until` from `jobs/__account_cooldown__.json` to release it by hand. |
 | `NAV_DELAY_SECONDS` | `2` | Pause between page navigations inside one tool call, in seconds. |
 | `AUTH_PROBE_CACHE_SECONDS` | `1800` | How long a passed `/feed/` session check is reused across server starts with the same cookies, in seconds (`0` = check on every start). |
-| `DAILY_ACTIONS_MAX` | `150` | Ceiling on any enrichment job's `daily_cap`. May only be lowered; a higher value is clamped with a warning, since raising it raises detection exposure in step. |
-| `PROFILE_LOADS_MAX` | `80` | Profile page loads per rolling 24 h. May only be lowered. The budget is charged per page load, and a call that would break a cap is refused with `limit_exceeded` and the time to resume. |
-| `SEARCH_PAGES_MAX` | `60` | Search result pages per rolling 24 h. May only be lowered. |
-| `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / 7 d. `INVITES_MAX` may be raised or lowered; `INVITES_WEEKLY_MAX` (LinkedIn's own limit) may only be lowered. |
-| `MESSAGES_MAX` | `50` | Messages per rolling 24 h. May only be lowered. |
+| `DAILY_ACTIONS_MAX` | `150` | Ceiling on any enrichment job's `daily_cap`; may be raised or lowered. Raising it raises detection exposure in step. |
+| `PROFILE_LOADS_MAX` | `150` | Profile page loads per rolling 24 h; may be raised or lowered. The budget is charged per page load, and a call that would break a cap is refused with `limit_exceeded` and the time to resume. |
+| `SEARCH_PAGES_MAX` | `100` | Search result pages per rolling 24 h; may be raised or lowered. |
+| `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / 7 d. Both may be raised or lowered. |
+| `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may be raised or lowered. |
 | `WORKING_HOURS_DISABLED` | off | The account budget is on business hours by default (09:00-18:00, lunch and weekends off): invitations and messages wait for the window, and profile/search loads run on half their cap outside it. `1` turns both off. The hours follow the container's clock, which is UTC unless `TZ` is set (`-e TZ=Europe/Berlin`). |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one. |
 | `DAILY_CAP_JITTER` | `0.15` | Fraction shaved off the daily cap at random each day. |

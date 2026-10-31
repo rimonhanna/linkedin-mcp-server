@@ -819,8 +819,8 @@ off.
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `DAILY_ACTIONS_MAX` | `150` | Ceiling on any enrichment job's `daily_cap` |
-| `PROFILE_LOADS_MAX` | `80` | Profile page loads per rolling 24 h; may be raised or lowered |
-| `SEARCH_PAGES_MAX` | `60` | Search result pages per rolling 24 h; may be raised or lowered |
+| `PROFILE_LOADS_MAX` | `150` | Profile page loads per rolling 24 h; may be raised or lowered |
+| `SEARCH_PAGES_MAX` | `100` | Search result pages per rolling 24 h; may be raised or lowered |
 | `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / 7 d; both may be raised or lowered |
 | `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may be raised or lowered |
 | `WORKING_HOURS_DISABLED` | off | `1` lets invitations and messages go outside working hours and lifts the halved read caps |

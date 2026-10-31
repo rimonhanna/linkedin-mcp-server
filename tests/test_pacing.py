@@ -33,8 +33,10 @@ from linkedin_mcp_server.pacing import (
     WITHDRAWALS,
     MIN_BUNCH_PAUSE,
     PROFILE,
+    PROFILE_LOADS_MAX,
     READ_TOOL_CALL_GAP,
     SEARCH,
+    SEARCH_PAGES_MAX,
     Schedule,
     WEEK_SECONDS,
     WINDOW_SECONDS,
@@ -745,7 +747,7 @@ class TestPerKindCaps:
     """Each kind refuses at N+1 and says when the oldest unit frees up."""
 
     @pytest.mark.parametrize(
-        ("kind", "cap"), [(PROFILE, 80), (SEARCH, 60), (INVITES, 20), (MESSAGES, 50)]
+        ("kind", "cap"), [(PROFILE, 150), (SEARCH, 100), (INVITES, 20), (MESSAGES, 50)]
     )
     def test_the_daily_cap_refuses_one_past_it(self, kind, cap):
         budget = _budget()
@@ -807,8 +809,8 @@ class TestPerKindCaps:
     @pytest.mark.parametrize(
         ("key", "kind", "default"),
         [
-            (EnvironmentKeys.PROFILE_LOADS_MAX, PROFILE, 80),
-            (EnvironmentKeys.SEARCH_PAGES_MAX, SEARCH, 60),
+            (EnvironmentKeys.PROFILE_LOADS_MAX, PROFILE, 150),
+            (EnvironmentKeys.SEARCH_PAGES_MAX, SEARCH, 100),
             (EnvironmentKeys.MESSAGES_MAX, MESSAGES, 50),
         ],
     )
@@ -901,7 +903,10 @@ class TestWorkingHours:
     def test_a_write_inside_the_schedule_passes(self):
         refuse_if_limited(_budget(BH()), INVITES, WED_10AM)
 
-    @pytest.mark.parametrize(("kind", "half"), [(PROFILE, 40), (SEARCH, 30)])
+    @pytest.mark.parametrize(
+        ("kind", "half"),
+        [(PROFILE, PROFILE_LOADS_MAX // 2), (SEARCH, SEARCH_PAGES_MAX // 2)],
+    )
     def test_reads_outside_the_schedule_run_on_half_the_cap(self, kind, half):
         budget = _budget(BH())
         _spend(budget, kind, half - 1, WED_8PM)
@@ -933,7 +938,7 @@ class TestWorkingHours:
 
     def test_ignore_schedule_lifts_the_halving_for_one_caller(self):
         budget = _budget(BH())
-        _spend(budget, PROFILE, 45, WED_8PM)
+        _spend(budget, PROFILE, PROFILE_LOADS_MAX // 2 + 5, WED_8PM)
         with pytest.raises(ActionLimitError):
             refuse_if_limited(budget, PROFILE, WED_8PM)
         refuse_if_limited(budget, PROFILE, WED_8PM, ignore_schedule=True)
@@ -941,7 +946,7 @@ class TestWorkingHours:
     def test_a_navigation_under_schedule_ignored_runs_on_the_full_cap(self, tmp_path):
         store = JobStore(tmp_path)
         held = load_account_budget(store, WED_8PM, schedule=BH())
-        _spend(held, PROFILE, 45, WED_8PM)
+        _spend(held, PROFILE, PROFILE_LOADS_MAX // 2 + 5, WED_8PM)
         token = account_budget_in_use.set(held)
         ignored = schedule_ignored.set(True)
         try:
@@ -949,7 +954,7 @@ class TestWorkingHours:
         finally:
             schedule_ignored.reset(ignored)
             account_budget_in_use.reset(token)
-        assert held.ledger.spent_kind(PROFILE, WED_8PM) == 46
+        assert held.ledger.spent_kind(PROFILE, WED_8PM) == PROFILE_LOADS_MAX // 2 + 6
 
     def test_the_opt_out_needs_a_truthy_value(self, monkeypatch):
         monkeypatch.setenv(EnvironmentKeys.WORKING_HOURS_DISABLED, "0")
@@ -964,12 +969,12 @@ class TestKindHeadroom:
         budget = _budget()
         _spend(budget, PROFILE, 30, WED_10AM - timedelta(hours=2))
         headroom, wait = kind_headroom(budget, PROFILE, WED_10AM)
-        assert headroom == 50
+        assert headroom == PROFILE_LOADS_MAX - 30
         assert wait == pytest.approx(22 * 3600, abs=1)
 
     def test_headroom_never_goes_negative(self):
         budget = _budget()
-        _spend(budget, PROFILE, 90, WED_10AM)
+        _spend(budget, PROFILE, PROFILE_LOADS_MAX + 10, WED_10AM)
         assert kind_headroom(budget, PROFILE, WED_10AM)[0] == 0
 
     def test_the_weekly_invite_cap_can_be_the_tight_one(self):
@@ -983,10 +988,10 @@ class TestKindHeadroom:
         budget = _budget(BH())
         _spend(budget, PROFILE, 30, WED_8PM)
         headroom, wait = kind_headroom(budget, PROFILE, WED_8PM)
-        assert headroom == 10
+        assert headroom == PROFILE_LOADS_MAX // 2 - 30
         assert wait == 13 * 3600  # 09:00 next morning, not 24 h on
         assert kind_headroom(budget, PROFILE, WED_8PM, ignore_schedule=True) == (
-            50,
+            PROFILE_LOADS_MAX - 30,
             pytest.approx(24 * 3600, abs=1),
         )
 

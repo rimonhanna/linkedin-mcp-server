@@ -91,8 +91,8 @@ DEFAULT_DAILY_ACTIONS = 100
 
 # Rolling caps per kind of activity, one page load or one submitted write
 # each (#58). The variable next to each replaces it, higher or lower.
-PROFILE_LOADS_MAX = 80  # PROFILE_LOADS_MAX, per 24 h
-SEARCH_PAGES_MAX = 60  # SEARCH_PAGES_MAX, per 24 h
+PROFILE_LOADS_MAX = 150  # PROFILE_LOADS_MAX, per 24 h (Linked Helper's recommendation)
+SEARCH_PAGES_MAX = 100  # SEARCH_PAGES_MAX, per 24 h (Linked Helper's recommendation)
 INVITES_MAX = 20  # INVITES_MAX, per 24 h
 INVITES_WEEKLY_MAX = 160  # INVITES_WEEKLY_MAX, per 7 d
 MESSAGES_MAX = 50  # MESSAGES_MAX, per 24 h
