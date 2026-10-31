@@ -90,11 +90,7 @@ MAX_DAILY_ACTIONS = 150
 DEFAULT_DAILY_ACTIONS = 100
 
 # Rolling caps per kind of activity, one page load or one submitted write
-# each (#58). The variable next to each may lower it and never raise it:
-# these are the ceiling, and the daily cap above used to be raisable from the
-# environment, which is how a live ledger came to read ``daily_cap: 250``.
-# INVITES_MAX is the exception: its 20 is only a conservative default, and
-# LinkedIn's real limit is the weekly one (160 per 7 d), which still bounds it.
+# each (#58). The variable next to each replaces it, higher or lower.
 PROFILE_LOADS_MAX = 80  # PROFILE_LOADS_MAX, per 24 h
 SEARCH_PAGES_MAX = 60  # SEARCH_PAGES_MAX, per 24 h
 INVITES_MAX = 20  # INVITES_MAX, per 24 h
@@ -176,24 +172,8 @@ HOURLY_WINDOW_SECONDS = 3600
 
 
 def max_daily_actions() -> int:
-    """The ceiling on the daily cap; the environment may lower it, never raise it."""
-    return _env_at_most(EnvironmentKeys.DAILY_ACTIONS_MAX, MAX_DAILY_ACTIONS)
-
-
-# Clamps already warned about, as (key, value). The ceilings are read on
-# every page load, and an operator with DAILY_ACTIONS_MAX=250 in the
-# environment would otherwise see the same line once per navigation.
-_clamp_warned: set[tuple[str, int]] = set()
-
-
-def _env_at_most(key: str, ceiling: int) -> int:
-    value = env_int(key, ceiling, minimum=1)
-    if value > ceiling:
-        if (key, value) not in _clamp_warned:
-            _clamp_warned.add((key, value))
-            logger.warning("Clamping %s=%d to the ceiling %d", key, value, ceiling)
-        return ceiling
-    return value
+    """The ceiling on the daily cap; DAILY_ACTIONS_MAX replaces it, up or down."""
+    return env_int(EnvironmentKeys.DAILY_ACTIONS_MAX, MAX_DAILY_ACTIONS, minimum=1)
 
 
 def kind_caps(kind: str) -> tuple[tuple[int, int], ...]:
@@ -201,14 +181,16 @@ def kind_caps(kind: str) -> tuple[tuple[int, int], ...]:
     if kind == PROFILE:
         return (
             (
-                _env_at_most(EnvironmentKeys.PROFILE_LOADS_MAX, PROFILE_LOADS_MAX),
+                env_int(
+                    EnvironmentKeys.PROFILE_LOADS_MAX, PROFILE_LOADS_MAX, minimum=1
+                ),
                 WINDOW_SECONDS,
             ),
         )
     if kind == SEARCH:
         return (
             (
-                _env_at_most(EnvironmentKeys.SEARCH_PAGES_MAX, SEARCH_PAGES_MAX),
+                env_int(EnvironmentKeys.SEARCH_PAGES_MAX, SEARCH_PAGES_MAX, minimum=1),
                 WINDOW_SECONDS,
             ),
         )
@@ -219,13 +201,18 @@ def kind_caps(kind: str) -> tuple[tuple[int, int], ...]:
                 WINDOW_SECONDS,
             ),
             (
-                _env_at_most(EnvironmentKeys.INVITES_WEEKLY_MAX, INVITES_WEEKLY_MAX),
+                env_int(
+                    EnvironmentKeys.INVITES_WEEKLY_MAX, INVITES_WEEKLY_MAX, minimum=1
+                ),
                 WEEK_SECONDS,
             ),
         )
     if kind == MESSAGES:
         return (
-            (_env_at_most(EnvironmentKeys.MESSAGES_MAX, MESSAGES_MAX), WINDOW_SECONDS),
+            (
+                env_int(EnvironmentKeys.MESSAGES_MAX, MESSAGES_MAX, minimum=1),
+                WINDOW_SECONDS,
+            ),
         )
     return ()
 
@@ -666,11 +653,7 @@ class Job:
                 actions=list(raw.get("actions", [])),
                 kinds={k: list(v) for k, v in (raw.get("kinds") or {}).items()},
             ),
-            # Clamped on read as well as in effective_cap: a ledger written
-            # while the environment could still raise the ceiling reads 250.
-            daily_cap=min(
-                raw.get("daily_cap", default_daily_actions()), max_daily_actions()
-            ),
+            daily_cap=raw.get("daily_cap", default_daily_actions()),
             schedule=schedule,
             warmup=raw.get("warmup", True),
         )

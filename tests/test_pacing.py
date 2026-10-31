@@ -45,6 +45,7 @@ from linkedin_mcp_server.pacing import (
     hourly_cap_resume_at,
     hourly_headroom,
     jittered_cap,
+    kind_caps,
     kind_headroom,
     load_account_budget,
     max_daily_actions,
@@ -448,34 +449,19 @@ class TestConfigurableLimits:
         job = Job(name="j", started_on=self.START, daily_cap=200, warmup=True)
         assert job.effective_cap(WED_10AM) == 120
 
-    def test_daily_max_cannot_raise_the_ceiling(self, monkeypatch, caplog):
-        """150 is the ceiling, and the environment used to lift it: the live
-        ledger this was written against read ``daily_cap: 250``."""
+    def test_daily_max_raises_the_ceiling(self, monkeypatch):
         monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "200")
         monkeypatch.setenv(EnvironmentKeys.DAILY_CAP_JITTER, "0")
         job = Job(name="j", started_on=self.START, daily_cap=200, warmup=True)
-        with caplog.at_level(logging.WARNING):
-            assert job.effective_cap(WED_10AM) == 150
-        assert self._warned(caplog, EnvironmentKeys.DAILY_ACTIONS_MAX)
+        assert job.effective_cap(WED_10AM) == 200
 
-    def test_the_clamp_warns_once_per_value_not_once_per_read(
-        self, monkeypatch, caplog
+    def test_a_cap_env_above_its_default_is_honored(self, monkeypatch):
+        monkeypatch.setenv(EnvironmentKeys.PROFILE_LOADS_MAX, "200")
+        assert kind_caps(PROFILE)[0][0] == 200
+
+    def test_a_persisted_cap_above_the_ceiling_is_kept_on_read(
+        self, tmp_path, monkeypatch
     ):
-        """The ceiling is read on every page load; measured with
-        DAILY_ACTIONS_MAX=250, one warning per navigation."""
-        monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "250")
-        with caplog.at_level(logging.WARNING):
-            assert max_daily_actions() == 150
-            assert max_daily_actions() == 150
-            monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "300")
-            assert max_daily_actions() == 150
-        clamps = [r for r in caplog.records if "Clamping" in r.getMessage()]
-        assert [r.getMessage() for r in clamps] == [
-            "Clamping DAILY_ACTIONS_MAX=250 to the ceiling 150",
-            "Clamping DAILY_ACTIONS_MAX=300 to the ceiling 150",
-        ]
-
-    def test_a_persisted_cap_above_the_ceiling_is_clamped_on_read(self, tmp_path):
         store = JobStore(tmp_path)
         path = store.root / f"{ACCOUNT_BUDGET_JOB}.json"
         path.write_text(
@@ -483,7 +469,13 @@ class TestConfigurableLimits:
             '"daily_cap": 250}',
             encoding="utf-8",
         )
-        assert store.load(ACCOUNT_BUDGET_JOB).daily_cap == 150
+        monkeypatch.setenv(EnvironmentKeys.DAILY_CAP_JITTER, "0")
+        job = store.load(ACCOUNT_BUDGET_JOB)
+        assert job.daily_cap == 250
+        job.warmup = False
+        assert job.effective_cap(WED_10AM) <= max_daily_actions()
+        monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "250")
+        assert job.effective_cap(WED_10AM) == 250
 
     def test_daily_max_garbage_falls_back_with_a_warning(self, monkeypatch, caplog):
         monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "lots")
@@ -820,19 +812,15 @@ class TestPerKindCaps:
             (EnvironmentKeys.MESSAGES_MAX, MESSAGES, 50),
         ],
     )
-    def test_the_environment_cannot_raise_a_cap(
-        self, monkeypatch, caplog, key, kind, default
-    ):
+    def test_the_environment_can_raise_a_cap(self, monkeypatch, key, kind, default):
         monkeypatch.setenv(key, str(default * 2))
         budget = _budget()
         _spend(budget, kind, default, WED_10AM)
-        with (
-            caplog.at_level(logging.WARNING),
-            pytest.raises(ActionLimitError) as excinfo,
-        ):
+        refuse_if_limited(budget, kind, WED_10AM)  # past the default, under the env
+        _spend(budget, kind, default, WED_10AM)
+        with pytest.raises(ActionLimitError) as excinfo:
             refuse_if_limited(budget, kind, WED_10AM)
-        assert excinfo.value.limit == default
-        assert any(key in r.getMessage() for r in caplog.records)
+        assert excinfo.value.limit == default * 2
 
     def test_the_environment_can_raise_the_daily_invite_cap(self, monkeypatch):
         monkeypatch.setenv(EnvironmentKeys.INVITES_MAX, "40")
@@ -844,7 +832,7 @@ class TestPerKindCaps:
             refuse_if_limited(budget, INVITES, WED_10AM)
         assert (excinfo.value.limit, excinfo.value.window) == (40, "24 h")
 
-    def test_the_weekly_invite_cap_lowers_but_never_raises(self, monkeypatch, caplog):
+    def test_the_weekly_invite_cap_can_be_lowered_and_raised(self, monkeypatch):
         monkeypatch.setenv(EnvironmentKeys.INVITES_WEEKLY_MAX, "30")
         budget = _budget()
         _spend(budget, INVITES, 30, WED_10AM - timedelta(days=2))
@@ -854,15 +842,7 @@ class TestPerKindCaps:
 
         monkeypatch.setenv(EnvironmentKeys.INVITES_WEEKLY_MAX, "300")
         _spend(budget, INVITES, 130, WED_10AM - timedelta(days=2))
-        with (
-            caplog.at_level(logging.WARNING),
-            pytest.raises(ActionLimitError) as excinfo,
-        ):
-            refuse_if_limited(budget, INVITES, WED_10AM)
-        assert excinfo.value.limit == 160
-        assert any(
-            EnvironmentKeys.INVITES_WEEKLY_MAX in r.getMessage() for r in caplog.records
-        )
+        refuse_if_limited(budget, INVITES, WED_10AM)  # 160 spent, 300 allowed
 
 
 class TestAdmitAndRecordWrite:

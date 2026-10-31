@@ -795,10 +795,9 @@ the tool. The budget they bound is not per profile, though: the ledger lives in
 `~/.linkedin-mcp/jobs`, so every profile under one home directory draws on the
 same daily cap, and two processes with different `DAILY_ACTIONS_MAX` share one
 ledger. Unset means the default; an unusable value falls back to the default
-with a warning. The caps are ceilings: a variable may lower one and never
-raise it (a higher value is clamped with a warning), because raising them
-raises detection exposure in step. Published limits for comparable tools are
-far lower than most people expect, on the order of one action a minute.
+with a warning. Each value is a default: a variable may set it higher or lower,
+though raising a cap raises detection exposure in step. Published limits for
+comparable tools are far lower than most people expect, on the order of one action a minute.
 
 The budget is charged per page load, not per tool call: a `get_person_profile`
 asking for every section is fourteen loads. Profile loads, search pages,
@@ -819,11 +818,11 @@ off.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `DAILY_ACTIONS_MAX` | `150` | Ceiling on any enrichment job's `daily_cap`; may only be lowered |
-| `PROFILE_LOADS_MAX` | `80` | Profile page loads per rolling 24 h; may only be lowered |
-| `SEARCH_PAGES_MAX` | `60` | Search result pages per rolling 24 h; may only be lowered |
-| `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / 7 d; `INVITES_MAX` may be raised or lowered, `INVITES_WEEKLY_MAX` (LinkedIn's own limit) may only be lowered |
-| `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may only be lowered |
+| `DAILY_ACTIONS_MAX` | `150` | Ceiling on any enrichment job's `daily_cap` |
+| `PROFILE_LOADS_MAX` | `80` | Profile page loads per rolling 24 h; may be raised or lowered |
+| `SEARCH_PAGES_MAX` | `60` | Search result pages per rolling 24 h; may be raised or lowered |
+| `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / 7 d; both may be raised or lowered |
+| `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may be raised or lowered |
 | `WORKING_HOURS_DISABLED` | off | `1` lets invitations and messages go outside working hours and lifts the halved read caps |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one |
 | `DAILY_CAP_JITTER` | `0.15` | Fraction shaved off the daily cap at random each day |

@@ -1223,20 +1223,16 @@ class TestConfigurableLimits:
     applied at call time instead; these prove the environment reaches them.
     """
 
-    async def test_daily_cap_ceiling_cannot_be_raised_from_the_environment(
-        self, mcp, store, monkeypatch, caplog
+    async def test_daily_cap_ceiling_can_be_raised_from_the_environment(
+        self, mcp, store, monkeypatch
     ):
         monkeypatch.setenv(EnvironmentKeys.DAILY_ACTIONS_MAX, "200")
         monkeypatch.setenv(EnvironmentKeys.DAILY_CAP_JITTER, "0")
         fn = await get_tool_fn(mcp, "start_enrichment_job")
-        with caplog.at_level(logging.WARNING):
-            out = await fn("j", ["a"], daily_cap=200, warmup=False)
+        out = await fn("j", ["a"], daily_cap=200, warmup=False)
 
-        assert store.load(ACCOUNT_BUDGET_JOB).daily_cap == 150
-        assert out["account_daily_cap_today"] == 150
-        assert any(
-            EnvironmentKeys.DAILY_ACTIONS_MAX in r.getMessage() for r in caplog.records
-        )
+        assert store.load(ACCOUNT_BUDGET_JOB).daily_cap == 200
+        assert out["account_daily_cap_today"] == 200
 
     async def test_daily_cap_ceiling_can_be_lowered_from_the_environment(
         self, mcp, store, monkeypatch
