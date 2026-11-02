@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
-from pydantic import Field
+from pydantic import Field, StringConstraints
 
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
 from linkedin_mcp_server.core.exceptions import (
@@ -174,7 +174,9 @@ def register_messaging_tools(
         exclude_args=["extractor"],
     )
     async def search_conversations(
-        keywords: str,
+        keywords: Annotated[
+            str, StringConstraints(strip_whitespace=True, min_length=1)
+        ],
         ctx: Context,
         limit: Annotated[int, Field(ge=1, le=50)] = 20,
         extractor: Any | None = None,
@@ -190,6 +192,13 @@ def register_messaging_tools(
         Returns:
             Dict with url, sections (search_results -> raw text), and optional references.
         """
+        if not any(char.isalnum() for char in keywords):
+            raise_tool_error(
+                InvalidReferenceError(
+                    "keywords must contain at least one letter or digit"
+                ),
+                "search_conversations",
+            )
         try:
             extractor = extractor or await get_ready_extractor(
                 ctx, tool_name="search_conversations"

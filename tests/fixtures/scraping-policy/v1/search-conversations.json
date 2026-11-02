@@ -52,7 +52,7 @@
     {
       "call": "search_conversations",
       "extra": {
-        "target_url": "https://www.linkedin.com/messaging/?searchTerm=engine",
+        "target_url": "https://www.linkedin.com/messaging/",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -62,8 +62,8 @@
     {
       "call": "search_conversations",
       "kind": "navigate",
-      "landed_url": "https://www.linkedin.com/messaging/?searchTerm=engine",
-      "requested_url": "https://www.linkedin.com/messaging/?searchTerm=engine",
+      "landed_url": "https://www.linkedin.com/messaging/",
+      "requested_url": "https://www.linkedin.com/messaging/",
       "section": "conversation",
       "timeout_ms": 30000,
       "wait_until": "commit"
@@ -93,7 +93,7 @@
       "call": "search_conversations",
       "extra": {
         "load_state_lagged": false,
-        "target_url": "https://www.linkedin.com/messaging/?searchTerm=engine",
+        "target_url": "https://www.linkedin.com/messaging/",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -136,15 +136,51 @@
       "section": "conversation"
     },
     {
-      "arg": {
-        "selectors": [
-          "main"
-        ]
-      },
       "call": "search_conversations",
-      "kind": "evaluate",
-      "operation": "root_content",
-      "program_digest": "e8a0e21ac6f5",
+      "kind": "locator.create",
+      "locator": "search_box",
+      "parent": null,
+      "section": "conversation",
+      "selector": "input[aria-label*=\"Search messages\" i], input[placeholder*=\"Search messages\" i]"
+    },
+    {
+      "call": "search_conversations",
+      "kind": "locator.derive",
+      "locator": "search_box_first",
+      "operation": "first",
+      "parent": "search_box",
+      "section": "conversation"
+    },
+    {
+      "call": "search_conversations",
+      "kind": "locator.click",
+      "locator": "search_box_first",
+      "section": "conversation",
+      "timeout_ms": 5000
+    },
+    {
+      "call": "search_conversations",
+      "delay_ms": null,
+      "kind": "keyboard.type",
+      "section": "conversation",
+      "text": "engine"
+    },
+    {
+      "call": "search_conversations",
+      "key": "Enter",
+      "kind": "keyboard.press",
+      "section": "conversation"
+    },
+    {
+      "call": "search_conversations",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "conversation"
+    },
+    {
+      "call": "search_conversations",
+      "kind": "boundary.rate_limit",
       "section": "conversation"
     },
     {
@@ -177,9 +213,9 @@
       "search_results"
     ],
     "sections": {
-      "search_results": "Conversation content"
+      "search_results": "Policy conversation"
     },
-    "url": "https://www.linkedin.com/messaging/?searchTerm=engine"
+    "url": "https://www.linkedin.com/messaging/"
   },
   "scenario": "search_conversations__baseline",
   "schema_version": 1

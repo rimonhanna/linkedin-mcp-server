@@ -843,6 +843,7 @@
           "properties": {
             "keywords": {
               "description": "Search keywords to filter conversations",
+              "minLength": 1,
               "type": "string"
             },
             "limit": {
