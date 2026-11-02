@@ -143,12 +143,13 @@
     },
     {
       "arg": {
-        "position": "bottom"
+        "position": "bottom",
+        "selector": null
       },
       "call": "get_conversation",
       "kind": "evaluate",
       "operation": "scroll_main_region",
-      "program_digest": "2a74f7f069d9",
+      "program_digest": "0528e35bba9b",
       "section": "conversation"
     },
     {

@@ -205,6 +205,24 @@ class MessagingApiCapture:
                 "LinkedIn did not return conversation data in time."
             ) from exc
 
+    async def wait_for_next_payload(self, *, after: int, timeout: float = 4.0) -> bool:
+        """Wait for a further page; a miss returns False and is no throttle strike.
+
+        A miss may be the end of the list or a slow page, so callers treat it
+        as no growth rather than as proof nothing more exists.
+        """
+        if len(self.payloads) > after:
+            return True
+        self._payload_event.clear()
+        try:
+            async with asyncio.timeout(timeout):
+                while len(self.payloads) <= after:
+                    await self._payload_event.wait()
+                    self._payload_event.clear()
+        except TimeoutError:
+            return False
+        return True
+
     async def _wait_for_template(self, timeout: float = 12.0) -> _RequestTemplate:
         if self._request_template is None:
             try:

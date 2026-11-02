@@ -133,6 +133,12 @@ class FakeCapture:
         if len(self.payloads) <= after and self._queued:
             self.payloads.append(self._queued.pop(0))
 
+    async def wait_for_next_payload(self, *, after: int, timeout: float = 4.0) -> bool:
+        del timeout
+        if len(self.payloads) <= after and self._queued:
+            self.payloads.append(self._queued.pop(0))
+        return len(self.payloads) > after
+
     async def settle(self, timeout: float = 1.0) -> None:
         del timeout
 
@@ -228,6 +234,97 @@ class TestGetInbox:
             "url": "https://www.linkedin.com/messaging/",
             "sections": {},
         }
+
+
+class TestInboxPaging:
+    async def _run(self, mock_page, pages, limit, root=None):
+        capture = FakeCapture(pages)
+        reader = _reader(mock_page)
+        scroll = AsyncMock()
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=capture,
+            ),
+            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(reader, "_scroll_main_scrollable_region", scroll),
+            patch.object(
+                PageContentReader,
+                "_extract_root_content",
+                new_callable=AsyncMock,
+                return_value=root or _root("inbox"),
+            ),
+        ):
+            result = await reader.get_inbox(limit=limit)
+        return result, scroll, capture
+
+    @staticmethod
+    def _page(start: int, count: int) -> dict[str, Any]:
+        return _inbox(*[_conversation(f"2-{i}") for i in range(start, start + count)])
+
+    async def test_paging_stops_at_limit(self, mock_page):
+        pages = [self._page(i * 5, 5) for i in range(6)]
+        result, scroll, capture = await self._run(mock_page, pages, 12)
+
+        assert scroll.await_count == 3
+        assert len(capture.payloads) == 3
+        assert len(result["references"]["inbox"]) == 12
+
+    async def test_stops_after_two_scrolls_without_growth(self, mock_page):
+        result, scroll, _ = await self._run(mock_page, [self._page(0, 5)], 40)
+
+        assert scroll.await_count == 3
+        assert len(result["references"]["inbox"]) == 5
+
+    async def test_dom_thread_anchors_are_capped_at_limit(self, mock_page):
+        anchors = [
+            {
+                "href": f"https://www.linkedin.com/messaging/thread/2-dom{i}/",
+                "text": f"P{i}",
+            }
+            for i in range(10)
+        ]
+        result, _, _ = await self._run(
+            mock_page,
+            [self._page(0, 3)],
+            1,
+            root=_root("inbox", anchors),
+        )
+
+        conversations = [
+            r for r in result["references"]["inbox"] if r["kind"] == "conversation"
+        ]
+        assert len(conversations) == 1
+
+    async def test_scroll_budget_stops_quietly(self, mock_page):
+        pages = [self._page(i * 5, 5) for i in range(6)]
+        clock = iter([0.0, 0.0, 1000.0, 1000.0, 1000.0])
+        with patch.object(
+            ScrapingSession, "monotonic", side_effect=lambda: next(clock)
+        ):
+            result, scroll, _ = await self._run(mock_page, pages, 40)
+
+        assert scroll.await_count == 2
+        assert len(result["references"]["inbox"]) == 10
+
+    async def test_rate_limit_is_checked_after_paging(self, mock_page):
+        with patch.object(
+            ScrapingSession, "check_rate_limit", new_callable=AsyncMock
+        ) as check:
+            await self._run(mock_page, [self._page(0, 2)], 40)
+
+        assert check.await_count >= 2
+
+    async def test_next_page_timeout_returns_loaded_without_strike(self, mock_page):
+        from linkedin_mcp_server.scraping.messaging_api import MessagingApiCapture
+
+        capture = MessagingApiCapture(mock_page)
+        with patch(
+            "linkedin_mcp_server.scraping.messaging_api.note_throttle_signal"
+        ) as strike:
+            assert await capture.wait_for_next_payload(after=0, timeout=0.01) is False
+        strike.assert_not_called()
 
 
 class TestReadStateWrites:
