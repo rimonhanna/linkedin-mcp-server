@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
 
 import asyncio
+import logging
 
 import anyio
 import anyio.lowlevel
@@ -17,12 +18,15 @@ from linkedin_mcp_server.scraping.messaging_payload import (
     HistoryStopReason,
     MessageHistory,
     build_message_page_url,
+    conversation_container,
     conversation_elements,
     merge_message_elements,
     message_elements,
     replace_conversation_urn,
 )
 
+
+logger = logging.getLogger(__name__)
 
 _FORWARDED_HEADERS = frozenset(
     {
@@ -49,15 +53,6 @@ def _is_history_request(url: str) -> bool:
     return all(
         marker in variables
         for marker in ("deliveredAt:", "countBefore:", "countAfter:")
-    )
-
-
-def _has_conversation_container(payload: Any) -> bool:
-    if not isinstance(payload, dict):
-        return False
-    data = payload.get("data")
-    return isinstance(data, dict) and isinstance(
-        data.get("messengerConversationsByCategoryQuery"), dict
     )
 
 
@@ -101,6 +96,7 @@ class MessagingApiCapture:
     def __init__(self, page: Any):
         self._page = page
         self.payloads: list[dict[str, Any]] = []
+        self.seen_operations: set[str] = set()
         self.history: MessageHistory
         self._request_template: _RequestTemplate | None = None
         self._history_template: _RequestTemplate | None = None
@@ -131,7 +127,10 @@ class MessagingApiCapture:
         await self._drain_pending()
 
     def _on_response(self, response: Any) -> None:
-        if _operation(response.url) != "messengerConversations":
+        operation = _operation(response.url)
+        if operation:
+            self.seen_operations.add(operation)
+        if operation != "messengerConversations":
             return
 
         async def read() -> None:
@@ -139,9 +138,15 @@ class MessagingApiCapture:
                 payload = await response.json()
             except Exception:
                 return
-            if _has_conversation_container(payload):
-                self.payloads.append(payload)
-                self._payload_event.set()
+            if conversation_container(payload) is None:
+                data = payload.get("data") if isinstance(payload, dict) else None
+                logger.warning(
+                    "Rejected messengerConversations response; data keys: %s",
+                    sorted(data) if isinstance(data, dict) else [],
+                )
+                return
+            self.payloads.append(payload)
+            self._payload_event.set()
 
         self._pending.append(asyncio.create_task(read()))
 
@@ -185,8 +190,14 @@ class MessagingApiCapture:
 
         self._pending.append(asyncio.create_task(read()))
 
-    async def wait_for_payload(self, *, after: int = 0, timeout: float = 12.0) -> None:
-        """Wait until a new conversation response has been parsed."""
+    async def wait_for_payload(
+        self, *, after: int = 0, timeout: float = 12.0, throttle: bool = True
+    ) -> None:
+        """Wait until a new conversation response has been parsed.
+
+        ``throttle=False`` is for a page that already loaded and passed the
+        rate-limit check: a missing payload there is no throttle evidence.
+        """
         if len(self.payloads) > after:
             return
         self._payload_event.clear()
@@ -196,11 +207,16 @@ class MessagingApiCapture:
                     await self._payload_event.wait()
                     self._payload_event.clear()
         except TimeoutError as exc:
-            # The retry storm in issue #57 was this line, retried at once.
-            # A half signal, not a strike: one payload that never arrives is
-            # also what a slow proxy looks like, and two within ten minutes
-            # is what makes it a throttle.
-            note_throttle_signal("payload_timeout", half=True)
+            logger.warning(
+                "No conversation payload; graphql operations seen: %s",
+                sorted(self.seen_operations),
+            )
+            if throttle:
+                # The retry storm in issue #57 was this line, retried at once.
+                # A half signal, not a strike: one payload that never arrives
+                # is also what a slow proxy looks like, and two within ten
+                # minutes is what makes it a throttle.
+                note_throttle_signal("payload_timeout", half=True)
             raise LinkedInScraperException(
                 "LinkedIn did not return conversation data in time."
             ) from exc

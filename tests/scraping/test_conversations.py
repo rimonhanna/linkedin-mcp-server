@@ -128,8 +128,10 @@ class FakeCapture:
     async def __aexit__(self, *_exc: object) -> None:
         return None
 
-    async def wait_for_payload(self, *, after: int, timeout: float = 12.0) -> None:
-        del timeout
+    async def wait_for_payload(
+        self, *, after: int, timeout: float = 12.0, throttle: bool = True
+    ) -> None:
+        del timeout, throttle
         if len(self.payloads) <= after and self._queued:
             self.payloads.append(self._queued.pop(0))
 

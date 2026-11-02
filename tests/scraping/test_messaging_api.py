@@ -340,3 +340,63 @@ async def test_a_payload_that_never_arrives_is_half_a_throttle_signal(
     assert cooldown.until is not None
     assert cooldown.last_signal is not None
     assert cooldown.last_signal["signal"] == "payload_timeout"
+
+
+async def test_a_payload_timeout_on_a_loaded_page_records_no_strike(
+    mock_page, tmp_path
+):
+    store = JobStore(tmp_path / "jobs")
+
+    async with MessagingApiCapture(mock_page) as capture:
+        for _ in range(2):
+            with pytest.raises(LinkedInScraperException, match="did not return"):
+                await capture.wait_for_payload(timeout=0.01, throttle=False)
+
+    cooldown = read_account_cooldown(store)
+    assert cooldown.half_at is None
+    assert cooldown.until is None
+    assert cooldown.strikes == 0
+
+
+async def test_search_payload_under_another_container_key_is_captured(mock_page):
+    source = _conversation("2-source")
+    response = SimpleNamespace(
+        url=(
+            "https://www.linkedin.com/voyager/api/graphql?"
+            "queryId=messengerConversations.search-hash"
+        ),
+        json=AsyncMock(
+            return_value={
+                "data": {
+                    "messengerConversationsBySearchCriteria": {"elements": [source]}
+                }
+            }
+        ),
+    )
+
+    async with MessagingApiCapture(mock_page) as capture:
+        for callback in mock_page.listeners["response"]:
+            callback(response)
+        await capture.wait_for_payload(timeout=1)
+
+    assert capture.conversations_since() == [source]
+
+
+async def test_unrelated_data_keys_are_rejected_and_named_in_the_warning(
+    mock_page, caplog
+):
+    response = SimpleNamespace(
+        url=(
+            "https://www.linkedin.com/voyager/api/graphql?"
+            "queryId=messengerConversations.hash"
+        ),
+        json=AsyncMock(return_value={"data": {"somethingElse": {"elements": [{}]}}}),
+    )
+
+    async with MessagingApiCapture(mock_page) as capture:
+        for callback in mock_page.listeners["response"]:
+            callback(response)
+        await capture._drain_pending()
+
+    assert capture.payloads == []
+    assert "['somethingElse']" in caplog.text

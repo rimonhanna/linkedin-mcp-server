@@ -204,7 +204,7 @@ class ConversationReader:
             await self._scroll_main_scrollable_region(
                 position="bottom", attempts=scroll_attempts, pause_time=0.5
             )
-        await capture.wait_for_payload(after=offset)
+        await capture.wait_for_payload(after=offset, throttle=False)
         await capture.settle()
         return offset
 

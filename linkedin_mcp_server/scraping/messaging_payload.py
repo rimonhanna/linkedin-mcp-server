@@ -47,11 +47,20 @@ def _elements(container: dict[str, Any] | None) -> list[dict[str, Any]]:
     return [value for value in values if isinstance(value, dict)]
 
 
+def conversation_container(payload: Any) -> dict[str, Any] | None:
+    """Return the messengerConversationsBy* container, whichever query made it."""
+    data = _nested_mapping(payload, "data")
+    if data is None:
+        return None
+    for key, value in data.items():
+        if key.startswith("messengerConversationsBy") and isinstance(value, dict):
+            return value
+    return None
+
+
 def conversation_elements(payload: Any) -> list[dict[str, Any]]:
     """Return conversation entities from a messengerConversations response."""
-    return _elements(
-        _nested_mapping(payload, "data", "messengerConversationsByCategoryQuery")
-    )
+    return _elements(conversation_container(payload))
 
 
 def message_elements(payload: Any) -> list[dict[str, Any]]:
