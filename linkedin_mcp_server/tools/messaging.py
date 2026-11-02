@@ -46,7 +46,7 @@ def register_messaging_tools(
     )
     async def get_inbox(
         ctx: Context,
-        limit: Annotated[int, Field(ge=1, le=50)] = 20,
+        limit: Annotated[int, Field(ge=1, le=200)] = 20,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -54,7 +54,7 @@ def register_messaging_tools(
 
         Args:
             ctx: FastMCP context for progress reporting
-            limit: Maximum number of conversations to load (1-50, default 20)
+            limit: Maximum number of conversations to load (1-200, default 20)
 
         Returns:
             Dict with url, sections (inbox -> raw text), and optional references.

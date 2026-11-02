@@ -44,6 +44,13 @@ from linkedin_mcp_server.scraping.text import strip_linkedin_noise
 
 logger = logging.getLogger(__name__)
 
+_INBOX_MAX_SCROLLS = 30
+# Under the tool timeout, past which FastMCP discards whatever was loaded.
+_INBOX_SCROLL_BUDGET = 90.0
+_INBOX_SCROLL_PAUSE = 1.2
+# Unverified against the live site; the scroll falls back to the largest region.
+_INBOX_LIST_SELECTOR = ".msg-conversations-container__conversations-list"
+
 
 class ConversationReader:
     """Own every workflow whose subject is a LinkedIn messaging thread.
@@ -108,11 +115,12 @@ class ConversationReader:
         position: Literal["top", "bottom"],
         attempts: int,
         pause_time: float = 0.5,
+        selector: str | None = None,
     ) -> None:
-        """Scroll the largest scrollable region inside main when one exists."""
+        """Scroll the preferred region, else the largest scrollable one in main."""
         for _ in range(attempts):
             await self._session.page.evaluate(
-                """({ position }) => {
+                """({ position, selector }) => {
                     const main = document.querySelector('main');
                     if (!main) return false;
 
@@ -124,16 +132,59 @@ class ConversationReader:
                         );
                     };
 
+                    const preferred = selector ? document.querySelector(selector) : null;
                     const candidates = [main, ...main.querySelectorAll('*')].filter(isScrollable);
-                    const target = candidates.sort(
+                    const target = (preferred && isScrollable(preferred) ? preferred : null) || candidates.sort(
                         (left, right) => right.scrollHeight - left.scrollHeight
                     )[0] || main;
                     target.scrollTop = position === 'top' ? 0 : target.scrollHeight;
                     return true;
                 }""",
-                {"position": position},
+                {"position": position, "selector": selector},
             )
             await self._session.delay(pause_time)
+
+    async def _load_inbox_to_limit(
+        self, capture: MessagingApiCapture, offset: int, limit: int
+    ) -> None:
+        """Scroll the sidebar list, waiting for each next page, until limit is met."""
+        stalled = 0
+        deadline = self._session.monotonic() + _INBOX_SCROLL_BUDGET
+        stop_reason = f"{_INBOX_MAX_SCROLLS} scrolls spent"
+        loaded = 0
+        for _ in range(_INBOX_MAX_SCROLLS):
+            loaded = len(
+                self._unique_conversations(capture.conversations_since(offset))
+            )
+            if loaded >= limit:
+                return
+            if stalled >= 2:
+                stop_reason = "no new conversations after 2 scrolls"
+                break
+            if self._session.monotonic() >= deadline:
+                stop_reason = f"{_INBOX_SCROLL_BUDGET:.0f}s scroll budget spent"
+                break
+            seen = len(capture.payloads)
+            await self._scroll_main_scrollable_region(
+                position="bottom",
+                attempts=1,
+                pause_time=self._session.jittered(_INBOX_SCROLL_PAUSE),
+                selector=_INBOX_LIST_SELECTOR,
+            )
+            if await capture.wait_for_next_payload(after=seen):
+                await capture.settle()
+            grown = (
+                len(self._unique_conversations(capture.conversations_since(offset)))
+                > loaded
+            )
+            stalled = 0 if grown else stalled + 1
+        else:
+            loaded = len(
+                self._unique_conversations(capture.conversations_since(offset))
+            )
+        logger.info(
+            "Inbox stopped at %d of %d conversations: %s", loaded, limit, stop_reason
+        )
 
     async def _load_messaging_page(
         self,
@@ -244,8 +295,10 @@ class ConversationReader:
                     capture,
                     url,
                     log_context="Messaging inbox",
-                    scroll_attempts=max(1, limit // 10),
+                    scroll_attempts=1,
                 )
+                await self._load_inbox_to_limit(capture, offset, limit)
+                await self._session.check_rate_limit()
                 raw_result = await self._content._extract_root_content(["main"])
                 payloads = capture.payloads[offset:]
 
@@ -259,6 +312,15 @@ class ConversationReader:
             )
             if conversation_refs:
                 references = dedupe_references(conversation_refs + references)
+                kept = 0
+                capped: list[Reference] = []
+                for ref in references:
+                    if ref["kind"] == "conversation":
+                        kept += 1
+                        if kept > limit:
+                            continue
+                    capped.append(ref)
+                references = capped
             return self._single_section_result(
                 url, "inbox", cleaned, references=references
             )

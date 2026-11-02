@@ -7,7 +7,7 @@ from contextlib import ExitStack, asynccontextmanager, contextmanager
 from difflib import unified_diff
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import asyncio
 import inspect
@@ -27,6 +27,7 @@ from linkedin_mcp_server.scraping import jobs as jobs_module
 from linkedin_mcp_server.scraping import navigation as navigation_module
 from linkedin_mcp_server.scraping import person as person_module
 from linkedin_mcp_server.scraping import session as session_module
+from linkedin_mcp_server.scraping.messaging_api import MessagingApiCapture
 from linkedin_mcp_server.scraping import LinkedInExtractor
 from linkedin_mcp_server.scraping.fields import COMPANY_SECTIONS, PERSON_SECTIONS
 from linkedin_mcp_server.server import create_mcp_server
@@ -266,6 +267,13 @@ async def boundaries(
             feed_module.FeedScraper,
             "_drain_listener_tasks",
             staticmethod(drain),
+        ),
+        # The frozen clock never fires a real timeout, so the wait for a next
+        # inbox page that never comes would hang; report it as the list's end.
+        patch.object(
+            MessagingApiCapture,
+            "wait_for_next_payload",
+            AsyncMock(return_value=False),
         ),
         patch.object(session_module, "jitter", jitter),
         patch.object(session_module.asyncio, "sleep", clock.sleep),
@@ -1110,7 +1118,8 @@ async def _conversation_scenario(method: str) -> dict[str, Any]:
 
     page.script("goto", emit_messaging)
     if method in {"get_inbox", "get_conversation"}:
-        page.script("evaluate:scroll_main_region", True)
+        scrolls = 3 if method == "get_inbox" else 1
+        page.script("evaluate:scroll_main_region", *[True] * scrolls)
     if method != "get_conversation":
         page.script("evaluate:root_content", _root("Conversation content"))
     if method == "get_conversation":

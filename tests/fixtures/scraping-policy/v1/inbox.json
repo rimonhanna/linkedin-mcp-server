@@ -136,12 +136,13 @@
     },
     {
       "arg": {
-        "position": "bottom"
+        "position": "bottom",
+        "selector": null
       },
       "call": "get_inbox",
       "kind": "evaluate",
       "operation": "scroll_main_region",
-      "program_digest": "2a74f7f069d9",
+      "program_digest": "0528e35bba9b",
       "section": "conversation"
     },
     {
@@ -149,6 +150,47 @@
       "kind": "sleep",
       "reason": "sleep",
       "seconds": 0.5,
+      "section": "conversation"
+    },
+    {
+      "arg": {
+        "position": "bottom",
+        "selector": ".msg-conversations-container__conversations-list"
+      },
+      "call": "get_inbox",
+      "kind": "evaluate",
+      "operation": "scroll_main_region",
+      "program_digest": "0528e35bba9b",
+      "section": "conversation"
+    },
+    {
+      "call": "get_inbox",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 1.2,
+      "section": "conversation"
+    },
+    {
+      "arg": {
+        "position": "bottom",
+        "selector": ".msg-conversations-container__conversations-list"
+      },
+      "call": "get_inbox",
+      "kind": "evaluate",
+      "operation": "scroll_main_region",
+      "program_digest": "0528e35bba9b",
+      "section": "conversation"
+    },
+    {
+      "call": "get_inbox",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 1.2,
+      "section": "conversation"
+    },
+    {
+      "call": "get_inbox",
+      "kind": "boundary.rate_limit",
       "section": "conversation"
     },
     {
