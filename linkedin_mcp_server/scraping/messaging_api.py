@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import asyncio
+import logging
+import re
 
 import anyio
 import anyio.lowlevel
@@ -17,12 +19,15 @@ from linkedin_mcp_server.scraping.messaging_payload import (
     HistoryStopReason,
     MessageHistory,
     build_message_page_url,
+    conversation_container,
     conversation_elements,
     merge_message_elements,
     message_elements,
     replace_conversation_urn,
 )
 
+
+logger = logging.getLogger(__name__)
 
 _FORWARDED_HEADERS = frozenset(
     {
@@ -44,20 +49,102 @@ def _operation(url: str) -> str | None:
     return operation if operation.isidentifier() else None
 
 
+def _variables(url: str) -> str:
+    return parse_qs(urlparse(url).query).get("variables", [""])[0]
+
+
+def _top_level_variables(url: str) -> dict[str, str]:
+    """Split the ``variables`` tuple into its top-level ``name: value`` pairs."""
+    text = _variables(url).strip()
+    if text.startswith("(") and text.endswith(")"):
+        text = text[1:-1]
+    pairs: dict[str, str] = {}
+    depth = 0
+    start = 0
+    for index, char in enumerate([*text, ","]):
+        if char in "([":
+            depth += 1
+        elif char in ")]":
+            depth -= 1
+        elif char == "," and depth == 0:
+            name, _, value = text[start:index].partition(":")
+            if name.strip().isidentifier():
+                pairs[name.strip()] = value
+            start = index + 1
+    return pairs
+
+
+_CATEGORY_VALUE_RE = re.compile(r"(?<=\()category:\w+")
+# Field names (``keywords:``, ``category:``) open a group or follow a comma.
+_FIELD_LABEL_RE = re.compile(r"(?:^|(?<=[(,]))[A-Za-z_]\w*:")
+_LIST_WRAPPER_RE = re.compile(r"\bList(?=\()", re.IGNORECASE)
+_STRUCTURE_RES = (_CATEGORY_VALUE_RE, _FIELD_LABEL_RE, _LIST_WRAPPER_RE)
+
+# Paging and mailbox variables; the typed text can only be in the others.
+_NON_SEARCH_VARIABLES = frozenset(
+    {"count", "mailboxUrn", "nextCursor", "lastUpdatedBefore", "syncToken"}
+)
+
+
+def normalize_keywords(keywords: str) -> str:
+    return " ".join(keywords.split()).casefold()
+
+
+def has_searchable_text(keywords: str) -> bool:
+    return any(char.isalnum() for char in keywords)
+
+
+def _carries_typed_text(text: str, wanted: str) -> bool:
+    """True when ``wanted`` occurs somewhere outside the request's own structure.
+
+    Structure (field names, the category value, ``List(`` wrappers) is masked
+    rather than deleted, so typed text that looks like structure (``List``,
+    ``category:foo``, ``(note: x)``) still matches while an inbox request does not.
+    """
+    text = " ".join(text.split()).casefold()
+    structure = [False] * len(text)
+    for pattern in _STRUCTURE_RES:
+        for match in pattern.finditer(text):
+            structure[match.start() : match.end()] = [True] * len(match.group())
+    start = text.find(wanted)
+    while start != -1:
+        if not all(structure[start : start + len(wanted)]):
+            return True
+        start = text.find(wanted, start + 1)
+    return False
+
+
+def _is_search_request(url: str, keywords: str) -> bool:
+    """True when a non-paging variable carries the full keyword."""
+    wanted = normalize_keywords(keywords)
+    query = ",".join(
+        value
+        for name, value in _top_level_variables(url).items()
+        if name not in _NON_SEARCH_VARIABLES
+    )
+    if not has_searchable_text(wanted) or not query:
+        return False
+    # The keyword can be percent-encoded once or twice inside ``variables``.
+    for _ in range(3):
+        if _carries_typed_text(query, wanted):
+            return True
+        decoded = unquote(query)
+        if decoded == query:
+            return False
+        query = decoded
+    return _carries_typed_text(query, wanted)
+
+
+def _variable_names(url: str) -> list[str]:
+    """Top-level names of the ``variables`` tuple, never their values."""
+    return sorted(_top_level_variables(url))
+
+
 def _is_history_request(url: str) -> bool:
     variables = parse_qs(urlparse(url).query).get("variables", [""])[0]
     return all(
         marker in variables
         for marker in ("deliveredAt:", "countBefore:", "countAfter:")
-    )
-
-
-def _has_conversation_container(payload: Any) -> bool:
-    if not isinstance(payload, dict):
-        return False
-    data = payload.get("data")
-    return isinstance(data, dict) and isinstance(
-        data.get("messengerConversationsByCategoryQuery"), dict
     )
 
 
@@ -101,6 +188,8 @@ class MessagingApiCapture:
     def __init__(self, page: Any):
         self._page = page
         self.payloads: list[dict[str, Any]] = []
+        self.seen_operations: set[str] = set()
+        self._search_keywords: str | None = None
         self.history: MessageHistory
         self._request_template: _RequestTemplate | None = None
         self._history_template: _RequestTemplate | None = None
@@ -131,7 +220,25 @@ class MessagingApiCapture:
         await self._drain_pending()
 
     def _on_response(self, response: Any) -> None:
-        if _operation(response.url) != "messengerConversations":
+        operation = _operation(response.url)
+        if operation:
+            self.seen_operations.add(operation)
+        if operation != "messengerConversations":
+            return
+        if getattr(response, "status", None) == 429:
+            note_throttle_signal("http_429")
+            return
+        # Decided when the response arrives: a search may begin while an
+        # earlier inbox response is still being read.
+        is_search = self._search_keywords is not None and _is_search_request(
+            response.url, self._search_keywords
+        )
+        if self._search_keywords is not None and not is_search:
+            logger.debug(
+                "Ignored messengerConversations response after search submit; "
+                "variable names: %s",
+                _variable_names(response.url),
+            )
             return
 
         async def read() -> None:
@@ -139,9 +246,17 @@ class MessagingApiCapture:
                 payload = await response.json()
             except Exception:
                 return
-            if _has_conversation_container(payload):
-                self.payloads.append(payload)
-                self._payload_event.set()
+            if self._search_keywords is not None and not is_search:
+                return
+            if conversation_container(payload) is None:
+                data = payload.get("data") if isinstance(payload, dict) else None
+                logger.warning(
+                    "Rejected messengerConversations response; data keys: %s",
+                    sorted(data) if isinstance(data, dict) else [],
+                )
+                return
+            self.payloads.append(payload)
+            self._payload_event.set()
 
         self._pending.append(asyncio.create_task(read()))
 
@@ -185,8 +300,19 @@ class MessagingApiCapture:
 
         self._pending.append(asyncio.create_task(read()))
 
-    async def wait_for_payload(self, *, after: int = 0, timeout: float = 12.0) -> None:
-        """Wait until a new conversation response has been parsed."""
+    def begin_search(self, keywords: str) -> int:
+        """Accept only search responses from now on; return the payload count."""
+        self._search_keywords = keywords
+        return len(self.payloads)
+
+    async def wait_for_payload(
+        self, *, after: int = 0, timeout: float = 12.0, throttle: bool = True
+    ) -> None:
+        """Wait until a new conversation response has been parsed.
+
+        ``throttle=False`` is for a page that already loaded and passed the
+        rate-limit check: a missing payload there is no throttle evidence.
+        """
         if len(self.payloads) > after:
             return
         self._payload_event.clear()
@@ -196,11 +322,16 @@ class MessagingApiCapture:
                     await self._payload_event.wait()
                     self._payload_event.clear()
         except TimeoutError as exc:
-            # The retry storm in issue #57 was this line, retried at once.
-            # A half signal, not a strike: one payload that never arrives is
-            # also what a slow proxy looks like, and two within ten minutes
-            # is what makes it a throttle.
-            note_throttle_signal("payload_timeout", half=True)
+            logger.warning(
+                "No conversation payload; graphql operations seen: %s",
+                sorted(self.seen_operations),
+            )
+            if throttle:
+                # The retry storm in issue #57 was this line, retried at once.
+                # A half signal, not a strike: one payload that never arrives
+                # is also what a slow proxy looks like, and two within ten
+                # minutes is what makes it a throttle.
+                note_throttle_signal("payload_timeout", half=True)
             raise LinkedInScraperException(
                 "LinkedIn did not return conversation data in time."
             ) from exc

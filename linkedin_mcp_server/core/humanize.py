@@ -62,7 +62,7 @@ async def human_type(
     The net typed result is exactly ``text`` -- a typo is always a wrong char
     followed by one Backspace and the right char, so nothing is left behind.
     A uniform per-key delay (the old fixed 15ms) is itself a tell; this removes
-    it. Used on the message composer, the one place the scraper types.
+    it. Used wherever the scraper types: the message composer and search boxes.
 
     ``budget_seconds`` bounds the total typing time. Human cadence is ~0.16s per
     character, so a long message (thousands of characters) would otherwise run

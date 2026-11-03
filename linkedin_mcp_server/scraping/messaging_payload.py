@@ -47,11 +47,20 @@ def _elements(container: dict[str, Any] | None) -> list[dict[str, Any]]:
     return [value for value in values if isinstance(value, dict)]
 
 
+def conversation_container(payload: Any) -> dict[str, Any] | None:
+    """Return the messengerConversationsBy* container, whichever query made it."""
+    data = _nested_mapping(payload, "data")
+    if data is None:
+        return None
+    for key, value in data.items():
+        if key.startswith("messengerConversationsBy") and isinstance(value, dict):
+            return value
+    return None
+
+
 def conversation_elements(payload: Any) -> list[dict[str, Any]]:
     """Return conversation entities from a messengerConversations response."""
-    return _elements(
-        _nested_mapping(payload, "data", "messengerConversationsByCategoryQuery")
-    )
+    return _elements(conversation_container(payload))
 
 
 def message_elements(payload: Any) -> list[dict[str, Any]]:
@@ -132,6 +141,51 @@ def build_conversation_references(
             if limit is not None and len(references) >= limit:
                 return references
     return references
+
+
+def _last_message_preview(item: dict[str, Any]) -> str:
+    for key in ("latestMessage", "lastMessage", "messages"):
+        value = item.get(key)
+        container = _mapping(value)
+        elements = _elements(container) if container is not None else []
+        message = elements[0] if elements else container
+        text = _rich_text(message.get("body")) if message is not None else ""
+        if text:
+            return text
+    return ""
+
+
+def conversation_rows_text(payloads: Iterable[Any], paths: set[str]) -> str:
+    """Render the result rows (names, date, last message) from the payload alone.
+
+    A row with nothing else to show falls back to its thread path, so a payload
+    that holds conversations never renders as empty text.
+    """
+    rows: list[str] = []
+    seen: set[str] = set()
+    for payload in payloads:
+        for item in conversation_elements(payload):
+            path = conversation_thread_path(item)
+            if path is None or path not in paths or path in seen:
+                continue
+            seen.add(path)
+            participants = item.get("conversationParticipants")
+            names = (
+                [
+                    name
+                    for participant in participants
+                    if (name := _participant_name(participant))
+                ]
+                if isinstance(participants, list)
+                else []
+            )
+            lines = [
+                _conversation_title(item) or ", ".join(names),
+                provider_timestamp(item.get("lastActivityAt")) or "",
+                _last_message_preview(item),
+            ]
+            rows.append("\n".join(line for line in lines if line) or path)
+    return "\n\n".join(rows)
 
 
 def _member_profile_urls(item: dict[str, Any]) -> Iterable[str]:

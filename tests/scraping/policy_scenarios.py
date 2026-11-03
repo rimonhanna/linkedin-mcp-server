@@ -21,6 +21,7 @@ from linkedin_mcp_server.callbacks import ProgressCallback
 from linkedin_mcp_server.pacing import JobStore
 from linkedin_mcp_server.scraping import capture as capture_module
 from linkedin_mcp_server.scraping import company as company_module
+from linkedin_mcp_server.scraping import conversations as conversations_module
 from linkedin_mcp_server.scraping import feed as feed_module
 from linkedin_mcp_server.scraping import job_pages as job_pages_module
 from linkedin_mcp_server.scraping import jobs as jobs_module
@@ -1117,10 +1118,31 @@ async def _conversation_scenario(method: str) -> dict[str, Any]:
             page.emit("request", Request())
 
     page.script("goto", emit_messaging)
+    if method == "search_conversations":
+        search_selector = (
+            'input[aria-label*="Search messages" i], '
+            'input[placeholder*="Search messages" i]'
+        )
+        search_box = page.declare_locator(search_selector, "search_box")
+        page.declare_derived("search_box", "first", "search_box_first")
+        del search_box
+
+        class SearchResponse:
+            url = (
+                "https://www.linkedin.com/voyager/api/graphql?"
+                "variables=%28query%3A%28keywords%3Aengine%29%2Ccount%3A20%29"
+                "&queryId=messengerConversations.hash"
+            )
+
+            async def json(self) -> dict[str, Any]:
+                return inbox_payload
+
+        page.script("search_box_first.click", None)
+        page.script("keyboard.press", lambda: page.emit("response", SearchResponse()))
     if method in {"get_inbox", "get_conversation"}:
         scrolls = 3 if method == "get_inbox" else 1
         page.script("evaluate:scroll_main_region", *[True] * scrolls)
-    if method != "get_conversation":
+    if method == "get_inbox":
         page.script("evaluate:root_content", _root("Conversation content"))
     if method == "get_conversation":
         page.script(
@@ -1153,7 +1175,13 @@ async def _conversation_scenario(method: str) -> dict[str, Any]:
                 result = await extractor.get_conversation(thread_id="2-abc")
             elif method == "search_conversations":
                 arguments = {"keywords": "engine", "limit": 10}
-                result = await extractor.search_conversations("engine", limit=10)
+
+                async def typed(typed_page: Any, text: str) -> None:
+                    # The real helper draws jittered delays from an unseeded RNG.
+                    await typed_page.keyboard.type(text)
+
+                with patch.object(conversations_module, "human_type", typed):
+                    result = await extractor.search_conversations("engine", limit=10)
             else:
                 raise AssertionError(method)
     page.assert_clean(retained_read_guard=True)

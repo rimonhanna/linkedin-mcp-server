@@ -10,6 +10,7 @@ import logging
 
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
+from linkedin_mcp_server.core.humanize import human_type
 from linkedin_mcp_server.core.exceptions import (
     InvalidReferenceError,
     LinkedInScraperException,
@@ -29,6 +30,7 @@ from linkedin_mcp_server.scraping.link_metadata import (
 from linkedin_mcp_server.scraping.messaging_api import MessagingApiCapture
 from linkedin_mcp_server.scraping.messaging_payload import (
     build_conversation_references,
+    conversation_rows_text,
     build_message_references,
     build_structured_conversation,
     conversation_matches_username,
@@ -43,6 +45,14 @@ from linkedin_mcp_server.scraping.session import ScrapingSession
 from linkedin_mcp_server.scraping.text import strip_linkedin_noise
 
 logger = logging.getLogger(__name__)
+
+_NEW_THREAD_PATH = "/messaging/thread/new/"
+
+# The search control is an input whose aria-label or placeholder says
+# "Search messages" (English UI).
+_SEARCH_BOX_SELECTOR = (
+    'input[aria-label*="Search messages" i], input[placeholder*="Search messages" i]'
+)
 
 _INBOX_MAX_SCROLLS = 30
 # Under the tool timeout, past which FastMCP discards whatever was loaded.
@@ -193,6 +203,7 @@ class ConversationReader:
         *,
         log_context: str,
         scroll_attempts: int = 0,
+        throttle: bool = True,
     ) -> int:
         """Navigate once and wait for the matching passive conversation payload."""
         offset = len(capture.payloads)
@@ -204,7 +215,7 @@ class ConversationReader:
             await self._scroll_main_scrollable_region(
                 position="bottom", attempts=scroll_attempts, pause_time=0.5
             )
-        await capture.wait_for_payload(after=offset)
+        await capture.wait_for_payload(after=offset, throttle=throttle)
         await capture.settle()
         return offset
 
@@ -408,33 +419,59 @@ class ConversationReader:
     async def search_conversations(
         self, keywords: str, limit: int = 20
     ) -> dict[str, Any]:
-        """Search messages without selecting any result row."""
+        """Search messages through the page's search box, selecting no result row."""
+        keywords = " ".join(keywords.split())
         async with self._without_read_state_writes():
-            search_url = (
-                f"https://www.linkedin.com/messaging/?searchTerm={quote_plus(keywords)}"
-            )
             async with MessagingApiCapture(self._session.page) as capture:
-                offset = await self._load_messaging_page(
-                    capture, search_url, log_context="Messaging search"
+                await self._load_messaging_page(
+                    capture,
+                    "https://www.linkedin.com/messaging/",
+                    log_context="Messaging search",
+                    throttle=False,
                 )
-                raw_result = await self._content._extract_root_content(["main"])
-                payloads = capture.payloads[offset:]
+                offset = capture.begin_search(keywords)
+                await self._submit_search(keywords)
+                try:
+                    await capture.wait_for_payload(after=offset, throttle=False)
+                finally:
+                    await self._session.check_rate_limit()
+                await capture.settle()
+                if not capture.conversations_since(offset):
+                    # A debounced keystroke can answer first with nothing.
+                    await capture.wait_for_next_payload(
+                        after=len(capture.payloads), timeout=3.0
+                    )
+                    await capture.settle()
+                payloads = capture.payloads[offset:][::-1]
+                logger.debug(
+                    "Search accepted %d responses holding %d conversations",
+                    len(payloads),
+                    len(capture.conversations_since(offset)),
+                )
 
-            raw = raw_result["text"]
-            cleaned = strip_linkedin_noise(raw) if raw else ""
-            references: list[Reference] = (
-                build_references(raw_result["references"], "search_results")
-                if cleaned
-                else []
-            )
-            conversation_refs = build_conversation_references(
-                payloads, limit=limit, context="search_results"
-            )
-            if conversation_refs:
-                references = dedupe_references(conversation_refs + references)
+            references = [
+                ref
+                for ref in build_conversation_references(
+                    payloads, limit=None, context="search_results"
+                )
+                if not ref["url"].startswith(_NEW_THREAD_PATH)
+            ][:limit]
             return self._single_section_result(
                 self._session.page.url,
                 "search_results",
-                cleaned,
+                conversation_rows_text(payloads, {ref["url"] for ref in references}),
                 references=references,
             )
+
+    async def _submit_search(self, keywords: str) -> None:
+        page = self._session.page
+        box = page.locator(_SEARCH_BOX_SELECTOR).first
+        try:
+            await box.click(timeout=5000)
+        except PlaywrightTimeoutError as exc:
+            raise LinkedInScraperException(
+                "The messaging search box was not found on the page; "
+                "LinkedIn's messaging layout may have changed."
+            ) from exc
+        await human_type(page, keywords)
+        await page.keyboard.press("Enter")

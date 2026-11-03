@@ -14,7 +14,9 @@ from linkedin_mcp_server.core.exceptions import (
     LinkedInScraperException,
 )
 from linkedin_mcp_server.scraping.content import PageContentReader
-from linkedin_mcp_server.scraping.conversations import ConversationReader
+from linkedin_mcp_server.scraping.conversations import (
+    ConversationReader,
+)
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.profile_page import ProfilePageReader
 from linkedin_mcp_server.scraping.session import ScrapingSession
@@ -122,14 +124,20 @@ class FakeCapture:
         self.has_message_template = has_message_template
         self.fetch_calls: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
 
+    def begin_search(self, keywords: str) -> int:
+        del keywords
+        return len(self.payloads)
+
     async def __aenter__(self) -> FakeCapture:
         return self
 
     async def __aexit__(self, *_exc: object) -> None:
         return None
 
-    async def wait_for_payload(self, *, after: int, timeout: float = 12.0) -> None:
-        del timeout
+    async def wait_for_payload(
+        self, *, after: int, timeout: float = 12.0, throttle: bool = True
+    ) -> None:
+        del timeout, throttle
         if len(self.payloads) <= after and self._queued:
             self.payloads.append(self._queued.pop(0))
 
@@ -668,34 +676,80 @@ class TestGetConversation:
 
 
 class TestSearchConversations:
-    async def test_search_returns_passive_refs_without_selecting_results(
-        self, mock_page
-    ):
-        unread = _conversation("2-unread", read=False)
-        capture = FakeCapture([_inbox(unread)])
+    async def _search(self, mock_page, capture, submit=None):
         reader = _reader(mock_page)
-        nav = AsyncMock()
+        submit = submit or AsyncMock()
         with (
             patch(
                 "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
                 return_value=capture,
             ),
-            patch.object(PageNavigator, "_navigate_to_page", nav),
+            patch.object(PageNavigator, "_navigate_to_page", AsyncMock()),
             patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
-            patch.object(
-                PageContentReader,
-                "_extract_root_content",
-                new_callable=AsyncMock,
-                return_value=_root("Ada Lovelace"),
-            ),
+            patch.object(reader, "_submit_search", submit),
         ):
-            result = await reader.search_conversations("hello world", limit=10)
+            return await reader.search_conversations("toloka", limit=10), submit
 
-        nav.assert_awaited_once_with(
-            "https://www.linkedin.com/messaging/?searchTerm=hello+world"
-        )
+    async def test_search_returns_only_the_search_payload_rows(self, mock_page):
+        recent = _conversation("2-recent")
+        hit = _conversation("2-toloka", read=False)
+        junk = _conversation("new")
+        capture = FakeCapture([_inbox(recent), _inbox(hit, junk)])
+
+        result, submit = await self._search(mock_page, capture)
+
+        submit.assert_awaited_once_with("toloka")
+        urls = [r["url"] for r in result["references"]["search_results"]]
+        assert urls == ["/messaging/thread/2-toloka/"]
+        assert "Ada Lovelace" in result["sections"]["search_results"]
+        assert "2-recent" not in result["sections"]["search_results"]
+        assert hit["read"] is False
+
+    async def test_references_are_kept_when_a_row_has_no_text(self, mock_page):
+        bare = {"conversationUrl": "https://www.linkedin.com/messaging/thread/2-bare/"}
+        capture = FakeCapture([_inbox(), _inbox(bare)])
+
+        result, _ = await self._search(mock_page, capture)
+
+        assert result["sections"]["search_results"] == "/messaging/thread/2-bare/"
         assert result["references"]["search_results"][0]["url"] == (
-            "/messaging/thread/2-unread/"
+            "/messaging/thread/2-bare/"
         )
-        assert unread["read"] is False
-        mock_page.locator.return_value.click.assert_not_called()
+
+    async def test_search_is_capped_at_the_limit(self, mock_page):
+        rows = [_conversation(f"2-{i}") for i in range(3)]
+        capture = FakeCapture([_inbox(), _inbox(*rows)])
+        reader = _reader(mock_page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=capture,
+            ),
+            patch.object(PageNavigator, "_navigate_to_page", AsyncMock()),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(reader, "_submit_search", AsyncMock()),
+        ):
+            result = await reader.search_conversations("toloka", limit=2)
+
+        assert len(result["references"]["search_results"]) == 2
+
+    async def test_an_empty_first_response_does_not_hide_the_populated_one(
+        self, mock_page
+    ):
+        hit = _conversation("2-toloka")
+        capture = FakeCapture(
+            [_inbox(_conversation("2-recent")), _inbox(), _inbox(hit)]
+        )
+
+        result, _ = await self._search(mock_page, capture)
+
+        urls = [r["url"] for r in result["references"]["search_results"]]
+        assert urls == ["/messaging/thread/2-toloka/"]
+
+    async def test_zero_results_is_an_explicit_empty_result(self, mock_page):
+        capture = FakeCapture([_inbox(_conversation("2-recent")), _inbox()])
+
+        result, _ = await self._search(mock_page, capture)
+
+        assert result["sections"] == {}
+        assert "references" not in result
