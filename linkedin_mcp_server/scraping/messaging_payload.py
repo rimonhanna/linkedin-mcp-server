@@ -143,6 +143,10 @@ def build_conversation_references(
     return references
 
 
+# get_conversation returns the full text; this keeps a 1000-row inbox usable.
+_PREVIEW_MAX_CHARS = 500
+
+
 def _last_message_preview(item: dict[str, Any]) -> str:
     for key in ("latestMessage", "lastMessage", "messages"):
         value = item.get(key)
@@ -151,6 +155,8 @@ def _last_message_preview(item: dict[str, Any]) -> str:
         message = elements[0] if elements else container
         text = _rich_text(message.get("body")) if message is not None else ""
         if text:
+            if len(text) > _PREVIEW_MAX_CHARS:
+                return text[:_PREVIEW_MAX_CHARS].rstrip() + "..."
             return text
     return ""
 
@@ -158,8 +164,8 @@ def _last_message_preview(item: dict[str, Any]) -> str:
 def conversation_rows_text(payloads: Iterable[Any], paths: set[str]) -> str:
     """Render the result rows (names, date, last message) from the payload alone.
 
-    A row with nothing else to show falls back to its thread path, so a payload
-    that holds conversations never renders as empty text.
+    Every row ends with its thread path, so a payload that holds conversations
+    never renders as empty text and a row can be followed up.
     """
     rows: list[str] = []
     seen: set[str] = set()
@@ -184,7 +190,7 @@ def conversation_rows_text(payloads: Iterable[Any], paths: set[str]) -> str:
                 provider_timestamp(item.get("lastActivityAt")) or "",
                 _last_message_preview(item),
             ]
-            rows.append("\n".join(line for line in lines if line) or path)
+            rows.append("\n".join(line for line in (*lines, path) if line))
     return "\n\n".join(rows)
 
 

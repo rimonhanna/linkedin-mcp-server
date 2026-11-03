@@ -448,8 +448,8 @@
           "properties": {
             "limit": {
               "default": 20,
-              "description": "Maximum number of conversations to load (1-200, default 20)",
-              "maximum": 200,
+              "description": "Maximum number of conversations to load (1-1000, default 20)",
+              "maximum": 1000,
               "minimum": 1,
               "type": "integer"
             }

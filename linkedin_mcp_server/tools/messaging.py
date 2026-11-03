@@ -11,7 +11,10 @@ from typing import Annotated, Any
 from fastmcp import Context, FastMCP
 from pydantic import Field, StringConstraints
 
-from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
+from linkedin_mcp_server.config.schema import (
+    DEFAULT_TOOL_TIMEOUT_SECONDS,
+    PER_TOOL_TIMEOUT_SECONDS,
+)
 from linkedin_mcp_server.core.exceptions import (
     AuthenticationError,
     InvalidReferenceError,
@@ -37,8 +40,12 @@ def register_messaging_tools(
 ) -> None:
     """Register all messaging-related tools with the MCP server."""
 
+    # Scrolling to a large limit does not fit the default; a larger configured
+    # value wins.
+    inbox_timeout = max(tool_timeout, PER_TOOL_TIMEOUT_SECONDS["get_inbox"])
+
     @mcp.tool(
-        timeout=tool_timeout,
+        timeout=inbox_timeout,
         title="Get Inbox",
         annotations={"readOnlyHint": True, "openWorldHint": True},
         tags={"messaging", "scraping"},
@@ -46,7 +53,7 @@ def register_messaging_tools(
     )
     async def get_inbox(
         ctx: Context,
-        limit: Annotated[int, Field(ge=1, le=200)] = 20,
+        limit: Annotated[int, Field(ge=1, le=1000)] = 20,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -54,7 +61,7 @@ def register_messaging_tools(
 
         Args:
             ctx: FastMCP context for progress reporting
-            limit: Maximum number of conversations to load (1-200, default 20)
+            limit: Maximum number of conversations to load (1-1000, default 20)
 
         Returns:
             Dict with url, sections (inbox -> raw text), and optional references.
