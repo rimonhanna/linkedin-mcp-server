@@ -216,6 +216,79 @@ class TestGetInbox:
         assert read["read"] is True
         mock_page.locator.return_value.click.assert_not_called()
 
+    async def test_text_covers_every_payload_row_with_path(self, mock_page):
+        rows = []
+        for i in range(3):
+            row = _conversation(f"2-{i}", title=f"Person{i} Name")
+            row["lastActivityAt"] = 1_700_000_000_000
+            row["latestMessage"] = {"body": {"text": f"hello {i}"}}
+            rows.append(row)
+        reader = _reader(mock_page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=FakeCapture([_inbox(*rows)]),
+            ),
+            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(
+                reader, "_scroll_main_scrollable_region", new_callable=AsyncMock
+            ),
+            patch.object(
+                PageContentReader,
+                "_extract_root_content",
+                new_callable=AsyncMock,
+                return_value=_root("only the rendered rows"),
+            ),
+        ):
+            result = await reader.get_inbox(limit=2)
+
+        text = result["sections"]["inbox"]
+        assert "only the rendered rows" not in text
+        assert "hello 1" in text
+        assert "/messaging/thread/1/" not in text
+        assert "/messaging/thread/2-1/" in text
+        assert "2-2" not in text
+
+    async def test_text_and_references_cover_the_same_rows(self, mock_page):
+        long_body = "x" * 600
+        row = _conversation("2-0", title="Person Name")
+        row["latestMessage"] = {"body": {"text": long_body}}
+        reader = _reader(mock_page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=FakeCapture([_inbox(row)]),
+            ),
+            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(
+                reader, "_scroll_main_scrollable_region", new_callable=AsyncMock
+            ),
+            patch.object(
+                PageContentReader,
+                "_extract_root_content",
+                new_callable=AsyncMock,
+                return_value={
+                    **_root("rendered rows"),
+                    "references": [
+                        {
+                            "href": "/messaging/thread/2-dom-only/",
+                            "text": "Other Person",
+                        }
+                    ],
+                },
+            ),
+        ):
+            result = await reader.get_inbox(limit=5)
+
+        urls = [r["url"] for r in result["references"]["inbox"]]
+        assert "/messaging/thread/2-dom-only/" not in urls
+        assert "/messaging/thread/2-0/" in urls
+        text = result["sections"]["inbox"]
+        assert long_body not in text
+        assert "x" * 500 + "..." in text
+
     async def test_empty_page_omits_optional_sections_and_references(self, mock_page):
         capture = FakeCapture([_inbox()])
         reader = _reader(mock_page)

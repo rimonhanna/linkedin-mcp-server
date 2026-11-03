@@ -2426,7 +2426,6 @@ class TestToolTimeouts:
             "get_job_details",
             "search_jobs",
             "get_saved_jobs",
-            "get_inbox",
             "get_conversation",
             "search_conversations",
             "send_message",
@@ -2466,7 +2465,6 @@ class TestToolTimeouts:
             "get_job_details",
             "search_jobs",
             "get_saved_jobs",
-            "get_inbox",
             "get_conversation",
             "search_conversations",
             "send_message",
@@ -2486,3 +2484,15 @@ class TestToolTimeouts:
             tool = await mcp.get_tool(name)
             assert tool is not None
             assert tool.timeout == DEFAULT_TOOL_TIMEOUT_SECONDS
+
+
+async def test_get_inbox_registers_with_its_long_timeout():
+    from linkedin_mcp_server.config.schema import PER_TOOL_TIMEOUT_SECONDS
+    from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+    mcp = FastMCP("test")
+    register_messaging_tools(mcp, tool_timeout=180.0)
+    tool = await mcp.get_tool("get_inbox")
+
+    assert tool is not None
+    assert tool.timeout == PER_TOOL_TIMEOUT_SECONDS["get_inbox"] > 180.0

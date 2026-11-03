@@ -54,9 +54,9 @@ _SEARCH_BOX_SELECTOR = (
     'input[aria-label*="Search messages" i], input[placeholder*="Search messages" i]'
 )
 
-_INBOX_MAX_SCROLLS = 30
+_INBOX_MAX_SCROLLS = 150
 # Under the tool timeout, past which FastMCP discards whatever was loaded.
-_INBOX_SCROLL_BUDGET = 90.0
+_INBOX_SCROLL_BUDGET = 480.0
 _INBOX_SCROLL_PAUSE = 1.2
 # Unverified against the live site; the scroll falls back to the largest region.
 _INBOX_LIST_SELECTOR = ".msg-conversations-container__conversations-list"
@@ -322,16 +322,18 @@ class ConversationReader:
                 payloads, limit=limit, context="inbox"
             )
             if conversation_refs:
-                references = dedupe_references(conversation_refs + references)
-                kept = 0
-                capped: list[Reference] = []
-                for ref in references:
-                    if ref["kind"] == "conversation":
-                        kept += 1
-                        if kept > limit:
-                            continue
-                    capped.append(ref)
-                references = capped
+                cleaned = (
+                    conversation_rows_text(
+                        payloads, {ref["url"] for ref in conversation_refs}
+                    )
+                    or cleaned
+                )
+                # Text and references cover the same rows: a thread seen only in
+                # the DOM has no row, so it is dropped here.
+                references = dedupe_references(
+                    conversation_refs
+                    + [ref for ref in references if ref["kind"] != "conversation"]
+                )
             return self._single_section_result(
                 url, "inbox", cleaned, references=references
             )
