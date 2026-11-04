@@ -115,8 +115,9 @@ _NEWLINE_RUN_RE = re.compile(r"\n{3,}")
 
 
 def normalize_message_line_breaks(message: str) -> str:
-    """Return the message with CRLF as LF and 3+ newlines collapsed to 2."""
-    return _NEWLINE_RUN_RE.sub("\n\n", message.replace("\r\n", "\n"))
+    """Return the message with CRLF as LF, 3+ newlines collapsed to 2 and the
+    leading and trailing newlines removed."""
+    return _NEWLINE_RUN_RE.sub("\n\n", message.replace("\r\n", "\n")).strip("\n")
 
 
 def refuse_an_invalid_message(

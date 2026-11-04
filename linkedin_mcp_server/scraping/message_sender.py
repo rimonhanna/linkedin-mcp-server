@@ -969,6 +969,14 @@ _MESSAGE_COMPOSER_PINNED_JS = r"""
         }
         return pinned;
     };
+    // A flattened message has lost its line breaks: require one <br> or block
+    // boundary per newline.
+    const hasLineBreaks = (editor, message) => {
+        const needed = message.split('\n').length - 1;
+        if (!needed) return true;
+        const blocks = editor.querySelectorAll('p, div, li').length;
+        return editor.querySelectorAll('br').length + Math.max(0, blocks - 1) >= needed;
+    };
 """
 
 _MESSAGE_COMPOSER_WRITE_JS = (
@@ -994,22 +1002,36 @@ _MESSAGE_COMPOSER_WRITE_JS = (
         ) {
             return 'unsupported';
         }
+        if (
+            arg.message.includes('\n') &&
+            !document.queryCommandSupported('insertLineBreak')
+        ) {
+            return 'line_breaks_unsupported';
+        }
         // Each line is typed on its own and joined by insertLineBreak, the
         // editing command behind Shift+Enter. A paragraph break (plain Enter)
         // is never issued, because the composer may treat it as a send.
+        // Track what this call has typed so far so that a write stopped
+        // partway leaves text cleanup can prove is the tool's own.
         let inserted = true;
+        let typed = '';
+        pinned.writtenText = '';
         arg.message.split('\n').forEach((line, index) => {
             if (inserted && index > 0) {
                 inserted = document.execCommand('insertLineBreak', false) === true;
+                if (inserted) typed += ' ';
             }
             if (inserted && line) {
                 inserted = document.execCommand('insertText', false, line) === true;
+                if (inserted) typed += line;
             }
+            pinned.writtenText = typed.replace(/\s+/g, ' ').trim();
         });
         if (((editor.innerText || editor.textContent || '').replace(/\s+/g, ' ').trim()) === arg.message.replace(/\s+/g, ' ').trim()) {
             pinned.ownedMessage = arg.message;
         }
         if (!inserted) return 'unsupported';
+        if (!hasLineBreaks(editor, arg.message)) return 'flattened';
         pinned = validatePinned(arg, false);
         if (
             !pinned ||
@@ -1032,7 +1054,8 @@ _MESSAGE_COMPOSER_SUBMIT_READY_JS = (
             !pinned ||
             document.activeElement !== pinned.editor ||
             pinned.ownedMessage !== arg.message ||
-            ((pinned.editor.innerText || pinned.editor.textContent || '').replace(/\s+/g, ' ').trim()) !== arg.message.replace(/\s+/g, ' ').trim()
+            ((pinned.editor.innerText || pinned.editor.textContent || '').replace(/\s+/g, ' ').trim()) !== arg.message.replace(/\s+/g, ' ').trim() ||
+            !hasLineBreaks(pinned.editor, arg.message)
         ) {
             return 'invalid';
         }
@@ -1045,7 +1068,11 @@ _MESSAGE_COMPOSER_SUBMIT_READY_JS = (
 
 _MESSAGE_COMPOSER_CLEANUP_JS = r"""(owner, arg) => {
     const pinned = owner?.__linkedinMcpComposer;
-    if (!pinned || pinned.ownedMessage !== arg.message) return false;
+    if (!pinned) return false;
+    const ownedText = pinned.ownedMessage === arg.message
+        ? arg.message
+        : pinned.writtenText;
+    if (typeof ownedText !== 'string' || !ownedText.trim()) return false;
     const {editor, ancestorChain} = pinned;
     const currentChain = [];
     let ancestor = editor?.parentElement;
@@ -1063,11 +1090,13 @@ _MESSAGE_COMPOSER_CLEANUP_JS = r"""(owner, arg) => {
         currentChain.some((scope, index) => scope !== ancestorChain[index]) ||
         !currentChain.includes(owner) ||
         !owner.contains(editor) ||
-        ((editor.innerText || editor.textContent || '').replace(/\s+/g, ' ').trim()) !== arg.message.replace(/\s+/g, ' ').trim()
+        // A composer that swallowed the breaks leaves no whitespace to compare.
+        (editor.innerText || editor.textContent || '').replace(/\s+/g, '') !== ownedText.replace(/\s+/g, '')
     ) {
         return false;
     }
     pinned.ownedMessage = null;
+    pinned.writtenText = null;
     editor.replaceChildren();
     editor.dispatchEvent(new InputEvent('input', {
         bubbles: true,
@@ -1356,7 +1385,18 @@ class MessageSender:
             _MESSAGE_COMPOSER_WRITE_JS,
             {**self._message_target_argument(target), "message": message},
         )
-        return result if result in {"written", "occupied", "unsupported"} else "invalid"
+        return (
+            result
+            if result
+            in {
+                "written",
+                "occupied",
+                "unsupported",
+                "line_breaks_unsupported",
+                "flattened",
+            }
+            else "invalid"
+        )
 
     async def _wait_for_verified_submit(
         self,
@@ -1759,6 +1799,23 @@ class MessageSender:
                         "composer_occupied",
                         "The composer already holds a draft that would be sent along "
                         "with the message. The draft was left untouched.",
+                        recipient_selected=recipient_selected,
+                    )
+                if write_result == "line_breaks_unsupported":
+                    return contracts.message_action_result(
+                        self._page.url,
+                        "compose_interact_failed",
+                        "The editor cannot type line breaks, so nothing was typed. "
+                        "Retry with a single-line message.",
+                        recipient_selected=recipient_selected,
+                    )
+                if write_result == "flattened":
+                    return contracts.message_action_result(
+                        self._page.url,
+                        "compose_interact_failed",
+                        "The editor turned the line breaks into spaces, so the "
+                        "message was not sent and the draft was cleared. Retry "
+                        "with a single-line message.",
                         recipient_selected=recipient_selected,
                     )
                 if write_result != "written":

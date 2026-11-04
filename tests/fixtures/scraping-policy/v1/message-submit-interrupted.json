@@ -244,7 +244,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_composer_write",
-      "program_digest": "cbcb0c066c13",
+      "program_digest": "f6e7031f3de2",
       "section": "message"
     },
     {
@@ -257,7 +257,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_submit_ready",
-      "program_digest": "e6db1c7d55af",
+      "program_digest": "89d915ade375",
       "section": "message"
     },
     {
@@ -285,7 +285,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_submit",
-      "program_digest": "bec3353380f2",
+      "program_digest": "ae6e827fd842",
       "section": "message"
     },
     {
