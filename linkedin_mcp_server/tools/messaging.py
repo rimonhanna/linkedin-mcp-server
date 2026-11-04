@@ -11,6 +11,7 @@ from typing import Annotated, Any
 from fastmcp import Context, FastMCP
 from pydantic import Field, StringConstraints
 
+from linkedin_mcp_server.callbacks import MCPContextProgressCallback
 from linkedin_mcp_server.config.schema import (
     DEFAULT_TOOL_TIMEOUT_SECONDS,
     PER_TOOL_TIMEOUT_SECONDS,
@@ -76,7 +77,9 @@ def register_messaging_tools(
                 progress=0, total=100, message="Loading messaging inbox"
             )
 
-            result = await extractor.get_inbox(limit=limit)
+            result = await extractor.get_inbox(
+                limit=limit, callbacks=MCPContextProgressCallback(ctx)
+            )
 
             await ctx.report_progress(progress=100, total=100, message="Complete")
 

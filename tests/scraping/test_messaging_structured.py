@@ -137,6 +137,7 @@ def test_inbox_exact_activity_timestamp_preserves_reference_contract():
         "text": "Ada Lovelace",
         "context": "inbox",
         "last_activity_at": "2026-10-19T14:00:00.123+00:00",
+        "read": True,
     }
 
 

@@ -305,6 +305,10 @@ class MessagingApiCapture:
         self._search_keywords = keywords
         return len(self.payloads)
 
+    def end_search(self) -> None:
+        """Accept inbox responses again after a search."""
+        self._search_keywords = None
+
     async def wait_for_payload(
         self, *, after: int = 0, timeout: float = 12.0, throttle: bool = True
     ) -> None:

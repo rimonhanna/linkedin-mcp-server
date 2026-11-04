@@ -272,9 +272,11 @@ class LinkedInExtractor:
             max_posts=max_posts,
         )
 
-    async def get_inbox(self, limit: int = 20) -> dict[str, Any]:
+    async def get_inbox(
+        self, limit: int = 20, callbacks: ProgressCallback | None = None
+    ) -> dict[str, Any]:
         """List recent conversations from the messaging inbox."""
-        return await self._conversations.get_inbox(limit)
+        return await self._conversations.get_inbox(limit, callbacks)
 
     async def get_conversation(
         self,

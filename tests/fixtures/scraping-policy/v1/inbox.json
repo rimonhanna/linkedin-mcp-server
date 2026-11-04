@@ -226,6 +226,7 @@
         {
           "context": "inbox",
           "kind": "conversation",
+          "read": false,
           "text": "Policy conversation",
           "url": "/messaging/thread/2-abc/"
         }
@@ -235,7 +236,7 @@
       "inbox"
     ],
     "sections": {
-      "inbox": "Policy conversation\n/messaging/thread/2-abc/"
+      "inbox": "Policy conversation\nUnread\n/messaging/thread/2-abc/"
     },
     "url": "https://www.linkedin.com/messaging/"
   },
