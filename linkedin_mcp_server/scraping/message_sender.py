@@ -426,7 +426,7 @@ _MESSAGE_CONFIRMATION_PREPARE_JS = (
             !arg.owner.contains(pinned.editor) ||
             document.activeElement !== pinned.editor ||
             pinned.ownedMessage !== arg.expected ||
-            (pinned.editor.innerText || pinned.editor.textContent || '') !== arg.expected
+            ((pinned.editor.innerText || pinned.editor.textContent || '').replace(/\s+/g, ' ').trim()) !== arg.expected.replace(/\s+/g, ' ').trim()
         ) {
             return null;
         }
@@ -455,7 +455,7 @@ _MESSAGE_CONFIRMATION_PREPARE_JS = (
                 element => !requireVisible || visible(element)
             );
             const matches = elements.filter(
-                element => (element.innerText || '') === state.expected
+                element => (element.innerText || '').replace(/\s+/g, ' ').trim() === state.expected.replace(/\s+/g, ' ').trim()
             );
             const smallest = matches.filter(
                 element => !matches.some(
@@ -584,7 +584,7 @@ _MESSAGE_CONFIRMATION_READY_JS = (
             if (!visible(node)) return false;
             const elements = [node, ...node.querySelectorAll('*')].filter(visible);
             const matches = elements.filter(
-                element => (element.innerText || '') === arg.expected
+                element => (element.innerText || '').replace(/\s+/g, ' ').trim() === arg.expected.replace(/\s+/g, ' ').trim()
             );
             return matches.filter(
                 element => !matches.some(
@@ -969,6 +969,14 @@ _MESSAGE_COMPOSER_PINNED_JS = r"""
         }
         return pinned;
     };
+    // A flattened message has lost its line breaks: require one <br> or block
+    // boundary per newline.
+    const hasLineBreaks = (editor, message) => {
+        const needed = message.split('\n').length - 1;
+        if (!needed) return true;
+        const blocks = editor.querySelectorAll('p, div, li').length;
+        return editor.querySelectorAll('br').length + Math.max(0, blocks - 1) >= needed;
+    };
 """
 
 _MESSAGE_COMPOSER_WRITE_JS = (
@@ -994,17 +1002,42 @@ _MESSAGE_COMPOSER_WRITE_JS = (
         ) {
             return 'unsupported';
         }
-        const inserted = document.execCommand('insertText', false, arg.message);
-        if ((editor.innerText || editor.textContent || '') === arg.message) {
+        if (
+            arg.message.includes('\n') &&
+            !document.queryCommandSupported('insertLineBreak')
+        ) {
+            return 'line_breaks_unsupported';
+        }
+        // Each line is typed on its own and joined by insertLineBreak, the
+        // editing command behind Shift+Enter. A paragraph break (plain Enter)
+        // is never issued, because the composer may treat it as a send.
+        // Track what this call has typed so far so that a write stopped
+        // partway leaves text cleanup can prove is the tool's own.
+        let inserted = true;
+        let typed = '';
+        pinned.writtenText = '';
+        arg.message.split('\n').forEach((line, index) => {
+            if (inserted && index > 0) {
+                inserted = document.execCommand('insertLineBreak', false) === true;
+                if (inserted) typed += ' ';
+            }
+            if (inserted && line) {
+                inserted = document.execCommand('insertText', false, line) === true;
+                if (inserted) typed += line;
+            }
+            pinned.writtenText = typed.replace(/\s+/g, ' ').trim();
+        });
+        if (((editor.innerText || editor.textContent || '').replace(/\s+/g, ' ').trim()) === arg.message.replace(/\s+/g, ' ').trim()) {
             pinned.ownedMessage = arg.message;
         }
-        if (inserted !== true) return 'unsupported';
+        if (!inserted) return 'unsupported';
+        if (!hasLineBreaks(editor, arg.message)) return 'flattened';
         pinned = validatePinned(arg, false);
         if (
             !pinned ||
             document.activeElement !== editor ||
             pinned.ownedMessage !== arg.message ||
-            (editor.innerText || editor.textContent || '') !== arg.message
+            ((editor.innerText || editor.textContent || '').replace(/\s+/g, ' ').trim()) !== arg.message.replace(/\s+/g, ' ').trim()
         ) {
             return 'invalid';
         }
@@ -1021,7 +1054,8 @@ _MESSAGE_COMPOSER_SUBMIT_READY_JS = (
             !pinned ||
             document.activeElement !== pinned.editor ||
             pinned.ownedMessage !== arg.message ||
-            (pinned.editor.innerText || pinned.editor.textContent || '') !== arg.message
+            ((pinned.editor.innerText || pinned.editor.textContent || '').replace(/\s+/g, ' ').trim()) !== arg.message.replace(/\s+/g, ' ').trim() ||
+            !hasLineBreaks(pinned.editor, arg.message)
         ) {
             return 'invalid';
         }
@@ -1034,7 +1068,11 @@ _MESSAGE_COMPOSER_SUBMIT_READY_JS = (
 
 _MESSAGE_COMPOSER_CLEANUP_JS = r"""(owner, arg) => {
     const pinned = owner?.__linkedinMcpComposer;
-    if (!pinned || pinned.ownedMessage !== arg.message) return false;
+    if (!pinned) return false;
+    const ownedText = pinned.ownedMessage === arg.message
+        ? arg.message
+        : pinned.writtenText;
+    if (typeof ownedText !== 'string' || !ownedText.trim()) return false;
     const {editor, ancestorChain} = pinned;
     const currentChain = [];
     let ancestor = editor?.parentElement;
@@ -1052,11 +1090,13 @@ _MESSAGE_COMPOSER_CLEANUP_JS = r"""(owner, arg) => {
         currentChain.some((scope, index) => scope !== ancestorChain[index]) ||
         !currentChain.includes(owner) ||
         !owner.contains(editor) ||
-        (editor.innerText || editor.textContent || '') !== arg.message
+        // A composer that swallowed the breaks leaves no whitespace to compare.
+        (editor.innerText || editor.textContent || '').replace(/\s+/g, '') !== ownedText.replace(/\s+/g, '')
     ) {
         return false;
     }
     pinned.ownedMessage = null;
+    pinned.writtenText = null;
     editor.replaceChildren();
     editor.dispatchEvent(new InputEvent('input', {
         bubbles: true,
@@ -1076,7 +1116,7 @@ _MESSAGE_COMPOSER_SUBMIT_JS = (
             !pinned ||
             document.activeElement !== pinned.editor ||
             pinned.ownedMessage !== arg.message ||
-            (pinned.editor.innerText || pinned.editor.textContent || '') !== arg.message
+            ((pinned.editor.innerText || pinned.editor.textContent || '').replace(/\s+/g, ' ').trim()) !== arg.message.replace(/\s+/g, ' ').trim()
         ) {
             return 'invalid';
         }
@@ -1345,7 +1385,18 @@ class MessageSender:
             _MESSAGE_COMPOSER_WRITE_JS,
             {**self._message_target_argument(target), "message": message},
         )
-        return result if result in {"written", "occupied", "unsupported"} else "invalid"
+        return (
+            result
+            if result
+            in {
+                "written",
+                "occupied",
+                "unsupported",
+                "line_breaks_unsupported",
+                "flattened",
+            }
+            else "invalid"
+        )
 
     async def _wait_for_verified_submit(
         self,
@@ -1549,7 +1600,8 @@ class MessageSender:
 
         Args:
             linkedin_username: LinkedIn username of the recipient.
-            message: The message text to send.
+            message: The message text to send. Line breaks are typed as
+                Shift+Enter, never plain Enter.
             confirm_send: Must be True to actually send (False does a dry run).
             profile_urn: Optional profile URN (e.g. ACoAAB...) to verify against
                 the recipient resolved from the loaded profile snapshot.
@@ -1557,6 +1609,7 @@ class MessageSender:
         refusal = contracts.refuse_an_invalid_message(linkedin_username, message)
         if refusal is not None:
             return refusal
+        message = contracts.normalize_message_line_breaks(message)
         linkedin_username = normalize_person_identifier(linkedin_username)
         if profile_urn is not None:
             profile_urn = normalize_profile_urn(profile_urn)
@@ -1746,6 +1799,23 @@ class MessageSender:
                         "composer_occupied",
                         "The composer already holds a draft that would be sent along "
                         "with the message. The draft was left untouched.",
+                        recipient_selected=recipient_selected,
+                    )
+                if write_result == "line_breaks_unsupported":
+                    return contracts.message_action_result(
+                        self._page.url,
+                        "compose_interact_failed",
+                        "The editor cannot type line breaks, so nothing was typed. "
+                        "Retry with a single-line message.",
+                        recipient_selected=recipient_selected,
+                    )
+                if write_result == "flattened":
+                    return contracts.message_action_result(
+                        self._page.url,
+                        "compose_interact_failed",
+                        "The editor turned the line breaks into spaces, so the "
+                        "message was not sent and the draft was cleared. Retry "
+                        "with a single-line message.",
                         recipient_selected=recipient_selected,
                     )
                 if write_result != "written":
