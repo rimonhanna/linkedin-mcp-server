@@ -85,12 +85,12 @@ class TestMessageActionResult:
 
 
 class TestRefuseAnInvalidMessage:
-    @pytest.mark.parametrize("message", ["line\nbreak", "before\tafter", "text\x7f"])
+    @pytest.mark.parametrize("message", ["line\rbreak", "before\tafter", "text\x7f"])
     def test_every_c0_or_del_character_is_refused(self, message: str):
         assert refuse_an_invalid_message("alice", message) == message_action_result(
             "https://www.linkedin.com/in/alice/",
             "invalid_message",
-            "Message must not contain control characters or line breaks.",
+            "Message must not contain control characters other than line breaks.",
         )
 
     def test_whitespace_is_refused_before_normal_message_text(self):

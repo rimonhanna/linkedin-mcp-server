@@ -1184,7 +1184,7 @@
               "type": "string"
             },
             "message": {
-              "description": "Single-line message text to send. C0 control characters and\nDEL are rejected, including CR, LF, and tab.",
+              "description": "Message text to send. Line breaks (LF or CRLF) are\nsupported and typed as Shift+Enter; three or more in a row\ncollapse to one blank line. Other C0 control characters\n(including tab and a lone CR) and DEL are rejected.",
               "type": "string"
             },
             "profile_urn": {

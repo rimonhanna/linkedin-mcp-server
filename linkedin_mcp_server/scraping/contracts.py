@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -110,6 +111,14 @@ def message_action_result(
     }
 
 
+_NEWLINE_RUN_RE = re.compile(r"\n{3,}")
+
+
+def normalize_message_line_breaks(message: str) -> str:
+    """Return the message with CRLF as LF and 3+ newlines collapsed to 2."""
+    return _NEWLINE_RUN_RE.sub("\n\n", message.replace("\r\n", "\n"))
+
+
 def refuse_an_invalid_message(
     linkedin_username: str, message: str
 ) -> dict[str, Any] | None:
@@ -117,11 +126,15 @@ def refuse_an_invalid_message(
     reason = None
     if not message.strip():
         reason = "Message must contain non-whitespace characters."
-    elif any(ord(character) < 32 or ord(character) == 127 for character in message):
-        # Keep the browser-side insertion contract to plain message text.
-        # Reject every C0 control and DEL before a session is acquired so no
-        # control input can reach the contenteditable surface.
-        reason = "Message must not contain control characters or line breaks."
+    elif any(
+        (ord(character) < 32 and character != "\n") or ord(character) == 127
+        for character in normalize_message_line_breaks(message)
+    ):
+        # Keep the browser-side insertion contract to plain message text plus
+        # line breaks. Reject every other C0 control and DEL (a lone CR
+        # included) before a session is acquired so no control input can reach
+        # the contenteditable surface.
+        reason = "Message must not contain control characters other than line breaks."
     if reason is None:
         return None
     return message_action_result(
