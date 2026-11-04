@@ -51,10 +51,18 @@ logger = logging.getLogger(__name__)
 
 _NEW_THREAD_PATH = "/messaging/thread/new/"
 
-# The search control is an input whose aria-label or placeholder says
-# "Search messages" (English UI).
-_SEARCH_BOX_SELECTOR = (
-    'input[aria-label*="Search messages" i], input[placeholder*="Search messages" i]'
+# The messaging search control, found by structure so it works in any UI
+# language: a search-typed input or one inside a search landmark, inside <main>
+# (the global top-bar search lives in the header and searches people, not
+# messages). The English label match is only a last extra alternative.
+_SEARCH_BOX_SELECTOR = ", ".join(
+    (
+        'main input[type="search"]',
+        'main [role="search"] input',
+        'main input[role="searchbox"]',
+        'input[aria-label*="Search messages" i]',
+        'input[placeholder*="Search messages" i]',
+    )
 )
 
 _INBOX_MAX_SCROLLS = 150

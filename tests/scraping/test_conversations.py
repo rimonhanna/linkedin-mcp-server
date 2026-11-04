@@ -781,19 +781,19 @@ class TestSearchConversations:
             patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
             patch.object(reader, "_submit_search", submit),
         ):
-            return await reader.search_conversations("toloka", limit=10), submit
+            return await reader.search_conversations("acme", limit=10), submit
 
     async def test_search_returns_only_the_search_payload_rows(self, mock_page):
         recent = _conversation("2-recent")
-        hit = _conversation("2-toloka", read=False)
+        hit = _conversation("2-acme", read=False)
         junk = _conversation("new")
         capture = FakeCapture([_inbox(recent), _inbox(hit, junk, search=True)])
 
         result, submit = await self._search(mock_page, capture)
 
-        submit.assert_awaited_once_with("toloka")
+        submit.assert_awaited_once_with("acme")
         urls = [r["url"] for r in result["references"]["search_results"]]
-        assert urls == ["/messaging/thread/2-toloka/"]
+        assert urls == ["/messaging/thread/2-acme/"]
         assert "Ada Lovelace" in result["sections"]["search_results"]
         assert "2-recent" not in result["sections"]["search_results"]
         assert hit["read"] is False
@@ -822,14 +822,14 @@ class TestSearchConversations:
             patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
             patch.object(reader, "_submit_search", AsyncMock()),
         ):
-            result = await reader.search_conversations("toloka", limit=2)
+            result = await reader.search_conversations("acme", limit=2)
 
         assert len(result["references"]["search_results"]) == 2
 
     async def test_an_empty_first_response_does_not_hide_the_populated_one(
         self, mock_page
     ):
-        hit = _conversation("2-toloka")
+        hit = _conversation("2-acme")
         capture = FakeCapture(
             [
                 _inbox(_conversation("2-recent")),
@@ -841,7 +841,7 @@ class TestSearchConversations:
         result, _ = await self._search(mock_page, capture)
 
         urls = [r["url"] for r in result["references"]["search_results"]]
-        assert urls == ["/messaging/thread/2-toloka/"]
+        assert urls == ["/messaging/thread/2-acme/"]
 
     async def test_zero_results_is_an_explicit_empty_result(self, mock_page):
         capture = FakeCapture([_inbox(_conversation("2-recent")), _inbox(search=True)])

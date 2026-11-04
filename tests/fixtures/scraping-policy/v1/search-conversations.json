@@ -141,7 +141,7 @@
       "locator": "search_box",
       "parent": null,
       "section": "conversation",
-      "selector": "input[aria-label*=\"Search messages\" i], input[placeholder*=\"Search messages\" i]"
+      "selector": "main input[type=\"search\"], main [role=\"search\"] input, main input[role=\"searchbox\"], input[aria-label*=\"Search messages\" i], input[placeholder*=\"Search messages\" i]"
     },
     {
       "call": "search_conversations",
