@@ -1119,11 +1119,9 @@ async def _conversation_scenario(method: str) -> dict[str, Any]:
 
     page.script("goto", emit_messaging)
     if method == "search_conversations":
-        search_selector = (
-            'input[aria-label*="Search messages" i], '
-            'input[placeholder*="Search messages" i]'
+        search_box = page.declare_locator(
+            conversations_module._SEARCH_BOX_SELECTOR, "search_box"
         )
-        search_box = page.declare_locator(search_selector, "search_box")
         page.declare_derived("search_box", "first", "search_box_first")
         del search_box
 

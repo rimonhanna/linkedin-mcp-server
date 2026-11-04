@@ -438,7 +438,7 @@ async def test_after_search_submit_only_matching_responses_are_accepted(
     async with MessagingApiCapture(mock_page) as capture:
         _emit(mock_page, _search_response(INBOX_VARS))
         await capture.settle()
-        offset = capture.begin_search("toloka")
+        offset = capture.begin_search("acme")
         assert offset == 1
 
         _emit(mock_page, _search_response(INBOX_VARS))
@@ -447,7 +447,7 @@ async def test_after_search_submit_only_matching_responses_are_accepted(
         assert "['count', 'mailboxUrn', 'query']" in caplog.text
         assert "ACoAAB" not in caplog.text
 
-        _emit(mock_page, _search_response("(query:(keywords:Toloka),count:20)"))
+        _emit(mock_page, _search_response("(query:(keywords:Acme),count:20)"))
         await capture.wait_for_payload(after=offset, timeout=1)
 
     assert len(capture.payloads) == 2
@@ -465,7 +465,7 @@ async def test_an_inbox_response_still_being_read_at_submit_is_not_a_result(
     async with MessagingApiCapture(mock_page) as capture:
         _emit(mock_page, _search_response(INBOX_VARS, json=slow_json))
         await asyncio.sleep(0)
-        offset = capture.begin_search("toloka")
+        offset = capture.begin_search("acme")
         gate.set()
         await capture.settle()
 
@@ -489,8 +489,8 @@ async def test_a_keyword_that_only_coincides_with_inbox_variables_is_rejected(
 @pytest.mark.parametrize(
     ("keywords", "query", "accepted"),
     [
-        ("toloka", "(keywords:tol)", False),
-        ("toloka", "(keywords:toloka)", True),
+        ("acme", "(keywords:acm)", False),
+        ("acme", "(keywords:acme)", True),
         ("Hello  World", "(keywords:hello%2520world)", True),
         ("a&b: c", "(keywords:a%2526b%253A%2520c)", True),
     ],
@@ -510,7 +510,7 @@ async def test_a_search_that_never_answers_raises_without_a_strike(mock_page, tm
     store = JobStore(tmp_path / "jobs")
 
     async with MessagingApiCapture(mock_page) as capture:
-        offset = capture.begin_search("toloka")
+        offset = capture.begin_search("acme")
         _emit(mock_page, _search_response(INBOX_VARS))
         with pytest.raises(LinkedInScraperException, match="did not return"):
             await capture.wait_for_payload(after=offset, timeout=0.01, throttle=False)
@@ -538,11 +538,11 @@ async def test_a_429_from_the_conversations_query_is_a_throttle_signal(
 def test_search_keyword_is_found_outside_the_query_variable():
     url = (
         "https://www.linkedin.com/voyager/api/voyagerMessagingGraphQL/graphql?"
-        "variables=(keywords:toloka,count:20,mailboxUrn:urn%3Ali%3Afsd_profile%3Atoloka)"
+        "variables=(keywords:acme,count:20,mailboxUrn:urn%3Ali%3Afsd_profile%3Aacme)"
         "&queryId=messengerConversations.hash"
     )
-    assert _is_search_request(url, "toloka")
-    assert not _is_search_request(url.replace("keywords:toloka,", ""), "toloka")
+    assert _is_search_request(url, "acme")
+    assert not _is_search_request(url.replace("keywords:acme,", ""), "acme")
 
 
 @pytest.mark.parametrize(
