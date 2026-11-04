@@ -38,7 +38,7 @@
       },
       "get_inbox": {
         "coroutine": true,
-        "signature": "(self, limit: 'int' = 20) -> 'dict[str, Any]'"
+        "signature": "(self, limit: 'int' = 20, callbacks: 'ProgressCallback | None' = None) -> 'dict[str, Any]'"
       },
       "get_my_profile": {
         "coroutine": true,

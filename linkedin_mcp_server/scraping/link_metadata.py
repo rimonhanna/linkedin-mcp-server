@@ -29,6 +29,7 @@ class Reference(TypedDict):
     context: NotRequired[str]
     value: NotRequired[str]
     last_activity_at: NotRequired[str]
+    read: NotRequired[bool]
 
 
 class RawReference(TypedDict, total=False):

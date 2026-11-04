@@ -1348,7 +1348,8 @@ class TestMessagingTools:
         result = await tool_fn(mock_context, extractor=mock_extractor)
 
         assert result["sections"]["inbox"] == "Conversation 1\nConversation 2"
-        mock_extractor.get_inbox.assert_awaited_once_with(limit=20)
+        mock_extractor.get_inbox.assert_awaited_once()
+        assert mock_extractor.get_inbox.await_args.kwargs["limit"] == 20
 
     async def test_get_conversation_success(self, mock_context):
         expected = {

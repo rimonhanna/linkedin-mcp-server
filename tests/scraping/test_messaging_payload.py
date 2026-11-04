@@ -84,12 +84,14 @@ def test_references_use_payload_urls_without_clicking_rows():
             "url": "/messaging/thread/2-a/",
             "text": "Ada Lovelace",
             "context": "inbox",
+            "read": False,
         },
         {
             "kind": "conversation",
             "url": "/messaging/thread/2-b/",
             "text": "Grace Hopper",
             "context": "inbox",
+            "read": True,
         },
     ]
 

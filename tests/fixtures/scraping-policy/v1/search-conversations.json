@@ -204,6 +204,7 @@
         {
           "context": "search_results",
           "kind": "conversation",
+          "read": false,
           "text": "Policy conversation",
           "url": "/messaging/thread/2-abc/"
         }
@@ -213,7 +214,7 @@
       "search_results"
     ],
     "sections": {
-      "search_results": "Policy conversation\n/messaging/thread/2-abc/"
+      "search_results": "Policy conversation\nUnread\n/messaging/thread/2-abc/"
     },
     "url": "https://www.linkedin.com/messaging/"
   },

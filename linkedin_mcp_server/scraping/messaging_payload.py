@@ -134,6 +134,8 @@ def build_conversation_references(
             last_activity = provider_timestamp(item.get("lastActivityAt"))
             if last_activity is not None:
                 reference["last_activity_at"] = last_activity
+            if isinstance(item.get("read"), bool):
+                reference["read"] = item["read"]
             title = _conversation_title(item)
             if title:
                 reference["text"] = title
@@ -161,8 +163,15 @@ def _last_message_preview(item: dict[str, Any]) -> str:
     return ""
 
 
+def _is_unread(item: dict[str, Any]) -> bool:
+    unread_count = item.get("unreadCount")
+    return item.get("read") is False or (
+        isinstance(unread_count, int) and unread_count > 0
+    )
+
+
 def conversation_rows_text(payloads: Iterable[Any], paths: set[str]) -> str:
-    """Render the result rows (names, date, last message) from the payload alone.
+    """Render the result rows (names, date, unread marker, last message) from the payload alone.
 
     Every row ends with its thread path, so a payload that holds conversations
     never renders as empty text and a row can be followed up.
@@ -188,6 +197,7 @@ def conversation_rows_text(payloads: Iterable[Any], paths: set[str]) -> str:
             lines = [
                 _conversation_title(item) or ", ".join(names),
                 provider_timestamp(item.get("lastActivityAt")) or "",
+                "Unread" if _is_unread(item) else "",
                 _last_message_preview(item),
             ]
             rows.append("\n".join(line for line in (*lines, path) if line))

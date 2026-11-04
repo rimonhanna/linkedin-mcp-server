@@ -566,10 +566,8 @@ class TestGetConversation:
                 await reader.get_conversation(thread_id="2-older")
 
         assert capture.fetch_calls == []
-        assert [call.kwargs for call in scroll.await_args_list] == [
-            {"position": "bottom", "attempts": 1, "pause_time": 0.5},
-            {"position": "bottom", "attempts": 5, "pause_time": 0.5},
-        ]
+        # The initial load scroll, then the list scrolls until it stops growing.
+        assert scroll.await_count == 1 + 2
 
     async def test_username_uses_profile_identity_not_duplicate_display_name(
         self, mock_page
@@ -578,7 +576,7 @@ class TestGetConversation:
         target = _conversation(
             "2-target", title="Alex Smith", username="target-alex", read=False
         )
-        capture = FakeCapture([_inbox(namesake, target)])
+        capture = FakeCapture([_inbox(), _inbox(namesake, target)])
         reader = _reader(mock_page)
         nav = AsyncMock()
         with (
@@ -588,6 +586,7 @@ class TestGetConversation:
             ),
             patch.object(PageNavigator, "_navigate_to_page", nav),
             patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(reader, "_submit_search", new_callable=AsyncMock),
             patch.object(
                 ProfilePageReader,
                 "_read_profile_display_name",
@@ -599,7 +598,7 @@ class TestGetConversation:
 
         assert [call.args[0] for call in nav.await_args_list] == [
             "https://www.linkedin.com/in/target-alex/",
-            "https://www.linkedin.com/messaging/?searchTerm=Alex+Smith",
+            "https://www.linkedin.com/messaging/",
         ]
         assert capture.fetch_calls[0][0] is target
         assert result["url"].endswith("/messaging/thread/2-target/")
@@ -610,7 +609,7 @@ class TestGetConversation:
         target = _conversation("2-target", username="ada", read=False)
         source = _conversation("2-source", username="grace")
         capture = FakeCapture(
-            [_inbox(target), _inbox(source)], has_message_template=False
+            [_inbox(), _inbox(target), _inbox(source)], has_message_template=False
         )
         reader = _reader(mock_page)
         nav = AsyncMock()
@@ -621,6 +620,7 @@ class TestGetConversation:
             ),
             patch.object(PageNavigator, "_navigate_to_page", nav),
             patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(reader, "_submit_search", new_callable=AsyncMock),
             patch.object(
                 ProfilePageReader,
                 "_read_profile_display_name",
@@ -632,7 +632,7 @@ class TestGetConversation:
 
         assert [call.args[0] for call in nav.await_args_list] == [
             "https://www.linkedin.com/in/ada/",
-            "https://www.linkedin.com/messaging/?searchTerm=Ada+Lovelace",
+            "https://www.linkedin.com/messaging/",
             "https://www.linkedin.com/messaging/",
         ]
         assert capture.fetch_calls[0][0] is target
@@ -641,7 +641,7 @@ class TestGetConversation:
     async def test_username_index_keeps_provider_order(self, mock_page):
         first = _conversation("2-first", username="ada")
         second = _conversation("2-second", username="ada")
-        capture = FakeCapture([_inbox(first, second)])
+        capture = FakeCapture([_inbox(), _inbox(first, second)])
         reader = _reader(mock_page)
         with (
             patch(
@@ -650,6 +650,7 @@ class TestGetConversation:
             ),
             patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
             patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(reader, "_submit_search", new_callable=AsyncMock),
             patch.object(
                 ProfilePageReader,
                 "_read_profile_display_name",
@@ -665,7 +666,7 @@ class TestGetConversation:
         self, mock_page
     ):
         stranger = _conversation("2-stranger", title="Grace Hopper", username="grace")
-        capture = FakeCapture([_inbox(stranger)])
+        capture = FakeCapture([_inbox(), _inbox(stranger)])
         reader = _reader(mock_page)
         nav = AsyncMock()
         with (
@@ -675,6 +676,7 @@ class TestGetConversation:
             ),
             patch.object(PageNavigator, "_navigate_to_page", nav),
             patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(reader, "_submit_search", new_callable=AsyncMock),
             patch.object(
                 reader, "_scroll_main_scrollable_region", new_callable=AsyncMock
             ),
@@ -699,7 +701,7 @@ class TestGetConversation:
         # A non-matching neighbour: the refusal counts the participant's own
         # threads, not every thread the inbox handed over.
         stranger = _conversation("2-second", title="Grace Hopper", username="grace")
-        capture = FakeCapture([_inbox(first, stranger)])
+        capture = FakeCapture([_inbox(), _inbox(first, stranger)])
         reader = _reader(mock_page)
         with (
             patch(
@@ -708,6 +710,7 @@ class TestGetConversation:
             ),
             patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
             patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(reader, "_submit_search", new_callable=AsyncMock),
             patch.object(
                 ProfilePageReader,
                 "_read_profile_display_name",
@@ -826,3 +829,157 @@ class TestSearchConversations:
 
         assert result["sections"] == {}
         assert "references" not in result
+
+
+class TestInboxFollowups:
+    async def test_unread_row_carries_an_unread_marker_and_read_row_does_not(
+        self, mock_page
+    ):
+        unread = _conversation("2-unread", title="Ada Lovelace", read=False)
+        read = _conversation("2-read", title="Grace Hopper", username="grace")
+        reader = _reader(mock_page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=FakeCapture([_inbox(unread, read)]),
+            ),
+            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(
+                reader, "_scroll_main_scrollable_region", new_callable=AsyncMock
+            ),
+            patch.object(
+                PageContentReader,
+                "_extract_root_content",
+                new_callable=AsyncMock,
+                return_value=_root("rendered"),
+            ),
+        ):
+            result = await reader.get_inbox(limit=2)
+
+        first, second = result["sections"]["inbox"].split("\n\n")
+        assert first.splitlines() == [
+            "Ada Lovelace",
+            "Unread",
+            "/messaging/thread/2-unread/",
+        ]
+        assert "Unread" not in second
+
+    async def test_progress_reports_loaded_over_limit_while_scrolling(self, mock_page):
+        pages = [
+            _inbox(*[_conversation(f"2-{i}") for i in range(n, n + 5)])
+            for n in (0, 5, 10)
+        ]
+        reader = _reader(mock_page)
+        callbacks = AsyncMock()
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=FakeCapture(pages),
+            ),
+            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(
+                reader, "_scroll_main_scrollable_region", new_callable=AsyncMock
+            ),
+            patch.object(
+                PageContentReader,
+                "_extract_root_content",
+                new_callable=AsyncMock,
+                return_value=_root("inbox"),
+            ),
+        ):
+            await reader.get_inbox(limit=10, callbacks=callbacks)
+
+        assert [call.args for call in callbacks.on_progress.await_args_list] == [
+            ("Loaded 5 of 10 conversations", 47),
+            ("Loaded 10 of 10 conversations", 95),
+        ]
+
+
+class TestUsernameLookupUsesTheSearchBox:
+    async def test_the_profile_name_is_typed_not_put_in_a_search_url(self, mock_page):
+        target = _conversation("2-target", title="Alex Smith", username="target-alex")
+        capture = FakeCapture([_inbox(), _inbox(target)])
+        reader = _reader(mock_page)
+        nav = AsyncMock()
+        submit = AsyncMock()
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=capture,
+            ),
+            patch.object(PageNavigator, "_navigate_to_page", nav),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(reader, "_submit_search", submit),
+            patch.object(
+                ProfilePageReader,
+                "_read_profile_display_name",
+                new_callable=AsyncMock,
+                return_value="Alex Smith",
+            ),
+        ):
+            await reader.get_conversation(linkedin_username="target-alex")
+
+        submit.assert_awaited_once_with("Alex Smith")
+        assert all("searchTerm" not in call.args[0] for call in nav.await_args_list)
+
+
+class TestThreadIdBeyondTheFirstPage:
+    async def test_scrolls_until_the_thread_row_loads_without_opening_it(
+        self, mock_page
+    ):
+        pages = [_inbox(*[_conversation(f"2-{i}") for i in range(5)])]
+        pages += [_inbox(_conversation("2-old", username="old"))]
+        capture = FakeCapture(pages)
+        reader = _reader(mock_page)
+        nav = AsyncMock()
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=capture,
+            ),
+            patch.object(PageNavigator, "_navigate_to_page", nav),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(
+                reader, "_scroll_main_scrollable_region", new_callable=AsyncMock
+            ),
+        ):
+            result = await reader.get_conversation(thread_id="2-old")
+
+        nav.assert_awaited_once_with("https://www.linkedin.com/messaging/")
+        assert capture.fetch_calls[0][0]["backendUrn"].endswith("2-old")
+        assert len(capture.fetch_calls[0][1]) == 6
+        assert result["url"].endswith("/messaging/thread/2-old/")
+
+
+class TestConversationReferencesExposeReadState:
+    async def test_inbox_references_carry_read(self, mock_page):
+        reader = _reader(mock_page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=FakeCapture(
+                    [
+                        _inbox(
+                            _conversation("2-u", read=False),
+                            _conversation("2-r", username="grace"),
+                        )
+                    ]
+                ),
+            ),
+            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(
+                reader, "_scroll_main_scrollable_region", new_callable=AsyncMock
+            ),
+            patch.object(
+                PageContentReader,
+                "_extract_root_content",
+                new_callable=AsyncMock,
+                return_value=_root("rendered"),
+            ),
+        ):
+            result = await reader.get_inbox(limit=2)
+
+        assert [ref["read"] for ref in result["references"]["inbox"]] == [False, True]

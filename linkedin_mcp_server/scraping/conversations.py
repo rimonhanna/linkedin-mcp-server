@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
-from urllib.parse import quote_plus
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Literal
 
 import logging
 
@@ -44,6 +44,9 @@ from linkedin_mcp_server.scraping.profile_page import ProfilePageReader
 from linkedin_mcp_server.scraping.session import ScrapingSession
 from linkedin_mcp_server.scraping.text import strip_linkedin_noise
 
+if TYPE_CHECKING:
+    from linkedin_mcp_server.callbacks import ProgressCallback
+
 logger = logging.getLogger(__name__)
 
 _NEW_THREAD_PATH = "/messaging/thread/new/"
@@ -55,6 +58,7 @@ _SEARCH_BOX_SELECTOR = (
 )
 
 _INBOX_MAX_SCROLLS = 150
+_INBOX_MAX_LIMIT = 1000
 # Under the tool timeout, past which FastMCP discards whatever was loaded.
 _INBOX_SCROLL_BUDGET = 480.0
 _INBOX_SCROLL_PAUSE = 1.2
@@ -155,17 +159,35 @@ class ConversationReader:
             await self._session.delay(pause_time)
 
     async def _load_inbox_to_limit(
-        self, capture: MessagingApiCapture, offset: int, limit: int
+        self,
+        capture: MessagingApiCapture,
+        offset: int,
+        limit: int,
+        callbacks: ProgressCallback | None = None,
+        until: Callable[[list[dict[str, Any]]], bool] | None = None,
     ) -> None:
-        """Scroll the sidebar list, waiting for each next page, until limit is met."""
+        """Scroll the sidebar list, waiting for each next page, until limit is met.
+
+        ``until`` ends the scroll early once it accepts the loaded conversations.
+        """
         stalled = 0
         deadline = self._session.monotonic() + _INBOX_SCROLL_BUDGET
         stop_reason = f"{_INBOX_MAX_SCROLLS} scrolls spent"
         loaded = 0
+        reported = 0
         for _ in range(_INBOX_MAX_SCROLLS):
-            loaded = len(
-                self._unique_conversations(capture.conversations_since(offset))
+            conversations = self._unique_conversations(
+                capture.conversations_since(offset)
             )
+            loaded = len(conversations)
+            if until is not None and until(conversations):
+                return
+            if callbacks and loaded != reported:
+                reported = loaded
+                await callbacks.on_progress(
+                    f"Loaded {min(loaded, limit)} of {limit} conversations",
+                    min(loaded, limit) * 95 // limit,
+                )
             if loaded >= limit:
                 return
             if stalled >= 2:
@@ -259,11 +281,13 @@ class ConversationReader:
                 f"Could not resolve a display name for {username}."
             )
 
-        offset = await self._load_messaging_page(
+        await self._load_messaging_page(
             capture,
-            f"https://www.linkedin.com/messaging/?searchTerm={quote_plus(display_name)}",
-            log_context="Messaging search results",
+            "https://www.linkedin.com/messaging/",
+            log_context="Messaging search",
+            throttle=False,
         )
+        offset = await self._run_search(capture, display_name)
         candidates = self._unique_conversations(capture.conversations_since(offset))
         matches = [
             item for item in candidates if conversation_matches_username(item, username)
@@ -297,7 +321,9 @@ class ConversationReader:
             )
         return matches[index], candidates
 
-    async def get_inbox(self, limit: int = 20) -> dict[str, Any]:
+    async def get_inbox(
+        self, limit: int = 20, callbacks: ProgressCallback | None = None
+    ) -> dict[str, Any]:
         """List recent conversations without selecting any sidebar row."""
         async with self._without_read_state_writes():
             url = "https://www.linkedin.com/messaging/"
@@ -308,7 +334,7 @@ class ConversationReader:
                     log_context="Messaging inbox",
                     scroll_attempts=1,
                 )
-                await self._load_inbox_to_limit(capture, offset, limit)
+                await self._load_inbox_to_limit(capture, offset, limit, callbacks)
                 await self._session.check_rate_limit()
                 raw_result = await self._content._extract_root_content(["main"])
                 payloads = capture.payloads[offset:]
@@ -367,10 +393,19 @@ class ConversationReader:
                         conversations, normalized_thread_id
                     )
                     if target is None:
-                        await self._scroll_main_scrollable_region(
-                            position="bottom", attempts=5, pause_time=0.5
+                        # Opening the thread route would mark it read, so scroll
+                        # the list until the thread's row has loaded instead.
+                        await self._load_inbox_to_limit(
+                            capture,
+                            offset,
+                            _INBOX_MAX_LIMIT,
+                            until=lambda loaded: (
+                                find_conversation_by_thread_id(
+                                    loaded, normalized_thread_id
+                                )
+                                is not None
+                            ),
                         )
-                        await capture.settle()
                         conversations = self._unique_conversations(
                             capture.conversations_since(offset)
                         )
@@ -431,19 +466,7 @@ class ConversationReader:
                     log_context="Messaging search",
                     throttle=False,
                 )
-                offset = capture.begin_search(keywords)
-                await self._submit_search(keywords)
-                try:
-                    await capture.wait_for_payload(after=offset, throttle=False)
-                finally:
-                    await self._session.check_rate_limit()
-                await capture.settle()
-                if not capture.conversations_since(offset):
-                    # A debounced keystroke can answer first with nothing.
-                    await capture.wait_for_next_payload(
-                        after=len(capture.payloads), timeout=3.0
-                    )
-                    await capture.settle()
+                offset = await self._run_search(capture, keywords)
                 payloads = capture.payloads[offset:][::-1]
                 logger.debug(
                     "Search accepted %d responses holding %d conversations",
@@ -464,6 +487,23 @@ class ConversationReader:
                 conversation_rows_text(payloads, {ref["url"] for ref in references}),
                 references=references,
             )
+
+    async def _run_search(self, capture: MessagingApiCapture, keywords: str) -> int:
+        """Type into the page's search box and wait for the answering responses."""
+        offset = capture.begin_search(keywords)
+        await self._submit_search(keywords)
+        try:
+            await capture.wait_for_payload(after=offset, throttle=False)
+        finally:
+            await self._session.check_rate_limit()
+        await capture.settle()
+        if not capture.conversations_since(offset):
+            # A debounced keystroke can answer first with nothing.
+            await capture.wait_for_next_payload(
+                after=len(capture.payloads), timeout=3.0
+            )
+            await capture.settle()
+        return offset
 
     async def _submit_search(self, keywords: str) -> None:
         page = self._session.page
