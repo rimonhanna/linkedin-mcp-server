@@ -164,10 +164,7 @@ def _last_message_preview(item: dict[str, Any]) -> str:
 
 
 def _is_unread(item: dict[str, Any]) -> bool:
-    unread_count = item.get("unreadCount")
-    return item.get("read") is False or (
-        isinstance(unread_count, int) and unread_count > 0
-    )
+    return item.get("read") is False
 
 
 def conversation_rows_text(payloads: Iterable[Any], paths: set[str]) -> str:

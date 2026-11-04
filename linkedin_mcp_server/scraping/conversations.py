@@ -61,6 +61,8 @@ _INBOX_MAX_SCROLLS = 150
 _INBOX_MAX_LIMIT = 1000
 # Under the tool timeout, past which FastMCP discards whatever was loaded.
 _INBOX_SCROLL_BUDGET = 480.0
+# get_conversation runs under the default tool timeout (180 s), not get_inbox's.
+_THREAD_SCROLL_BUDGET = 120.0
 _INBOX_SCROLL_PAUSE = 1.2
 # Unverified against the live site; the scroll falls back to the largest region.
 _INBOX_LIST_SELECTOR = ".msg-conversations-container__conversations-list"
@@ -165,13 +167,14 @@ class ConversationReader:
         limit: int,
         callbacks: ProgressCallback | None = None,
         until: Callable[[list[dict[str, Any]]], bool] | None = None,
+        budget: float = _INBOX_SCROLL_BUDGET,
     ) -> None:
         """Scroll the sidebar list, waiting for each next page, until limit is met.
 
         ``until`` ends the scroll early once it accepts the loaded conversations.
         """
         stalled = 0
-        deadline = self._session.monotonic() + _INBOX_SCROLL_BUDGET
+        deadline = self._session.monotonic() + budget
         stop_reason = f"{_INBOX_MAX_SCROLLS} scrolls spent"
         loaded = 0
         reported = 0
@@ -194,7 +197,7 @@ class ConversationReader:
                 stop_reason = "no new conversations after 2 scrolls"
                 break
             if self._session.monotonic() >= deadline:
-                stop_reason = f"{_INBOX_SCROLL_BUDGET:.0f}s scroll budget spent"
+                stop_reason = f"{budget:.0f}s scroll budget spent"
                 break
             seen = len(capture.payloads)
             await self._scroll_main_scrollable_region(
@@ -293,6 +296,7 @@ class ConversationReader:
             item for item in candidates if conversation_matches_username(item, username)
         ]
         if not matches or not capture.has_message_template:
+            capture.end_search()
             offset = await self._load_messaging_page(
                 capture,
                 "https://www.linkedin.com/messaging/",
@@ -399,6 +403,7 @@ class ConversationReader:
                             capture,
                             offset,
                             _INBOX_MAX_LIMIT,
+                            budget=_THREAD_SCROLL_BUDGET,
                             until=lambda loaded: (
                                 find_conversation_by_thread_id(
                                     loaded, normalized_thread_id

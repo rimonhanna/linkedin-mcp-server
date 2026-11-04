@@ -69,14 +69,15 @@ def _conversation(
     }
 
 
-def _inbox(*items: dict[str, Any]) -> dict[str, Any]:
+def _inbox(*items: dict[str, Any], search: bool = False) -> dict[str, Any]:
     return {
+        "_search": search,
         "data": {
             "messengerConversationsByCategoryQuery": {
                 "elements": list(items),
                 "metadata": {"nextCursor": "private"},
             }
-        }
+        },
     }
 
 
@@ -122,11 +123,16 @@ class FakeCapture:
             "maxOlderPages": 3,
         }
         self.has_message_template = has_message_template
+        self.search_keywords: str | None = None
+        self.dropped = 0
         self.fetch_calls: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
 
     def begin_search(self, keywords: str) -> int:
-        del keywords
+        self.search_keywords = keywords
         return len(self.payloads)
+
+    def end_search(self) -> None:
+        self.search_keywords = None
 
     async def __aenter__(self) -> FakeCapture:
         return self
@@ -134,17 +140,27 @@ class FakeCapture:
     async def __aexit__(self, *_exc: object) -> None:
         return None
 
+    def _deliver(self) -> None:
+        # Like the real capture, a latched search filter drops inbox responses.
+        payload = self._queued.pop(0)
+        if self.search_keywords is None or payload.get("_search"):
+            self.payloads.append(payload)
+        else:
+            self.dropped += 1
+
     async def wait_for_payload(
         self, *, after: int, timeout: float = 12.0, throttle: bool = True
     ) -> None:
         del timeout, throttle
         if len(self.payloads) <= after and self._queued:
-            self.payloads.append(self._queued.pop(0))
+            self._deliver()
+        if len(self.payloads) <= after and self.dropped:
+            raise LinkedInScraperException("only inbox responses arrived in a search")
 
     async def wait_for_next_payload(self, *, after: int, timeout: float = 4.0) -> bool:
         del timeout
         if len(self.payloads) <= after and self._queued:
-            self.payloads.append(self._queued.pop(0))
+            self._deliver()
         return len(self.payloads) > after
 
     async def settle(self, timeout: float = 1.0) -> None:
@@ -576,7 +592,7 @@ class TestGetConversation:
         target = _conversation(
             "2-target", title="Alex Smith", username="target-alex", read=False
         )
-        capture = FakeCapture([_inbox(), _inbox(namesake, target)])
+        capture = FakeCapture([_inbox(), _inbox(namesake, target, search=True)])
         reader = _reader(mock_page)
         nav = AsyncMock()
         with (
@@ -609,7 +625,8 @@ class TestGetConversation:
         target = _conversation("2-target", username="ada", read=False)
         source = _conversation("2-source", username="grace")
         capture = FakeCapture(
-            [_inbox(), _inbox(target), _inbox(source)], has_message_template=False
+            [_inbox(), _inbox(target, search=True), _inbox(source)],
+            has_message_template=False,
         )
         reader = _reader(mock_page)
         nav = AsyncMock()
@@ -641,7 +658,7 @@ class TestGetConversation:
     async def test_username_index_keeps_provider_order(self, mock_page):
         first = _conversation("2-first", username="ada")
         second = _conversation("2-second", username="ada")
-        capture = FakeCapture([_inbox(), _inbox(first, second)])
+        capture = FakeCapture([_inbox(), _inbox(first, second, search=True)])
         reader = _reader(mock_page)
         with (
             patch(
@@ -666,7 +683,7 @@ class TestGetConversation:
         self, mock_page
     ):
         stranger = _conversation("2-stranger", title="Grace Hopper", username="grace")
-        capture = FakeCapture([_inbox(), _inbox(stranger)])
+        capture = FakeCapture([_inbox(), _inbox(stranger, search=True)])
         reader = _reader(mock_page)
         nav = AsyncMock()
         with (
@@ -701,7 +718,7 @@ class TestGetConversation:
         # A non-matching neighbour: the refusal counts the participant's own
         # threads, not every thread the inbox handed over.
         stranger = _conversation("2-second", title="Grace Hopper", username="grace")
-        capture = FakeCapture([_inbox(), _inbox(first, stranger)])
+        capture = FakeCapture([_inbox(), _inbox(first, stranger, search=True)])
         reader = _reader(mock_page)
         with (
             patch(
@@ -770,7 +787,7 @@ class TestSearchConversations:
         recent = _conversation("2-recent")
         hit = _conversation("2-toloka", read=False)
         junk = _conversation("new")
-        capture = FakeCapture([_inbox(recent), _inbox(hit, junk)])
+        capture = FakeCapture([_inbox(recent), _inbox(hit, junk, search=True)])
 
         result, submit = await self._search(mock_page, capture)
 
@@ -783,7 +800,7 @@ class TestSearchConversations:
 
     async def test_references_are_kept_when_a_row_has_no_text(self, mock_page):
         bare = {"conversationUrl": "https://www.linkedin.com/messaging/thread/2-bare/"}
-        capture = FakeCapture([_inbox(), _inbox(bare)])
+        capture = FakeCapture([_inbox(), _inbox(bare, search=True)])
 
         result, _ = await self._search(mock_page, capture)
 
@@ -794,7 +811,7 @@ class TestSearchConversations:
 
     async def test_search_is_capped_at_the_limit(self, mock_page):
         rows = [_conversation(f"2-{i}") for i in range(3)]
-        capture = FakeCapture([_inbox(), _inbox(*rows)])
+        capture = FakeCapture([_inbox(), _inbox(*rows, search=True)])
         reader = _reader(mock_page)
         with (
             patch(
@@ -814,7 +831,11 @@ class TestSearchConversations:
     ):
         hit = _conversation("2-toloka")
         capture = FakeCapture(
-            [_inbox(_conversation("2-recent")), _inbox(), _inbox(hit)]
+            [
+                _inbox(_conversation("2-recent")),
+                _inbox(search=True),
+                _inbox(hit, search=True),
+            ]
         )
 
         result, _ = await self._search(mock_page, capture)
@@ -823,7 +844,7 @@ class TestSearchConversations:
         assert urls == ["/messaging/thread/2-toloka/"]
 
     async def test_zero_results_is_an_explicit_empty_result(self, mock_page):
-        capture = FakeCapture([_inbox(_conversation("2-recent")), _inbox()])
+        capture = FakeCapture([_inbox(_conversation("2-recent")), _inbox(search=True)])
 
         result, _ = await self._search(mock_page, capture)
 
@@ -900,7 +921,7 @@ class TestInboxFollowups:
 class TestUsernameLookupUsesTheSearchBox:
     async def test_the_profile_name_is_typed_not_put_in_a_search_url(self, mock_page):
         target = _conversation("2-target", title="Alex Smith", username="target-alex")
-        capture = FakeCapture([_inbox(), _inbox(target)])
+        capture = FakeCapture([_inbox(), _inbox(target, search=True)])
         reader = _reader(mock_page)
         nav = AsyncMock()
         submit = AsyncMock()
@@ -983,3 +1004,53 @@ class TestConversationReferencesExposeReadState:
             result = await reader.get_inbox(limit=2)
 
         assert [ref["read"] for ref in result["references"]["inbox"]] == [False, True]
+
+
+class TestReviewFollowups:
+    async def test_read_row_with_a_stale_unread_count_has_no_marker(self, mock_page):
+        row = _conversation("2-r", title="Ada Lovelace")
+        row["unreadCount"] = 3
+        reader = _reader(mock_page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=FakeCapture([_inbox(row)]),
+            ),
+            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(
+                reader, "_scroll_main_scrollable_region", new_callable=AsyncMock
+            ),
+            patch.object(
+                PageContentReader,
+                "_extract_root_content",
+                new_callable=AsyncMock,
+                return_value=_root("rendered"),
+            ),
+        ):
+            result = await reader.get_inbox(limit=1)
+
+        assert "Unread" not in result["sections"]["inbox"]
+
+    async def test_thread_id_scroll_budget_fits_the_default_tool_timeout(
+        self, mock_page
+    ):
+        from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
+
+        reader = _reader(mock_page)
+        load = AsyncMock()
+        capture = FakeCapture([_inbox(_conversation("2-a"))])
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=capture,
+            ),
+            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
+            patch.object(reader, "_wait_for_main_text", new_callable=AsyncMock),
+            patch.object(reader, "_load_inbox_to_limit", load),
+        ):
+            with pytest.raises(LinkedInScraperException):
+                await reader.get_conversation(thread_id="2-missing")
+
+        assert load.await_args is not None
+        assert load.await_args.kwargs["budget"] < DEFAULT_TOOL_TIMEOUT_SECONDS
