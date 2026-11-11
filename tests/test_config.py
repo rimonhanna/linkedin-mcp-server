@@ -35,6 +35,20 @@ class TestBrowserConfig:
         with pytest.raises(ConfigurationError):
             BrowserConfig(default_timeout=-1).validate()
 
+    def test_chrome_path_app_bundle_names_the_executable_inside(self, tmp_path):
+        app = tmp_path / "Google Chrome.app"
+        app.mkdir()
+        config = BrowserConfig(chrome_path=str(app))
+        with pytest.raises(ConfigurationError) as caught:
+            config.validate()
+        assert str(app / "Contents" / "MacOS" / "Google Chrome") in str(caught.value)
+
+    def test_chrome_path_plain_directory_gets_no_bundle_hint(self, tmp_path):
+        config = BrowserConfig(chrome_path=str(tmp_path))
+        with pytest.raises(ConfigurationError, match="is not a file") as caught:
+            config.validate()
+        assert "Contents" not in str(caught.value)
+
     def test_validate_negative_slow_mo(self):
         with pytest.raises(ConfigurationError):
             BrowserConfig(slow_mo=-1).validate()
@@ -429,6 +443,56 @@ class TestLoaders:
         config = load_from_env(AppConfig())
         assert config.server.log_level == "DEBUG"
 
+    @pytest.mark.parametrize("value", ["WARN", " warn "])
+    def test_load_from_env_log_level_warn_is_warning(self, monkeypatch, value):
+        monkeypatch.setenv("LOG_LEVEL", value)
+        from linkedin_mcp_server.config.loaders import load_from_env
+
+        assert load_from_env(AppConfig()).server.log_level == "WARNING"
+
+    @pytest.mark.parametrize("bad_value", ["chatty", "CRITICAL", "NOTSET"])
+    def test_load_from_env_invalid_log_level(self, monkeypatch, bad_value):
+        monkeypatch.setenv("LOG_LEVEL", bad_value)
+        from linkedin_mcp_server.config.loaders import load_from_env
+
+        with pytest.raises(ConfigurationError, match="Invalid LOG_LEVEL"):
+            load_from_env(AppConfig())
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "HEADLESS",
+            "AUTO_IMPORT_FROM_BROWSER",
+            "EAGER_FULL_CHROMIUM",
+            "BLOCK_SUBRESOURCES",
+            "DAEMON_ENABLED",
+        ],
+    )
+    def test_load_from_env_refuses_an_unreadable_flag(self, monkeypatch, key):
+        monkeypatch.setenv(key, "flase")
+        from linkedin_mcp_server.config.loaders import load_from_env
+
+        with pytest.raises(ConfigurationError, match=f"Invalid {key}: 'flase'"):
+            load_from_env(AppConfig())
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "HEADLESS",
+            "AUTO_IMPORT_FROM_BROWSER",
+            "EAGER_FULL_CHROMIUM",
+            "BLOCK_SUBRESOURCES",
+            "DAEMON_ENABLED",
+        ],
+    )
+    def test_load_from_env_reads_a_blank_flag_as_unset(self, monkeypatch, key):
+        from linkedin_mcp_server.config.loaders import load_from_env
+
+        monkeypatch.delenv(key, raising=False)
+        unset = load_from_env(AppConfig())
+        monkeypatch.setenv(key, "  ")
+        assert load_from_env(AppConfig()) == unset
+
     def test_load_from_env_defaults(self, monkeypatch):
         # Clear env vars
         for var in ["HEADLESS", "LOG_LEVEL"]:
@@ -520,6 +584,21 @@ class TestLoaders:
         config = load_config(["--log-level", "DEBUG"])
 
         assert config.server.log_level == "DEBUG"
+
+    def test_zero_port_flag_is_refused_like_the_environment(self):
+        # PORT=0 has always been refused, but `--port 0` was dropped as if it
+        # had never been given, so the same invalid value behaved two ways.
+        from linkedin_mcp_server.config import load_config
+
+        with pytest.raises(ConfigurationError, match="Port 0 is not in valid range"):
+            load_config(["--port", "0"])
+
+    def test_zero_port_environment_is_refused(self, monkeypatch):
+        monkeypatch.setenv("PORT", "0")
+        from linkedin_mcp_server.config import load_config
+
+        with pytest.raises(ConfigurationError, match="Port 0 is not in valid range"):
+            load_config([])
 
     def test_unknown_explicit_arg_exits_with_status_two(self):
         from linkedin_mcp_server.config import load_config
@@ -751,6 +830,18 @@ class TestLoaders:
 
         config = load_config(["--no-auto-import"])
         assert config.browser.auto_import_from_browser is False
+
+    def test_slow_mo_zero_overrides_env(self, monkeypatch):
+        monkeypatch.setenv("SLOW_MO", "500")
+        from linkedin_mcp_server.config import load_config
+
+        assert load_config(["--slow-mo", "0"]).browser.slow_mo == 0
+
+    def test_absent_slow_mo_keeps_env(self, monkeypatch):
+        monkeypatch.setenv("SLOW_MO", "500")
+        from linkedin_mcp_server.config import load_config
+
+        assert load_config([]).browser.slow_mo == 500
 
     def test_absent_args_keep_env_false(self, monkeypatch):
         monkeypatch.setenv("AUTO_IMPORT_FROM_BROWSER", "false")
@@ -1220,6 +1311,24 @@ class TestProxyMcpbPlaceholders:
         message = warnings[0].getMessage()
         for key in self.PLACEHOLDERS:
             assert key in message
+
+    def test_a_blank_chrome_path_placeholder_keeps_the_bundled_browser(
+        self, monkeypatch
+    ):
+        # A literal reaching chrome_path would launch "${user_config.chrome_path}"
+        # as an executable instead of falling back to the bundled Chromium.
+        monkeypatch.setenv("CHROME_PATH", "${user_config.chrome_path}")
+        from linkedin_mcp_server.config.loaders import load_from_env
+
+        config = load_from_env(AppConfig())
+        assert config.browser.chrome_path is None
+
+    def test_a_chrome_path_from_the_bundle_settings_is_used(self, monkeypatch):
+        monkeypatch.setenv("CHROME_PATH", "/usr/bin/google-chrome")
+        from linkedin_mcp_server.config.loaders import load_from_env
+
+        config = load_from_env(AppConfig())
+        assert config.browser.chrome_path == "/usr/bin/google-chrome"
 
     def test_a_real_setting_that_merely_resembles_one_is_kept(self, monkeypatch):
         # Anything that is not the exact literal stays a value and reaches

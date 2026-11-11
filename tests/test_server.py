@@ -904,6 +904,67 @@ class TestBrowserLifespan:
         close_browser.assert_awaited_once()
 
 
+class TestServerInstructions:
+    """Every client is told how to use LinkedIn, plugin or not.
+
+    The rules are written out here rather than imported from the server: the
+    contract is this text, above all the line that forbids retrying into a
+    rate limit or cooldown.
+    """
+
+    RULES = """\
+Use these tools only for what the user asked about on LinkedIn, and read the
+smallest thing that answers the request. Collect profiles or companies in bulk
+only when the user asked for it, and then only through the enrichment tools
+(start_enrichment_job, run_enrichment_bunch, enrich_companies,
+enrich_company_deep), never by looping the single-item tools.
+
+send_message, connect_with_person and withdraw_invitations act as the user.
+Use them only for the recipient and text the user approved; when asked for a
+draft, reply with the text instead. If a write's outcome is unknown, ask the
+user to check LinkedIn before acting again.
+
+Calls are paced and run one at a time on purpose. If a tool reports a rate
+limit, an account cooldown or a pacing cap, do not retry or work around it:
+every retry counts against the account. Tell the user when it lifts. An
+enrichment job the user started is not abandoned for this; call it again no
+sooner than the next_run_after or next_run_after_seconds it returned.
+
+If LinkedIn asks for a captcha or other verification, ask the user to complete
+it in the browser, then continue when they say so.
+
+Report what the tools returned, and say when a result may be incomplete.
+"""
+
+    @pytest.mark.parametrize("role", list(ServerRole))
+    async def test_every_role_sends_the_same_operating_rules(
+        self, monkeypatch: pytest.MonkeyPatch, role: ServerRole
+    ):
+        monkeypatch.setattr(server_module, "initialize_bootstrap", MagicMock())
+        monkeypatch.setattr(server_module, "get_runtime_policy", MagicMock())
+        monkeypatch.setattr(
+            server_module, "start_background_browser_setup_if_needed", AsyncMock()
+        )
+        monkeypatch.setattr(server_module, "watch_for_handoff_requests", AsyncMock())
+        monkeypatch.setattr(server_module, "close_browser", AsyncMock())
+
+        async with Client(_server_for(role)) as client:
+            assert client.initialize_result is not None
+            assert client.initialize_result.instructions == self.RULES
+
+    def test_every_write_tool_is_named_as_acting_for_the_user(self):
+        # The pacing middleware's write set is the list of tools that leave a
+        # trace on another member's side. One added there and not here would
+        # reach clients with no rule that it needs the user's approval.
+        rules = server_module._SERVER_INSTRUCTIONS
+        missing = [
+            name
+            for name in SequentialToolExecutionMiddleware._WRITE_TOOLS
+            if name not in rules
+        ]
+        assert not missing
+
+
 class TestServerVersion:
     def test_create_mcp_server_advertises_package_version(self):
         # Without an explicit version=, FastMCP advertises its own library

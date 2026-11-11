@@ -63,6 +63,35 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Sent on initialize to every client, plugin or not, and for every role: a
+# proxy registers no tools of its own but is what the client talks to. The
+# pacing paragraph is the one that matters most. Throttling and logouts were
+# measured to follow retry bursts after a throttle signal, not daily volume.
+_SERVER_INSTRUCTIONS = """\
+Use these tools only for what the user asked about on LinkedIn, and read the
+smallest thing that answers the request. Collect profiles or companies in bulk
+only when the user asked for it, and then only through the enrichment tools
+(start_enrichment_job, run_enrichment_bunch, enrich_companies,
+enrich_company_deep), never by looping the single-item tools.
+
+send_message, connect_with_person and withdraw_invitations act as the user.
+Use them only for the recipient and text the user approved; when asked for a
+draft, reply with the text instead. If a write's outcome is unknown, ask the
+user to check LinkedIn before acting again.
+
+Calls are paced and run one at a time on purpose. If a tool reports a rate
+limit, an account cooldown or a pacing cap, do not retry or work around it:
+every retry counts against the account. Tell the user when it lifts. An
+enrichment job the user started is not abandoned for this; call it again no
+sooner than the next_run_after or next_run_after_seconds it returned.
+
+If LinkedIn asks for a captcha or other verification, ask the user to complete
+it in the browser, then continue when they say so.
+
+Report what the tools returned, and say when a result may be incomplete.
+"""
+
+
 class _StaticTokenAuth(TokenVerifier):
     """Accepts exactly the one token the owner published, and nothing else.
 
@@ -217,6 +246,7 @@ def create_mcp_server(
         # and then claim to be closing a browser it never had.
         lifespan=browser_lifespan if role.drives_browser else None,
         mask_error_details=True,
+        instructions=_SERVER_INSTRUCTIONS,
         auth=_StaticTokenAuth(auth_token) if auth_token is not None else None,
     )
     # Added before the serializing middleware below, which makes it the outer one.

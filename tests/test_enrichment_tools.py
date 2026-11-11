@@ -44,7 +44,7 @@ from linkedin_mcp_server.tools.enrichment import (
     register_enrichment_tools,
 )
 
-from test_tools import get_tool_fn
+from test_tools import _configure_proxy_credentials, get_tool_fn
 
 # Always open: no weekend, no lunch, so bunch tests never depend on the wall
 # clock (a default 9-18 schedule with a noon lunch made these flaky).
@@ -192,6 +192,25 @@ class TestStartJob:
         fn = await get_tool_fn(mcp, "start_enrichment_job")
         with pytest.raises(ToolError, match="No usable usernames"):
             await fn("j", ["", "   ", "/"])
+
+    async def test_a_shaped_error_is_redacted(self, mcp, monkeypatch):
+        # An `except ToolError: raise` used to carry a ToolError past
+        # raise_tool_error, and with it past the credential redaction.
+        import linkedin_mcp_server.tools.enrichment as enrichment
+
+        user, secret = _configure_proxy_credentials(monkeypatch)
+
+        def leaky(*_args, **_kwargs):
+            raise ToolError(f"failed via http://{user}:{secret}@gate.example:7000")
+
+        monkeypatch.setattr(enrichment, "load_account_budget", leaky)
+        fn = await get_tool_fn(mcp, "start_enrichment_job")
+
+        with pytest.raises(ToolError, match="failed via") as caught:
+            await fn("j", ["a"])
+
+        assert secret not in str(caught.value)
+        assert user not in str(caught.value)
 
     async def test_reserved_budget_name_is_refused(self, mcp):
         # A user job named like the internal budget record would overwrite it.

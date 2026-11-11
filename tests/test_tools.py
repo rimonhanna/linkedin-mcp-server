@@ -34,6 +34,24 @@ async def get_tool_fn(
     return cast(FunctionTool, tool).fn
 
 
+def _configure_proxy_credentials(monkeypatch) -> tuple[str, str]:
+    """Configure a proxy whose username and password must never be echoed.
+
+    Built rather than written literally so an assertion cannot match this
+    source line if a traceback ever echoes it.
+    """
+    from linkedin_mcp_server.config.schema import AppConfig
+
+    user = "acct" + "zone9"
+    secret = "s3" + "cr3t"
+    config = AppConfig()
+    config.browser.proxy_server = "http://gate.example:7000"
+    config.browser.proxy_username = user
+    config.browser.proxy_password = secret
+    monkeypatch.setattr("linkedin_mcp_server.config.get_config", lambda: config)
+    return user, secret
+
+
 def _people_kwargs(**overrides):
     """The keyword set ``search_people`` forwards; every new facet defaults
     to None so a test names only the ones it sets."""
@@ -2024,6 +2042,32 @@ class TestSearchCompaniesTool:
             has_jobs=None,
             max_pages=1,
         )
+
+    async def test_search_companies_validation_error_is_redacted(
+        self, mock_context, monkeypatch
+    ):
+        # The tool shapes a FilterValidationError into a ToolError itself, and
+        # an `except ToolError: raise` used to carry that past raise_tool_error
+        # and its credential redaction.
+        user, secret = _configure_proxy_credentials(monkeypatch)
+        from linkedin_mcp_server.scraping.contracts import FilterValidationError
+        from linkedin_mcp_server.tools.company import register_company_tools
+
+        mock_extractor = MagicMock()
+        mock_extractor.search_companies = AsyncMock(
+            side_effect=FilterValidationError(
+                f"unknown location via http://{user}:{secret}@gate.example:7000"
+            )
+        )
+        mcp = FastMCP("test")
+        register_company_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "search_companies")
+
+        with pytest.raises(ToolError, match="unknown location") as caught:
+            await tool_fn(mock_context, hq_location="x", extractor=mock_extractor)
+
+        assert secret not in str(caught.value)
+        assert user not in str(caught.value)
 
     async def test_search_companies_forwards_every_facet(self, mock_context):
         mock_extractor = _make_mock_extractor({"url": "u", "sections": {}})
