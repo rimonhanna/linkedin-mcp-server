@@ -5441,9 +5441,12 @@ class TestRealOwner:
         import asyncio
         import dataclasses
 
+        import httpx
         from fastmcp import Client
+        from mcp.shared.exceptions import McpError
 
         from linkedin_mcp_server.daemon import look_up_owner
+        from linkedin_mcp_server.daemon_proxy import OwnerRefusedCredentialsError
         from linkedin_mcp_server.server import ServerRole, create_mcp_server
 
         profile = real_state_root
@@ -5463,13 +5466,32 @@ class TestRealOwner:
                 async with Client(proxy) as client:
                     await client.list_tools()
 
+            # The client reads fixed text, which says what happened but not how
+            # it was found out, so the proof that the owner's bearer check
+            # refused is taken one level down: the same backend's own client,
+            # against the same owner, raising the refusal over the real 401.
             # Matched on the status rather than catching anything at all. A bare
             # `Exception` passed on any failure whatsoever, including one raised
             # before a request ever left this process, so the test would have
-            # gone green without the owner refusing anything. Measured: the real
-            # refusal is `McpError: Client error '401 Unauthorized'`.
-            with pytest.raises(Exception, match="401 Unauthorized"):
+            # gone green without the owner refusing anything.
+            async def connected() -> None:
+                async with _proxy_backend_for(wrong).open_client(timeout=30.0):
+                    pass
+
+            with pytest.raises(OwnerRefusedCredentialsError) as refused:
+                asyncio.run(connected())
+            cause = refused.value.__cause__
+            assert isinstance(cause, httpx.HTTPStatusError)
+            assert cause.response.status_code == 401
+
+            with pytest.raises(McpError) as told:
                 asyncio.run(served())
+            assert str(told.value) == (
+                "The shared browser process refused this server's credentials, "
+                "so nothing was run. The process answering is not the one this "
+                "server attached to. Restart your MCP client so it connects with "
+                "the current one's credentials."
+            )
         finally:
             _stop(result.get("pid"))
 

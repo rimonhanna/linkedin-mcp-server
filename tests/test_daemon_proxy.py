@@ -2186,3 +2186,171 @@ class TestRecoveringThroughTheWholeProxy:
         # The cancelled close never reached the session task. Clearing up after
         # the caller, not part of what this pins.
         await client.close()
+
+
+#: What a client reads when the owner refused this frontend's token. Written out
+#: for the same reason as `_THE_OWNER_IS_GONE`.
+_THE_TOKEN_WAS_REFUSED = (
+    "The shared browser process refused this server's credentials, so nothing "
+    "was run. The process answering is not the one this server attached to. "
+    "Restart your MCP client so it connects with the current one's credentials."
+)
+
+
+class TestARefusedToken:
+    """An owner that refuses this frontend's token has not been lost.
+
+    A process is there and answering, so an election finds the same one and a
+    repeat is refused again, and calling it a loss sends the user to reconnect
+    over what is a refusal of its credential. Driven through the whole proxy
+    with the real HTTP transport, so the refusal reaches the middleware as the
+    `httpx.HTTPStatusError` the SDK really raises out of the connect; only the
+    socket is stood in for.
+    """
+
+    @pytest.fixture
+    def _owners(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """A backend, its owner, a replacement, and a record of every MCP POST.
+
+        A URL in *served* is answered in process by an owner with a write tool,
+        so a client can list before it calls the way a real one does: the SDK
+        lists on its own before a call whose tool it has not seen, and a test
+        that skipped that would only ever exercise the listing. Any other URL
+        goes through the real HTTP transport, where *refusing* names the ones
+        whose bearer check refuses and *gone* the ones with nothing listening.
+        """
+        from fastmcp.client import transports
+
+        from linkedin_mcp_server import daemon_owner
+
+        elected = _attachment(tmp_path)
+        replacement = _attachment(tmp_path, port=elected.descriptor.port + 1)
+        backend = _backend(elected, tmp_path)
+        owner = TestRecoveringThroughTheWholeProxy._mutating_owner(ran := [])
+        served: set[str] = set()
+        refusing: set[str] = set()
+        gone: set[str] = set()
+        posted: list[str] = []
+        elections: list[str] = []
+
+        def answer(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
+            if url in gone:
+                raise httpx.ConnectError("nothing is listening", request=request)
+            if request.url.path == "/mcp":
+                posted.append(url)
+            if url in refusing:
+                return httpx.Response(401, json={"error": "invalid_token"})
+            return httpx.Response(500)
+
+        def direct(headers=None, timeout=None, auth=None, **extra: Any):
+            extra.pop("trust_env", None)
+            return httpx.AsyncClient(
+                headers=headers,
+                timeout=timeout,
+                auth=auth,
+                transport=httpx.MockTransport(answer),
+                **extra,
+            )
+
+        over_http = transports.StreamableHttpTransport
+
+        def transport_for(url: str, **kwargs: Any) -> ClientTransport:
+            if url in served:
+                return FastMCPTransport(owner)
+            return over_http(url, **kwargs)
+
+        def elect(*_args: Any, **_kwargs: Any):
+            elections.append("elected")
+            return _elected(replacement)
+
+        monkeypatch.setattr(daemon_owner, "direct_async_http_client", direct)
+        monkeypatch.setattr(transports, "StreamableHttpTransport", transport_for)
+        monkeypatch.setattr("linkedin_mcp_server.daemon_election.obtain_owner", elect)
+        return dict(
+            backend=backend,
+            elected=elected.descriptor.url,
+            replacement=replacement.descriptor.url,
+            served=served,
+            refusing=refusing,
+            gone=gone,
+            posted=posted,
+            elections=elections,
+            ran=ran,
+        )
+
+    async def test_a_refused_listing_is_named_and_not_repeated(self, _owners):
+        _owners["refusing"].add(_owners["elected"])
+
+        proxy = TestRecoveringThroughTheWholeProxy._proxy(_owners["backend"])
+        async with Client(proxy) as client:
+            with pytest.raises(Exception) as failed:
+                await client.list_tools()
+
+        assert str(failed.value) == _THE_TOKEN_WAS_REFUSED
+        assert _owners["elections"] == []
+        assert _owners["posted"] == [_owners["elected"]], "the refusal was repeated"
+
+    async def test_a_refused_call_is_named_and_not_an_unknown_outcome(self, _owners):
+        """A write refused at the bearer check never reached a tool.
+
+        So it is neither repeated nor reported as `outcome_unknown`, which would
+        send the user to LinkedIn looking for an effect that cannot have
+        happened.
+        """
+        _owners["served"].add(_owners["elected"])
+
+        proxy = TestRecoveringThroughTheWholeProxy._proxy(_owners["backend"])
+        async with Client(proxy) as client:
+            await client.list_tools()
+            _owners["served"].clear()
+            _owners["refusing"].add(_owners["elected"])
+            result = await client.call_tool(
+                "send_connection_request", {}, raise_on_error=False
+            )
+
+        assert result.is_error
+        assert result.structured_content is None
+        assert [getattr(block, "text", None) for block in result.content] == [
+            _THE_TOKEN_WAS_REFUSED
+        ]
+        assert _owners["ran"] == []
+        assert _owners["elections"] == []
+        assert _owners["posted"] == [_owners["elected"]], "the refusal was repeated"
+
+    async def test_a_replacement_that_refuses_the_repeated_listing_is_named(
+        self, _owners
+    ):
+        _owners["gone"].add(_owners["elected"])
+        _owners["refusing"].add(_owners["replacement"])
+
+        proxy = TestRecoveringThroughTheWholeProxy._proxy(_owners["backend"])
+        async with Client(proxy) as client:
+            with pytest.raises(Exception) as failed:
+                await client.list_tools()
+
+        assert str(failed.value) == _THE_TOKEN_WAS_REFUSED
+        assert _owners["elections"] == ["elected"]
+        assert _owners["posted"] == [_owners["replacement"]]
+
+    async def test_a_replacement_that_refuses_the_repeated_call_is_named(self, _owners):
+        _owners["served"].add(_owners["elected"])
+
+        proxy = TestRecoveringThroughTheWholeProxy._proxy(_owners["backend"])
+        async with Client(proxy) as client:
+            await client.list_tools()
+            _owners["served"].clear()
+            _owners["gone"].add(_owners["elected"])
+            _owners["refusing"].add(_owners["replacement"])
+            result = await client.call_tool(
+                "send_connection_request", {}, raise_on_error=False
+            )
+
+        assert result.is_error
+        assert result.structured_content is None
+        assert [getattr(block, "text", None) for block in result.content] == [
+            _THE_TOKEN_WAS_REFUSED
+        ]
+        assert _owners["ran"] == []
+        assert _owners["elections"] == ["elected"]
+        assert _owners["posted"] == [_owners["replacement"]]

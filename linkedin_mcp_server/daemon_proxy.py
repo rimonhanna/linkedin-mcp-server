@@ -192,6 +192,47 @@ def unreachable_owner_in(exc: BaseException) -> OwnerUnreachableError | None:
     return None
 
 
+#: The statuses the owner's bearer check answers with. Both come from
+#: ``RequireAuthMiddleware`` (``mcp/server/auth/middleware/bearer_auth.py``),
+#: which answers before the request reaches the MCP handler, so neither can come
+#: from a tool that ran.
+_CREDENTIALS_REFUSED = frozenset({401, 403})
+
+
+class OwnerRefusedCredentialsError(Exception):
+    """The owner answered, and what it said was that this token is not its own.
+
+    Not an :class:`OwnerUnreachableError`, because nothing about it is a lost
+    owner. A process is listening and refusing, so an election finds the same
+    owner and a repeat is refused again; and calling it a loss tells the user
+    to reconnect over a refusal that is security-relevant in its own right.
+    """
+
+
+def _refused_credentials(exc: BaseException) -> bool:
+    """Whether the cause chain holds the owner's bearer check refusing us."""
+    current: BaseException | None = exc
+    while current is not None:
+        if (
+            isinstance(current, httpx.HTTPStatusError)
+            and current.response.status_code in _CREDENTIALS_REFUSED
+        ):
+            return True
+        current = current.__cause__
+    return False
+
+
+def credentials_refused_in(exc: BaseException) -> OwnerRefusedCredentialsError | None:
+    """Find a credential refusal in an exception chain, the way
+    :func:`unreachable_owner_in` finds an owner loss, and for the same reason."""
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, OwnerRefusedCredentialsError):
+            return current
+        current = current.__cause__
+    return None
+
+
 def _no_connection_was_established(exc: BaseException) -> bool:
     """Whether the cause chain proves no connection was opened.
 
@@ -347,13 +388,17 @@ def _tells_which_owner_failed() -> type:
             """
             try:
                 return await operation
-            except OwnerUnreachableError:
+            except (OwnerUnreachableError, OwnerRefusedCredentialsError):
                 # Already ours, from a boundary further in. Tagging twice would
                 # bury the answer the inner one recorded.
                 raise
             except Exception as exc:
                 if _the_owner_answered(exc):
                     raise
+                if _refused_credentials(exc):
+                    raise OwnerRefusedCredentialsError(
+                        "The shared browser owner refused this frontend's token"
+                    ) from exc
                 raise OwnerUnreachableError(
                     instance_id=self._instance_id,
                     nothing_was_sent=(
@@ -799,6 +844,31 @@ def _owner_lost_from_a_call() -> ToolError:
     return ToolError(_OWNER_LOST)
 
 
+#: What a client is told when the owner refused this frontend's token. Fixed
+#: text for the same reason as :data:`_OWNER_LOST`, and it never names the token.
+#: The token is minted per owner and read once at attach, so a refusal means the
+#: process answering on that port is not the one this frontend attached to, and
+#: only a restart makes it read the current one. Nothing ran: the refusal is
+#: answered before the request reaches any tool.
+_CREDENTIALS_REFUSED_TEXT = (
+    "The shared browser process refused this server's credentials, so nothing "
+    "was run. The process answering is not the one this server attached to. "
+    "Restart your MCP client so it connects with the current one's credentials."
+)
+
+
+def _refused_from_a_listing() -> McpError:
+    """The listing refusal, as an ``McpError`` for the reason a listing's loss is."""
+    return McpError(
+        mt.ErrorData(code=mt.INTERNAL_ERROR, message=_CREDENTIALS_REFUSED_TEXT)
+    )
+
+
+def _refused_from_a_call() -> ToolError:
+    """The call refusal, as a ``ToolError`` for the reason a call's loss is."""
+    return ToolError(_CREDENTIALS_REFUSED_TEXT)
+
+
 class FrontendOwnerRecoveryMiddleware(Middleware):
     """Find a replacement owner when this one is gone, and repeat what is safe.
 
@@ -839,11 +909,13 @@ class FrontendOwnerRecoveryMiddleware(Middleware):
         the replacement failed the repeat as well, the client is told so in
         words it can act on (:func:`_owner_lost_from_a_listing`). Only a
         failure recognised as the owner's is put that way; anything else leaves
-        as it arrived.
+        as it arrived. A refused token is neither, and is never repeated.
         """
         try:
             return await call_next(context)
         except Exception as exc:
+            if credentials_refused_in(exc) is not None:
+                raise _refused_from_a_listing() from exc
             failure = unreachable_owner_in(exc)
             if failure is None:
                 raise
@@ -855,6 +927,8 @@ class FrontendOwnerRecoveryMiddleware(Middleware):
         try:
             return await call_next(context)
         except Exception as again:
+            if credentials_refused_in(again) is not None:
+                raise _refused_from_a_listing() from again
             if unreachable_owner_in(again) is None:
                 raise
             raise _owner_lost_from_a_listing() from again
@@ -936,6 +1010,10 @@ class FrontendOwnerRecoveryMiddleware(Middleware):
         try:
             return await call_next(context)
         except Exception as exc:
+            # Ahead of the outcome question, because a refusal has an answer to
+            # it: the owner's bearer check refused before any tool ran.
+            if credentials_refused_in(exc) is not None:
+                raise _refused_from_a_call() from exc
             failure = unreachable_owner_in(exc)
             if failure is None:
                 raise
@@ -999,6 +1077,8 @@ class FrontendOwnerRecoveryMiddleware(Middleware):
                 # third attempt would be a guess about an owner that has now
                 # failed twice, and the question it raises — whether the second
                 # attempt acted — is the one nothing here can answer.
+                if credentials_refused_in(again) is not None:
+                    raise _refused_from_a_call() from again
                 repeat = unreachable_owner_in(again)
                 if repeat is not None and not repeat.nothing_was_sent:
                     # The answer the first attempt already has, rather than the
