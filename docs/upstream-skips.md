@@ -183,11 +183,11 @@ them, often several commits to one PR per area. FastMCP 4 stays filed under
 | 6eb4d1f | docs(tools): Describe tools as reading LinkedIn (#1187) | skip | Upstream README, notice or contributor docs. | 2026-11-11 |
 | 9d6159e | refactor(linkedin): Move the scraping package (#1189) | skip | Upstream package rename to `linkedin/`; we keep `scraping/`. | 2026-11-11 |
 | 9ab5f25 | refactor(linkedin): Drop scrape from identifiers (#1190) | skip | Identifier renames that follow 9d6159e. | 2026-11-11 |
-| 1c9c232 | fix(cli): Say who holds the profile on --status (#1191) | ported | This run, in {{PR:fix/backport-daemon-owner-fixes}}. | 2026-11-11 |
+| 1c9c232 | fix(cli): Say who holds the profile on --status (#1191) | ported | This run, in #123. | 2026-11-11 |
 | cf0d20d | test(daemon): Lose a call in flight (#1192) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 2b1cb6c | test(daemon): Race idle retirement and turnover (#1193) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 231aa61 | test(daemon): Lose the owner before and after dispatch (#1196) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
-| 71553e7 | fix(daemon): Spare the owner's Job infrastructure (#1201) | ported | Windows-only; Windows CI proves it, in {{PR:fix/backport-process-browser-reliability}}. | 2026-11-11 |
+| 71553e7 | fix(daemon): Spare the owner's Job infrastructure (#1201) | ported | Windows-only; Windows CI proves it, in #121. | 2026-11-11 |
 | f142502 | test(daemon): Run profile commands under an owner (#1197) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 1c89759 | test(daemon): Let ended commands settle under load (#1204) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 2b4d7bd | test(daemon): Repair a lost session through an owner (#1198) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
@@ -202,42 +202,42 @@ them, often several commits to one PR per area. FastMCP 4 stays filed under
 | 31bdc7d | docs(changelog): Note the identifier renames (#1212) | skip | Upstream README, notice or contributor docs. | 2026-11-11 |
 | 3835c24 | docs(readme): Match the Codex note to the bundle note (#1213) | skip | Upstream README, notice or contributor docs. | 2026-11-11 |
 | bfcf58c | chore(deps): update ruff to v0.16.10 (#1156) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
-| f0c1469 | fix(messaging): Accept LinkedIn's flagged profile URL (#1214) | ported | This run, in {{PR:feat/backport-messaging}}. | 2026-11-11 |
+| f0c1469 | fix(messaging): Accept LinkedIn's flagged profile URL (#1214) | ported | This run, in #128. | 2026-11-11 |
 | 5436219 | chore: Bump version to 4.26.2 (#1215) | skip | Upstream version bump or versioned-file sync; this fork numbers its own releases. | 2026-11-11 |
 | 592ca36 | chore: sync versioned files to v4.26.2 [skip ci] | skip | Upstream version bump or versioned-file sync; this fork numbers its own releases. | 2026-11-11 |
 | 1b152ee | test(process-control): Count a reset as the abort (#1218) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
-| a63bdfd | feat(jobs): Add get_job_apply_url tool (#1035) | ported | Folded into `get_job_details` as an `apply` key, no second navigation, in {{PR:feat/backport-job-improvements}}. | 2026-11-11 |
+| a63bdfd | feat(jobs): Add get_job_apply_url tool (#1035) | ported | Folded into `get_job_details` as an `apply` key, no second navigation, in #127. | 2026-11-11 |
 | c0e1458 | test: Synchronise six racing unit tests (#1219) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | cc3625b | ci: Move to stickerdaniel/post-no-bills (#1222) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
-| 8fe0940 | fix(process-tree): Settle a group that ended late (#1220) | ported | This run, in {{PR:fix/backport-process-browser-reliability}}. | 2026-11-11 |
+| 8fe0940 | fix(process-tree): Settle a group that ended late (#1220) | ported | This run, in #121. | 2026-11-11 |
 | 27caa1e | test(differential): Read a macOS SystemError as unreadable (#1221) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
-| d38bdae | fix(setup): Refuse an install the watcher saw breach (#1229) | ported | This run, in {{PR:fix/backport-process-browser-reliability}}. | 2026-11-11 |
-| 53ff87a | fix(session): Name a foreign-host lock and its fix (#1228) | ported | This run, in {{PR:fix/backport-daemon-owner-fixes}}. | 2026-11-11 |
-| 3da596d | fix(daemon): Name a lost owner instead of masking it (#1232) | ported | This run, in {{PR:fix/backport-daemon-owner-fixes}}. | 2026-11-11 |
-| 4c0da72 | fix(messaging): Answer before the tool deadline (#1233) | ported | This run, in {{PR:feat/backport-messaging}}. | 2026-11-11 |
+| d38bdae | fix(setup): Refuse an install the watcher saw breach (#1229) | ported | This run, in #121. | 2026-11-11 |
+| 53ff87a | fix(session): Name a foreign-host lock and its fix (#1228) | ported | This run, in #123. | 2026-11-11 |
+| 3da596d | fix(daemon): Name a lost owner instead of masking it (#1232) | ported | This run, in #123. | 2026-11-11 |
+| 4c0da72 | fix(messaging): Answer before the tool deadline (#1233) | ported | This run, in #128. | 2026-11-11 |
 | 7609a66 | fix(setup): Say Ctrl+Z does not pause the download (#1230) | skip | Installer prompt wording; not worth the drift. | 2026-11-11 |
 | 46d365b | fix(cli): Keep a session made after logout confirms (#1231) | skip | Race window is only our y/N prompt; needs a handover wait we lack. | 2026-11-11 |
 | 17bdfe6 | test(watcher): Judge the lifecycle test on coverage (#1226) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 527349f | test: Synchronise load-dependent process tests (#1225) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
-| bf1591c | fix(jobs): Stop the sidebar scroll on cancel (#1234) | ported | This run, in {{PR:feat/backport-job-improvements}}. | 2026-11-11 |
+| bf1591c | fix(jobs): Stop the sidebar scroll on cancel (#1234) | ported | This run, in #127. | 2026-11-11 |
 | cf9a8c6 | test(differential): Compare only the close path (#1237) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 4248ee5 | test(daemon): Keep tests out of the real state root (#1188) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | ddf6a71 | feat(messaging): Send multi-line messages (#1224) | ported | Earlier, our own implementation in #107. | 2026-11-11 |
 | a7c8ef1 | docs(readme): Name the limits in the Cadenza banner (#1238) | skip | Upstream README, notice or contributor docs. | 2026-11-11 |
 | c25b68b | test(daemon): Keep daemon tests out of the real home (#1227) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 3a49e50 | test(guardian): Observe the guardian exit before the lease (#1239) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
-| 271c8e9 | fix(navigation): Refuse a landing off LinkedIn (#1235) | ported | Reduced scope, in {{PR:fix/refuse-off-linkedin-landing}}. | 2026-11-11 |
+| 271c8e9 | fix(navigation): Refuse a landing off LinkedIn (#1235) | ported | Reduced scope, in #122. | 2026-11-11 |
 | 6f2f6d4 | test(differential): Record why a first navigation stalls (#1241) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 33c79cf | fix(browser): Restart a browser that stopped (#1240) | ported | Earlier, in #13: restart on `is_connected()` false plus lease-held drain already in main; upstream's extra `_browser_lease` guard covers a profile-root retarget the fork never does. | 2026-11-11 |
 | 71c5eb1 | fix(navigation): Time a goto from its request (#1245) | skip | Our goto clock already starts at the call; it would add stacking. | 2026-11-11 |
-| 1323393 | feat(messaging): Report the thread a message landed in (#1243) | ported | This run, in {{PR:feat/backport-messaging}}. | 2026-11-11 |
+| 1323393 | feat(messaging): Report the thread a message landed in (#1243) | ported | This run, in #128. | 2026-11-11 |
 | 28b62f1 | ci: Pin Post No Bills v3.0.0 (#1244) | skip | Upstream CI and release workflow. | 2026-11-11 |
 | fcef952 | docs(readme): End founding offer before CTA (#1246) | skip | Upstream README, notice or contributor docs. | 2026-11-11 |
-| a83bf94 | feat(jobs): Read job tracker stages in get_saved_jobs (#1058) | ported | This run, in {{PR:feat/backport-job-improvements}}. | 2026-11-11 |
+| a83bf94 | feat(jobs): Read job tracker stages in get_saved_jobs (#1058) | ported | This run, in #127. | 2026-11-11 |
 | c8e9be0 | fix(browser): Restore a rolled-back session (#1251) | ported | Earlier, in #98. | 2026-11-11 |
-| 65f4e35 | fix(jobs): Read an Easy Apply that is a button (#1250) | ported | Folded into the a63bdfd `apply` key, in {{PR:feat/backport-job-improvements}}. | 2026-11-11 |
+| 65f4e35 | fix(jobs): Read an Easy Apply that is a button (#1250) | ported | Folded into the a63bdfd `apply` key, in #127. | 2026-11-11 |
 | 3252e08 | ci(checks): Run only the CI a change needs (#1253) | skip | Upstream CI and release workflow. | 2026-11-11 |
-| a87c158 | feat(jobs): Report applied and closed on job details (#1249) | ported | Folded into the a63bdfd `apply` key, in {{PR:feat/backport-job-improvements}}. | 2026-11-11 |
+| a87c158 | feat(jobs): Report applied and closed on job details (#1249) | ported | Folded into the a63bdfd `apply` key, in #127. | 2026-11-11 |
 | 89e6cc0 | test(watcher): Accept a skewed sampling cost (#1252) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 2290293 | ci(windows): Keep the evidence of a browser exit (#1242) | skip | Upstream CI and release workflow. | 2026-11-11 |
 | b65dd7a | docs(readme): Clarify intro and tool overview (#1254) | skip | Upstream README, notice or contributor docs. | 2026-11-11 |
@@ -245,7 +245,7 @@ them, often several commits to one PR per area. FastMCP 4 stays filed under
 | f4d355e | ci(checks): Bound every CI job's runtime (#1257) | skip | Upstream CI and release workflow. | 2026-11-11 |
 | ccd028b | test(differential): Settle modelled censuses fast (#1258) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | b71682f | test(differential): Close two evidence gaps (#1260) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
-| 60bb77f | fix(messaging): Exclude compose thread links (#1255) | ported | This run, in {{PR:feat/backport-messaging}}. | 2026-11-11 |
+| 60bb77f | fix(messaging): Exclude compose thread links (#1255) | ported | This run, in #128. | 2026-11-11 |
 | f03f377 | chore(deps): lock file maintenance (#964) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
 | 957b88d | test(process-control): Keep the finalization test out of the real state root (#1266) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 01c2d5e | test(isolation): Keep test artifacts temporary (#1267) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
@@ -274,13 +274,13 @@ them, often several commits to one PR per area. FastMCP 4 stays filed under
 | 3d458d8 | test(daemon): Enumerate the composed reducers (#1292) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 6bf092f | chore(deps): update stickerdaniel/post-no-bills action to v3.1.0 (#1286) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
 | 4526159 | feat(daemon): Say when the shared owner is silent (#1295) | skip | Wording only; 16 files written against upstream's daemon core we lack. | 2026-11-11 |
-| dae6521 | fix(diagnostics): Prune trace runs left behind (#1297) | ported | This run, in {{PR:fix/trace-evidence-and-pruning}}. | 2026-11-11 |
+| dae6521 | fix(diagnostics): Prune trace runs left behind (#1297) | ported | This run, in #125. | 2026-11-11 |
 | a5fe078 | fix(daemon): Keep an answer whose body close fails (#1298) | skip | Fixes httpx2 body close in `forwarder.py`; neither exists here. | 2026-11-11 |
-| 07f0ca6 | fix(daemon): Turn over an older owner of any config (#1301) | ported | This run, in {{PR:fix/backport-daemon-owner-fixes}}. | 2026-11-11 |
+| 07f0ca6 | fix(daemon): Turn over an older owner of any config (#1301) | ported | This run, in #123. | 2026-11-11 |
 | a8e30d0 | test(differential): Keep terminal output and held reads under load (#1300) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 4f82b09 | feat(plugins): Add a Claude Code plugin (#1296) | skip | Plugin launches upstream's pinned PyPI package, not this fork. | 2026-11-11 |
-| 2dec308 | fix(daemon): Share one browser across login settings (#1304) | ported | Minimal, paired with 07f0ca6; flag removals left out, in {{PR:fix/backport-daemon-owner-fixes}}. | 2026-11-11 |
-| ca22166 | fix(installer): Wait out EPERM from a killed group (#1302) | ported | This run, in {{PR:fix/backport-process-browser-reliability}}. | 2026-11-11 |
+| 2dec308 | fix(daemon): Share one browser across login settings (#1304) | ported | Minimal, paired with 07f0ca6; flag removals left out, in #123. | 2026-11-11 |
+| ca22166 | fix(installer): Wait out EPERM from a killed group (#1302) | ported | This run, in #121. | 2026-11-11 |
 | 5ed548e | docs(agents): Reproduce timing flakes at the seam (#1306) | skip | Upstream daemon gate records or agent rules; not ours. | 2026-11-11 |
 | 24e9bf9 | fix(daemon): Delete unused code and catalog forwarding (#1311) | skip | Cleanup of upstream's daemon package; ours is flat and opt-in. | 2026-11-11 |
 | 2d6e0b9 | test(differential): Race a contender against a kill (#1299) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
@@ -290,11 +290,11 @@ them, often several commits to one PR per area. FastMCP 4 stays filed under
 | be709c5 | test(differential): Release the grandchild from the hook (#1307) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | b2bf37a | test(browser): Judge the wedged stop by its events (#1308) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 886cd99 | test(bootstrap): Drop the clock from thread timeouts (#1309) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
-| 4e61ce7 | fix(messaging): Keep a confirmed send past the budget (#1305) | ported | This run, in {{PR:feat/backport-messaging}}. | 2026-11-11 |
+| 4e61ce7 | fix(messaging): Keep a confirmed send past the budget (#1305) | ported | This run, in #128. | 2026-11-11 |
 | a4458f3 | test(daemon): Bound the planted FIFO by a hang (#1316) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 1472319 | test(installer): Expire the lifetime once installing (#1315) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 4059f39 | test(bootstrap): Arm the setup deadline after readiness (#1310) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
-| 3cf6171 | fix(daemon): Refuse a swapped FIFO without blocking (#1317) | ported | This run, in {{PR:fix/backport-process-browser-reliability}}. | 2026-11-11 |
+| 3cf6171 | fix(daemon): Refuse a swapped FIFO without blocking (#1317) | ported | This run, in #121. | 2026-11-11 |
 | ec89257 | refactor(daemon): Move the spawn adapter out (#1318) | skip | Upstream daemon package/core refactor; ours is flat and opt-in. | 2026-11-11 |
 | b58cb34 | docs(agents): Adopt the post-no-bills attribution rule (#1319) | skip | Upstream's PR attribution rule; this fork forbids attribution. | 2026-11-11 |
 | d51933e | feat(cursor): Add Cursor plugin support (#1268) | skip | Editor plugin pinned to upstream's package. | 2026-11-11 |
@@ -324,11 +324,11 @@ them, often several commits to one PR per area. FastMCP 4 stays filed under
 | c329cc4 | test(daemon): Add the shared-browser pilot recorder (#1353) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | ed3b4dc | docs(daemon): Decide the Windows check and pilot rules (#1352) | skip | Upstream daemon gate records or agent rules; not ours. | 2026-11-11 |
 | 91329ef | ci(checks): Name matrix jobs without expressions (#1355) | skip | Upstream CI and release workflow. | 2026-11-11 |
-| 4c1a940 | fix(process): Wait for a slow ps in the crash guardian (#1370) | ported | This run, in {{PR:fix/backport-process-browser-reliability}}. | 2026-11-11 |
+| 4c1a940 | fix(process): Wait for a slow ps in the crash guardian (#1370) | ported | This run, in #121. | 2026-11-11 |
 | 9e0102e | chore(deps): Update aiohttp for security fixes (#1371) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
 | 89455ff | docs(readme): Remove the sponsored proxy providers (#1373) | skip | Upstream README, notice or contributor docs. | 2026-11-11 |
-| 5a29bbf | fix(process): Let a slow ps prove a browser drain (#1368) | ported | Hand-merged; registration moved off the loop with it, in {{PR:fix/backport-process-browser-reliability}}. | 2026-11-11 |
-| baf2439 | fix(tools): Redact shaped errors in search tools (#1375) | ported | Search-tool half was earlier in #98; the rest, in {{PR:fix/backport-config-validation}}. | 2026-11-11 |
+| 5a29bbf | fix(process): Let a slow ps prove a browser drain (#1368) | ported | Hand-merged; registration moved off the loop with it, in #121. | 2026-11-11 |
+| baf2439 | fix(tools): Redact shaped errors in search tools (#1375) | ported | Search-tool half was earlier in #98; the rest, in #120. | 2026-11-11 |
 | f51faed | test(differential): Start the idle clock when a call ends (#1374) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | c76f8b4 | refactor(tools): Share one error envelope (#1376) | skip | Error-envelope refactor across drifted tool modules. | 2026-11-11 |
 | 3c203d5 | fix(auth): Stop calling a checkpoint a rate limit (#1379) | ported | Earlier, in #98. | 2026-11-11 |
@@ -338,22 +338,22 @@ them, often several commits to one PR per area. FastMCP 4 stays filed under
 | 7a40310 | chore(release): Sync versioned files to v4.28.0 [skip ci] | skip | Upstream version bump or versioned-file sync; this fork numbers its own releases. | 2026-11-11 |
 | 0c5f14b | docs(jobs): Say what the redesigned search keeps (#1362) | skip | Upstream README, notice or contributor docs. | 2026-11-11 |
 | a943666 | fix(deps): Raise the fastmcp floor to 4.1.2 (#1408) | filed | #85: FastMCP 4 deferred until a 3.x fix lands only on 4.x, a client drops pre-2026-07-28 protocol, #90 is adopted, or 3.x gets an EOL. | 2026-11-11 |
-| 8d8861a | feat(docker): Let the login viewer paste text (#1414) | ported | This run, in {{PR:feat/login-viewer-paste}}. | 2026-11-11 |
+| 8d8861a | feat(docker): Let the login viewer paste text (#1414) | ported | This run, in #129. | 2026-11-11 |
 | 07c160e | chore(deps): Update setuptools to v84.2.1 (#1412) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
 | 5224d05 | chore(deps): Update Ruff to v0.17.3 (#1285) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
-| 8ced54c | fix(browser): Restart a browser whose page crashed (#1382) | ported | This run, in {{PR:fix/backport-process-browser-reliability}}. | 2026-11-11 |
+| 8ced54c | fix(browser): Restart a browser whose page crashed (#1382) | ported | This run, in #121. | 2026-11-11 |
 | e00e74e | feat(session): Add a session status tool (#1392) | skip | Optional; upstream itself says not to preflight. Revisit on demand. | 2026-11-11 |
 | 09ff15b | docs(readme): Shorten the session status row (#1415) | skip | Upstream README, notice or contributor docs. | 2026-11-11 |
-| a48e21c | feat(jobs): Report why search_jobs stopped paging (#1323) | ported | This run, in {{PR:feat/backport-job-improvements}}. | 2026-11-11 |
-| 0dcffd0 | fix: Harden sidebar links and issue diagnostics (#1417) | ported | This run, in {{PR:fix/trace-evidence-and-pruning}}. | 2026-11-11 |
+| a48e21c | feat(jobs): Report why search_jobs stopped paging (#1323) | ported | This run, in #127. | 2026-11-11 |
+| 0dcffd0 | fix: Harden sidebar links and issue diagnostics (#1417) | ported | This run, in #125. | 2026-11-11 |
 | ecd25f2 | chore(deps): Update authlib, dnspython and filelock (#1418) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
 | 5abdba3 | feat(tools): Pair feed post references with their posts (#1409) | skip | Today's feed exposes no post boundaries; recovering URNs needs decoding opaque internal keys (minimize-DOM rule). Ported then reverted after live measurement 2026-11-11. | 2026-11-11 |
 | 3801ee0 | chore(deps): update ci dependencies (#1366) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
-| 048a7e0 | feat(mcpb): Expose CHROME_PATH as a bundle setting (#1303) | ported | This run, in {{PR:fix/backport-config-validation}}. | 2026-11-11 |
-| eeabfd8 | fix(jobs): Detect no-match on the redesigned search (#1363) | ported | This run, in {{PR:feat/backport-job-improvements}}. | 2026-11-11 |
-| aa9ee81 | feat(person): Add volunteering section (#1357) | ported | This run, in {{PR:feat/backport-posts-feed-volunteering}}. | 2026-11-11 |
+| 048a7e0 | feat(mcpb): Expose CHROME_PATH as a bundle setting (#1303) | ported | This run, in #120. | 2026-11-11 |
+| eeabfd8 | fix(jobs): Detect no-match on the redesigned search (#1363) | ported | This run, in #127. | 2026-11-11 |
+| aa9ee81 | feat(person): Add volunteering section (#1357) | ported | This run, in #126. | 2026-11-11 |
 | 0ed4d80 | fix(search): Filter people search by geo URN (#722) | skip | Superseded: we resolve free-text locations to geo ids already. | 2026-11-11 |
-| d4cad45 | feat(tools): Filter search_posts by content type (#1377) | ported | This run, in {{PR:feat/backport-posts-feed-volunteering}}. | 2026-11-11 |
+| d4cad45 | feat(tools): Filter search_posts by content type (#1377) | ported | This run, in #126. | 2026-11-11 |
 | 4bc291e | feat(errors): Name a stable code on failed calls (#1390) | skip | Stable error codes serve programmatic clients; ours read text. Large. | 2026-11-11 |
 | 6aff215 | feat(errors): Name throttling in a failed call (#1264) | skip | Per-call throttle listener; the pacing cooldown covers the harm. | 2026-11-11 |
 | c8c2a0d | docs(readme): Drop the error code table (#1419) | skip | Drops a README table for 4bc291e, which is skipped. | 2026-11-11 |
@@ -362,10 +362,10 @@ them, often several commits to one PR per area. FastMCP 4 stays filed under
 | b8922f3 | feat(jobs): Add get_easy_apply_form tool (#1343) | skip | Fails on current postings upstream; saves drafts, form-walk pattern. | 2026-11-11 |
 | 59d05a6 | test(daemon): Ignore stray probes on the fake proxy (#1422) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | 975cee6 | chore(deps): Update ty to 0.0.94 (#1421) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
-| f45c413 | feat(linkedin_mcp_server): Send usage rules as server instructions (#1402) | ported | Our own instruction text, not upstream's, in {{PR:fix/backport-config-validation}}. | 2026-11-11 |
+| f45c413 | feat(linkedin_mcp_server): Send usage rules as server instructions (#1402) | ported | Our own instruction text, not upstream's, in #120. | 2026-11-11 |
 | c7afa71 | chore(release): Bump version to 4.29.0 (#1423) | skip | Upstream version bump or versioned-file sync; this fork numbers its own releases. | 2026-11-11 |
 | 17be1db | chore(release): Sync versioned files to v4.29.0 [skip ci] | skip | Upstream version bump or versioned-file sync; this fork numbers its own releases. | 2026-11-11 |
-| d8a02a3 | feat(messaging): Add reply_to_conversation tool (#1342) | ported | This run, in {{PR:feat/backport-messaging}}. | 2026-11-11 |
+| d8a02a3 | feat(messaging): Add reply_to_conversation tool (#1342) | ported | This run, in #128. | 2026-11-11 |
 | 77f8409 | test(readme): Keep tool descriptions on one line (#1438) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
 | b5e65ae | docs(readme): Add LinkupAPI as the top sponsor (#1435) | skip | Upstream README, notice or contributor docs. | 2026-11-11 |
 | bb21b7a | chore(deps): Bump joserfc to 1.7.7 (#1440) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
@@ -391,10 +391,10 @@ them, often several commits to one PR per area. FastMCP 4 stays filed under
 | d8d3394 | chore(deps): update actions/checkout action to v7 (#1467) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
 | 1ec1120 | chore(deps): update ci dependencies (#1465) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
 | 5886cb6 | test(differential): Bound sampler waits by its reads (#1476) | skip | Upstream test harness for code or races not ported here. | 2026-11-11 |
-| 73b2ee7 | fix(config): Refuse --port 0 like PORT=0 (#1447) | ported | This run, in {{PR:fix/backport-config-validation}}. | 2026-11-11 |
-| 58d3d16 | fix(config): Refuse an invalid LOG_LEVEL (#1461) | ported | This run, in {{PR:fix/backport-config-validation}}. | 2026-11-11 |
-| e288072 | fix(tools): Refuse bad input before the browser (#1429) | ported | Only the search_posts residual; the rest was #80, in {{PR:feat/backport-posts-feed-volunteering}}. | 2026-11-11 |
-| 4e52a07 | fix(connection): Report pending from the More menu (#1425) | ported | With the false-pending fix, in {{PR:fix/connection-state-detection}}. | 2026-11-11 |
-| ec3df20 | fix(config): Let --slow-mo 0 override SLOW_MO (#1431) | ported | This run, in {{PR:fix/backport-config-validation}}. | 2026-11-11 |
-| 5c50810 | fix(jobs): Accept a job id from a job search link (#1437) | ported | This run, in {{PR:feat/backport-job-improvements}}. | 2026-11-11 |
-| c8af562 | fix(config): Refuse an unreadable on/off setting (#1479) | ported | Adapted to our five on/off settings, in {{PR:fix/backport-config-validation}}. | 2026-11-11 |
+| 73b2ee7 | fix(config): Refuse --port 0 like PORT=0 (#1447) | ported | This run, in #120. | 2026-11-11 |
+| 58d3d16 | fix(config): Refuse an invalid LOG_LEVEL (#1461) | ported | This run, in #120. | 2026-11-11 |
+| e288072 | fix(tools): Refuse bad input before the browser (#1429) | ported | Only the search_posts residual; the rest was #80, in #126. | 2026-11-11 |
+| 4e52a07 | fix(connection): Report pending from the More menu (#1425) | ported | With the false-pending fix, in #124. | 2026-11-11 |
+| ec3df20 | fix(config): Let --slow-mo 0 override SLOW_MO (#1431) | ported | This run, in #120. | 2026-11-11 |
+| 5c50810 | fix(jobs): Accept a job id from a job search link (#1437) | ported | This run, in #127. | 2026-11-11 |
+| c8af562 | fix(config): Refuse an unreadable on/off setting (#1479) | ported | Adapted to our five on/off settings, in #120. | 2026-11-11 |
