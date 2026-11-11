@@ -1503,12 +1503,12 @@ def test_hard_exit_rescans_markers_for_later_browser_groups(
     monkeypatch.setattr(
         process_tree,
         "_scan_marked_posix_processes",
-        lambda marker: process_tree._MarkerScan((900,), True),
+        lambda _marker, _deadline=None: process_tree._MarkerScan((900,), True),
     )
     monkeypatch.setattr(
         process_tree,
         "_posix_process_rows",
-        lambda: {900: (1, 789, "late-member", "S")},
+        lambda _deadline=None: {900: (1, 789, "late-member", "S")},
     )
     monkeypatch.setattr(process_tree, "_kernel_start_identity", lambda process: None)
     monkeypatch.setattr(process_tree, "process_group_exists", lambda group: True)
@@ -1549,7 +1549,7 @@ def test_hard_exit_waits_for_targeted_groups_to_disappear(
     monkeypatch.setattr(
         process_tree,
         "_posix_process_rows",
-        lambda: {457: (1, 456, "member-start", "S")},
+        lambda _deadline=None: {457: (1, 456, "member-start", "S")},
     )
     monkeypatch.setattr(
         process_tree, "process_group_exists", lambda group: next(checks)
@@ -1583,7 +1583,9 @@ def test_hard_exit_stops_waiting_when_a_group_identity_is_reused(
             )
         },
     )
-    monkeypatch.setattr(process_tree, "_posix_process_rows", lambda: next(snapshots))
+    monkeypatch.setattr(
+        process_tree, "_posix_process_rows", lambda _deadline=None: next(snapshots)
+    )
     monkeypatch.setattr(process_tree, "process_group_exists", lambda _group: True)
     monkeypatch.setattr(process_tree.time, "sleep", slept.append)
 
@@ -1704,7 +1706,7 @@ class TestOneLaunchesResidualBrowser:
         monkeypatch.setattr(
             process_tree,
             "_scan_marked_posix_processes",
-            lambda _m: process_tree._MarkerScan((), True),
+            lambda _m, _deadline=None: process_tree._MarkerScan((), True),
         )
         monkeypatch.setattr(process_tree, "_kernel_start_identity", lambda _p: None)
         monkeypatch.setattr(os, "getpgrp", lambda: 100)
@@ -1734,7 +1736,7 @@ class TestOneLaunchesResidualBrowser:
         monkeypatch.setattr(
             process_tree,
             "_posix_process_rows",
-            lambda: {
+            lambda _deadline=None: {
                 457: (1, 456, "browser-member", "S"),
                 790: (1, 789, "installer-member", "S"),
             },
@@ -1767,7 +1769,9 @@ class TestOneLaunchesResidualBrowser:
             },
         )
         monkeypatch.setattr(
-            process_tree, "_posix_process_rows", lambda: {101: (1, 100, "member", "S")}
+            process_tree,
+            "_posix_process_rows",
+            lambda _deadline=None: {101: (1, 100, "member", "S")},
         )
         monkeypatch.setattr(process_tree, "process_group_exists", lambda _group: True)
         monkeypatch.setattr(os, "killpg", lambda group, _sig: killed.append(group))
@@ -1793,7 +1797,7 @@ class TestOneLaunchesResidualBrowser:
         monkeypatch.setattr(
             process_tree,
             "_posix_process_rows",
-            lambda: {457: (1, 456, "browser-member", "S")},
+            lambda _deadline=None: {457: (1, 456, "browser-member", "S")},
         )
         monkeypatch.setattr(process_tree, "process_group_exists", lambda _group: True)
         monkeypatch.setattr(os, "killpg", lambda group, _sig: killed.append(group))
@@ -1812,12 +1816,12 @@ class TestOneLaunchesResidualBrowser:
         monkeypatch.setattr(
             process_tree,
             "_scan_marked_posix_processes",
-            lambda _m: process_tree._MarkerScan((900,), True),
+            lambda _m, _deadline=None: process_tree._MarkerScan((900,), True),
         )
         monkeypatch.setattr(
             process_tree,
             "_posix_process_rows",
-            lambda: {900: (1, 100, "owner-group", "S")},
+            lambda _deadline=None: {900: (1, 100, "owner-group", "S")},
         )
         monkeypatch.setattr(process_tree.time, "sleep", lambda _seconds: None)
 
@@ -1832,7 +1836,9 @@ class TestOneLaunchesResidualBrowser:
         monkeypatch.setattr(
             process_tree,
             "_scan_marked_posix_processes",
-            lambda _m: pytest.fail("scanned for a marker no browser was given"),
+            lambda _m, _deadline=None: pytest.fail(
+                "scanned for a marker no browser was given"
+            ),
         )
 
         assert process_tree.drain_browser_process_marker("browser") is True
@@ -1850,7 +1856,7 @@ class TestOneLaunchesResidualBrowser:
         monkeypatch.setattr(
             process_tree,
             "_scan_marked_posix_processes",
-            lambda _m: process_tree._MarkerScan((), False),
+            lambda _m, _deadline=None: process_tree._MarkerScan((), False),
         )
         monkeypatch.setattr(process_tree.time, "sleep", lambda _seconds: None)
 
@@ -1954,6 +1960,121 @@ class TestTheMarkerScanSeparatesEmptyFromUnanswerable:
             process_tree._MarkerScan((902,), True)
         )
 
+    def test_a_ps_slowed_by_load_still_answers(self, monkeypatch: pytest.MonkeyPatch):
+        """A slow ``ps`` is still a working one, and its answer is still proof.
+
+        Printing every process's environment takes up to about a second on an
+        unloaded Mac, and load stretches it past that. Reading such a scan as
+        unanswerable made a drain report a clean close as unconfirmed, which
+        keeps the profile until the server restarts.
+        """
+        self._bsd(monkeypatch)
+        monkeypatch.setattr(process_tree.Path, "is_file", lambda _self: True)
+        answers_after = 3.0
+        rows = b"  902 /chromium LINKEDIN_MCP_BROWSER_PROCESS_MARKER=marker\n"
+
+        def run(*_args: Any, timeout: float, **_kwargs: Any) -> Any:
+            # What `subprocess.run` does with a child that needs longer than it
+            # is given, without spending the seconds.
+            if timeout < answers_after:
+                raise subprocess.TimeoutExpired(cmd="ps", timeout=timeout)
+            return SimpleNamespace(stdout=rows)
+
+        monkeypatch.setattr(process_tree.subprocess, "run", run)
+
+        assert process_tree._scan_marked_posix_processes("marker") == (
+            process_tree._MarkerScan((902,), True)
+        )
+
+    @pytest.mark.parametrize(
+        ("group", "ancestry_delays", "marker_delays", "proved", "unscanned"),
+        [
+            pytest.param(None, (0.1,), (3.0, 6.0), False, True, id="marker-proof"),
+            pytest.param(456, (0.1,), (3.0, 6.0), False, False, id="marker-wait"),
+            pytest.param(100, (0.01, 1.0), (4.95,), False, True, id="ancestry-kill"),
+            pytest.param(
+                456, (0.01, 0.01, 1.0), (4.95,), False, False, id="ancestry-wait"
+            ),
+            pytest.param(100, (0.005, 1.0), (4.995,), False, False, id="pause-proof"),
+            pytest.param(
+                456, (0.005, 0.0, 1.0), (4.995,), False, False, id="pause-wait"
+            ),
+            pytest.param(None, (0.1,), (3.0,), True, False, id="slow-but-conclusive"),
+        ],
+    )
+    def test_slow_scans_do_not_stretch_the_drain_past_its_budget(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        group: int | None,
+        ancestry_delays: tuple[float, ...],
+        marker_delays: tuple[float, ...],
+        proved: bool,
+        unscanned: bool,
+    ):
+        """Ancestry, marker scans and polling all spend the same close budget.
+
+        Both scanners run for real; only the subprocess waits and the clock
+        are simulated. The pause cases leave less than a polling interval,
+        and the ancestry cases leave less than a snapshot's usual allowance.
+        This bounds waits we control, not OS process creation or scheduling.
+
+        *unscanned* is whether the drain may say it could not scan. A pause
+        that spends the budget must end the drain on the scan that answered,
+        rather than on a further round whose scans no longer may run.
+        """
+        self._bsd(monkeypatch)
+        monkeypatch.setattr(process_tree.Path, "is_file", lambda _self: True)
+        now = 0.0
+        ancestry = chain(ancestry_delays, repeat(ancestry_delays[-1]))
+        markers = chain(marker_delays, repeat(marker_delays[-1]))
+        rows = b"  902 /chromium LINKEDIN_MCP_BROWSER_PROCESS_MARKER=browser\n"
+        killed: list[int] = []
+
+        def run(args: list[str], *, timeout: float, **_kwargs: Any) -> Any:
+            nonlocal now
+            assert now < process_tree._MARKER_DRAIN_SECONDS, (
+                "A drain must not start another ps after its deadline"
+            )
+            marked = "eww" in args
+            need = next(markers if marked else ancestry)
+            if need > timeout:
+                now += timeout
+                raise subprocess.TimeoutExpired(cmd="ps", timeout=timeout)
+            now += need
+            if marked:
+                return SimpleNamespace(stdout=rows if group is not None else b"")
+            return SimpleNamespace(stdout=f"902 1 {group} S\n" if group else "")
+
+        def sleep(seconds: float) -> None:
+            nonlocal now
+            now += seconds
+
+        monkeypatch.setattr(process_tree.subprocess, "run", run)
+        # A shim rather than a patch on ``time`` itself, which pytest and
+        # asyncio read as well.
+        monkeypatch.setattr(
+            process_tree, "time", SimpleNamespace(monotonic=lambda: now, sleep=sleep)
+        )
+        monkeypatch.setattr(process_tree, "_registered_browser_markers", {"browser"})
+        monkeypatch.setattr(process_tree, "_registered_posix_groups", {})
+        monkeypatch.setattr(process_tree, "process_group_exists", lambda _group: True)
+        monkeypatch.setattr(
+            process_tree, "_kernel_start_identity", lambda _p: "browser-member"
+        )
+        monkeypatch.setattr(os, "getpgrp", lambda: 100)
+        monkeypatch.setattr(os, "getpgid", lambda _pid: group)
+        monkeypatch.setattr(os, "killpg", lambda group, _sig: killed.append(group))
+        monkeypatch.setattr(os, "waitpid", lambda _pid, _options: (0, 0))
+
+        with caplog.at_level(logging.ERROR, logger=process_tree.__name__):
+            assert process_tree.drain_browser_process_marker("browser") is proved
+        assert now <= process_tree._MARKER_DRAIN_SECONDS + 1e-9, (
+            "Ancestry scans and polling must share the marker drain's deadline"
+        )
+        assert killed == ([456] if group == 456 else [])
+        assert ("could not be scanned" in caplog.text) is unscanned
+
     @pytest.mark.parametrize("mode", ["missing", "failing"])
     def test_an_unusable_ps_is_reported_once_rather_than_once_per_poll(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, mode
@@ -1983,19 +2104,24 @@ class TestTheMarkerScanSeparatesEmptyFromUnanswerable:
 
         monkeypatch.setattr(process_tree, "_registered_browser_markers", {"browser"})
         monkeypatch.setattr(process_tree, "_registered_posix_groups", {})
-        monkeypatch.setattr(process_tree, "_posix_process_rows", dict)
+        monkeypatch.setattr(
+            process_tree, "_posix_process_rows", lambda _deadline=None: {}
+        )
         monkeypatch.setattr(os, "getpgrp", lambda: 100)
         # A shim rather than a patch on the real module: ``process_tree.time``
         # *is* ``time``, so replacing ``monotonic`` there hands a scripted clock
         # to pytest and asyncio as well and the run never ends.
         #
-        # One reading sets the deadline, then one per round decides whether to
-        # poll again. Three rounds of polling, then a clock past the deadline.
-        clock = chain([0.0] * 4, repeat(100.0))
+        # Only the poll pause moves this clock, so the drain polls for its
+        # whole budget however often it reads the time.
+        now = 0.0
+
+        def sleep(seconds: float) -> None:
+            nonlocal now
+            now += seconds
+
         monkeypatch.setattr(
-            process_tree,
-            "time",
-            SimpleNamespace(monotonic=lambda: next(clock), sleep=lambda _seconds: None),
+            process_tree, "time", SimpleNamespace(monotonic=lambda: now, sleep=sleep)
         )
 
         # Counted around the real scan rather than around ``ps``, so a missing
@@ -2003,10 +2129,12 @@ class TestTheMarkerScanSeparatesEmptyFromUnanswerable:
         scans = 0
         real_scan = process_tree._scan_marked_posix_processes
 
-        def counting(marker: str) -> process_tree._MarkerScan:
+        def counting(
+            marker: str, deadline: float | None = None
+        ) -> process_tree._MarkerScan:
             nonlocal scans
             scans += 1
-            return real_scan(marker)
+            return real_scan(marker, deadline)
 
         monkeypatch.setattr(process_tree, "_scan_marked_posix_processes", counting)
 
