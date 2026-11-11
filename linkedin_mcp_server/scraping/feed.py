@@ -342,11 +342,15 @@ class FeedScraper:
             # feed that already extracted cleanly.
             logger.debug("Feed post boundary read failed", exc_info=True)
             post_boundaries = None
+        # A malformed read degrades the same way a failed one does.
+        posts = (
+            post_boundaries.get("posts") if isinstance(post_boundaries, dict) else None
+        )
         return ExtractedSection(
             text=cleaned,
             references=build_feed_references(
                 raw_result["references"],
                 captured_urls,
-                post_boundaries=(post_boundaries or {}).get("posts"),
+                post_boundaries=posts if isinstance(posts, list) else None,
             ),
         )

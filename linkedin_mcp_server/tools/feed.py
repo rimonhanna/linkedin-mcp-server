@@ -59,7 +59,8 @@ def register_feed_tools(
               ``/posts/<slug>`` (SDUI-derived) shape — both are valid
               LinkedIn permalinks. An entry paired with a rendered post
               carries that post's URN as ``value`` and may carry ``text``
-              (an excerpt of the post).
+              (an excerpt of the post, at most 240 characters). Paired
+              entries come first.
             - section_errors: present when the feed is rate-limited or
               extraction fails.
 

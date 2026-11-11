@@ -514,6 +514,42 @@ class TestFeedPostBoundaries:
         page.assert_clean()
 
 
+@pytest.mark.parametrize(
+    "boundary_read",
+    [None, [], "posts", {"posts": "not a list"}, {"posts": 7}, {"posts": None}, {}],
+    ids=(
+        "none",
+        "list",
+        "string",
+        "posts-string",
+        "posts-int",
+        "posts-none",
+        "empty-dict",
+    ),
+)
+async def test_a_malformed_boundary_read_falls_back_to_unpaired_references(
+    boundary_read,
+):
+    recorder = TraceRecorder("feed-boundary-read-malformed", _COMMON_ALLOWED)
+    clock = FakeClock(recorder)
+    page = _page(recorder).script("evaluate:root_content", _root("Feed content"))
+    page.script("evaluate:feed_post_boundaries", boundary_read)
+    scraper = _scraper(page)
+    captured = ["https://www.linkedin.com/posts/fallback-activity-1234567890-ex"]
+
+    async with boundaries(recorder, clock):
+        with recorder.context("extract_feed", "feed"):
+            result = await scraper._extract_feed_body(
+                "https://www.linkedin.com/feed/", 1, captured, []
+            )
+
+    assert result.text == "Feed content"
+    assert [ref["url"] for ref in result.references] == [
+        "/posts/fallback-activity-1234567890-ex"
+    ]
+    page.assert_clean()
+
+
 class TestDrainListenerTasks:
     """Teardown of the feed response reads, on every path out of it.
 

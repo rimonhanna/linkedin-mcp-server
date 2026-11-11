@@ -44,7 +44,7 @@ def build_feed_references(
     raw_references: list[Any],
     captured_urls: list[str],
     *,
-    post_boundaries: list[dict[str, Any]] | None = None,
+    post_boundaries: list[Any] | None = None,
 ) -> list[Reference]:
     """Compose feed references from DOM anchors + SDUI captures.
 
@@ -73,12 +73,16 @@ def build_feed_references(
     a URN is not paired: no URL is guessed for it. Boundary entries sit
     before the anchor-derived slice, and an anchor whose URL a boundary
     already claimed is skipped outright, so a paired post never competes
-    with its bare anchor on label richness or cap space.
+    with its bare anchor on label richness or cap space. An entry that is
+    not a dict, or whose ``urn`` or ``text`` is not a string, is treated as
+    unpaired: the read comes from the page, so its shape is not trusted.
     """
     paired: list[Reference] = []
     for post in post_boundaries or []:
+        if not isinstance(post, dict):
+            continue
         urn = post.get("urn")
-        if not urn:
+        if not isinstance(urn, str) or not urn:
             continue
         ref: Reference = {
             "kind": "feed_post",
@@ -86,8 +90,8 @@ def build_feed_references(
             "context": "feed",
             "value": urn,
         }
-        text = post.get("text") or ""
-        if text:
+        text = post.get("text")
+        if isinstance(text, str) and text:
             ref["text"] = text[:_POST_EXCERPT_LIMIT]
         paired.append(ref)
     paired_urls = {ref["url"] for ref in paired}

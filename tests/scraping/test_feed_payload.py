@@ -226,3 +226,29 @@ class TestFeedPostBoundaries:
         assert len(refs) == 1
         assert refs[0]["text"] == "Short"
         assert refs[0]["value"] == "urn:li:activity:1234567890"
+
+    def test_malformed_boundary_entries_are_left_unpaired(self):
+        # The read comes from the page; a shape it should never have must
+        # cost the pairing only, never the anchor and SDUI references.
+        posts = [
+            "urn:li:activity:1",
+            None,
+            {"urn": 123, "text": "numeric urn"},
+            {"urn": ["urn:li:activity:2"]},
+            {"urn": "urn:li:activity:3", "text": {"not": "a string"}},
+        ]
+        captured = ["https://www.linkedin.com/posts/sdui-ugcPost-1-xx"]
+        refs = build_feed_references([], captured, post_boundaries=posts)
+        assert refs == [
+            {
+                "kind": "feed_post",
+                "url": "/feed/update/urn:li:activity:3/",
+                "context": "feed",
+                "value": "urn:li:activity:3",
+            },
+            {
+                "kind": "feed_post",
+                "url": "/posts/sdui-ugcPost-1-xx",
+                "context": "feed",
+            },
+        ]
