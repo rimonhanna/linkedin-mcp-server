@@ -7,6 +7,7 @@
         "education",
         "interests",
         "honors",
+        "volunteering",
         "languages",
         "certifications",
         "skills",
@@ -133,8 +134,8 @@
     {
       "call": "scrape_person",
       "kind": "callback.progress",
-      "message": "Scraped main_profile (1/11)",
-      "percent": 9
+      "message": "Scraped main_profile (1/12)",
+      "percent": 8
     },
     {
       "call": "scrape_person",
@@ -263,8 +264,8 @@
     {
       "call": "scrape_person",
       "kind": "callback.progress",
-      "message": "Scraped experience (2/11)",
-      "percent": 17
+      "message": "Scraped experience (2/12)",
+      "percent": 16
     },
     {
       "call": "scrape_person",
@@ -393,8 +394,8 @@
     {
       "call": "scrape_person",
       "kind": "callback.progress",
-      "message": "Scraped education (3/11)",
-      "percent": 26
+      "message": "Scraped education (3/12)",
+      "percent": 24
     },
     {
       "call": "scrape_person",
@@ -523,8 +524,8 @@
     {
       "call": "scrape_person",
       "kind": "callback.progress",
-      "message": "Scraped interests (4/11)",
-      "percent": 35
+      "message": "Scraped interests (4/12)",
+      "percent": 32
     },
     {
       "call": "scrape_person",
@@ -653,8 +654,8 @@
     {
       "call": "scrape_person",
       "kind": "callback.progress",
-      "message": "Scraped honors (5/11)",
-      "percent": 43
+      "message": "Scraped honors (5/12)",
+      "percent": 40
     },
     {
       "call": "scrape_person",
@@ -665,6 +666,136 @@
     {
       "call": "scrape_person",
       "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.add"
+    },
+    {
+      "call": "scrape_person",
+      "extra": {
+        "target_url": "https://www.linkedin.com/in/ada-lovelace/details/volunteering-experiences/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto"
+    },
+    {
+      "call": "scrape_person",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/in/ada-lovelace/details/volunteering-experiences/",
+      "requested_url": "https://www.linkedin.com/in/ada-lovelace/details/volunteering-experiences/",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "scrape_person",
+      "kind": "wait_for_load_state",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "scrape_person",
+      "description": "goto https://www.linkedin.com/<private-route>",
+      "kind": "boundary.stabilize",
+      "result": null
+    },
+    {
+      "call": "scrape_person",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/in/ada-lovelace/details/volunteering-experiences/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto"
+    },
+    {
+      "call": "scrape_person",
+      "kind": "boundary.auth_quick",
+      "result": null
+    },
+    {
+      "call": "scrape_person",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.remove"
+    },
+    {
+      "call": "scrape_person",
+      "kind": "boundary.rate_limit"
+    },
+    {
+      "call": "scrape_person",
+      "kind": "wait_for_selector",
+      "operation": "main",
+      "selector": "main",
+      "state": "visible",
+      "timeout_ms": null
+    },
+    {
+      "call": "scrape_person",
+      "dismissed": false,
+      "kind": "boundary.modal"
+    },
+    {
+      "arg": null,
+      "call": "scrape_person",
+      "kind": "wait_for_function",
+      "operation": "profile_details_ready",
+      "program_digest": "652e003606ba",
+      "timeout_ms": 10000
+    },
+    {
+      "call": "scrape_person",
+      "kind": "locator.create",
+      "locator": "show_more",
+      "parent": null,
+      "selector": "main button"
+    },
+    {
+      "call": "scrape_person",
+      "kind": "locator.derive",
+      "locator": "show_more.filtered",
+      "operation": "filter:^Show (more|all)\\b/re.IGNORECASE|re.UNICODE",
+      "parent": "show_more"
+    },
+    {
+      "call": "scrape_person",
+      "kind": "locator.count",
+      "locator": "show_more.filtered"
+    },
+    {
+      "actual_scrolls": 2,
+      "call": "scrape_person",
+      "kind": "boundary.scroll_body",
+      "max_scrolls": 5,
+      "pause_time": 0.5
+    },
+    {
+      "arg": {
+        "selectors": [
+          "main"
+        ]
+      },
+      "call": "scrape_person",
+      "kind": "evaluate",
+      "operation": "root_content",
+      "program_digest": "e8a0e21ac6f5"
+    },
+    {
+      "call": "scrape_person",
+      "kind": "callback.progress",
+      "message": "Scraped volunteering (6/12)",
+      "percent": 48
+    },
+    {
+      "call": "scrape_person",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 2.0
+    },
+    {
+      "call": "scrape_person",
+      "callback_id": "callback-7",
       "event": "framenavigated",
       "kind": "listener.add"
     },
@@ -714,7 +845,7 @@
     },
     {
       "call": "scrape_person",
-      "callback_id": "callback-6",
+      "callback_id": "callback-7",
       "event": "framenavigated",
       "kind": "listener.remove"
     },
@@ -783,8 +914,8 @@
     {
       "call": "scrape_person",
       "kind": "callback.progress",
-      "message": "Scraped languages (6/11)",
-      "percent": 52
+      "message": "Scraped languages (7/12)",
+      "percent": 55
     },
     {
       "call": "scrape_person",
@@ -794,7 +925,7 @@
     },
     {
       "call": "scrape_person",
-      "callback_id": "callback-7",
+      "callback_id": "callback-8",
       "event": "framenavigated",
       "kind": "listener.add"
     },
@@ -844,7 +975,7 @@
     },
     {
       "call": "scrape_person",
-      "callback_id": "callback-7",
+      "callback_id": "callback-8",
       "event": "framenavigated",
       "kind": "listener.remove"
     },
@@ -913,8 +1044,8 @@
     {
       "call": "scrape_person",
       "kind": "callback.progress",
-      "message": "Scraped certifications (7/11)",
-      "percent": 60
+      "message": "Scraped certifications (8/12)",
+      "percent": 63
     },
     {
       "call": "scrape_person",
@@ -924,7 +1055,7 @@
     },
     {
       "call": "scrape_person",
-      "callback_id": "callback-8",
+      "callback_id": "callback-9",
       "event": "framenavigated",
       "kind": "listener.add"
     },
@@ -974,7 +1105,7 @@
     },
     {
       "call": "scrape_person",
-      "callback_id": "callback-8",
+      "callback_id": "callback-9",
       "event": "framenavigated",
       "kind": "listener.remove"
     },
@@ -1043,8 +1174,8 @@
     {
       "call": "scrape_person",
       "kind": "callback.progress",
-      "message": "Scraped skills (8/11)",
-      "percent": 69
+      "message": "Scraped skills (9/12)",
+      "percent": 71
     },
     {
       "call": "scrape_person",
@@ -1054,7 +1185,7 @@
     },
     {
       "call": "scrape_person",
-      "callback_id": "callback-9",
+      "callback_id": "callback-10",
       "event": "framenavigated",
       "kind": "listener.add"
     },
@@ -1104,7 +1235,7 @@
     },
     {
       "call": "scrape_person",
-      "callback_id": "callback-9",
+      "callback_id": "callback-10",
       "event": "framenavigated",
       "kind": "listener.remove"
     },
@@ -1173,8 +1304,8 @@
     {
       "call": "scrape_person",
       "kind": "callback.progress",
-      "message": "Scraped projects (9/11)",
-      "percent": 78
+      "message": "Scraped projects (10/12)",
+      "percent": 79
     },
     {
       "call": "scrape_person",
@@ -1184,7 +1315,7 @@
     },
     {
       "call": "scrape_person",
-      "callback_id": "callback-10",
+      "callback_id": "callback-11",
       "event": "framenavigated",
       "kind": "listener.add"
     },
@@ -1234,7 +1365,7 @@
     },
     {
       "call": "scrape_person",
-      "callback_id": "callback-10",
+      "callback_id": "callback-11",
       "event": "framenavigated",
       "kind": "listener.remove"
     },
@@ -1265,8 +1396,8 @@
     {
       "call": "scrape_person",
       "kind": "callback.progress",
-      "message": "Scraped contact_info (10/11)",
-      "percent": 86
+      "message": "Scraped contact_info (11/12)",
+      "percent": 87
     },
     {
       "call": "scrape_person",
@@ -1276,7 +1407,7 @@
     },
     {
       "call": "scrape_person",
-      "callback_id": "callback-11",
+      "callback_id": "callback-12",
       "event": "framenavigated",
       "kind": "listener.add"
     },
@@ -1326,7 +1457,7 @@
     },
     {
       "call": "scrape_person",
-      "callback_id": "callback-11",
+      "callback_id": "callback-12",
       "event": "framenavigated",
       "kind": "listener.remove"
     },
@@ -1376,7 +1507,7 @@
     {
       "call": "scrape_person",
       "kind": "callback.progress",
-      "message": "Scraped posts (11/11)",
+      "message": "Scraped posts (12/12)",
       "percent": 95
     },
     {
@@ -1471,6 +1602,7 @@
       "education",
       "interests",
       "honors",
+      "volunteering",
       "languages",
       "certifications",
       "skills",
@@ -1489,7 +1621,8 @@
       "main_profile": "main_profile content",
       "posts": "posts content",
       "projects": "projects content",
-      "skills": "skills content"
+      "skills": "skills content",
+      "volunteering": "volunteering content"
     },
     "url": "https://www.linkedin.com/in/ada-lovelace/"
   },

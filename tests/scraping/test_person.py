@@ -305,6 +305,7 @@ class TestScrapePersonUrls:
             "education",
             "interests",
             "honors",
+            "volunteering",
             "languages",
             "certifications",
             "skills",
@@ -335,13 +336,13 @@ class TestScrapePersonUrls:
         page_urls = [call.args[0] for call in mock_extract.call_args_list]
         overlay_urls = [call.args[0] for call in mock_overlay.call_args_list]
         all_urls = page_urls + overlay_urls
-        # 10 full-page sections + 1 overlay (contact_info)
-        assert len(page_urls) == 10
+        # 11 full-page sections + 1 overlay (contact_info)
+        assert len(page_urls) == 11
         assert len(overlay_urls) == 1
         assert [
             capture_call.kwargs["plan"].mode
             for capture_call in mock_extract.call_args_list
-        ] == [CaptureMode.STANDARD, *([CaptureMode.DETAILS] * 8), CaptureMode.ACTIVITY]
+        ] == [CaptureMode.STANDARD, *([CaptureMode.DETAILS] * 9), CaptureMode.ACTIVITY]
         assert mock_overlay.call_args.kwargs["plan"].mode is CaptureMode.OVERLAY
         # Verify each expected suffix was navigated
         assert any(u.endswith("/in/testuser/") for u in all_urls)
@@ -349,6 +350,7 @@ class TestScrapePersonUrls:
         assert any("/details/education/" in u for u in all_urls)
         assert any("/details/interests/" in u for u in all_urls)
         assert any("/details/honors/" in u for u in all_urls)
+        assert any("/details/volunteering-experiences/" in u for u in all_urls)
         assert any("/details/languages/" in u for u in all_urls)
         assert any("/details/certifications/" in u for u in all_urls)
         assert any("/details/skills/" in u for u in all_urls)
@@ -382,6 +384,36 @@ class TestScrapePersonUrls:
         urls = [call.args[0] for call in mock_extract.call_args_list]
         assert any("/recent-activity/all/" in url for url in urls)
         assert "posts" in result["sections"]
+
+    async def test_volunteering_visits_details_page(self, mock_page):
+        scraper = _scraper(mock_page)
+        with (
+            patch.object(
+                scraper._capture,
+                "capture",
+                new_callable=AsyncMock,
+                return_value=extracted("Mentor\nCode for Portugal"),
+            ) as mock_extract,
+            patch.object(
+                scraper._capture,
+                "_extract_overlay",
+                new_callable=AsyncMock,
+                return_value=extracted(""),
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.session.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await scraper.scrape_person("test-user", {"volunteering"})
+
+        urls = [call.args[0] for call in mock_extract.call_args_list]
+        assert urls == [
+            "https://www.linkedin.com/in/test-user/",
+            "https://www.linkedin.com/in/test-user/details/volunteering-experiences/",
+        ]
+        assert mock_extract.call_args_list[1].kwargs["plan"].mode is CaptureMode.DETAILS
+        assert "volunteering" in result["sections"]
 
     async def test_certifications_visits_details_page(self, mock_page):
         scraper = _scraper(mock_page)
