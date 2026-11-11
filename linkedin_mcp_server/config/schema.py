@@ -149,11 +149,8 @@ class BrowserConfig:
     headless: bool = True
     slow_mo: int = 0  # Milliseconds between browser actions (debugging)
     # Always None: the override was removed and both settings that used to fill
-    # this are now refused at startup. The field stays because
-    # ``SHARED_CONFIG_FIELDS`` hashes it into the daemon's configuration
-    # fingerprint, and dropping a field there makes a running owner unreadable
-    # to a client of the other version instead of merely mismatched. Remove it
-    # once owner turnover survives a fingerprint change.
+    # this are now refused at startup. No longer part of the daemon's
+    # configuration fingerprint (``SHARED_CONFIG_FIELDS``).
     user_agent: str | None = None
     viewport_width: int = 1280
     viewport_height: int = 720
@@ -200,12 +197,8 @@ class BrowserConfig:
     # the full browser up front or lazily on the first headed login; there is
     # only one browser now, so both answers describe the same install.
     #
-    # It stays for the same reason ``user_agent`` above does: it is part of the
-    # daemon's configuration fingerprint (``SHARED_CONFIG_FIELDS``), and
-    # ``daemon.py`` rejects a fingerprint mismatch *before* it compares package
-    # versions. Drop the field and a running owner of the other version stops
-    # being readable, so it can never be asked to stand down. Both can go once
-    # owner turnover survives a fingerprint change.
+    # No longer part of the daemon's configuration fingerprint
+    # (``SHARED_CONFIG_FIELDS``).
     eager_full_chromium: bool = False
     # Temporary directory parent used during browser installation bootstrap.
     # Defaults to system tempdir (tempfile.gettempdir()) when None.
