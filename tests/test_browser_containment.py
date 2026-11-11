@@ -30,7 +30,10 @@ install step is what was supposed to provide it.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +43,7 @@ from patchright.async_api import async_playwright
 from linkedin_mcp_server.browser_launch import build_launch_options
 from linkedin_mcp_server.config.schema import BrowserConfig
 from linkedin_mcp_server.core.browser import BrowserManager
+from linkedin_mcp_server.drivers import browser as browser_module
 from linkedin_mcp_server.process_tree import _scan_marked_posix_processes
 
 
@@ -115,8 +119,7 @@ def _windows_job_members(job: Any) -> tuple[int, ...]:
     return tuple(int(entry) for entry in members if entry is not None)
 
 
-async def test_a_real_browser_launch_is_attributed_and_provably_drained(tmp_path):
-    """The launch owns its processes, and the close proves they went."""
+async def _require_a_browser(tmp_path: Path) -> None:
     executable = await _the_browser_this_launch_would_use(
         _manager(tmp_path / "probe-profile")
     )
@@ -124,6 +127,18 @@ async def test_a_real_browser_launch_is_attributed_and_provably_drained(tmp_path
         _unavailable("the browser executable could not be resolved")
     elif not Path(executable).exists():
         _unavailable(f"no browser installed at {executable}")
+
+
+def _launch_is_drained(manager: BrowserManager) -> bool:
+    if os.name == "nt":
+        job = manager._containment
+        return job is not None and job.closed and job.drained
+    return not _scan_marked_posix_processes(manager._process_marker).processes
+
+
+async def test_a_real_browser_launch_is_attributed_and_provably_drained(tmp_path):
+    """The launch owns its processes, and the close proves they went."""
+    await _require_a_browser(tmp_path)
 
     # Past this line nothing is allowed to skip. A Job that cannot be created,
     # cannot be assigned, or that Chromium will not nest under raises out of
@@ -160,3 +175,67 @@ async def test_a_real_browser_launch_is_attributed_and_provably_drained(tmp_path
     finally:
         if not closed:
             await manager.close()
+
+
+async def test_a_real_renderer_crash_is_closed_and_replaced(tmp_path, monkeypatch):
+    """A renderer crash leaves the page open and Chromium running.
+
+    The unit tests take that, and the ``crash`` event, on trust. This is where
+    a real renderer is killed: the manager has to notice, the cached singleton
+    has to read as dead although nothing disconnected, and the call that finds
+    it has to drain the old launch before handing out a working replacement.
+    Creation is the one substitute, because the real one signs in to LinkedIn.
+    """
+    await _require_a_browser(tmp_path)
+
+    first = _manager(tmp_path / "profile")
+    await first.start()
+    replacements: list[BrowserManager] = []
+    try:
+        page = first.page
+        with contextlib.suppress(Exception):
+            await page.goto("chrome://crash", timeout=10_000)
+        deadline = time.monotonic() + 10
+        while not first.page_crashed and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+
+        assert first.page_crashed, "the renderer crash never reached the manager"
+        assert not page.is_closed(), "the crash closed the page"
+        chromium = first.context.browser
+        assert chromium is None or chromium.is_connected(), (
+            "the crash disconnected the browser, so it is not the case under test"
+        )
+        assert not _launch_is_drained(first), "the crash ended Chromium"
+
+        async def create() -> BrowserManager:
+            fresh = _manager(tmp_path / "profile")
+            await fresh.start()
+            replacements.append(fresh)
+            browser_module._browser = fresh
+            return fresh
+
+        verdicts: list[bool] = []
+        real_close = first.close
+
+        async def close() -> bool:
+            verdicts.append(await real_close())
+            return verdicts[-1]
+
+        monkeypatch.setattr(first, "close", close)
+        monkeypatch.setattr(browser_module, "_browser", first)
+        monkeypatch.setattr(browser_module, "_browser_lease", None)
+        monkeypatch.setattr(browser_module, "_browser_cookie_export_path", None)
+        monkeypatch.setattr(browser_module, "_create_browser", create)
+
+        fresh = await browser_module.get_or_create_browser()
+
+        assert fresh is not first
+        assert verdicts == [True], "the crashed launch was not closed provably"
+        assert _launch_is_drained(first), "the crashed Chromium outlived its close"
+        assert fresh.page_crashed is False
+        await fresh.page.goto("data:text/html,<p>alive</p>")
+        assert await fresh.page.evaluate("1 + 1") == 2
+    finally:
+        await first.close()
+        for fresh in replacements:
+            assert await fresh.close() is True

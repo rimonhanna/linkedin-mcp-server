@@ -770,12 +770,17 @@ async def get_or_create_browser(
 
 
 def _is_connected(browser: BrowserManager) -> bool:
-    """Whether the Chromium behind the cached singleton is still attached.
+    """Whether the Chromium behind the cached singleton is still usable.
 
     Patchright flips ``is_connected()`` the moment the browser process goes,
     whether it exited, crashed or was killed; a closed page alone would also
-    cover a tab closed by hand, but that is not what took the session down.
+    cover a tab closed by hand, but that is not what took the session down. A
+    renderer crash is the one death that leaves the browser connected and the
+    page open, so it counts as disconnected here and is closed and recreated
+    like the others.
     """
+    if browser.page_crashed:
+        return False
     chromium = browser.context.browser
     return chromium is None or chromium.is_connected()
 
