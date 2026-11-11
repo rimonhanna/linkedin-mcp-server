@@ -20,6 +20,7 @@ from linkedin_mcp_server.scraping.conversations import ConversationReader
 from linkedin_mcp_server.scraping.facets import FacetResolver
 from linkedin_mcp_server.scraping.feed import FeedScraper
 from linkedin_mcp_server.scraping.job_pages import JobPageReader
+from linkedin_mcp_server.scraping.job_policy import JobsTrackerStage
 from linkedin_mcp_server.scraping.jobs import JobScraper
 from linkedin_mcp_server.scraping.message_sender import MessageSender
 from linkedin_mcp_server.scraping.navigation import PageNavigator
@@ -65,7 +66,7 @@ class LinkedInExtractor:
             lambda username: self.scrape_person(username, {"main_profile"}),
         )
         job_pages = JobPageReader(session, navigator, content)
-        self._jobs = JobScraper(session, navigator, capture, job_pages)
+        self._jobs = JobScraper(session, navigator, capture, job_pages, facets)
         self._posts = PostSearch(capture)
         self._conversations = ConversationReader(
             session, navigator, content, profile_page
@@ -204,9 +205,11 @@ class LinkedInExtractor:
             tool_timeout,
         )
 
-    async def get_saved_jobs(self, max_pages: int = 3) -> dict[str, Any]:
+    async def get_saved_jobs(
+        self, max_pages: int = 3, stage: JobsTrackerStage = "saved"
+    ) -> dict[str, Any]:
         """List the authenticated user's saved job postings."""
-        return await self._jobs.get_saved_jobs(max_pages)
+        return await self._jobs.get_saved_jobs(max_pages, stage)
 
     async def search_people(
         self,

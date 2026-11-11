@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from urllib.parse import urlparse
+import re
+from ipaddress import IPv6Address, ip_address
+from typing import Literal
+from urllib.parse import parse_qs, urlparse
 
 from linkedin_mcp_server.scraping.link_metadata import (
     JOB_PATH_RE,
     Reference,
     _SEARCH_RESULTS_REFERENCE_CAP,
 )
+from linkedin_mcp_server.scraping.text import JobApplyTextTable
 
 
 def reconcile_search_references(
@@ -103,6 +107,37 @@ def no_matching_jobs_section_error(keywords: str) -> dict[str, str]:
     }
 
 
+def unresolved_location_section_error(
+    location: str, applied: str | None, *, out_of_time: bool = False
+) -> dict[str, str]:
+    """The ``section_errors`` entry for a location sent as free text.
+
+    LinkedIn places a free-text ``location`` by its own lights, and not always
+    where the caller meant: "Amsterdam" landed in Mpumalanga, South Africa
+    (measured 2026-11-11). The results are kept, because they may well be
+    right, and the caller is told the place was not pinned to a geo id.
+    """
+    why = (
+        f"There was too little of the time budget left to resolve {location!r} "
+        "through LinkedIn's location dropdown"
+        if out_of_time
+        else f"LinkedIn's location dropdown did not resolve {location!r}"
+    )
+    where = (
+        f"LinkedIn applied it as {applied!r}."
+        if applied
+        else "Which place LinkedIn applied could not be read."
+    )
+    return {
+        "error_type": "location_unresolved",
+        "error_message": (
+            f"{why}, so it was sent as free text and may have been placed "
+            f"elsewhere. {where} Retry with the place as the dropdown names "
+            "it, such as a city with its country."
+        ),
+    }
+
+
 def dropped_offset_section_error(offset: int, landed: str) -> dict[str, str]:
     """The ``section_errors`` entry for a list that cannot be paged further.
 
@@ -115,6 +150,22 @@ def dropped_offset_section_error(offset: int, landed: str) -> dict[str, str]:
         "error_type": "pagination_stopped",
         "error_message": (
             f"LinkedIn did not keep offset {offset} (landed on {landed}), "
+            "so the list stops at the results already read."
+        ),
+    }
+
+
+def dropped_stage_section_error(stage: str, landed: str) -> dict[str, str]:
+    """The ``section_errors`` entry for a tracker that lost its stage mid-list.
+
+    Past the first page, a tracker answering with another tab ends the list
+    where paging failed, like a lost offset does. That page is not kept, since
+    its jobs belong to another tab, and the pages already read are.
+    """
+    return {
+        "error_type": "pagination_stopped",
+        "error_message": (
+            f"LinkedIn did not keep stage {stage} (landed on {landed}), "
             "so the list stops at the results already read."
         ),
     }
@@ -157,6 +208,38 @@ def dropped_filters_section_error(names: list[str], landed: str) -> dict[str, st
     return {"error_type": "filters_dropped", "error_message": message}
 
 
+def ai_search_section_error(names: list[str], landed: str) -> dict[str, str]:
+    """The ``section_errors`` entry for job ids read off LinkedIn's AI search.
+
+    The ids are returned with it, not dropped: they are real postings from
+    the page LinkedIn served, and an empty list would read as a search that
+    found nothing. What cannot be claimed is that they match. Measured
+    2026-11-11 on ``/jobs/search-results``: a nonsense query and "software
+    engineer" rendered the same "99+ results" header, the same structure and
+    no notice, both filled with postings for a location the account had used
+    before rather than the one asked for. So the page is reported as
+    unverified rather than read for a no-match signal it does not carry.
+
+    A dropped location or work type gets the same hint as
+    `dropped_filters_section_error`, because putting them in the keywords is
+    the one repair measured to work there.
+    """
+    message = (
+        f"LinkedIn served its AI job search (landed on {landed}), which does "
+        "not reliably apply the requested location and does not distinguish "
+        "matches from unrelated postings, so these job_ids may not match the "
+        "search."
+    )
+    if names:
+        message += f" It did not keep {', '.join(names)}."
+    if _KEYWORD_FILTERS & set(names):
+        message += (
+            " It reads location and work type from the keywords instead, as "
+            'in "remote python developer in France".'
+        )
+    return {"error_type": "ai_search_unverified", "error_message": message}
+
+
 def missing_description_section_error() -> dict[str, str]:
     """Report an absent description heading without discarding captured text."""
     return {
@@ -181,6 +264,7 @@ RESULTS_PER_LINKEDIN_PAGE = 25
 # because `/jobs/search?keywords=x` is the same route and puts a `?` where a
 # prefix test wants the slash.
 JOB_SEARCH_PATHS = frozenset({"/jobs/search", "/jobs/search-results"})
+AI_SEARCH_PATH = "/jobs/search-results"
 
 
 def route(target: str) -> tuple[str, str]:
@@ -234,13 +318,161 @@ SCROLL_BUDGET_TOTAL = 60.0
 # server registered for the tool, including directly constructed servers.
 SEARCH_TIMEOUT_FRACTION = 0.8
 
-SAVED_JOBS_URL = "https://www.linkedin.com/my-items/saved-jobs/"
-# Where a saved-jobs navigation may legitimately end. LinkedIn redirects the
-# first to the second and drops the query doing so, so the tool navigates to
-# one and arrives at the other.
+# A location resolution comes out of the search budget, ahead of the pages.
+# It is given what is left after the reserve, which keeps back one results
+# page: 6.5s measured for the navigation plus `SCROLL_DEADLINE_MAX` of
+# scrolling. With less than the minimum on top of that (a load, the typing,
+# and the dropdown's and the click's waits of up to 5s each) it is not
+# started, and the name goes out as free text.
+LOCATION_RESOLUTION_RESERVE = 6.5 + SCROLL_DEADLINE_MAX
+LOCATION_RESOLUTION_MIN = 15.0
+
+# The job tracker, which lists the account's jobs one stage at a time with
+# `?stage=`. The old `/my-items/saved-jobs/` redirects here and drops the
+# query on the way, so the tool navigates here directly.
+SAVED_JOBS_URL = "https://www.linkedin.com/jobs-tracker/"
+# Where a tracker navigation may legitimately end. The old route stays allowed
+# for accounts the redirect has not reached.
 SAVED_JOBS_PATHS = frozenset({"/my-items/saved-jobs", "/jobs-tracker"})
+# The tracker tabs, as LinkedIn spells them in `?stage=`. A page without the
+# parameter shows saved jobs.
+JobsTrackerStage = Literal["saved", "in_progress", "applied", "archived"]
 
 # The my-items lists page in 10s, unlike job search. Verified live: ?start=10
 # returns the 11th saved job, while ?start=25 lands past the end of a two-page
 # list and yields nothing.
 SAVED_JOBS_PAGE_SIZE = 10
+
+ApplyType = Literal["easy_apply", "external", "applied", "closed", "unknown"]
+
+
+def posting_state(
+    text: str, table: JobApplyTextTable
+) -> Literal["applied", "closed"] | None:
+    """The state a posting's captured text shows above its description, if any.
+
+    Applied is read first, so a closed posting this account applied to reads
+    as applied. None covers an open posting and a capture without any of its
+    description headings alike: the lines are only trusted above the earliest
+    one, and without it there is no boundary.
+    """
+    lines = [line.strip() for line in text.splitlines()]
+    end = next(
+        (i for i, line in enumerate(lines) if line in table.description_headings),
+        None,
+    )
+    if end is None:
+        return None
+    top = lines[:end]
+    if any(table.applied_pattern.match(line) for line in top):
+        return "applied"
+    if any(line in table.closed_lines for line in top):
+        return "closed"
+    return None
+
+
+# LinkedIn's interstitial for links that leave the site, with the destination in
+# its `url` parameter. Measured upstream on 2026-09-19: an external posting's
+# Apply is such a link, `/safety/go/?url=https%3A%2F%2Fgrnh.se%2F...`.
+SAFETY_REDIRECT_PATH = "/safety/go"
+
+
+# Name suffixes reserved for a host's own network, which no registry serves.
+_PRIVATE_SUFFIXES = (".localhost", ".local", ".internal", ".home.arpa")
+
+# A hexadecimal number as the URL standard reads one in a host, `0x` included.
+_HEX_LABEL = re.compile(r"0x[0-9a-f]*")
+
+
+def reaches_the_public_internet(host: str) -> bool:
+    """Whether an apply destination names somewhere outside this host.
+
+    The destination of an external Apply is chosen by whoever posted the job.
+    The server never loads it, but it hands it to a caller that may: a
+    loopback, link-local or private-range address would turn that into a
+    request against whatever the caller's host can reach, on a stranger's word.
+    None of those is an employer's site, so they answer as no address at all.
+
+    Judged on the address as written. A public name that resolves into private
+    space, or a redirect into one, is only reached by loading the address,
+    which is the caller's decision and not this server's.
+    """
+    # Judged in the form the browser would ask for: it folds fullwidth letters,
+    # digits and dots into ASCII before resolving, so `.local` spelled with a
+    # fullwidth `l` is still `.local`.
+    try:
+        name = host.encode("idna").decode("ascii").rstrip(".").lower()
+    except UnicodeError:
+        return False
+    try:
+        address = ip_address(name)
+    except ValueError:
+        # Not a literal `ipaddress` accepts. A name's rightmost label is never
+        # a number, so one that is belongs to an address written the long way
+        # round (`0177.0.0.1`, `0x7f.0.0.1`, `127.0.0.0x1`), which the browser
+        # still resolves to the loopback.
+        label = name.rpartition(".")[2]
+        if not label or label.isdigit() or _HEX_LABEL.fullmatch(label):
+            return False
+        # A single-label name has no public registry behind it.
+        return "." in name and not name.endswith(_PRIVATE_SUFFIXES)
+    if isinstance(address, IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    return address.is_global
+
+
+# How many interstitials one apply link may be wrapped in. LinkedIn wraps the
+# employer's address once; the bound only keeps a link nested on purpose from
+# costing more than a few parses.
+_MAX_INTERSTITIAL_UNWRAPS = 3
+
+
+def employer_apply_url(href: str) -> str | None:
+    """The employer's address an apply link leads to, or None.
+
+    The interstitial answers with its destination, and any other address off
+    LinkedIn answers as itself. A LinkedIn page that is not the interstitial is
+    not the employer's site, so it answers None rather than passing for one.
+    An address that never leaves this host is refused the same way, and so is
+    one carrying credentials, which no employer's form needs and which hides
+    the host from a reader. Nothing here loads the address, and nothing else
+    in the server may either.
+    """
+    for _ in range(_MAX_INTERSTITIAL_UNWRAPS + 1):
+        parsed = urlparse(href)
+        host = parsed.hostname
+        if parsed.scheme not in ("http", "https") or not host:
+            return None
+        if parsed.username is not None or parsed.password is not None:
+            return None
+        # Chromium decodes host escapes and treats a backslash as a slash;
+        # urllib.parse does neither. Do not validate one host and hand out
+        # another.
+        if "%" in host or "\\" in parsed.netloc:
+            return None
+        if not reaches_the_public_internet(host):
+            return None
+        if host != "linkedin.com" and not host.endswith(".linkedin.com"):
+            return href
+        if parsed.path.rstrip("/") != SAFETY_REDIRECT_PATH:
+            return None
+        href = parse_qs(parsed.query).get("url", [""])[0]
+        if not href:
+            return None
+    return None
+
+
+def apply_link_missing_section_error() -> dict[str, str]:
+    """The ``section_errors`` entry for an external Apply with no usable link.
+
+    The posting is still external, which is worth keeping, but a type with no
+    link and nothing beside it reads as a posting that has none. Being told is
+    what lets a caller open the posting itself.
+    """
+    return {
+        "error_type": "apply_link_missing",
+        "error_message": (
+            "The Apply link names no employer address outside LinkedIn and "
+            "this host's own network, so none is returned."
+        ),
+    }

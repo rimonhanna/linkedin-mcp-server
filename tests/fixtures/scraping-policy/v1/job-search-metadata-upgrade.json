@@ -17,7 +17,7 @@
     {
       "call": "search_jobs",
       "extra": {
-        "target_url": "https://www.linkedin.com/jobs/search/?keywords=python",
+        "target_url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -27,8 +27,8 @@
     {
       "call": "search_jobs",
       "kind": "navigate",
-      "landed_url": "https://www.linkedin.com/jobs/search/?keywords=python",
-      "requested_url": "https://www.linkedin.com/jobs/search/?keywords=python",
+      "landed_url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python",
+      "requested_url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python",
       "section": "search_results",
       "timeout_ms": 30000,
       "wait_until": "commit"
@@ -42,7 +42,7 @@
     },
     {
       "call": "search_jobs",
-      "description": "goto https://www.linkedin.com/jobs/search/?keywords=python",
+      "description": "goto https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python",
       "kind": "boundary.stabilize",
       "result": null,
       "section": "search_results"
@@ -51,7 +51,7 @@
       "call": "search_jobs",
       "extra": {
         "load_state_lagged": false,
-        "target_url": "https://www.linkedin.com/jobs/search/?keywords=python",
+        "target_url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -189,7 +189,7 @@
     {
       "call": "search_jobs",
       "extra": {
-        "target_url": "https://www.linkedin.com/jobs/search/?keywords=python&start=1",
+        "target_url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python&start=1",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -199,8 +199,8 @@
     {
       "call": "search_jobs",
       "kind": "navigate",
-      "landed_url": "https://www.linkedin.com/jobs/search/?keywords=python&start=1",
-      "requested_url": "https://www.linkedin.com/jobs/search/?keywords=python&start=1",
+      "landed_url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python&start=1",
+      "requested_url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python&start=1",
       "section": "search_results",
       "timeout_ms": 30000,
       "wait_until": "commit"
@@ -214,7 +214,7 @@
     },
     {
       "call": "search_jobs",
-      "description": "goto https://www.linkedin.com/jobs/search/?keywords=python&start=1",
+      "description": "goto https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python&start=1",
       "kind": "boundary.stabilize",
       "result": null,
       "section": "search_results"
@@ -223,7 +223,7 @@
       "call": "search_jobs",
       "extra": {
         "load_state_lagged": false,
-        "target_url": "https://www.linkedin.com/jobs/search/?keywords=python&start=1",
+        "target_url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python&start=1",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -331,6 +331,11 @@
     "job_ids": [
       "101"
     ],
+    "pagination": {
+      "next_offset": 2,
+      "pages_fetched": 2,
+      "reason": "no_new_ids"
+    },
     "promoted_job_ids": [],
     "references": {
       "search_results": [
@@ -345,7 +350,7 @@
     "sections": {
       "search_results": "First page\n---\nStopping page"
     },
-    "url": "https://www.linkedin.com/jobs/search/?keywords=python"
+    "url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python"
   },
   "scenario": "search_jobs__stopping_page_metadata_upgrade",
   "schema_version": 1

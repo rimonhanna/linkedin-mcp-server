@@ -319,15 +319,32 @@ def build_job_search_url(
     work_type: str | None = None,
     easy_apply: bool = False,
     sort_by: str | None = None,
+    geo_id: str | None = None,
 ) -> str:
     """Build a LinkedIn job search URL with optional filters.
 
     Human-readable names are normalized to LinkedIn URL codes.
     Comma-separated values are normalized individually.
     Unknown values pass through unchanged.
+
+    ``skipRedirect=true`` keeps LinkedIn on the classic search page. Without
+    it the page navigates itself to the AI search at ``/jobs/search-results``,
+    which drops a free-text ``location`` for a remembered default and shows a
+    full page of postings under "99+ results" even for a nonsense query, so
+    nothing on it tells matches from filler. Measured 2026-11-11: with the
+    flag a nonsense query stayed on ``/jobs/search/`` and rendered the
+    no-match heading the reader already knows.
+
+    ``geo_id`` replaces ``location`` rather than joining it. The classic page
+    resolves a free-text ``location`` by its own lights ("Amsterdam" landed in
+    Mpumalanga, South Africa) and the AI route drops it, while ``geoId`` was
+    honoured on both (measured 2026-11-11). Whether the two together agree was
+    not measured, so only the one that was is sent.
     """
-    params = f"keywords={quote_plus(keywords)}"
-    if location:
+    params = f"skipRedirect=true&keywords={quote_plus(keywords)}"
+    if geo_id:
+        params += f"&geoId={quote_plus(geo_id)}"
+    elif location:
         params += f"&location={quote_plus(location)}"
 
     if date_posted:

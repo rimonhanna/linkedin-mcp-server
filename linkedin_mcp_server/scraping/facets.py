@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import logging
 import re
@@ -26,6 +26,7 @@ from linkedin_mcp_server.scraping.identifiers import (
     company_page_url,
     normalize_company_identifier,
 )
+from linkedin_mcp_server.scraping.job_policy import AI_SEARCH_PATH
 from linkedin_mcp_server.scraping.link_metadata import Reference
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession, nav_delay
@@ -63,14 +64,34 @@ def _company_urn_of_first_card(references: list[Reference]) -> str | None:
 TYPEAHEAD_TIMEOUT_MS = 5000
 GEO_ID_PATTERN = re.compile(r"[?&]geoId=(\d+)")
 LOCATION_BOX_SELECTOR = "input[id*='jobs-search-box-location']"
+# The classic page, where the box above lives. Without `skipRedirect` the page
+# hops client-side to the AI search (measured 2026-11-11), whose location
+# control is a different one: the box is then missing, or typed into while the
+# page navigates away.
+TYPEAHEAD_URL = "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords="
+# The dropdown refills per keystroke from a network round trip, so the options
+# showing the moment typing ends can still answer a prefix of the name, and
+# the top one then resolves, and caches, another place. They count as the
+# answer once this many reads in a row, this far apart, came back the same.
+SUGGESTION_SETTLE_READS = 3
+SUGGESTION_SETTLE_INTERVAL = 0.25
+
+# Location name (casefolded) -> geo id, for every name the dropdown resolved
+# in this process. A geo id is LinkedIn's own constant for a place, and a
+# resolution costs a navigation plus the click's own one, which job search
+# would otherwise pay on every call naming the same city. Hits only: a miss
+# can be a slow page, and remembering one for the life of a daemon pins a
+# valid place as unknown until it restarts.
+_RESOLVED_GEO_IDS: dict[str, str] = {}
 
 
 class FacetResolver:
     """Resolve locations and companies to ids, once per name per tool call.
 
-    Shared by people and company search. One resolver is built per facade,
-    which is one per tool call, so the caches span a batch of names and no
-    more.
+    Shared by people, company and job search. One resolver is built per
+    facade, which is one per tool call, so the caches span a batch of names
+    and no more; a resolved location is also kept for the process
+    (``_RESOLVED_GEO_IDS``).
     """
 
     def __init__(
@@ -113,44 +134,66 @@ class FacetResolver:
         Returns the id, or ``None`` if the dropdown offered no match. Results
         are cached per resolver so a repeated region costs one resolution; a
         dropdown that never opened is not, since a timeout says nothing about
-        the name.
+        the name. A resolved id is kept for the process as well, so a later
+        call naming the same place does not navigate at all.
         """
-        key = location.casefold()
+        name = " ".join(location.split())
+        if not name:
+            return None
+        key = name.casefold()
+        if key in _RESOLVED_GEO_IDS:
+            return _RESOLVED_GEO_IDS[key]
         if key in self._geo_cache:
             return self._geo_cache[key] or None
 
         page = self._session.page
-        await self._navigator._goto_with_auth_checks(
-            "https://www.linkedin.com/jobs/search/?keywords="
-        )
+        await self._navigator._goto_with_auth_checks(TYPEAHEAD_URL)
         self.navigated = True
+        if _on_ai_search(page.url):
+            return None
         # The id is structural; an ``aria-label`` fallback would carry the
         # locale's own words for "location", which is exactly the kind of text
         # match that reads as a miss on a non-English profile.
-        box = await page.query_selector(LOCATION_BOX_SELECTOR)
-
-        if box is None:
+        try:
+            box = await page.wait_for_selector(
+                LOCATION_BOX_SELECTOR, state="visible", timeout=TYPEAHEAD_TIMEOUT_MS
+            )
+        except PlaywrightTimeoutError:
+            box = None
+        # Read again: the hop to the AI search is client-side and can land
+        # after the load the navigation waited for.
+        if box is None or _on_ai_search(page.url):
             return None
         await box.click()
         await box.fill("")
         # Type it like a person; the dropdown resolves as we type.
-        await human_type(page, location)
+        await human_type(page, name)
         suggestion = await self._first_location_suggestion(box)
         if suggestion is None:
             # A dropdown that never opened is a stalled page as often as an
             # unknown name; remembering it would pin a valid location as a
             # miss for the rest of the batch.
             return None
+        # Only an id the click put there answers the name: one already in the
+        # URL satisfies a plain pattern wait at once and would be cached as
+        # this place.
+        before = _geo_id_in(page.url)
         await suggestion.click()
         try:
-            await page.wait_for_url(GEO_ID_PATTERN, timeout=TYPEAHEAD_TIMEOUT_MS)
+            await page.wait_for_url(
+                lambda url: _geo_id_in(url) not in (None, before),
+                timeout=TYPEAHEAD_TIMEOUT_MS,
+            )
         except PlaywrightTimeoutError:
             pass
-        match = GEO_ID_PATTERN.search(page.url)
-        geo_id = match.group(1) if match else None
+        geo_id = _geo_id_in(page.url)
+        if geo_id == before:
+            geo_id = None
         # LinkedIn answered, with or without an id: cache either so a repeated
         # name does not re-drive the dropdown.
         self._geo_cache[key] = geo_id or ""
+        if geo_id:
+            _RESOLVED_GEO_IDS[key] = geo_id
         return geo_id
 
     async def resolve_company_urn(self, name_or_urn: str) -> str:
@@ -312,7 +355,7 @@ class FacetResolver:
         )
 
     async def _first_location_suggestion(self, box):
-        """Wait for the location box's own dropdown and return its top option.
+        """Wait for the location box's own dropdown to settle; its top option.
 
         The jobs page carries other ``role=option`` elements (the keyword
         typeahead, filter menus), so a document-wide query can land on one of
@@ -321,15 +364,38 @@ class FacetResolver:
         ``aria-owns``); that scope is structural and locale-independent. With
         neither attribute, any listbox is the one that just opened under the
         typed text. The first match is the top suggestion, which is the one a
-        person picks.
+        person picks, read only once the options stop changing
+        (``SUGGESTION_SETTLE_READS``). Their text is compared with itself and
+        never with the name, so no locale's spelling of a place matters.
         """
+        page = self._session.page
         listbox_id = await box.get_attribute(
             "aria-controls"
         ) or await box.get_attribute("aria-owns")
         scope = f'[id="{listbox_id}"]' if listbox_id else "[role=listbox]"
+        options = f"{scope} [role=option]"
         try:
-            return await self._session.page.wait_for_selector(
-                f"{scope} [role=option]", timeout=TYPEAHEAD_TIMEOUT_MS
-            )
+            await page.wait_for_selector(options, timeout=TYPEAHEAD_TIMEOUT_MS)
         except PlaywrightTimeoutError:
             return None
+        deadline = self._session.monotonic() + TYPEAHEAD_TIMEOUT_MS / 1000
+        previous: list[str] | None = None
+        same = 0
+        while True:
+            current = await page.locator(options).all_inner_texts()
+            same = same + 1 if current and current == previous else 0
+            if same >= SUGGESTION_SETTLE_READS - 1:
+                return await page.query_selector(options)
+            if self._session.monotonic() >= deadline:
+                return None
+            previous = current
+            await self._session.delay(SUGGESTION_SETTLE_INTERVAL)
+
+
+def _geo_id_in(url: str) -> str | None:
+    match = GEO_ID_PATTERN.search(url)
+    return match.group(1) if match else None
+
+
+def _on_ai_search(url: str) -> bool:
+    return urlparse(url).path.rstrip("/") == AI_SEARCH_PATH

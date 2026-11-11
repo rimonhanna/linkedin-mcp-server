@@ -21,9 +21,11 @@ from linkedin_mcp_server.scraping.contracts import (
     RATE_LIMITED_SECTION_TEXT,
     rate_limited_section_error,
 )
+from linkedin_mcp_server.scraping.facets import FacetResolver
 from linkedin_mcp_server.scraping.identifiers import job_view_url, normalize_job_id
 from linkedin_mcp_server.scraping.job_pages import JobPageReader
 from linkedin_mcp_server.scraping.job_policy import (
+    AI_SEARCH_PATH,
     JOB_SEARCH_PATHS,
     RESULTS_PER_LINKEDIN_PAGE,
     SAVED_JOBS_PAGE_SIZE,
@@ -32,25 +34,52 @@ from linkedin_mcp_server.scraping.job_policy import (
     SCROLL_BUDGET_TOTAL,
     SCROLL_DEADLINE_MAX,
     SEARCH_TIMEOUT_FRACTION,
+    ApplyType,
+    LOCATION_RESOLUTION_MIN,
+    LOCATION_RESOLUTION_RESERVE,
+    JobsTrackerStage,
+    ai_search_section_error,
+    apply_link_missing_section_error,
     dropped_filters_section_error,
     dropped_offset_section_error,
+    dropped_stage_section_error,
     label_similar_jobs,
+    employer_apply_url,
     lost_keywords_section_error,
     missing_description_section_error,
     no_matching_jobs_section_error,
+    posting_state,
     reconcile_search_references,
+    unresolved_location_section_error,
 )
 from linkedin_mcp_server.scraping.link_metadata import Reference, dedupe_references
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.search_urls import build_job_search_url
 from linkedin_mcp_server.scraping.session import ScrapingSession, nav_delay
 from linkedin_mcp_server.scraping.text import (
+    JOB_APPLY_EN_US,
     JOB_POSTING_EN_US,
     JOB_SEARCH_EN_US,
+    JobApplyTextTable,
     JobSearchTextTable,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _tracker_stage(url: str) -> str | None:
+    """The tab ``url`` shows on LinkedIn's own tracker, or None off it.
+
+    Host and parsed path rather than a substring, so another origin serving
+    the same path is not the account's list. No ``?stage=`` is the saved tab.
+    """
+    parsed = urlparse(url)
+    if (
+        parsed.netloc != "www.linkedin.com"
+        or parsed.path.rstrip("/") not in SAVED_JOBS_PATHS
+    ):
+        return None
+    return parse_qs(parsed.query).get("stage", ["saved"])[0]
 
 
 class JobScraper:
@@ -70,19 +99,24 @@ class JobScraper:
         navigator: PageNavigator,
         capture: SectionCapture,
         pages: JobPageReader,
+        facets: FacetResolver,
         search_text: JobSearchTextTable = JOB_SEARCH_EN_US,
+        apply_text: JobApplyTextTable = JOB_APPLY_EN_US,
     ):
         self._session = session
         self._navigator = navigator
         self._capture = capture
         self._pages = pages
+        self._facets = facets
         self._search_text = search_text
+        self._apply_text = apply_text
 
     async def scrape_job(self, job_id: str) -> dict[str, Any]:
         """Scrape a single job posting.
 
         Returns:
-            {url, sections: {name: text}}
+            {url, sections: {name: text}}, plus {apply: {type, url?}} when the
+            posting text was read.
         """
         job_id = normalize_job_id(job_id)
         url = job_view_url(job_id, "/")
@@ -114,9 +148,43 @@ class JobScraper:
         }
         if references:
             result["references"] = references
+        if "job_posting" in sections:
+            apply_type, apply_url = await self._read_apply(
+                job_id, sections["job_posting"]
+            )
+            apply: dict[str, str] = {"type": apply_type}
+            result["apply"] = apply
+            if apply_url is not None:
+                apply["url"] = apply_url
+            elif apply_type == "external":
+                section_errors["apply"] = apply_link_missing_section_error()
         if section_errors:
             result["section_errors"] = section_errors
         return result
+
+    async def _read_apply(self, job_id: str, text: str) -> tuple[ApplyType, str | None]:
+        """How the open posting takes applications, from the page already loaded.
+
+        Both states before any control, so a posting in either never reads as
+        open. A failed control read is `unknown`, never a guess.
+        """
+        state = posting_state(text, self._apply_text)
+        if state is not None:
+            return state, None
+        try:
+            signals = await self._pages.read_apply_signals(job_id, self._apply_text)
+        except LinkedInScraperException:
+            raise
+        except Exception as e:
+            logger.debug("Could not read the apply control: %s", e)
+            return "unknown", None
+        if signals is None:
+            return "unknown", None
+        if signals.easy_apply:
+            return "easy_apply", None
+        if signals.external_link is not None:
+            return "external", employer_apply_url(signals.external_link)
+        return "unknown", None
 
     async def search_jobs(
         self,
@@ -139,7 +207,12 @@ class JobScraper:
 
         Args:
             keywords: Search keywords
-            location: Optional location filter
+            location: Optional location filter, a place name. Resolved to
+                LinkedIn's geo id through its own location dropdown (see
+                ``FacetResolver.resolve_geo_urn``) and sent as ``geoId``. A
+                name the dropdown does not resolve is sent as free text, as
+                before, with a ``location_unresolved`` entry under
+                ``section_errors["location"]``.
             max_pages: Maximum pages to load (1-10, default 3)
             date_posted: Filter by date posted (past_hour, past_24_hours, past_week, past_month)
             job_type: Filter by job type (full_time, part_time, contract, temporary, volunteer, internship, other)
@@ -149,8 +222,41 @@ class JobScraper:
             sort_by: Sort results (date, relevance)
 
         Returns:
-            {url, sections: {search_results: text}, job_ids: [str]}
+            {url, sections: {search_results: text}, job_ids: [str],
+            pagination: {pages_fetched, next_offset, reason}}, plus
+            ``applied_location`` when the classic page's heading names the
+            place the search applied. ``pagination``
+            is absent when a failure stopped the search, which
+            ``section_errors`` then explains. Ids read off LinkedIn's AI search
+            at ``/jobs/search-results`` are kept with an
+            ``ai_search_unverified`` entry, since nothing on that page tells
+            matches from unrelated postings.
         """
+        # Before the resolution below, which navigates and types and has to
+        # come out of the same budget as the pages it is for.
+        started = time.monotonic()
+        budget = tool_timeout * SEARCH_TIMEOUT_FRACTION
+
+        location = " ".join(location.split()) if location else location
+        geo_id: str | None = None
+        location_unresolved = False
+        out_of_time = False
+        pace_first = False
+        if location:
+            allowed = budget - LOCATION_RESOLUTION_RESERVE
+            if allowed < LOCATION_RESOLUTION_MIN:
+                out_of_time = True
+            else:
+                try:
+                    async with asyncio.timeout(allowed):
+                        geo_id = await self._facets.resolve_geo_urn(location)
+                except LinkedInScraperException:
+                    raise
+                except Exception as e:
+                    logger.debug("Could not resolve location %r: %s", location, e)
+                pace_first = self._facets.navigated
+            location_unresolved = geo_id is None
+
         base_url = build_job_search_url(
             keywords,
             location=location,
@@ -160,7 +266,9 @@ class JobScraper:
             work_type=work_type,
             easy_apply=easy_apply,
             sort_by=sort_by,
+            geo_id=geo_id,
         )
+        applied_location: str | None = None
         all_job_ids: list[str] = []
         seen_ids: set[str] = set()
         page_texts: list[str] = []
@@ -171,6 +279,10 @@ class JobScraper:
         # response whatever stops the loop later, so a rate limit on page two
         # used to hide that page one had been unfiltered all along.
         filters_warning: dict[str, str] | None = None
+        # Set once LinkedIn's AI search supplied ids, and reported in place of
+        # `filters_warning`, whose names it carries: both describe the same
+        # results, and only one slot holds them.
+        ai_warning: dict[str, str] | None = None
         total_pages: int | None = None
         total_pages_queried = False
         total: dict[str, Any] | None = None
@@ -179,6 +291,13 @@ class JobScraper:
         # then cover only some of `job_ids`, and a caller takes a job missing
         # from it as not promoted.
         promoted_complete = True
+        # Why paging stopped, for every stop that is not a failure. A search
+        # the clock or `max_pages` cut short otherwise has exactly the shape
+        # of one that ran out of results, and only the caller knows whether
+        # asking again would help. Left unset by a failure, whose
+        # `section_errors` entry already says why the list ends there.
+        stop_reason: str | None = None
+        pages_fetched = 0
 
         # The search-wide scroll budget is spent as it goes rather than
         # divided up front, because dividing it charges every navigation for
@@ -195,8 +314,6 @@ class JobScraper:
         # The next navigation is costed from the slowest one so far rather than
         # a constant: the real figure is 6.5s and the `goto` timeout alone is
         # 30s, so a fixed guess is wrong in both directions.
-        started = time.monotonic()
-        budget = tool_timeout * SEARCH_TIMEOUT_FRACTION
         slowest_page = 0.0
 
         for page_num in range(max_pages):
@@ -210,6 +327,7 @@ class JobScraper:
                     offset,
                     total_pages,
                 )
+                stop_reason = "complete"
                 break
 
             elapsed = time.monotonic() - started
@@ -223,9 +341,11 @@ class JobScraper:
                     delay + slowest_page,
                     budget,
                 )
+                stop_reason = "time_budget"
                 break
 
-            if page_num > 0:
+            # A location resolution navigated just before the first page.
+            if page_num > 0 or pace_first:
                 await self._session.pace(delay)
 
             # Started after the delay, because the prediction above adds
@@ -259,6 +379,7 @@ class JobScraper:
                         page_deadline=started + budget,
                     )
                 extracted = capture.section
+                pages_fetched += 1
                 slowest_page = max(slowest_page, time.monotonic() - page_started)
                 scroll_budget_left = max(
                     0.0, scroll_budget_left - capture.scroll_seconds
@@ -339,8 +460,9 @@ class JobScraper:
                 # LinkedIn merely renamed would return nothing at all.
                 landed_query = parse_qs(parsed_url.query)
                 asked = parse_qs(urlparse(base_url).query)
-                is_no_match = bool(extracted.text) and self._search_text.shows_no_match(
-                    extracted.text
+                is_no_match = bool(extracted.text) and (
+                    self._search_text.shows_no_match(extracted.text)
+                    or await self._matches_none_before_notice(extracted.text)
                 )
                 asked_keywords = asked.get("keywords", [""])[0]
                 landed_keywords = landed_query.get("keywords", [""])[0]
@@ -361,10 +483,16 @@ class JobScraper:
                 # by value: LinkedIn encodes several of these itself, a
                 # location becoming a `geoUrn`, so a value comparison would
                 # fail on every healthy call that used one.
+                #
+                # `skipRedirect` is an instruction to the page, not a filter:
+                # the classic page drops it from its own URL once it has
+                # obeyed it (measured), so counting it reported every healthy
+                # search as unfiltered.
                 lost = sorted(
                     name
                     for name in asked
-                    if name not in ("keywords", "start") and not landed_query.get(name)
+                    if name not in ("keywords", "start", "skipRedirect")
+                    and not landed_query.get(name)
                 )
                 if lost and not is_no_match:
                     logger.debug(
@@ -393,6 +521,7 @@ class JobScraper:
                     # The route and query survived, so this is a real empty
                     # result rather than a redirect that silently replaced the
                     # search. Do not read ids from a DOM that supplied no text.
+                    stop_reason = "complete"
                     break
 
                 if is_no_match:
@@ -410,12 +539,17 @@ class JobScraper:
                         section_errors["search_results"] = (
                             no_matching_jobs_section_error(keywords)
                         )
+                    stop_reason = "complete"
                     break
 
                 if page_num == 0:
                     count = self._search_text.result_count(extracted.text)
                     if count is not None:
                         total = {"count": count[0], "exact": count[1]}
+                    if location:
+                        applied_location = self._search_text.applied_location(
+                            extracted.text, keywords
+                        )
 
                 # Read total pages from pagination state (once only, best-effort)
                 if not total_pages_queried:
@@ -451,6 +585,7 @@ class JobScraper:
                     if page_refs:
                         page_references.extend(page_refs)
                     logger.debug("No new job IDs on page %d, stopping", page_num + 1)
+                    stop_reason = "no_new_ids"
                     break
 
                 # Best effort, like the page count: a read that fails costs the
@@ -473,6 +608,9 @@ class JobScraper:
                     seen_ids.add(jid)
                     all_job_ids.append(jid)
 
+                if parsed_url.path.rstrip("/") == AI_SEARCH_PATH:
+                    ai_warning = ai_search_section_error(lost, capture.landed_url)
+
                 page_texts.append(extracted.text)
                 if page_refs:
                     page_references.extend(page_refs)
@@ -488,6 +626,8 @@ class JobScraper:
                     section_name="search_results",
                 )
                 break
+        else:
+            stop_reason = "max_pages"
 
         result: dict[str, Any] = {
             "url": base_url,
@@ -498,6 +638,8 @@ class JobScraper:
         }
         if total is not None:
             result["total"] = total
+        if applied_location is not None:
+            result["applied_location"] = applied_location
         # Each page adds its ids only after its promoted read, so ids with no
         # failed read mean every page that contributed was read.
         if all_job_ids and promoted_complete:
@@ -506,34 +648,90 @@ class JobScraper:
             result["references"] = {
                 "search_results": dedupe_references(page_references)
             }
-        if filters_warning is not None:
+        warning = ai_warning or filters_warning
+        if warning is not None:
             existing = section_errors.get("search_results")
             if existing is None:
-                section_errors["search_results"] = filters_warning
+                section_errors["search_results"] = warning
+            elif ai_warning is not None and set(existing) == {
+                "error_type",
+                "error_message",
+            }:
+                # The AI search leads over an expected stop such as a rate
+                # limit, because it qualifies every id returned and its type
+                # is what a caller checks. A defect report keeps its own type
+                # and fields, which the issue it files depends on.
+                section_errors["search_results"] = {
+                    "error_type": ai_warning["error_type"],
+                    "error_message": (
+                        f"{ai_warning['error_message']} {existing['error_message']}"
+                    ),
+                }
             else:
                 # Both are true of this response, and only one slot holds
                 # them. The stop reason leads, since it explains why the list
                 # ends where it does, and the filter note follows it whole.
                 existing["error_message"] = (
-                    f"{existing['error_message']} {filters_warning['error_message']}"
+                    f"{existing['error_message']} {warning['error_message']}"
                 )
+        if location_unresolved:
+            section_errors["location"] = unresolved_location_section_error(
+                location or "", applied_location, out_of_time=out_of_time
+            )
         if section_errors:
             result["section_errors"] = section_errors
+        if stop_reason is not None:
+            result["pagination"] = {
+                "pages_fetched": pages_fetched,
+                "next_offset": offset,
+                "reason": stop_reason,
+            }
         return result
 
-    async def get_saved_jobs(self, max_pages: int = 3) -> dict[str, Any]:
-        """List the authenticated user's saved job postings.
+    async def _matches_none_before_notice(self, text: str) -> bool:
+        """Whether the redesigned search put no result above its notice.
 
-        Navigates to ``/my-items/saved-jobs/``, extracts innerText and job IDs
-        from each page, and paginates with ``?start=`` offsets (10 per step).
+        That search has no no-match page. A query matching nothing renders
+        the promoted cards, then the notice saying what follows may not be an
+        exact match, then a full page of unrelated postings, under "99+
+        results" like any other search. Measured live upstream on a nonsense
+        query: three promoted cards above the notice. A narrow query put 24
+        cards above it, and the broad ones never showed it.
+
+        False when the read fails or finds no notice, which keeps the page,
+        as every search was read before.
+        """
+        notice = self._search_text.inexact_notice(text)
+        if notice is None:
+            return False
+        try:
+            organic = await self._pages._count_organic_before_notice(
+                notice, self._search_text.promoted_label
+            )
+        except LinkedInScraperException:
+            raise
+        except Exception as e:
+            logger.debug("Could not read results above the notice: %s", e)
+            return False
+        return organic == 0
+
+    async def get_saved_jobs(
+        self, max_pages: int = 3, stage: JobsTrackerStage = "saved"
+    ) -> dict[str, Any]:
+        """List the authenticated user's jobs at one job-tracker stage.
+
+        Navigates to ``/jobs-tracker/?stage=<stage>``, extracts innerText and
+        job IDs from each page, and paginates with ``&start=`` offsets (10 per
+        step).
 
         Args:
             max_pages: Maximum pages to load (1-10, default 3)
+            stage: Tracker tab to read: saved, in_progress, applied, archived
 
         Returns:
             {url, sections: {saved_jobs: text}, job_ids: [str]}
         """
-        base_url = SAVED_JOBS_URL
+        base_url = f"{SAVED_JOBS_URL}?stage={stage}"
         all_job_ids: list[str] = []
         seen_ids: set[str] = set()
         page_texts: list[str] = []
@@ -553,7 +751,7 @@ class JobScraper:
             url = (
                 base_url
                 if page_num == 0
-                else f"{base_url}?start={page_num * SAVED_JOBS_PAGE_SIZE}"
+                else f"{base_url}&start={page_num * SAVED_JOBS_PAGE_SIZE}"
             )
 
             try:
@@ -579,17 +777,14 @@ class JobScraper:
                 # /jobs/view/ anchor would come back as the account's saved
                 # jobs.
                 #
-                # Both destinations, because LinkedIn now answers
-                # /my-items/saved-jobs/ with a redirect to /jobs-tracker/ and
-                # drops the query on the way. Measured on 2026-08-21 against
-                # an authenticated profile, for the bare URL and for
-                # ?start=10 alike. The old route is kept because the redirect
-                # is a rollout and the server still navigates to it.
-                parsed_url = urlparse(capture.landed_url)
-                if (
-                    parsed_url.netloc != "www.linkedin.com"
-                    or parsed_url.path.rstrip("/") not in SAVED_JOBS_PATHS
-                ):
+                # The stage too: a tracker that dropped it shows another tab,
+                # and applied jobs would come back as saved ones. No
+                # parameter is the saved tab. Past the first page a lost
+                # stage is the list ending where paging failed, which is
+                # reported below like a lost offset; on the first page there
+                # is nothing of the asked tab to keep.
+                landed_stage = _tracker_stage(capture.landed_url)
+                if landed_stage is None or (landed_stage != stage and page_num == 0):
                     logger.debug(
                         "Unexpected page URL after saved-jobs extraction: %s "
                         "(requested %s) — skipping job ID extraction",
@@ -610,6 +805,17 @@ class JobScraper:
                     raise RuntimeError(
                         f"Saved jobs navigation ended on {capture.landed_url}"
                     )
+                if landed_stage != stage:
+                    logger.debug(
+                        "Saved-jobs stage %s did not survive navigation "
+                        "(landed on %s), stopping",
+                        stage,
+                        capture.landed_url,
+                    )
+                    section_errors["saved_jobs"] = dropped_stage_section_error(
+                        stage, capture.landed_url
+                    )
+                    break
 
                 if not extracted.text:
                     # Nothing to read, and the page is the one that was asked
@@ -633,15 +839,32 @@ class JobScraper:
                 # appends the whole list to itself under `saved_jobs` before
                 # the no-new-ids branch stops the loop. Measured on
                 # 2026-08-21: `/jobs-tracker/?start=10` lands on
-                # `/jobs-tracker/`, and so does the old route, so the offset
-                # is gone from the list rather than from one address for it.
-                # Judged from where the page landed and not from that
-                # measurement, so an account still served the old route keeps
-                # paginating.
+                # `/jobs-tracker/`. Judged from where the page landed and not
+                # from that measurement, so paging works again wherever
+                # LinkedIn keeps the offset.
                 # Read here rather than taken from the capture: the page-count
                 # read above is a whole navigation's worth of opportunity for
                 # the address to move, and the capture predates it.
                 landed_url = self._pages.current_url
+                # The tab too, for the same reason: a page-one address that
+                # lost `?stage=` has no `start` to fail on, and would hand the
+                # saved tab's ids back as the stage asked for. Later pages
+                # stop with what was read, as at the landing check above.
+                moved_stage = _tracker_stage(landed_url)
+                if moved_stage is None or (moved_stage != stage and page_num == 0):
+                    logger.debug(
+                        "Saved-jobs page moved to %s while its page count "
+                        "was read (requested %s)",
+                        landed_url,
+                        url,
+                    )
+                    await self._navigator._raise_if_auth_barrier(landed_url)
+                    raise RuntimeError(f"Saved jobs page moved to {landed_url}")
+                if moved_stage != stage:
+                    section_errors["saved_jobs"] = dropped_stage_section_error(
+                        stage, landed_url
+                    )
+                    break
                 landed_start = parse_qs(urlparse(landed_url).query).get("start", ["0"])[
                     0
                 ]

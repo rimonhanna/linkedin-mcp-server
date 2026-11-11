@@ -86,7 +86,7 @@
     },
     {
       "name": "get_job_details",
-      "description": "Retrieve specific job posting details using LinkedIn job IDs"
+      "description": "Retrieve specific job posting details using LinkedIn job IDs, including how the posting takes applications"
     },
     {
       "name": "search_jobs",
@@ -94,7 +94,7 @@
     },
     {
       "name": "get_saved_jobs",
-      "description": "List job postings saved by the authenticated LinkedIn user"
+      "description": "List the authenticated LinkedIn user's jobs at one job-tracker stage (saved, in_progress, applied, archived)"
     },
     {
       "name": "search_people",

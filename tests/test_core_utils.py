@@ -196,6 +196,109 @@ class TestScrollDeadline:
 
         assert page.wait_for_selector.await_args.kwargs["timeout"] == 1
 
+    async def test_a_deadline_spent_releasing_the_rail_still_ends_the_call(self):
+        """Releasing the rail handle is shielded, so a tool deadline that falls
+        inside it would otherwise be swallowed and the scroll return normally
+        after the caller's time was up."""
+        import asyncio
+
+        import anyio
+
+        page = self._page()
+        holder = MagicMock()
+
+        async def slow_dispose() -> None:
+            await asyncio.sleep(0.3)
+
+        holder.dispose = AsyncMock(side_effect=slow_dispose)
+        page.evaluate_handle = AsyncMock(return_value=holder)
+
+        with pytest.raises(TimeoutError):
+            with anyio.fail_after(0.1):
+                await scroll_job_sidebar(page)
+
+        holder.dispose.assert_awaited_once()
+
+
+class TestCancelledSidebarScroll:
+    """A cancel ends the scroll between steps, after a sent scroll has run.
+
+    The browser-DOM suite proves it against a real renderer; this pins the
+    order of operations where `page.evaluate` is mocked.
+    """
+
+    async def test_a_cancel_waits_for_the_sent_scroll_and_sends_nothing_after(
+        self,
+    ):
+        import asyncio
+
+        page = MagicMock()
+        page.url = "https://www.linkedin.com/jobs/search/?keywords=python"
+        page.wait_for_selector = AsyncMock()
+        holder = MagicMock()
+        holder.dispose = AsyncMock()
+        page.evaluate_handle = AsyncMock(return_value=holder)
+        scroll_sent = asyncio.Event()
+        scroll_landed = asyncio.Event()
+        steps: list[bool] = []
+
+        async def step(_program, arg):
+            steps.append(arg["scroll"])
+            if arg["scroll"]:
+                scroll_sent.set()
+                await asyncio.sleep(0.2)
+                scroll_landed.set()
+            return {"status": "ok", "cards": 5, "height": 200}
+
+        page.evaluate = AsyncMock(side_effect=step)
+
+        task = asyncio.create_task(scroll_job_sidebar(page))
+        await scroll_sent.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert scroll_landed.is_set()
+        assert steps == [False, True]
+        holder.dispose.assert_awaited_once()
+
+
+class TestNavigatedSidebarScroll:
+    async def test_a_step_from_another_document_ends_the_scroll(self):
+        """Detected from the document that answered, not from a step raising.
+
+        The rail handle of the old document makes the next step raise today,
+        but a step that a new document answers must stop the scroll whether
+        it raises or not, and report it as the caller's page having moved.
+        """
+        page = MagicMock()
+        page.url = "https://www.linkedin.com/jobs/search/?keywords=python"
+        page.wait_for_selector = AsyncMock()
+        holder = MagicMock()
+        holder.dispose = AsyncMock()
+        page.evaluate_handle = AsyncMock(return_value=holder)
+        expected: list[float | None] = []
+        document = {"origin": 1000.0}
+
+        async def step(_program, arg):
+            # The page's side of the step: a document other than the one
+            # named answers without measuring or scrolling.
+            expected.append(arg["expected"])
+            if arg["expected"] is not None and arg["expected"] != document["origin"]:
+                return {"status": "navigated", "origin": document["origin"]}
+            # Navigated right after the first look.
+            answer = {"status": "ok", "cards": 5, "height": 200, **document}
+            document["origin"] = 2000.0
+            return answer
+
+        page.evaluate = AsyncMock(side_effect=step)
+
+        assert await scroll_job_sidebar(page) is True
+        # Every step after the first names the first document, and the first
+        # one the new document answered ended the call.
+        assert expected == [None, 1000.0]
+        holder.dispose.assert_awaited_once()
+
 
 class TestScrollToBottomToleratesAStaleRound:
     """One unchanged height is a slow batch, not the bottom of the page.

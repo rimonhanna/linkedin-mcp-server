@@ -910,6 +910,10 @@ async def _single_capture_facade_scenario(method: str) -> dict[str, Any]:
                 arguments = {"company_name": "analytical-engine", "keywords": "math"}
                 result = await extractor.get_company_employees(**arguments)
             elif method == "scrape_job":
+                page.script(
+                    "evaluate:job_apply_signals",
+                    {"easy_apply": True, "external_link": None},
+                )
                 arguments = {"job_id": "123"}
                 result = await extractor.scrape_job(**arguments)
             elif method == "search_people":
@@ -955,7 +959,16 @@ async def _description_missing_scenario() -> dict[str, Any]:
     recorder = TraceRecorder("scrape_job__description_missing", _COMMON_ALLOWED)
     clock = FakeClock(recorder)
     # The header and company details rendered, the description panel did not.
-    page = _page(recorder).script("evaluate:root_content", _root("Result content"))
+    # Without the heading only a URL-shaped Easy Apply is still read, and this
+    # page has none.
+    page = (
+        _page(recorder)
+        .script("evaluate:root_content", _root("Result content"))
+        .script(
+            "evaluate:job_apply_signals",
+            {"easy_apply": False, "external_link": None},
+        )
+    )
     extractor = _extractor(page)
     arguments = {"job_id": "123"}
     async with boundaries(recorder, clock):

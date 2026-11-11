@@ -16,6 +16,7 @@ from linkedin_mcp_server.core.exceptions import AuthenticationError
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.scraping.identifiers import normalize_job_id
+from linkedin_mcp_server.scraping.job_policy import JobsTrackerStage
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,13 @@ def register_job_tools(
             section_errors.job_posting.error_type "description_missing" means
             the captured text lacks the expected "About the job" heading.
             The text is kept but may be incomplete; calling again may return more.
+            apply ({type, url?}) says how the posting takes applications,
+            read from the page already loaded without clicking anything:
+            applied, closed, easy_apply, external or unknown. url is the
+            employer's application link as LinkedIn gives it, never opened by
+            this server, and present only for external postings; an external
+            posting without a usable link carries section_errors.apply of type
+            apply_link_missing.
         """
         try:
             job_id = normalize_job_id(job_id)
@@ -106,7 +114,7 @@ def register_job_tools(
         Args:
             keywords: Search keywords (e.g., "software engineer", "data scientist")
             ctx: FastMCP context for progress reporting
-            location: Optional location filter (e.g., "San Francisco", "Remote")
+            location: Optional place name (e.g., "San Francisco", "Amsterdam"), resolved to LinkedIn's geo id; for remote roles use work_type="remote"
             max_pages: Maximum number of result pages to load (1-10, default 3)
             date_posted: Filter by posting date (past_hour, past_24_hours, past_week, past_month)
             job_type: Filter by job type, comma-separated (full_time, part_time, contract, temporary, volunteer, internship, other)
@@ -122,9 +130,24 @@ def register_job_tools(
             with exact false for a lower bound such as "1,000+".
             promoted_job_ids is the subset of job_ids LinkedIn marks as
             promoted, present only when every page could be read.
+            applied_location is the place LinkedIn's results heading says it
+            searched, present when a location was given and the heading read.
+            A location LinkedIn's dropdown could not resolve is sent as free
+            text, which LinkedIn may place elsewhere, and section_errors then
+            carries a location entry of type location_unresolved.
             A search with no matches returns empty job_ids and a
             section_errors entry of type no_matching_jobs, rather than the
             unrelated recommendations LinkedIn shows in its place.
+            If LinkedIn serves its AI search instead of the classic results
+            page, job_ids are still returned but section_errors carries an
+            ai_search_unverified entry: that page does not reliably apply the
+            requested location and shows a full page of postings even when
+            nothing matches, so the ids may not match the search.
+            pagination ({pages_fetched, next_offset, reason}) says why paging
+            stopped: complete (the results ran out), max_pages, time_budget
+            (the tool timeout was near, so more results may exist) or
+            no_new_ids (a page repeated earlier results). It is absent when a
+            failure stopped the search, which section_errors then explains.
         """
         try:
             # Before the browser, because FastMCP is already timing this call
@@ -183,16 +206,20 @@ def register_job_tools(
     async def get_saved_jobs(
         ctx: Context,
         max_pages: Annotated[int, Field(ge=1, le=10)] = 3,
+        stage: JobsTrackerStage = "saved",
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
-        List job postings saved by the authenticated LinkedIn user.
+        List the authenticated user's jobs at one stage of LinkedIn's job tracker.
 
         Returns job_ids that can be passed to get_job_details for full info.
 
         Args:
             ctx: FastMCP context for progress reporting
-            max_pages: Maximum number of saved-jobs pages to load (1-10, default 3)
+            max_pages: Maximum number of tracker pages to load (1-10, default 3)
+            stage: Tracker tab: saved (default), in_progress, applied or
+                archived. applied lists Easy Apply submissions and external
+                applications the user confirmed to LinkedIn.
 
         Returns:
             Dict with url, sections (name -> raw text), job_ids (list of
@@ -202,13 +229,13 @@ def register_job_tools(
             extractor = extractor or await get_ready_extractor(
                 ctx, tool_name="get_saved_jobs"
             )
-            logger.info("Fetching saved jobs (max_pages=%d)", max_pages)
+            logger.info("Fetching %s jobs (max_pages=%d)", stage, max_pages)
 
             await ctx.report_progress(
                 progress=0, total=100, message="Loading saved jobs"
             )
 
-            result = await extractor.get_saved_jobs(max_pages=max_pages)
+            result = await extractor.get_saved_jobs(max_pages=max_pages, stage=stage)
 
             await ctx.report_progress(progress=100, total=100, message="Complete")
 

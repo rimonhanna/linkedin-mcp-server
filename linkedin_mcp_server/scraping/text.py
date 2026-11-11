@@ -94,6 +94,69 @@ _JOB_POSTING_TEXT: dict[str, JobPostingTextTable] = {
 # and is reported as missing its description.
 JOB_POSTING_EN_US = _JOB_POSTING_TEXT["en-US"]
 
+
+@dataclass(frozen=True)
+class JobApplyTextTable:
+    """Visible-text policy for reading how a job posting takes applications.
+
+    Only what has no structural signal sits here. The Easy Apply anchor into
+    the posting's own `/apply/` route and the external link into LinkedIn's
+    off-site interstitial are told apart by URL; a button-shaped Easy Apply,
+    the external link's label and the posting-state lines can only be told by
+    their words.
+    """
+
+    # The whole visible text of the button that opens Easy Apply, for the
+    # posting whose Easy Apply is a button rather than an anchor into its own
+    # `/apply/` route. The anchor needs no entry here: its URL names it.
+    easy_apply_label: str
+    # The whole visible text of the link that sends the applicant to the
+    # employer's site. Its href is LinkedIn's interstitial, which the
+    # description's own outbound links share, so the text is what tells it
+    # apart.
+    external_apply_label: str
+    # The headings that open the description. Apply controls and state lines
+    # are read above the earliest of them only, so the same words in the
+    # description or on the "More jobs" cards below it cannot pass for this
+    # posting's. Taken from `JobPostingTextTable` rather than written again:
+    # the same heading decides whether a description has loaded, and two
+    # copies of it can drift apart while both keep passing their own tests.
+    description_headings: tuple[str, ...]
+    # Whole lines a posting shows once it stops taking applications.
+    closed_lines: tuple[str, ...]
+    # A line a posting shows once this account has applied. Anchored at both
+    # ends, because titles such as "Applied AI Engineer" open with the word.
+    applied_pattern: re.Pattern[str]
+
+
+_JOB_APPLY_TEXT: dict[str, JobApplyTextTable] = {
+    "en-US": JobApplyTextTable(
+        easy_apply_label="Easy Apply",
+        external_apply_label="Apply",
+        description_headings=JOB_POSTING_EN_US.description_headings,
+        closed_lines=(
+            "No longer accepting applications",
+            "Not currently accepting applications",
+        ),
+        applied_pattern=re.compile(
+            r"^(?:Application submitted|Applied \d+ ?[a-z]+ ago)$"
+        ),
+    ),
+}
+
+# Same locale contract as `DETAIL_CAPTURE_EN_US`: the context is forced to
+# en-US, so only this entry is ever used, and a posting rendered in another
+# language matches none of it and reads as `unknown` rather than as open.
+# Measured upstream: the external label and the heading on 2026-09-14 against
+# an external and an Easy Apply posting, the Easy Apply label on 2026-09-25
+# against a button-shaped one. On 2026-09-21 an applied posting that was still
+# open read "Application status", "Application submitted", "2 days ago" and no
+# "Applied N days ago" line, and two closed postings read one closed line each.
+# "Applied 3 days ago" and "Applied 5mo ago" are the classic posting's and the
+# job tracker's forms of the same state. All of it on the classic posting; the
+# redesigned one has not been measured here.
+JOB_APPLY_EN_US = _JOB_APPLY_TEXT["en-US"]
+
 # Patterns that mark the start of LinkedIn page chrome (sidebar/footer).
 # Everything from the earliest match onwards is stripped.
 _NOISE_MARKERS: list[re.Pattern[str]] = [
@@ -315,6 +378,17 @@ class JobSearchTextTable:
     # A sponsored card's own line. The detail pane says "Promoted by hirer",
     # which a whole-line match leaves alone.
     promoted_label: str
+    # The line the redesigned search puts between its matches and the
+    # related postings it pads the list with. It has no no-match page: a
+    # search matching nothing opens with this line under the promoted cards,
+    # and the cards after it are then all the page holds. A locale missing
+    # from this table never finds the line, so its no-match page is kept as
+    # results, which is how every search was read before.
+    inexact_notices: tuple[str, ...]
+    # What joins the keywords to the place in the classic page's heading,
+    # "<keywords> in <location>". The heading is the only place the page says
+    # which location it applied, and it says so in the locale's words.
+    heading_location_joiner: str
 
     def shows_no_match(self, text: str) -> bool:
         """Whether a search page's text opens with a no-match heading.
@@ -324,6 +398,31 @@ class JobSearchTextTable:
         """
         first = next((line.strip() for line in text.splitlines() if line.strip()), "")
         return first in self.no_match_headings
+
+    def inexact_notice(self, text: str) -> str | None:
+        """The notice line ending a page's matches, if the text holds one.
+
+        A whole line, since a posting's own text could quote it in part.
+        """
+        for line in text.splitlines():
+            if line.strip() in self.inexact_notices:
+                return line.strip()
+        return None
+
+    def applied_location(self, text: str, keywords: str) -> str | None:
+        """The place the classic page's heading says the search applied.
+
+        Read only behind the keywords the search asked for, so a heading in
+        another shape, the redesigned page's count line or a no-match heading
+        reads as unknown rather than as a place. Whitespace and case are
+        compared loosely, since LinkedIn echoes the query in its own casing.
+        """
+        asked = " ".join(keywords.split())
+        first = next((line.strip() for line in text.splitlines() if line.strip()), "")
+        prefix = f"{asked}{self.heading_location_joiner}"
+        if not asked or not first.casefold().startswith(prefix.casefold()):
+            return None
+        return first[len(prefix) :].strip() or None
 
     def result_count(self, text: str) -> tuple[int, bool] | None:
         """The advertised number of results, and whether it is exact.
@@ -350,6 +449,11 @@ _JOB_SEARCH_TEXT: dict[str, JobSearchTextTable] = {
             r"(?P<count>[0-9]{1,3}(?:,[0-9]{3})*)(?P<plus>\+)? results?"
         ),
         promoted_label="Promoted",
+        inexact_notices=(
+            "We found more results related to your search that may not be "
+            "exact matches, but could still be a great fit.",
+        ),
+        heading_location_joiner=" in ",
     ),
 }
 

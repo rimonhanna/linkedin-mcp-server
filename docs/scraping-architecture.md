@@ -25,14 +25,14 @@ a page-owning collaborator.
 | `contracts` | `ExtractedSection`, `FilterValidationError`, `RATE_LIMITED_SECTION_TEXT`, `SEND_INTERRUPTED_WARNING`, `limit_exceeded_section_error()`, `message_action_result()`, `normalize_message_line_breaks()`, `rate_limited_section_error()`, `refuse_an_invalid_message()` | `browser-free` |
 | `conversations` | `ConversationReader` | `page-owning` |
 | `extractor` | `LinkedInExtractor` | `page-owning` |
-| `facets` | `FacetResolver`, `GEO_ID_PATTERN`, `LOCATION_BOX_SELECTOR`, `TYPEAHEAD_TIMEOUT_MS` | `page-owning` |
+| `facets` | `FacetResolver`, `GEO_ID_PATTERN`, `LOCATION_BOX_SELECTOR`, `SUGGESTION_SETTLE_INTERVAL`, `SUGGESTION_SETTLE_READS`, `TYPEAHEAD_TIMEOUT_MS`, `TYPEAHEAD_URL` | `page-owning` |
 | `feed` | `FeedScraper` | `page-owning` |
 | `feed_payload` | `POST_SLUG_URL_RE`, `build_feed_references()`, `is_feed_payload_response()` | `browser-free` |
 | `fields` | `COMPANY_SECTIONS`, `PERSON_SECTIONS`, `parse_company_sections()`, `parse_person_sections()` | `browser-free` |
 | `identifiers` | `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_company_identifier()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_person_identifier()`, `normalize_profile_urn()`, `normalize_thread_id()`, `person_profile_url()` | `browser-free` |
 | `invitation_withdrawal` | `InvitationWithdrawer`, `MAX_WITHDRAWALS_LIMIT`, `age_text()`, `normalize_exclusions()`, `parse_age_days()`, `plan_withdrawals()`, `username_from_href()` | `browser-free` |
-| `job_pages` | `JOB_IDS_JS`, `JobPageCapture`, `JobPageReader`, `PROMOTED_JOB_IDS_JS` | `page-owning` |
-| `job_policy` | `JOB_SEARCH_PATHS`, `RESULTS_PER_LINKEDIN_PAGE`, `SAVED_JOBS_PAGE_SIZE`, `SAVED_JOBS_PATHS`, `SAVED_JOBS_URL`, `SCROLL_BUDGET_TOTAL`, `SCROLL_DEADLINE_MAX`, `SEARCH_TIMEOUT_FRACTION`, `dropped_filters_section_error()`, `dropped_offset_section_error()`, `label_similar_jobs()`, `lost_keywords_section_error()`, `missing_description_section_error()`, `no_matching_jobs_section_error()`, `reconcile_search_references()`, `route()`, `same_job_search()` | `browser-free` |
+| `job_pages` | `APPLY_SIGNALS_JS`, `JOB_IDS_JS`, `JobApplySignals`, `JobPageCapture`, `JobPageReader`, `ORGANIC_BEFORE_NOTICE_JS`, `PROMOTED_JOB_IDS_JS` | `page-owning` |
+| `job_policy` | `AI_SEARCH_PATH`, `ApplyType`, `JOB_SEARCH_PATHS`, `JobsTrackerStage`, `LOCATION_RESOLUTION_MIN`, `LOCATION_RESOLUTION_RESERVE`, `RESULTS_PER_LINKEDIN_PAGE`, `SAFETY_REDIRECT_PATH`, `SAVED_JOBS_PAGE_SIZE`, `SAVED_JOBS_PATHS`, `SAVED_JOBS_URL`, `SCROLL_BUDGET_TOTAL`, `SCROLL_DEADLINE_MAX`, `SEARCH_TIMEOUT_FRACTION`, `ai_search_section_error()`, `apply_link_missing_section_error()`, `dropped_filters_section_error()`, `dropped_offset_section_error()`, `dropped_stage_section_error()`, `employer_apply_url()`, `label_similar_jobs()`, `lost_keywords_section_error()`, `missing_description_section_error()`, `no_matching_jobs_section_error()`, `posting_state()`, `reaches_the_public_internet()`, `reconcile_search_references()`, `route()`, `same_job_search()`, `unresolved_location_section_error()` | `browser-free` |
 | `jobs` | `JobScraper` | `browser-free` |
 | `link_metadata` | `JOB_PATH_RE`, `RawReference`, `Reference`, `ReferenceKind`, `build_references()`, `choose_reference_text()`, `classify_link()`, `clean_heading()`, `clean_label()`, `dedupe_references()`, `derive_context()`, `normalize_reference()`, `normalize_url()` | `browser-free` |
 | `message_sender` | `MessageSender` | `page-owning` |
@@ -48,7 +48,7 @@ a page-owning collaborator.
 | `search_parse` | `parse_company_cards()`, `parse_count()`, `parse_people_cards()`, `parse_result_count()` | `browser-free` |
 | `search_urls` | `COMPANY_INDUSTRY_IDS`, `COMPANY_SIZE_LETTERS`, `CONTENT_DATE_POSTED_MAP`, `CONTENT_TYPE_MAP`, `EXPERIENCE_LEVEL_MAP`, `JOB_DATE_POSTED_MAP`, `JOB_TYPE_MAP`, `NETWORK_TOKENS`, `SORT_BY_MAP`, `WORK_TYPE_MAP`, `as_list()`, `build_company_search_url()`, `build_content_search_url()`, `build_job_search_url()`, `build_people_search_url()`, `company_size_letters()`, `industry_ids()`, `network_tokens()`, `profile_languages()`, `require_company_criteria()`, `require_people_criteria()`, `school_id()` | `browser-free` |
 | `session` | `NAV_DELAY`, `ScrapingSession`, `nav_delay()` | `page-owning` |
-| `text` | `DETAIL_CAPTURE_EN_US`, `DetailCaptureTextTable`, `JOB_POSTING_EN_US`, `JOB_SEARCH_EN_US`, `JobPostingTextTable`, `JobSearchTextTable`, `SIDEBAR_CHROME_EN`, `SidebarChromeTable`, `filter_linkedin_noise_lines()`, `strip_conversation_chrome()`, `strip_linkedin_noise()`, `truncate_linkedin_noise()` | `browser-free` |
+| `text` | `DETAIL_CAPTURE_EN_US`, `DetailCaptureTextTable`, `JOB_APPLY_EN_US`, `JOB_POSTING_EN_US`, `JOB_SEARCH_EN_US`, `JobApplyTextTable`, `JobPostingTextTable`, `JobSearchTextTable`, `SIDEBAR_CHROME_EN`, `SidebarChromeTable`, `filter_linkedin_noise_lines()`, `strip_conversation_chrome()`, `strip_linkedin_noise()`, `truncate_linkedin_noise()` | `browser-free` |
 
 ## Internal import graph
 
@@ -61,16 +61,16 @@ a page-owning collaborator.
 - `content` -> `session`, `text`
 - `contracts` -> `identifiers`, `link_metadata`
 - `conversations` -> `content`, `identifiers`, `link_metadata`, `messaging_api`, `messaging_payload`, `messaging_read_state`, `navigation`, `profile_page`, `session`, `text`
-- `extractor` -> `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `session`, `text`
-- `facets` -> `capture`, `company_parse`, `contracts`, `identifiers`, `link_metadata`, `navigation`, `session`
+- `extractor` -> `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `session`, `text`
+- `facets` -> `capture`, `company_parse`, `contracts`, `identifiers`, `job_policy`, `link_metadata`, `navigation`, `session`
 - `feed` -> `content`, `contracts`, `feed_payload`, `navigation`, `session`, `text`
 - `feed_payload` -> `link_metadata`
 - `fields` -> `capture`
 - `identifiers` -> _(none)_
 - `invitation_withdrawal` -> `identifiers`
 - `job_pages` -> `content`, `contracts`, `job_policy`, `link_metadata`, `navigation`, `rate_limit`, `session`, `text`
-- `job_policy` -> `link_metadata`
-- `jobs` -> `capture`, `contracts`, `identifiers`, `job_pages`, `job_policy`, `link_metadata`, `navigation`, `search_urls`, `session`, `text`
+- `job_policy` -> `link_metadata`, `text`
+- `jobs` -> `capture`, `contracts`, `facets`, `identifiers`, `job_pages`, `job_policy`, `link_metadata`, `navigation`, `search_urls`, `session`, `text`
 - `link_metadata` -> _(none)_
 - `message_sender` -> `contracts`, `identifiers`, `messaging_read_state`, `navigation`, `session`
 - `messaging_api` -> `messaging_payload`

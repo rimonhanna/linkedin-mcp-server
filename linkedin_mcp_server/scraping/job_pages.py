@@ -32,6 +32,7 @@ from linkedin_mcp_server.scraping.contracts import (
     ExtractedSection,
 )
 from linkedin_mcp_server.scraping.job_policy import (
+    SAFETY_REDIRECT_PATH,
     SCROLL_DEADLINE_MAX,
     route,
     same_job_search,
@@ -41,6 +42,7 @@ from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession
 from linkedin_mcp_server.scraping.rate_limit import rate_limit_retry_delay
 from linkedin_mcp_server.scraping.text import (
+    JobApplyTextTable,
     filter_linkedin_noise_lines,
     truncate_linkedin_noise,
 )
@@ -129,6 +131,126 @@ PROMOTED_JOB_IDS_JS = (
 }"""
 )
 
+# How many unpromoted results sit above the notice the redesigned search puts
+# where its matches end, or null when nothing on the page reads as the notice.
+# Null rather than zero, because zero is what calls the search a no-match. The
+# notice is looked for in the whole document, the cards only in the rail,
+# each read as `PROMOTED_JOB_IDS_JS` reads it.
+#
+# The notice is the smallest element whose text is the whole sentence, reached
+# from a text node that opens it, so a sentence LinkedIn splits across inline
+# elements is still found.
+ORGANIC_BEFORE_NOTICE_JS = (
+    r"""(opts) => {
+    const {selector, label, notice} = opts;
+"""
+    + _RAIL_PICK_JS
+    + r"""
+    const scope = pickRail() || document;
+    const cardOf = (node) => {
+        let card = node;
+        while (card.parentElement && card.parentElement !== scope
+               && card.parentElement !== document.body
+               && idsIn(card.parentElement) === 1) {
+            card = card.parentElement;
+        }
+        return card;
+    };
+    const isPromoted = (node) => (cardOf(node).innerText || '').split('\n')
+        .map((line) => line.trim()).includes(label);
+    const norm = (text) => (text || '').replace(/\s+/g, ' ').trim();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let mark = null;
+    while (!mark && walker.nextNode()) {
+        const piece = norm(walker.currentNode.data);
+        if (!piece || !notice.startsWith(piece)) continue;
+        let node = walker.currentNode;
+        while (node && norm(node.textContent).length < notice.length) {
+            node = node.parentNode;
+        }
+        if (node && norm(node.textContent) === notice) mark = node;
+    }
+    if (!mark) return null;
+    const seen = new Set();
+    let organic = 0;
+    for (const node of scope.querySelectorAll(selector)) {
+        const id = idOf(node);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        const above = mark.compareDocumentPosition(node)
+            & Node.DOCUMENT_POSITION_PRECEDING;
+        if (above && !isPromoted(node)) organic += 1;
+    }
+    return organic;
+}"""
+)
+
+
+# This posting's apply control, read off the page `get_job_details` already
+# loaded. Nothing is clicked and nothing is navigated to. Easy Apply comes in
+# two shapes. The anchor into the posting's own `/apply/` route
+# (`<a href=".../jobs/view/<id>/apply/?openSDUIApplyFlow=true">`, measured
+# upstream on 2026-09-14) is found by its URL, which the "More jobs" cards,
+# each linking its own posting, cannot match. The `<button>` with no href that
+# replaced it (measured upstream on 2026-09-25) is found by its whole text,
+# above the description only; the cards below show the same words, as text
+# inside their links.
+#
+# The external control is an `<a>` into the off-site interstitial, which names
+# the employer's page in its href (measured upstream on 2026-09-19), so it is
+# answered without a click. It is read above the description heading only:
+# below it sit the "More jobs" cards, each with an Apply of its own. Without
+# the heading nothing is proven to be this posting's, and only the URL-shaped
+# Easy Apply is still read.
+#
+# An external Apply that is a `<button>` with no href is not read: LinkedIn
+# counts its click as an apply on the posting, so such a posting answers
+# `unknown` and is never clicked.
+#
+# The applied and closed states are not read here. They are lines of the
+# captured text, and `job_policy.posting_state` reads them from it.
+APPLY_SIGNALS_JS = r"""(opts) => {
+    const {applyPath, redirectPath, easyApplyLabel, externalLabel, descriptionHeadings} = opts;
+    const main = document.querySelector('main');
+    if (!main) return null;
+    const pathOf = (anchor) => {
+        try {
+            return new URL(anchor.href).pathname.replace(/\/+$/, '');
+        } catch (error) {
+            return '';
+        }
+    };
+    const walk = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+    let heading = null;
+    while (walk.nextNode()) {
+        if (descriptionHeadings.includes((walk.currentNode.nodeValue || '').trim())) {
+            heading = walk.currentNode;
+            break;
+        }
+    }
+    const above = (el) => Boolean(
+        heading && (heading.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)
+    );
+    const anchors = [...main.querySelectorAll('a[href]')];
+    const link = anchors.find((anchor) => above(anchor)
+        && (anchor.innerText || '').trim() === externalLabel
+        && pathOf(anchor) === redirectPath);
+    return {
+        easy_apply: anchors.some((anchor) => pathOf(anchor) === applyPath)
+            || [...main.querySelectorAll('button')].some((el) => above(el)
+                && (el.innerText || '').trim() === easyApplyLabel),
+        external_link: link ? link.href : null,
+    };
+}"""
+
+
+@dataclass(frozen=True, slots=True)
+class JobApplySignals:
+    """The apply controls one posting shows above its description."""
+
+    easy_apply: bool
+    external_link: str | None
+
 
 @dataclass(frozen=True, slots=True)
 class JobPageCapture:
@@ -206,6 +328,35 @@ class JobPageReader:
             scroll_seconds=scroll_seconds,
         )
 
+    async def read_apply_signals(
+        self, job_id: str, text: JobApplyTextTable
+    ) -> JobApplySignals | None:
+        """The apply controls on the posting already open, or None without one.
+
+        Reads the current page and nothing else: no navigation, no wait, no
+        click. The external link is handed back as the page holds it, and is
+        never loaded.
+        """
+        signals = await self._session.page.evaluate(
+            APPLY_SIGNALS_JS,
+            {
+                "applyPath": f"/jobs/view/{job_id}/apply",
+                "redirectPath": SAFETY_REDIRECT_PATH,
+                "easyApplyLabel": text.easy_apply_label,
+                "externalLabel": text.external_apply_label,
+                "descriptionHeadings": list(text.description_headings),
+            },
+        )
+        if signals is None:
+            return None
+        if not isinstance(signals, dict):
+            raise TypeError(f"Apply signals read returned {type(signals).__name__}")
+        link = signals.get("external_link")
+        return JobApplySignals(
+            easy_apply=signals.get("easy_apply") is True,
+            external_link=link if isinstance(link, str) else None,
+        )
+
     async def _extract_job_ids(self, *, scoped: bool = False) -> list[str]:
         """Extract unique job IDs from job card links on the current page.
 
@@ -245,6 +396,23 @@ class JobPageReader:
         if not isinstance(result, list):
             raise TypeError(f"Promoted job ids read returned {type(result).__name__}")
         return [job_id for job_id in result if isinstance(job_id, str)]
+
+    async def _count_organic_before_notice(self, notice: str, label: str) -> int | None:
+        """Unpromoted results above ``notice``, or None without the notice.
+
+        Raises when the page answers with anything else, so a caller treating
+        this as best effort cannot read a failed read as zero, which would
+        discard the page as a no-match.
+        """
+        result = await self._session.page.evaluate(
+            ORGANIC_BEFORE_NOTICE_JS,
+            {"selector": _JOB_CARD_SELECTOR, "label": label, "notice": notice},
+        )
+        if result is None:
+            return None
+        if isinstance(result, bool) or not isinstance(result, int):
+            raise TypeError(f"Organic results read returned {type(result).__name__}")
+        return result
 
     async def _extract_search_page(
         self,

@@ -4,6 +4,7 @@ import re
 
 from linkedin_mcp_server.scraping.text import (
     DETAIL_CAPTURE_EN_US,
+    JOB_APPLY_EN_US,
     JOB_POSTING_EN_US,
     JOB_SEARCH_EN_US,
     JobPostingTextTable,
@@ -28,6 +29,24 @@ class TestJobSearchText:
 
     def test_empty_text_is_not_a_no_match_page(self):
         assert not JOB_SEARCH_EN_US.shows_no_match("")
+
+    def test_the_redesigned_notice_is_found_as_a_whole_line(self):
+        """Measured text of the redesigned search on a nonsense query."""
+        notice = (
+            "We found more results related to your search that may not be "
+            "exact matches, but could still be a great fit."
+        )
+        text = f"99+ results\nParis (80 km)\nPromoted\n  {notice}\nData Engineer"
+
+        assert JOB_SEARCH_EN_US.inexact_notice(text) == notice
+
+    def test_a_posting_quoting_the_notice_in_part_is_no_notice(self):
+        assert (
+            JOB_SEARCH_EN_US.inexact_notice(
+                "99+ results\nWe found more results related to your search"
+            )
+            is None
+        )
 
     def test_the_result_count_under_the_heading_is_exact(self):
         """Classic layout, measured: the count is the second line."""
@@ -63,6 +82,42 @@ class TestJobSearchText:
 
     def test_the_promoted_label_is_the_cards_own_line(self):
         assert JOB_SEARCH_EN_US.promoted_label == "Promoted"
+
+    def test_the_classic_heading_names_the_applied_place(self):
+        """Measured 2026-11-11 for a free-text "Amsterdam"."""
+        text = (
+            "software engineer in Amsterdam, Mpumalanga, South Africa\n"
+            "100+ results\nSet alert"
+        )
+        assert JOB_SEARCH_EN_US.applied_location(text, "software engineer") == (
+            "Amsterdam, Mpumalanga, South Africa"
+        )
+
+    def test_the_heading_echoes_the_keywords_in_its_own_casing(self):
+        assert (
+            JOB_SEARCH_EN_US.applied_location(
+                "software engineer in Berlin, Germany\n1 result", "Software  Engineer"
+            )
+            == "Berlin, Germany"
+        )
+
+    def test_a_place_is_read_only_behind_the_asked_keywords(self):
+        """A keyword holding the joiner cannot split the heading early, and a
+        heading in another shape says nothing about the place."""
+        assert (
+            JOB_SEARCH_EN_US.applied_location(
+                "engineer in test in Berlin, Germany\n3 results", "engineer in test"
+            )
+            == "Berlin, Germany"
+        )
+        for text in (
+            "99+ results\n\nPortugal",
+            "Jobs you may be interested in\nMLOps Engineer",
+            "java in Berlin, Germany\n3 results",
+            "",
+        ):
+            assert JOB_SEARCH_EN_US.applied_location(text, "python") is None
+        assert JOB_SEARCH_EN_US.applied_location("in Berlin\n1 result", "") is None
 
 
 class TestDetailCaptureText:
@@ -105,6 +160,21 @@ class TestJobPostingText:
         assert not JOB_POSTING_EN_US.has_description("Read About the job below")
         assert not JOB_POSTING_EN_US.has_description("Engineer\nAcme\nApply")
         assert not JOB_POSTING_EN_US.has_description("")
+
+
+class TestOneDescriptionHeadingTable:
+    """The heading that opens a description has one owner.
+
+    Two tables need it: `JobPostingTextTable` waits for it to know the
+    description has loaded, and `JobApplyTextTable` reads posting state above
+    it. They have to agree: a wait that succeeds on a heading the state read
+    does not know leaves every posting reading as `unknown`.
+    """
+
+    def test_the_apply_table_reads_the_posting_table_headings(self):
+        assert JOB_APPLY_EN_US.description_headings == (
+            JOB_POSTING_EN_US.description_headings
+        )
 
 
 class TestStripLinkedInNoise:

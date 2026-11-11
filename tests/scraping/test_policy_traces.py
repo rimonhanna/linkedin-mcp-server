@@ -78,7 +78,7 @@ async def test_navigation_boundaries_keep_full_auth_and_stabilization_order():
         "kind": "boundary.stabilize",
         "call": "search_jobs",
         "section": "search_results",
-        "description": "goto https://www.linkedin.com/jobs/search/?keywords=python",
+        "description": "goto https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python",
         "result": None,
     }
     assert trace["events"][positions["boundary.auth"][0]]["result"] is None
