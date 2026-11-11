@@ -23,6 +23,7 @@ from linkedin_mcp_server.core.exceptions import (
     AuthenticationError,
     InvalidReferenceError,
 )
+from linkedin_mcp_server.debug_trace import retain_trace_for_failed_action
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.pacing import (
@@ -45,6 +46,13 @@ from linkedin_mcp_server.scraping.identifiers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Outcomes of send_message and reply_to_conversation that need no explaining: a
+# confirmed send, and a dry run that verified its target. Every other status,
+# a dry run's included, keeps the run's trace. (``invalid_message`` is answered
+# before the browser and ``outcome_unknown`` by the frontend proxy, so neither
+# reaches the retention call.)
+_SEND_SUCCEEDED = frozenset({"sent", "confirmation_required"})
 
 
 def register_messaging_tools(
@@ -366,6 +374,9 @@ def register_messaging_tools(
                 # twice.
                 if result.get("sent") or result.get("retry_safe") is False:
                     record_action(JobStore(), MESSAGES, datetime.now().astimezone())
+                retain_trace_for_failed_action(
+                    "send_message", result.get("status"), succeeded=_SEND_SUCCEEDED
+                )
 
                 try:
                     # The send has already answered, and this notification is
@@ -487,6 +498,11 @@ def register_messaging_tools(
                 )
                 if result.get("sent") or result.get("retry_safe") is False:
                     record_action(JobStore(), MESSAGES, datetime.now().astimezone())
+                retain_trace_for_failed_action(
+                    "reply_to_conversation",
+                    result.get("status"),
+                    succeeded=_SEND_SUCCEEDED,
+                )
 
                 try:
                     # As send_message: no await once the deadline has passed.

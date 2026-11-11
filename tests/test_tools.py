@@ -1872,6 +1872,122 @@ def _kind_spent(tmp_path, kind: str) -> int:
     )
 
 
+#: Every status send_message and reply_to_conversation return from the page,
+#: and whether it keeps the run's trace.
+_SEND_TRACE_KEPT = {
+    "compose_interact_failed": True,
+    "composer_occupied": True,
+    "composer_unavailable": True,
+    "confirmation_required": False,
+    "message_unavailable": True,
+    "recipient_resolution_failed": True,
+    "send_unavailable": True,
+    "send_unconfirmed": True,
+    "sent": False,
+}
+
+
+def test_send_statuses_are_the_senders_own():
+    """The table covers every page status the sender builds, and only those."""
+    import ast
+    import inspect
+
+    from linkedin_mcp_server.scraping import message_sender
+    from linkedin_mcp_server.tools.messaging import _SEND_SUCCEEDED
+
+    builders = {"message_action_result", "reply_action_result", "respond"}
+    statuses = {
+        call.args[1].value
+        for call in ast.walk(ast.parse(inspect.getsource(message_sender)))
+        if isinstance(call, ast.Call)
+        and (
+            call.func.attr
+            if isinstance(call.func, ast.Attribute)
+            else getattr(call.func, "id", None)
+        )
+        in builders
+        and len(call.args) > 1
+        and isinstance(call.args[1], ast.Constant)
+        and isinstance(call.args[1].value, str)
+    }
+
+    assert set(_SEND_TRACE_KEPT) == statuses
+    assert _SEND_SUCCEEDED == {
+        status for status, kept in _SEND_TRACE_KEPT.items() if not kept
+    }
+
+
+class TestFailedWritesKeepTheirTrace:
+    """A write that failed as a returned status, not raised, keeps evidence."""
+
+    @pytest.mark.parametrize(("status", "kept"), sorted(_SEND_TRACE_KEPT.items()))
+    async def test_send_message(self, mock_context, status, kept):
+        from linkedin_mcp_server.debug_trace import should_keep_traces
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "send_message")
+        await tool_fn(
+            "testuser",
+            "Hello!",
+            True,
+            mock_context,
+            extractor=_make_mock_extractor(
+                {"status": status, "sent": False, "retry_safe": True}
+            ),
+        )
+
+        assert should_keep_traces() is kept
+
+    @pytest.mark.parametrize(("status", "kept"), sorted(_SEND_TRACE_KEPT.items()))
+    async def test_reply_to_conversation(self, mock_context, status, kept):
+        from linkedin_mcp_server.debug_trace import should_keep_traces
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        extractor = _make_mock_extractor({})
+        extractor.reply_to_conversation = AsyncMock(
+            return_value={"status": status, "sent": False, "retry_safe": True}
+        )
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "reply_to_conversation")
+        await tool_fn("2-abc==", "Hello!", False, mock_context, extractor=extractor)
+
+        assert should_keep_traces() is kept
+
+    @pytest.mark.parametrize(
+        ("stopped_reason", "kept"),
+        [
+            (None, False),
+            ("deadline", False),
+            ("hourly_cap", False),
+            ("action_limit: daily cap reached", False),
+            ("account_cooldown until 2026-11-11T12:00:00+00:00", False),
+            ("no_rows_found", True),
+            ("list_not_fully_loaded", True),
+            ("confirmation_dialog_name_mismatch", True),
+            ("confirmation_dialog_still_open", True),
+            ("throttled: rate limited", True),
+            ("error: TimeoutError: page closed", True),
+        ],
+    )
+    async def test_withdraw_invitations(self, mock_context, stopped_reason, kept):
+        from linkedin_mcp_server.debug_trace import should_keep_traces
+        from linkedin_mcp_server.tools.person import register_person_tools
+
+        extractor = _make_mock_extractor({})
+        extractor.withdraw_invitations = AsyncMock(
+            return_value={"withdrawn": [], "stopped_reason": stopped_reason}
+        )
+        mcp = FastMCP("test")
+        register_person_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "withdraw_invitations")
+        await tool_fn(mock_context, dry_run=False, extractor=extractor)
+
+        assert should_keep_traces() is kept
+
+
 class TestWritesAreCappedAtTheAction:
     """Invites and messages count at the submit, not by URL (#58).
 
