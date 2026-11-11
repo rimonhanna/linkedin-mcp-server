@@ -767,6 +767,32 @@ class TestGetConversation:
                 await reader.get_conversation(thread_id="../../feed")
         nav.assert_not_awaited()
 
+    @pytest.mark.parametrize(
+        "thread_id",
+        [
+            "new",
+            "/messaging/thread/new/",
+            "https://www.linkedin.com/messaging/thread/new/?recipient=ACoAAB",
+            "/messaging/thread/%6Eew/",
+        ],
+    )
+    async def test_compose_thread_is_rejected_before_navigation(
+        self, mock_page, thread_id
+    ):
+        reader = _reader(mock_page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.conversations.MessagingApiCapture",
+                return_value=FakeCapture([]),
+            ),
+            patch.object(
+                PageNavigator, "_navigate_to_page", new_callable=AsyncMock
+            ) as nav,
+        ):
+            with pytest.raises(InvalidReferenceError, match="new-message composer"):
+                await reader.get_conversation(thread_id=thread_id)
+        nav.assert_not_awaited()
+
 
 class TestSearchConversations:
     async def _search(self, mock_page, capture, submit=None):

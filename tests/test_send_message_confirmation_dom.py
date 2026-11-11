@@ -1346,6 +1346,36 @@ class TestSendConfirmationDom:
         assert result["status"] == "send_unconfirmed"
         assert result["retry_safe"] is False
 
+    async def test_new_message_route_opening_a_thread_is_confirmed(self, dom_page):
+        # /messaging/thread/new/ is the composer, so the first message moving
+        # it to a real thread is a new thread, not a send leaving its thread.
+        html = compose_page(
+            "history.replaceState({}, '', '/messaging/thread/new/');"
+            + PANE_REMOUNT_SEND_JS
+            + "remountTo('/messaging/thread/2-abc==/', "
+            "['urn:li:msg_message:(self,server-first)']);"
+        )
+
+        result = await send(dom_page, html)
+
+        assert result["status"] == "sent"
+        assert result["sent"] is True
+
+    async def test_leaving_a_thread_for_the_new_message_route_is_not_confirmed(
+        self, dom_page
+    ):
+        html = compose_page(
+            "history.replaceState({}, '', '/messaging/thread/2-open==/');"
+            + PANE_REMOUNT_SEND_JS
+            + "remountTo('/messaging/thread/new/', "
+            "['urn:li:msg_message:(self,server-first)']);"
+        )
+
+        result = await send(dom_page, html)
+
+        assert result["status"] == "send_unconfirmed"
+        assert result["retry_safe"] is False
+
     async def test_older_history_loaded_above_is_not_confirmed(self, dom_page):
         result = await send(dom_page, compose_page(OLDER_HISTORY_SEND_JS))
 

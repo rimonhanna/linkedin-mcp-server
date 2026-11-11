@@ -679,18 +679,22 @@ _MESSAGE_CONFIRMATION_READY_JS = (
             ).filter(visible);
             const startPath = marker.getAttribute('data-linkedin-mcp-route') || '';
             const path = window.location.pathname;
-            if (path.startsWith('/messaging/thread/')) {
-                if (startPath.startsWith('/messaging/thread/')) {
-                    if (path !== startPath) return false;
-                } else if (
+            // /messaging/thread/new/ is the new-message composer, not a
+            // conversation, so both arms treat it as the compose route.
+            const threadRoute = value =>
+                /^\/messaging\/thread\/(?!new\/)[A-Za-z0-9_=-]+\/$/.test(value);
+            if (threadRoute(startPath)) {
+                if (path !== startPath) return false;
+            } else if (
+                threadRoute(path) && (
                     items.length !== 1 ||
                     !Array.from(scope.querySelectorAll('a[href*="/in/"]')).some(
                         anchor => !anchor.closest(itemSelector) &&
                             linksRecipient(anchor)
                     )
-                ) {
-                    return false;
-                }
+                )
+            ) {
+                return false;
             }
             const acknowledged = items.filter(node => {
                 const urn = (node.getAttribute('data-event-urn') || '').trim();
