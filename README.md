@@ -123,6 +123,11 @@ that the initial provider batch contained 20 messages. `stopReason` is `short_ba
 `empty_batch`, `history_template_unavailable`, `no_timestamp`, `no_progress`, or
 `page_limit`. None proves provider history exhaustion: `exhaustion` remains
 `unknown`, and these per-thread bounds establish no inbox population coverage.
+
+A confirmed `send_message` (`status: "sent"`) also returns `thread_id`: the
+conversation the confirmation observed the message in, which `get_conversation`
+accepts, or `null` when the page stayed on the compose route. Other results
+carry no `thread_id`; `retry_safe` still decides whether a retry is safe.
 The reader never discovers history by opening a row. Automatic read-flag and
 badge POSTs are blocked for the duration of inbox, conversation and search reads.
 The two route handlers are registered once per page and reused across reads.

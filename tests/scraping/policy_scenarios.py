@@ -64,6 +64,7 @@ _COMMON_ALLOWED = {
     "handle.as_element",
     "handle.dispose",
     "handle.evaluate",
+    "handle.json_value",
     "keyboard.press",
     "keyboard.type",
     "listener.add",
@@ -809,7 +810,7 @@ async def _messaging_submission_scenario(outcome: str) -> dict[str, Any]:
             page.script("handle-1.evaluate:message_submit", "clicked")
             page.script(
                 "wait_for_function:message_confirmation_ready",
-                None
+                {"path": "/messaging/thread/2-policy-thread==/"}
                 if outcome == "sent"
                 else PlaywrightTimeoutError("same-node transition not observed"),
             )

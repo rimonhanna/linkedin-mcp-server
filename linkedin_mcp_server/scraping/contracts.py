@@ -107,6 +107,13 @@ def limit_exceeded_section_error(error: ActionLimitError) -> dict[str, Any]:
     }
 
 
+class _Omitted:
+    """A result field the caller did not pass."""
+
+
+_OMITTED = _Omitted()
+
+
 def message_action_result(
     url: str,
     status: str,
@@ -115,6 +122,7 @@ def message_action_result(
     recipient_selected: bool = False,
     sent: bool = False,
     retry_safe: bool = True,
+    thread_id: str | None | _Omitted = _OMITTED,
 ) -> dict[str, Any]:
     """Build a structured response for the send_message tool.
 
@@ -124,8 +132,12 @@ def message_action_result(
     a message that may already have arrived, which is what ``retry_safe`` exists
     to say: it is false from the moment a submission is attempted, and true only
     while nothing can have left the composer.
+
+    ``thread_id`` is present only when the caller passes it, including when
+    the value is null. A confirmed send passes the conversation the message
+    was observed in, or null when that page stayed on the compose route.
     """
-    return {
+    result: dict[str, Any] = {
         "url": url,
         "status": status,
         "message": message,
@@ -133,6 +145,9 @@ def message_action_result(
         "sent": sent,
         "retry_safe": retry_safe,
     }
+    if not isinstance(thread_id, _Omitted):
+        result["thread_id"] = thread_id
+    return result
 
 
 _NEWLINE_RUN_RE = re.compile(r"\n{3,}")
