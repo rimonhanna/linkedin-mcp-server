@@ -997,12 +997,16 @@ async def _connect_scenario() -> dict[str, Any]:
     page.script(
         "evaluate:connection_action_signals",
         {
-            "hasInvite": False,
-            "hasComposeInActionRoot": False,
-            "hasEditIntro": True,
-            "hasLabeledActionButton": True,
-            "hasLabeledActionAnchor": False,
-            "hasIncomingActionRow": False,
+            "topCard": True,
+            "editIntro": True,
+            "pendingItem": False,
+            "connectItem": False,
+            "menuRead": False,
+            "recommendationLink": False,
+            "ignoreItem": False,
+            "messageItemInMenu": False,
+            "composeInTopCard": False,
+            "moreClicked": False,
         },
     )
     extractor = _extractor(page)

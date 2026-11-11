@@ -1,21 +1,24 @@
-"""Locale-independent connection-state detection from action-area DOM signals.
+"""Locale-independent connection-state detection from profile top-card signals.
 
-LinkedIn translates every visible label, but the URLs it links to and the
-ARIA attributes it sets do not depend on UI language. Detection here uses:
+LinkedIn translates every visible label, but the URLs it links to, the
+attributes it sets and the component keys it renders do not depend on UI
+language. Detection here uses (measured live 2026-11-11):
 
 * ``/in/USER/edit/intro/`` anchor → self profile
-* ``/preload/custom-invite/?vanityName=USER`` anchor → connectable
-* ``/messaging/compose/`` anchor presence inside the top-card action root,
-  combined with attribute-presence checks on action buttons
-  (``aria-label`` set vs. unset on ``<button>``s) → 1st-degree vs. follow-only
+* ``[componentkey^="ConnectButtonstate:"]`` in the top card or its More menu:
+  a ``_pending`` key suffix → pending, ``_connect`` → connectable
+* ``/edit/forms/recommendation/`` anchors in the More menu → 1st degree
+* the ``xmark-outline-medium`` icon on a More-menu item (Ignore) together
+  with a direct Message (``/messaging/compose/?profileUrn=``) in the menu and
+  none in the top card → incoming request
 
-Per ``AGENTS.md`` Scraping Rules, classification logic relies on URL
-patterns and attribute *presence* — never on the values of locale-dependent
-text labels like "Connect", "Follow", or "1st". Incoming-request detection
-is fully structural: the Accept/Ignore action row is fingerprinted by
-attribute presence, element counts, and DOM order
-(see :attr:`ActionSignals.has_incoming_action_row`), so no text labels are
-read for any state.
+Per the AGENTS.md Scraping Rules no label value is read for any state. The
+component key and the icon id are design-system tokens, not words: the
+Pending and Connect items differ in nothing else that is not translated.
+
+A state is only reported on positive evidence. A profile whose top card
+or More menu could not be read, or whose signals only half match a state,
+is ``unavailable``, never a guess.
 """
 
 from __future__ import annotations
@@ -36,59 +39,60 @@ ConnectionState = Literal[
 
 @dataclass(frozen=True)
 class ActionSignals:
-    """Structural signals read from the top-card action area.
+    """Structural signals read from the profile's top card and More menu.
 
-    All fields are locale-independent: each is the result of either a URL
-    pattern match or the *presence* (not value) of an ARIA attribute.
-    Detection downstream never reads the contents of an aria-label —
-    only whether it is set on a button — so the verb portion of labels
-    like "Follow {Name}" or "Folgen {Name}" is irrelevant.
+    The top card is the innermost ``<section>`` around the profile's
+    ``/overlay/contact-info/`` anchor, outside ``main aside``: the sidebar's
+    "People you may know" cards carry the same component keys and labeled
+    Message anchors, and reading them as this profile's state is how a
+    never-invited profile used to report ``pending``. Only rendered
+    elements count, because LinkedIn renders the action row twice and the
+    sticky-header copy is hidden.
     """
 
-    has_invite_anchor: bool
-    """``a[href*="/preload/custom-invite/?vanityName={user}"]`` exists in
-    ``document`` (covers both the in-DOM action area and portal-rendered
-    More-menu overlays). vanityName scoping prevents false positives from
-    Connect anchors targeting other profiles on the page."""
-
-    has_compose_anchor_in_action_root: bool
-    """``a[href*="/messaging/compose/"]`` exists *inside* the action root
-    found by walking up from any compose anchor in ``<main>``. This is the
-    Message anchor in the top-card action button row."""
+    has_top_card: bool
+    """Exactly one top-card section was found. Without it nothing else
+    here was read."""
 
     has_edit_intro_anchor: bool
     """``a[href*="/in/{user}/edit/intro/"]`` exists in ``<main>``. Only
     rendered when viewing your own profile."""
 
-    has_labeled_action_button: bool
-    """At least one ``<button>`` with an ``aria-label`` attribute exists
-    inside the action root. Primary action ``<button>``s (Follow,
-    Connect, Save in Sales Navigator) carry ``aria-label`` for screen
-    readers. The profile More button uses ``aria-expanded`` instead and
-    is not counted here. Absence of any labeled button means there is no
-    primary action ``<button>`` targeting this person."""
+    has_pending_item: bool
+    """A ``ConnectButtonstate`` key ending ``_pending`` in the top card or
+    the More menu: an invitation from this account is outstanding."""
 
-    has_labeled_action_anchor: bool
-    """At least one ``<a>`` with an ``aria-label`` attribute exists
-    inside the action root. LinkedIn renders the Pending state as an
-    ``<a>`` (linking to the profile URL) with an ``aria-label`` like
-    "Pending, click to withdraw invitation sent to {Name}", whereas the
-    Message anchor carries only ``aria-disabled``. The label *value* is
-    locale-dependent and not read; presence-on-an-``<a>`` is the
-    locale-independent Pending signal."""
+    has_connect_item: bool
+    """A ``ConnectButtonstate`` key ending ``_connect`` in the top card or
+    the More menu: LinkedIn offers Connect, and that element is what the
+    send path clicks."""
 
-    has_incoming_action_row: bool
-    """The top-card action row matches the incoming-request fingerprint:
-    exactly three ``<button>``s in the smallest multi-button container
-    around a ``button[aria-expanded]`` — two with ``aria-label``
-    (Accept, Ignore) preceding one unlabeled expander (More) — and the
-    container holds no compose anchor, no invite anchor, and no labeled
-    ``<a>``. All checks are attribute presence and structural counts per
-    the AGENTS.md Scraping Rules; no label values are read. Verified
-    live 2026-06-11 against two German-locale incoming-request profiles.
-    Computed independently of the compose-anchor action-root walk, which
-    finds no top-card root on incoming profiles (they have no Message
-    button) and would otherwise mis-anchor on sidebar cards."""
+    menu_read: bool
+    """The top card's More menu was opened and read. False when the top
+    card already answered (pending or connectable there) and when the menu
+    could not be opened; the fields below are meaningless without it."""
+
+    has_recommendation_link: bool
+    """The More menu links to ``/edit/forms/recommendation/`` (Request a
+    recommendation, Recommend), which LinkedIn offers 1st-degree
+    connections only."""
+
+    has_ignore_item: bool
+    """A More-menu item carries the ``xmark-outline-medium`` icon, which
+    is the Ignore action on an incoming invitation (measured on one
+    profile; the 1st-degree Remove connection item is
+    ``person-xmark-outline-medium`` and does not match)."""
+
+    has_message_item_in_menu: bool
+    """The More menu holds a direct Message, ``/messaging/compose/`` with
+    ``profileUrn=``, as opposed to the ``body=`` "Send profile in a
+    message" every measured menu carries. On the measured incoming request
+    Message had moved there from the top card."""
+
+    has_compose_anchor_in_top_card: bool
+    """A rendered ``a[href*="/messaging/compose/"]`` in the top card. On
+    the measured incoming request Message had moved into the More menu and
+    Accept stood in the top card instead."""
 
 
 def detect_connection_state(signals: ActionSignals) -> ConnectionState:
@@ -97,36 +101,42 @@ def detect_connection_state(signals: ActionSignals) -> ConnectionState:
     Resolution order:
 
     1. ``self_profile`` — edit-intro anchor (URL).
-    2. ``connectable`` — vanityName invite anchor (URL).
-    3. ``incoming_request`` — structural action-row fingerprint. Must
-       precede the pending check: incoming profiles have no Message
-       button in the top card, so the compose-anchor action-root walk
-       mis-anchors on sidebar cards whose labeled anchors would
-       otherwise satisfy the pending signal.
-    4. ``pending`` — labeled action ``<a>`` in the action root (the
-       Pending control LinkedIn renders for invitations awaiting
-       response).
-    5. ``already_connected`` — compose anchor present in action root and
-       no labeled action button. (1st-degree connections render Message
-       as the primary action; there is no Follow/Connect button.)
-    6. ``follow_only`` — compose anchor present in action root and at
-       least one labeled action ``<button>`` (Follow / Save in Sales
-       Navigator), but no invite anchor anywhere. The
-       ``connect_with_person`` write-gate prevents the deeplink from
-       firing on this state.
-    7. ``unavailable`` — fallthrough (e.g. profile pages where the
-       action area could not be located at all).
+    2. ``unavailable`` — no top card, so nothing below was read.
+    3. ``pending`` — a ``_pending`` connect-state key. Ahead of
+       ``connectable`` so that a page somehow carrying both can never
+       trigger a write.
+    4. ``connectable`` — a ``_connect`` connect-state key.
+    5. ``unavailable`` — the More menu could not be read. Absence of a
+       state key proves nothing until the menu, where LinkedIn puts it on
+       Follow-primary and Message-primary profiles, has been seen.
+    6. ``already_connected`` — recommendation links in the menu.
+    7. ``incoming_request`` — the Ignore item and a direct Message in the
+       menu, and no compose anchor in the top card. One icon id alone is
+       too thin for an action that accepts, and "no Message in the top
+       card" is true of every Follow-primary profile.
+    8. ``unavailable`` — the Ignore item without the rest: something is
+       there that no measured state explains.
+    9. ``follow_only`` — the menu was read and offers no Connect. The
+       caller still treats this as unconfirmed, because a menu can change
+       shape without the probe noticing.
     """
     if signals.has_edit_intro_anchor:
         return "self_profile"
-    if signals.has_invite_anchor:
-        return "connectable"
-    if signals.has_incoming_action_row:
-        return "incoming_request"
-    if signals.has_labeled_action_anchor:
+    if not signals.has_top_card:
+        return "unavailable"
+    if signals.has_pending_item:
         return "pending"
-    if signals.has_compose_anchor_in_action_root:
-        if signals.has_labeled_action_button:
-            return "follow_only"
+    if signals.has_connect_item:
+        return "connectable"
+    if not signals.menu_read:
+        return "unavailable"
+    if signals.has_recommendation_link:
         return "already_connected"
-    return "unavailable"
+    if signals.has_ignore_item:
+        if (
+            signals.has_message_item_in_menu
+            and not signals.has_compose_anchor_in_top_card
+        ):
+            return "incoming_request"
+        return "unavailable"
+    return "follow_only"

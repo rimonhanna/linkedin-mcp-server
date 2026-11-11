@@ -1,10 +1,11 @@
 """Tests for the invitation-action owner.
 
-The write gate is what most of these hold: the invite deeplink may only be
-opened to submit once LinkedIn has exposed the vanityName invite anchor, and
-the one other thing allowed to open it — the note-quota probe — never clicks
-a primary button. Every case that reaches a decision drives the real
-classifier from structural signals; no case reads a label.
+The write gate is what most of these hold: the Connect control may only be
+clicked once the profile classified as ``connectable`` from a ``_connect``
+connect-state key, and the one other thing allowed to open an invite dialog
+— the note-quota probe — never clicks a primary button. Every case that
+reaches a decision drives the real classifier from structural signals; no
+case reads a label.
 
 ``tests/test_action_signals_dom.py`` covers the other half, where the
 programs run against a real DOM in four label sets. Here ``page.evaluate`` is
@@ -24,8 +25,12 @@ from linkedin_mcp_server.scraping.connection import ActionSignals
 from linkedin_mcp_server.scraping.connection_actions import (
     _DIALOG_SELECTOR,
     _MODAL_DIALOG_INDEX_JS,
+    _INVITE_DIALOG_SNAPSHOT_JS,
     _SENT_LIST_HAS_USER_JS,
+    ACTION_SIGNALS_JS,
+    CLICK_CONNECT_JS,
     ConnectionActions,
+    _InviteDialog,
 )
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession
@@ -35,6 +40,8 @@ PREMIUM_MESSAGE = (
 )
 INVITE_URL = "https://www.linkedin.com/preload/custom-invite/?vanityName=testuser"
 DIALOG_TEXT = "Invite Jane to connect Add a note Send without a note"
+#: The settled invite modal ``_ready_dialog`` hands back: no email field.
+READY = _InviteDialog(index=0, buttons=2, textareas=0, email_input=False, text="")
 LIMIT_DIALOG_TEXT = "You've reached the weekly invitation limit Got it"
 
 
@@ -120,42 +127,69 @@ def _no_poll_sleep():
 
 
 def _signals(
-    invite: bool = False,
-    compose: bool = False,
+    top_card: bool = True,
     edit: bool = False,
-    labeled_action: bool = False,
-    labeled_anchor: bool = False,
-    incoming_row: bool = False,
+    pending: bool = False,
+    connect: bool = False,
+    menu: bool = True,
+    recommendation: bool = False,
+    ignore: bool = False,
+    message_in_menu: bool = False,
+    compose: bool = False,
 ) -> ActionSignals:
     return ActionSignals(
-        has_invite_anchor=invite,
-        has_compose_anchor_in_action_root=compose,
+        has_top_card=top_card,
         has_edit_intro_anchor=edit,
-        has_labeled_action_button=labeled_action,
-        has_labeled_action_anchor=labeled_anchor,
-        has_incoming_action_row=incoming_row,
+        has_pending_item=pending,
+        has_connect_item=connect,
+        menu_read=menu,
+        has_recommendation_link=recommendation,
+        has_ignore_item=ignore,
+        has_message_item_in_menu=message_in_menu,
+        has_compose_anchor_in_top_card=compose,
     )
 
 
-class TestConnectWithPerson:
-    async def test_connectable_navigates_deeplink_and_verifies(self, mock_page):
-        """Connect via deeplink: dialog opens, submit succeeds, sent list has it.
+def _patch_signals(actions: ConnectionActions, *signals: ActionSignals):
+    """Script the signal reads: one answer for every call, or one per call."""
+    if len(signals) == 1:
+        return patch.object(
+            actions,
+            "_read_action_signals",
+            new_callable=AsyncMock,
+            return_value=signals[0],
+        )
+    return patch.object(
+        actions,
+        "_read_action_signals",
+        new_callable=AsyncMock,
+        side_effect=list(signals),
+    )
 
-        The profile is read once. The header after a send is structurally
-        identical to a follow-only profile, so nothing here re-reads it; the
-        sent-invitations list is the only verification.
+
+CONNECTABLE = _signals(connect=True)
+INCOMING = _signals(ignore=True, message_in_menu=True)
+FOLLOW_ONLY = _signals(compose=True)
+UNREADABLE_MENU = _signals(menu=False, compose=True)
+
+
+class TestConnectWithPerson:
+    async def test_connectable_clicks_connect_and_verifies(self, mock_page):
+        """Connect click: dialog opens, submit succeeds, sent list has it.
+
+        The profile is read once and nothing navigates: the click happens on
+        the loaded page, and the sent-invitations list (patched here) is the
+        only verification.
         """
-        text = "Jane\n\n· 3rd\n\nEngineer\n\nConnect\nMore\nAbout\n"
+        text = "Jane\n\n· 3rd\n\nEngineer\n\nFollow\nMore\nAbout\n"
         actions = _actions(mock_page, _reads(text))
         _modal_at(mock_page, 0)
 
         with (
+            _patch_signals(actions, CONNECTABLE),
             patch.object(
-                actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                return_value=_signals(invite=True),
-            ),
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
+            ) as mock_click,
             patch.object(
                 PageNavigator,
                 "_navigate_to_page",
@@ -163,9 +197,9 @@ class TestConnectWithPerson:
             ) as mock_nav,
             patch.object(
                 actions,
-                "_dialog_is_open",
+                "_ready_dialog",
                 new_callable=AsyncMock,
-                return_value=True,
+                return_value=READY,
             ),
             patch.object(
                 actions,
@@ -197,8 +231,9 @@ class TestConnectWithPerson:
         assert result["status"] == "connected"
         assert result["note_sent"] is False
         assert "sent invitations list" in result["message"]
+        mock_click.assert_awaited_once()
         mock_sent.assert_awaited_once_with("testuser")
-        mock_nav.assert_awaited_once_with(INVITE_URL)
+        mock_nav.assert_not_awaited()
 
     async def test_send_unverified_when_the_sent_list_cannot_be_read(self, mock_page):
         """The write happened; a read that raises must not hide it.
@@ -211,13 +246,10 @@ class TestConnectWithPerson:
         actions = _actions(mock_page, _reads(text))
 
         with (
+            _patch_signals(actions, CONNECTABLE),
             patch.object(
-                actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                return_value=_signals(invite=True),
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
             ),
-            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
             patch.object(
                 actions,
                 "_submit_invite_dialog",
@@ -236,6 +268,7 @@ class TestConnectWithPerson:
         assert result["status"] == "send_unverified"
         assert result["note_sent"] is True
         assert "boom" in result["message"]
+        assert result["message"].startswith("Submitted the invite dialog")
         mock_sent.assert_awaited_once_with("testuser")
 
     async def test_connectable_not_sent_when_absent_from_sent_list(self, mock_page):
@@ -251,15 +284,12 @@ class TestConnectWithPerson:
         _modal_at(mock_page, 0)
 
         with (
+            _patch_signals(actions, CONNECTABLE),
             patch.object(
-                actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                return_value=_signals(invite=True),
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
             ),
-            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions, "_dialog_is_closed", new_callable=AsyncMock, return_value=True
@@ -291,65 +321,207 @@ class TestConnectWithPerson:
         assert f"Dialog text: {LIMIT_DIALOG_TEXT}" in result["message"]
         mock_sent.assert_awaited_once_with("testuser")
 
-    async def test_connectable_no_dialog_returns_dialog_not_found(self, mock_page):
-        """Deeplink opened nothing → dialog_not_found naming where it landed.
+    async def test_email_gated_dialog_is_unavailable_and_never_sent(self, mock_page):
+        """An invite modal asking for the member's email is not submitted.
 
-        The message carries the deeplink, the landing URL, the selector and
-        whatever live-region notice LinkedIn put on the page, so the caller
-        can tell a refusal from a selector miss without a second run.
+        The shape measured on 2026-11-11: two buttons, no textarea, and an
+        email field. The server has no address to give, so the dialog is
+        dismissed, nothing in it is clicked, and the existing status for an
+        unsubmittable dialog carries LinkedIn's own words.
         """
         text = "Jane\n\n· 3rd\n\nEngineer\n\nConnect\nMore\nAbout\n"
         actions = _actions(mock_page, _reads(text))
-        landed = "https://www.linkedin.com/mynetwork/"
-        mock_page.url = landed
+        _modal_at(mock_page, 0)
+        email_text = (
+            "Connect To verify this member knows you, please enter their email"
+            " to connect. Add a note Send without a note"
+        )
+        gated = _InviteDialog(
+            index=0, buttons=2, textareas=0, email_input=True, text=email_text
+        )
 
         with (
+            _patch_signals(actions, CONNECTABLE),
             patch.object(
-                actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                return_value=_signals(invite=True),
-            ),
-            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
-            patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=False
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
             ),
             patch.object(
-                actions,
-                "_page_alerts",
-                new_callable=AsyncMock,
-                return_value="You have too many pending invitations",
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=gated
             ),
+            patch.object(
+                actions, "_dialog_text", new_callable=AsyncMock, return_value=email_text
+            ),
+            patch.object(
+                actions, "_click_dialog_primary_button", new_callable=AsyncMock
+            ) as mock_send,
+            patch.object(
+                actions, "_dismiss_dialog", new_callable=AsyncMock
+            ) as mock_dismiss,
             patch.object(
                 actions, "_invitation_in_sent_list", new_callable=AsyncMock
             ) as mock_sent,
         ):
+            result = await actions.connect_with_person("testuser", note="Hi")
+
+        assert result["status"] == "connect_unavailable"
+        assert f"Dialog text: {email_text}" in result["message"]
+        mock_send.assert_not_awaited()
+        mock_dismiss.assert_awaited_once()
+        mock_sent.assert_not_awaited()
+
+    async def test_unsettled_dialog_is_dismissed_not_submitted(self, mock_page):
+        """A modal that never stops changing is reported, not acted on."""
+        text = "Jane\n\n· 3rd\n\nEngineer\n\nConnect\nMore\nAbout\n"
+        actions = _actions(mock_page, _reads(text))
+        _modal_at(mock_page, 0)
+
+        with (
+            _patch_signals(actions, CONNECTABLE),
+            patch.object(
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
+            ),
+            patch.object(
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
+            ),
+            patch.object(
+                actions, "_dialog_text", new_callable=AsyncMock, return_value="Conn"
+            ),
+            patch.object(
+                actions, "_click_dialog_primary_button", new_callable=AsyncMock
+            ) as mock_send,
+            patch.object(
+                actions, "_dismiss_dialog", new_callable=AsyncMock
+            ) as mock_dismiss,
+        ):
+            result = await actions.connect_with_person("testuser")
+
+        assert result["status"] == "connect_unavailable"
+        assert "Dialog text: Conn" in result["message"]
+        mock_send.assert_not_awaited()
+        mock_dismiss.assert_awaited_once()
+
+    async def test_connectable_no_dialog_returns_dialog_not_found(self, mock_page):
+        """Click opened nothing and nothing was sent → dialog_not_found.
+
+        The message carries the landing URL, the selector and whatever
+        live-region notice LinkedIn put on the page, read before the
+        sent-list check navigates away, so the caller can tell a refusal
+        from a selector miss without a second run.
+        """
+        text = "Jane\n\n· 3rd\n\nEngineer\n\nConnect\nMore\nAbout\n"
+        actions = _actions(mock_page, _reads(text))
+        landed = "https://www.linkedin.com/in/testuser/"
+        mock_page.url = landed
+        order: list[str] = []
+
+        async def alerts() -> str:
+            order.append("alerts")
+            return "You have too many pending invitations"
+
+        async def sent(_username: str) -> bool:
+            order.append("sent")
+            return False
+
+        with (
+            _patch_signals(actions, CONNECTABLE),
+            patch.object(
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
+            ),
+            patch.object(
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
+            ),
+            patch.object(actions, "_page_alerts", side_effect=alerts),
+            patch.object(actions, "_invitation_in_sent_list", side_effect=sent),
+        ):
             result = await actions.connect_with_person("testuser")
 
         assert result["status"] == "dialog_not_found"
-        assert INVITE_URL in result["message"]
+        assert INVITE_URL not in result["message"]
         assert f"landed on {landed}" in result["message"]
         assert repr(_DIALOG_SELECTOR) in result["message"]
         assert "Page notice: You have too many pending invitations" in result["message"]
-        mock_sent.assert_not_awaited()
+        assert order == ["alerts", "sent"]
+
+    async def test_no_dialog_but_listed_is_connected_without_a_note(self, mock_page):
+        """The Connect click itself may send the invite; the sent list says so.
+
+        Reporting that as dialog_not_found would hide a real invitation from
+        the caller and from the invite counter.
+        """
+        text = "Jane\n\n· 3rd\n\nEngineer\n\nConnect\nMore\nAbout\n"
+        actions = _actions(mock_page, _reads(text))
+
+        with (
+            _patch_signals(actions, CONNECTABLE),
+            patch.object(
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
+            ),
+            patch.object(
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
+            ),
+            patch.object(
+                actions, "_page_alerts", new_callable=AsyncMock, return_value=""
+            ),
+            patch.object(
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            result = await actions.connect_with_person("testuser", note="Hello")
+
+        assert result["status"] == "connected"
+        assert result["note_sent"] is False
+        assert "no note was attached" in result["message"]
+
+    async def test_no_dialog_and_unreadable_sent_list_is_unverified(self, mock_page):
+        text = "Jane\n\n· 3rd\n\nEngineer\n\nConnect\nMore\nAbout\n"
+        actions = _actions(mock_page, _reads(text))
+
+        with (
+            _patch_signals(actions, CONNECTABLE),
+            patch.object(
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
+            ),
+            patch.object(
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
+            ),
+            patch.object(
+                actions, "_page_alerts", new_callable=AsyncMock, return_value=""
+            ),
+            patch.object(
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            result = await actions.connect_with_person("testuser")
+
+        assert result["status"] == "send_unverified"
+        assert result["message"].startswith("Clicked Connect; no invite dialog")
 
     async def test_no_dialog_message_omits_notice_when_page_has_none(self, mock_page):
         text = "Jane\n\n· 3rd\n\nEngineer\n\nConnect\nMore\nAbout\n"
         actions = _actions(mock_page, _reads(text))
 
         with (
+            _patch_signals(actions, CONNECTABLE),
             patch.object(
-                actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                return_value=_signals(invite=True),
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
             ),
-            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=False
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
             ),
             patch.object(
                 actions, "_page_alerts", new_callable=AsyncMock, return_value=""
+            ),
+            patch.object(
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                return_value=False,
             ),
         ):
             result = await actions.connect_with_person("testuser")
@@ -367,13 +539,10 @@ class TestConnectWithPerson:
         actions = _actions(mock_page, _reads(text))
 
         with (
+            _patch_signals(actions, CONNECTABLE),
             patch.object(
-                actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                return_value=_signals(invite=True),
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
             ),
-            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
             patch.object(
                 actions,
                 "_submit_invite_dialog",
@@ -390,126 +559,70 @@ class TestConnectWithPerson:
         assert f"Dialog text: {LIMIT_DIALOG_TEXT}" in result["message"]
         mock_sent.assert_not_awaited()
 
-    async def test_returns_already_connected_via_anchor(self, mock_page):
-        """1st-degree detected via /messaging/compose anchor."""
+    async def test_connect_click_that_does_not_land_sends_nothing(self, mock_page):
+        text = "Jane\n\n· 3rd\n\nEngineer\n\nConnect\nMore\nAbout\n"
+        actions = _actions(mock_page, _reads(text))
+
+        with (
+            _patch_signals(actions, CONNECTABLE),
+            patch.object(
+                actions, "_click_connect", new_callable=AsyncMock, return_value=False
+            ),
+            patch.object(
+                actions, "_submit_invite_dialog", new_callable=AsyncMock
+            ) as mock_submit,
+            patch.object(
+                actions, "_invitation_in_sent_list", new_callable=AsyncMock
+            ) as mock_sent,
+        ):
+            result = await actions.connect_with_person("testuser")
+
+        assert result["status"] == "connect_unavailable"
+        assert "could not be clicked" in result["message"]
+        mock_submit.assert_not_awaited()
+        mock_sent.assert_not_awaited()
+
+    async def test_returns_already_connected_via_recommendation_links(self, mock_page):
+        """1st-degree detected via the menu's recommendation URLs."""
         text = "Collin\n\n· 1st\n\nEngineer\n\nMessage\nMore\nAbout\n"
         actions = _actions(mock_page, _reads(text))
 
-        with patch.object(
-            actions,
-            "_read_action_signals",
-            new_callable=AsyncMock,
-            return_value=_signals(compose=True),
+        with (
+            _patch_signals(actions, _signals(recommendation=True, compose=True)),
+            patch.object(
+                actions, "_invitation_in_sent_list", new_callable=AsyncMock
+            ) as mock_sent,
         ):
             result = await actions.connect_with_person("testuser")
 
         assert result["status"] == "already_connected"
+        mock_sent.assert_not_awaited()
 
     async def test_returns_self_profile_via_edit_intro_anchor(self, mock_page):
         """Editing-your-own-profile anchor blocks connect attempts."""
         actions = _actions(mock_page, _reads("Daniel\n\nEdit profile\n"))
 
-        with patch.object(
-            actions,
-            "_read_action_signals",
-            new_callable=AsyncMock,
-            return_value=_signals(edit=True),
-        ):
+        with _patch_signals(actions, _signals(edit=True, menu=False)):
             result = await actions.connect_with_person("testuser")
 
         assert result["status"] == "connect_unavailable"
         assert "own profile" in result["message"]
 
-    async def test_connect_via_more_menu(self, mock_page):
-        """Follow-primary profile with Connect under More: detection sees
-        no invite anchor initially, _open_more_menu surfaces it, deeplink
-        fires."""
-        # Pre-More: Follow primary, Connect hidden under the More dropdown.
-        pre = "Christian\n\n· 2nd\n\nFounder\n\nFollow\nMessage\nMore\n"
-        actions = _actions(mock_page, _reads(pre))
-        _modal_at(mock_page, 0)
+    async def test_follow_only_does_not_send(self, mock_page):
+        """The menu was read and offers no Connect: nothing is clicked.
 
-        with (
-            patch.object(
-                actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                # 1st: follow_only (compose+labeled, no invite).
-                # 2nd: post-More reread reveals invite anchor.
-                side_effect=[
-                    _signals(compose=True, labeled_action=True),
-                    _signals(invite=True, compose=True, labeled_action=True),
-                ],
-            ),
-            patch.object(
-                actions,
-                "_open_more_menu",
-                new_callable=AsyncMock,
-                return_value=True,
-            ) as mock_open_more,
-            patch.object(
-                PageNavigator, "_navigate_to_page", new_callable=AsyncMock
-            ) as mock_nav,
-            patch.object(
-                actions,
-                "_dialog_is_open",
-                new_callable=AsyncMock,
-                return_value=True,
-            ),
-            patch.object(
-                actions,
-                "_dialog_is_closed",
-                new_callable=AsyncMock,
-                return_value=True,
-            ),
-            patch.object(
-                actions,
-                "_click_dialog_primary_button",
-                new_callable=AsyncMock,
-                return_value=True,
-            ),
-            patch.object(
-                actions,
-                "_invitation_in_sent_list",
-                new_callable=AsyncMock,
-                return_value=True,
-            ) as mock_sent,
-        ):
-            result = await actions.connect_with_person("testuser")
-
-        assert result["status"] == "connected"
-        mock_open_more.assert_awaited_once()
-        mock_sent.assert_awaited_once_with("testuser")
-        # Deeplink fired exactly once.
-        assert mock_nav.await_count == 1
-        await_args = mock_nav.await_args
-        assert await_args is not None
-        assert "preload/custom-invite" in await_args.args[0]
-
-    async def test_follow_only_after_more_does_not_send(self, mock_page):
-        """Pending or genuinely follow-only profile: invite anchor never
-        appears even after More-menu open. Critical write-gate guardrail —
-        no deeplink fires, no connection request goes out."""
+        Critical write-gate guardrail — no click, no navigation, no submit.
+        The sent list is still asked, because a menu caught mid-render looks
+        exactly like this one, and its miss leaves the answer as it was.
+        """
         text = "Public Figure\n\n· 3rd+\n\nCEO\n\nFollow\nMessage\nMore\n"
         actions = _actions(mock_page, _reads(text))
 
         with (
+            _patch_signals(actions, FOLLOW_ONLY),
             patch.object(
-                actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                # Both reads (initial + post-More) show no invite anchor.
-                side_effect=[
-                    _signals(compose=True, labeled_action=True),
-                    _signals(compose=True, labeled_action=True),
-                ],
-            ),
-            patch.object(
-                actions,
-                "_open_more_menu",
-                new_callable=AsyncMock,
-                return_value=True,
-            ) as mock_open_more,
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
+            ) as mock_click,
             patch.object(
                 PageNavigator, "_navigate_to_page", new_callable=AsyncMock
             ) as mock_nav,
@@ -518,18 +631,73 @@ class TestConnectWithPerson:
                 "_submit_invite_dialog",
                 new_callable=AsyncMock,
                 # A successful submit, so a gate that stopped holding reports
-                # the deeplink it fired rather than crashing on the mock.
+                # the send it made rather than crashing on the mock.
                 return_value=(True, False, None, DIALOG_TEXT),
             ) as mock_submit,
+            patch.object(
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_sent,
         ):
             result = await actions.connect_with_person("testuser")
 
         assert result["status"] == "connect_unavailable"
+        assert "did not expose a usable Connect action" in result["message"]
         assert result.get("note_sent") is False or "note_sent" not in result
-        mock_open_more.assert_awaited_once()
-        # Critical: deeplink must NOT fire and dialog must NOT be submitted.
+        mock_click.assert_not_awaited()
         mock_nav.assert_not_awaited()
         mock_submit.assert_not_awaited()
+        mock_sent.assert_awaited_once_with("testuser")
+
+    async def test_follow_only_on_the_sent_list_is_pending(self, mock_page):
+        """A menu without a Connect or Pending item is not proof of either."""
+        text = "Public Figure\n\n· 3rd+\n\nCEO\n\nFollow\nMore\n"
+        actions = _actions(mock_page, _reads(text))
+
+        with (
+            _patch_signals(actions, FOLLOW_ONLY),
+            patch.object(
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(
+                actions, "_click_connect", new_callable=AsyncMock
+            ) as mock_click,
+        ):
+            result = await actions.connect_with_person("testuser")
+
+        assert result["status"] == "pending"
+        mock_click.assert_not_awaited()
+
+    async def test_half_an_incoming_request_is_not_called_follow_only(self, mock_page):
+        """An Ignore icon with Message in the top card: say so, don't guess."""
+        text = "Public Figure\n\n· 2nd\n\nCEO\n\nMessage\nMore\n"
+        actions = _actions(mock_page, _reads(text))
+
+        with (
+            _patch_signals(
+                actions, _signals(ignore=True, message_in_menu=True, compose=True)
+            ),
+            patch.object(
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch.object(
+                actions, "_click_incoming_accept", new_callable=AsyncMock
+            ) as mock_accept,
+        ):
+            result = await actions.connect_with_person("testuser")
+
+        assert result["status"] == "connect_unavailable"
+        assert "Could not determine" in result["message"]
+        assert "usable Connect action" not in result["message"]
+        mock_accept.assert_not_awaited()
 
     async def test_follow_only_with_note_reports_note_limit_from_deeplink_probe(
         self, mock_page
@@ -539,21 +707,10 @@ class TestConnectWithPerson:
         actions = _actions(mock_page, _reads(text))
 
         with (
+            _patch_signals(actions, FOLLOW_ONLY),
             patch.object(
-                actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                side_effect=[
-                    _signals(compose=True, labeled_action=True),
-                    _signals(compose=True, labeled_action=True),
-                ],
-            ),
-            patch.object(
-                actions,
-                "_open_more_menu",
-                new_callable=AsyncMock,
-                return_value=True,
-            ),
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
+            ) as mock_click,
             patch.object(
                 PageNavigator, "_navigate_to_page", new_callable=AsyncMock
             ) as mock_nav,
@@ -567,114 +724,125 @@ class TestConnectWithPerson:
                 actions,
                 "_submit_invite_dialog",
                 new_callable=AsyncMock,
-                # A successful submit, so a gate that stopped holding reports
-                # the deeplink it fired rather than crashing on the mock.
                 return_value=(True, False, None, DIALOG_TEXT),
             ) as mock_submit,
+            patch.object(
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
         ):
             result = await actions.connect_with_person("testuser", note="Hello")
 
         assert result["status"] == "custom_note_limit_reached"
         assert result["message"] == PREMIUM_MESSAGE
         assert result["note_sent"] is False
-        mock_nav.assert_awaited_once()
+        mock_nav.assert_awaited_once_with(INVITE_URL)
         mock_probe.assert_awaited_once()
+        mock_click.assert_not_awaited()
         mock_submit.assert_not_awaited()
 
-    async def test_more_menu_unavailable_does_not_send(self, mock_page):
-        """Action root present but no More button (unusual but possible):
-        _open_more_menu returns False, no retry, no deeplink fires."""
+    async def test_unreadable_menu_is_unavailable_not_a_guess(self, mock_page):
+        """No menu, no evidence: the answer says so and nothing is sent.
+
+        The sent list is consulted as the fallback and does not list the
+        user, which proves nothing either way, so the state stays unread.
+        """
         text = "Public Figure\n\n· 3rd+\n\nCEO\n\nFollow\nMessage\n"
         actions = _actions(mock_page, _reads(text))
 
         with (
+            _patch_signals(actions, UNREADABLE_MENU),
+            patch.object(
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
+            ) as mock_click,
             patch.object(
                 actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                return_value=_signals(compose=True, labeled_action=True),
-            ),
-            patch.object(
-                actions,
-                "_open_more_menu",
+                "_invitation_in_sent_list",
                 new_callable=AsyncMock,
                 return_value=False,
-            ),
+            ) as mock_sent,
             patch.object(
-                PageNavigator, "_navigate_to_page", new_callable=AsyncMock
-            ) as mock_nav,
-            patch.object(
-                actions,
-                "_submit_invite_dialog",
-                new_callable=AsyncMock,
-                # A successful submit, so a gate that stopped holding reports
-                # the deeplink it fired rather than crashing on the mock.
-                return_value=(True, False, None, DIALOG_TEXT),
+                actions, "_submit_invite_dialog", new_callable=AsyncMock
             ) as mock_submit,
         ):
             result = await actions.connect_with_person("testuser")
 
         assert result["status"] == "connect_unavailable"
-        mock_nav.assert_not_awaited()
+        assert (
+            "Could not determine this profile's connection state" in result["message"]
+        )
+        mock_sent.assert_awaited_once_with("testuser")
+        mock_click.assert_not_awaited()
         mock_submit.assert_not_awaited()
 
-    async def test_returns_pending(self, mock_page):
-        """Profile with a pending invitation: detected via labeled <a> in
-        the action root. Returns status='pending' without firing the
-        deeplink (LinkedIn would only show 'already invited' anyway)."""
-        text = "Frank\n\n· 3rd\n\nFounder\n\nMessage\nPending\nMore\n"
+    async def test_unreadable_menu_falls_back_to_the_sent_list(self, mock_page):
+        """Port of upstream 4e52a07: the sent list can still prove pending."""
+        text = "Frank\n\n· 2nd\n\nFounder\n\nMessage\nMore\n"
         actions = _actions(mock_page, _reads(text))
 
         with (
+            _patch_signals(actions, UNREADABLE_MENU),
             patch.object(
                 actions,
-                "_read_action_signals",
+                "_invitation_in_sent_list",
                 new_callable=AsyncMock,
-                return_value=_signals(compose=True, labeled_anchor=True),
+                return_value=True,
             ),
             patch.object(
-                PageNavigator, "_navigate_to_page", new_callable=AsyncMock
-            ) as mock_nav,
-            patch.object(
-                actions,
-                "_submit_invite_dialog",
-                new_callable=AsyncMock,
-                # A successful submit, so a gate that stopped holding reports
-                # the deeplink it fired rather than crashing on the mock.
-                return_value=(True, False, None, DIALOG_TEXT),
-            ) as mock_submit,
-            patch.object(
-                actions, "_open_more_menu", new_callable=AsyncMock
-            ) as mock_open_more,
-            patch.object(
-                actions, "_click_incoming_accept", new_callable=AsyncMock
-            ) as mock_accept,
+                actions, "_click_connect", new_callable=AsyncMock
+            ) as mock_click,
         ):
             result = await actions.connect_with_person("testuser")
 
         assert result["status"] == "pending"
-        # No write-path side effects, and no action taken on the invitation
-        # already out: withdrawing it is what the Pending control does.
+        mock_click.assert_not_awaited()
+
+    async def test_returns_pending(self, mock_page):
+        """A ``_pending`` connect-state key in the menu → pending.
+
+        Read straight from the menu, so no sent-list navigation, no click,
+        and no action taken on the invitation already out: withdrawing it
+        is what the Pending control does.
+        """
+        text = "Frank\n\n· 3rd\n\nFounder\n\nMessage\nMore\n"
+        actions = _actions(mock_page, _reads(text))
+
+        with (
+            _patch_signals(actions, _signals(pending=True, compose=True)),
+            patch.object(
+                PageNavigator, "_navigate_to_page", new_callable=AsyncMock
+            ) as mock_nav,
+            patch.object(
+                actions, "_click_connect", new_callable=AsyncMock
+            ) as mock_click,
+            patch.object(
+                actions, "_click_incoming_accept", new_callable=AsyncMock
+            ) as mock_accept,
+            patch.object(
+                actions, "_invitation_in_sent_list", new_callable=AsyncMock
+            ) as mock_sent,
+        ):
+            result = await actions.connect_with_person("testuser")
+
+        assert result["status"] == "pending"
         mock_nav.assert_not_awaited()
-        mock_submit.assert_not_awaited()
-        mock_open_more.assert_not_awaited()
+        mock_click.assert_not_awaited()
         mock_accept.assert_not_awaited()
+        mock_sent.assert_not_awaited()
 
     async def test_returns_incoming_request_accepted(self, mock_page):
         """Structural detection + structural accept click, German locale."""
-        pre = "Eric\n\n· 2.\n\nAachen\n\nAnnehmen\nIgnorieren\nMehr\nInfo\n"
+        pre = "Eric\n\n· 2.\n\nAachen\n\nAnnehmen\nMehr\nInfo\n"
         post = "Eric\n\n· 1.\n\nAachen\n\nNachricht\nMehr\nInfo\n"
         actions = _actions(mock_page, _reads(pre, post))
 
         with (
-            patch.object(
+            _patch_signals(
                 actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                side_effect=[
-                    _signals(incoming_row=True),
-                    _signals(compose=True),
-                ],
+                INCOMING,
+                _signals(recommendation=True, compose=True),
             ),
             patch.object(
                 actions,
@@ -688,17 +856,15 @@ class TestConnectWithPerson:
                 new_callable=AsyncMock,
             ) as mock_nav,
             patch.object(
-                actions,
-                "_submit_invite_dialog",
-                new_callable=AsyncMock,
-            ) as mock_submit,
+                actions, "_click_connect", new_callable=AsyncMock
+            ) as mock_click,
         ):
             result = await actions.connect_with_person("testuser")
 
         assert result["status"] == "accepted"
         mock_accept.assert_awaited_once()
         mock_nav.assert_not_awaited()
-        mock_submit.assert_not_awaited()
+        mock_click.assert_not_awaited()
 
     async def test_incoming_request_send_failed_when_click_fails(self, mock_page):
         """Structural accept click did not land; no locale-text guessing —
@@ -708,16 +874,11 @@ class TestConnectWithPerson:
         made against the page: a text fallback would have to build a
         locator, and nothing here builds one.
         """
-        pre = "Eric\n\n· 2.\n\nAachen\n\nAnnehmen\nIgnorieren\nMehr\nInfo\n"
+        pre = "Eric\n\n· 2.\n\nAachen\n\nAnnehmen\nMehr\nInfo\n"
         actions = _actions(mock_page, _reads(pre))
 
         with (
-            patch.object(
-                actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                return_value=_signals(incoming_row=True),
-            ),
+            _patch_signals(actions, INCOMING),
             patch.object(
                 actions,
                 "_click_incoming_accept",
@@ -738,26 +899,18 @@ class TestConnectWithPerson:
 
     async def test_incoming_request_send_failed_when_no_first_degree(self, mock_page):
         """Accept clicked but profile never transitions to 1st-degree."""
-        pre = "Eric\n\n· 2.\n\nAachen\n\nAnnehmen\nIgnorieren\nMehr\nInfo\n"
+        pre = "Eric\n\n· 2.\n\nAachen\n\nAnnehmen\nMehr\nInfo\n"
         actions = _actions(mock_page, _reads(pre, pre, pre))
 
         with (
-            patch.object(
-                actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                return_value=_signals(incoming_row=True),
-            ),
+            _patch_signals(actions, INCOMING),
             patch.object(
                 actions,
                 "_click_incoming_accept",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
-            patch(
-                "linkedin_mcp_server.scraping.connection_actions.asyncio.sleep",
-                new_callable=AsyncMock,
-            ),
+            _no_poll_sleep(),
         ):
             result = await actions.connect_with_person("testuser")
 
@@ -766,20 +919,16 @@ class TestConnectWithPerson:
     async def test_incoming_request_accepted_on_settle_retry(self, mock_page):
         """The first post-click read still renders the old top card;
         the settle retry sees the 1st-degree state and reports accepted."""
-        pre = "Eric\n\n· 2.\n\nAachen\n\nAnnehmen\nIgnorieren\nMehr\nInfo\n"
+        pre = "Eric\n\n· 2.\n\nAachen\n\nAnnehmen\nMehr\nInfo\n"
         post = "Eric\n\n· 1.\n\nAachen\n\nNachricht\nMehr\nInfo\n"
         actions = _actions(mock_page, _reads(pre, pre, post))
 
         with (
-            patch.object(
+            _patch_signals(
                 actions,
-                "_read_action_signals",
-                new_callable=AsyncMock,
-                side_effect=[
-                    _signals(incoming_row=True),
-                    _signals(incoming_row=True),
-                    _signals(compose=True),
-                ],
+                INCOMING,
+                INCOMING,
+                _signals(recommendation=True, compose=True),
             ),
             patch.object(
                 actions,
@@ -787,38 +936,37 @@ class TestConnectWithPerson:
                 new_callable=AsyncMock,
                 return_value=True,
             ),
-            patch(
-                "linkedin_mcp_server.scraping.connection_actions.asyncio.sleep",
-                new_callable=AsyncMock,
-            ) as mock_sleep,
+            _no_poll_sleep() as mock_sleep,
         ):
             result = await actions.connect_with_person("testuser")
 
         assert result["status"] == "accepted"
         mock_sleep.assert_awaited_once()
 
-    async def test_returns_unavailable_when_no_signals_and_text(self, mock_page):
-        """No structural signals, no actionable text → connect_unavailable."""
+    async def test_returns_unavailable_when_no_top_card(self, mock_page):
+        """No top card at all → connect_unavailable, nothing clicked."""
         text = "Public Figure\n\n· 3rd+\n\nCEO\n\nFollow\nMore\nAbout\n"
         actions = _actions(mock_page, _reads(text))
 
         with (
+            _patch_signals(actions, _signals(top_card=False, menu=False)),
             patch.object(
                 actions,
-                "_read_action_signals",
+                "_invitation_in_sent_list",
                 new_callable=AsyncMock,
-                return_value=_signals(),
+                return_value=False,
             ),
-            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=False
-            ),
-            patch.object(actions, "_dismiss_dialog", new_callable=AsyncMock),
+                actions, "_click_connect", new_callable=AsyncMock
+            ) as mock_click,
         ):
             result = await actions.connect_with_person("testuser")
 
-        # follow_only path goes through deeplink; no dialog opens → unavailable
         assert result["status"] == "connect_unavailable"
+        assert (
+            "Could not determine this profile's connection state" in result["message"]
+        )
+        mock_click.assert_not_awaited()
 
     async def test_returns_unavailable_on_empty_page(self, mock_page):
         actions = _actions(mock_page, _reads(""))
@@ -832,7 +980,7 @@ class TestConnectWithPerson:
 
         The person workflow normalizes too, so removing this workflow's own
         call still raises on "../../feed". A full URL is what separates
-        them: the read would succeed while the invite deeplink and the
+        them: the read would succeed while the sent-list lookup and the
         action-signal selectors kept receiving the URL where they expect
         the vanity.
         """
@@ -845,16 +993,114 @@ class TestConnectWithPerson:
                 actions,
                 "_read_action_signals",
                 new_callable=AsyncMock,
-                side_effect=lambda username: seen.append(username) or _signals(),
+                side_effect=lambda username: seen.append(username) or UNREADABLE_MENU,
             ),
-            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
+            patch.object(
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                side_effect=lambda username: seen.append(username) or False,
+            ),
         ):
             await actions.connect_with_person(
                 "https://de.linkedin.com/in/williamhgates"
             )
 
-        assert seen == ["williamhgates"]
+        assert seen == ["williamhgates", "williamhgates"]
         read.assert_awaited_once_with("williamhgates")
+
+
+class TestSignalRead:
+    """What ``_read_action_signals`` does around the program it runs."""
+
+    async def test_maps_the_program_answer_and_closes_an_opened_menu(self, mock_page):
+        mock_page.evaluate = AsyncMock(
+            return_value={
+                "topCard": True,
+                "editIntro": False,
+                "pendingItem": True,
+                "connectItem": False,
+                "menuRead": True,
+                "recommendationLink": False,
+                "ignoreItem": False,
+                "messageItemInMenu": False,
+                "composeInTopCard": True,
+                "moreClicked": True,
+            }
+        )
+        mock_page.keyboard.press = AsyncMock()
+        actions = _actions(mock_page)
+
+        signals = await actions._read_action_signals("testuser")
+
+        assert signals == _signals(pending=True, compose=True)
+        mock_page.evaluate.assert_awaited_once_with(ACTION_SIGNALS_JS, "testuser")
+        mock_page.keyboard.press.assert_awaited_once_with("Escape")
+
+    async def test_leaves_the_page_alone_when_more_was_not_clicked(self, mock_page):
+        mock_page.evaluate = AsyncMock(
+            return_value={"topCard": True, "connectItem": True, "moreClicked": False}
+        )
+        mock_page.keyboard.press = AsyncMock()
+        actions = _actions(mock_page)
+
+        signals = await actions._read_action_signals("testuser")
+
+        assert signals == _signals(connect=True, menu=False)
+        mock_page.keyboard.press.assert_not_awaited()
+
+    async def test_a_failed_probe_is_unavailable_and_still_closes_the_menu(
+        self, mock_page
+    ):
+        mock_page.evaluate = AsyncMock(side_effect=RuntimeError("context destroyed"))
+        mock_page.keyboard.press = AsyncMock()
+        actions = _actions(mock_page)
+
+        signals = await actions._read_action_signals("testuser")
+
+        assert signals == _signals(top_card=False, menu=False)
+        mock_page.keyboard.press.assert_awaited_once_with("Escape")
+
+    async def test_no_main_reads_as_no_signals(self, mock_page):
+        mock_page.evaluate = AsyncMock(return_value=None)
+        actions = _actions(mock_page)
+
+        signals = await actions._read_action_signals("testuser")
+
+        assert signals == _signals(top_card=False, menu=False)
+
+
+class TestConnectClick:
+    """``_click_connect`` must not leave a menu open, nor close a dialog."""
+
+    @pytest.mark.parametrize(
+        ("answer", "clicked", "escaped"),
+        [
+            ({"clicked": True, "menuOpened": True}, True, False),
+            ({"clicked": False, "menuOpened": True}, False, True),
+            ({"clicked": False, "menuOpened": False}, False, False),
+            (None, False, False),
+        ],
+        ids=["clicked-in-menu", "menu-without-connect", "nothing-opened", "no-main"],
+    )
+    async def test_escape_only_closes_a_menu_it_left_open(
+        self, mock_page, answer, clicked, escaped
+    ):
+        # Escape after a landed click would dismiss the invite dialog the
+        # click just opened.
+        mock_page.evaluate = AsyncMock(return_value=answer)
+        mock_page.keyboard.press = AsyncMock()
+        actions = _actions(mock_page)
+
+        assert await actions._click_connect() is clicked
+        mock_page.evaluate.assert_awaited_once_with(CLICK_CONNECT_JS)
+        assert mock_page.keyboard.press.await_count == (1 if escaped else 0)
+
+    async def test_a_script_error_clicks_nothing(self, mock_page):
+        mock_page.evaluate = AsyncMock(side_effect=RuntimeError("detached"))
+        actions = _actions(mock_page)
+
+        assert await actions._click_connect() is False
 
 
 class TestInviteDialog:
@@ -895,7 +1141,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -960,7 +1206,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions, "_dialog_is_closed", new_callable=AsyncMock, return_value=True
@@ -1030,7 +1276,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1075,7 +1321,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1122,7 +1368,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1180,7 +1426,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1250,7 +1496,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1332,7 +1578,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1371,7 +1617,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1415,7 +1661,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(actions, "_dismiss_dialog", new_callable=AsyncMock),
         ):
@@ -1478,7 +1724,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions, "_dialog_is_closed", new_callable=AsyncMock, return_value=True
@@ -1528,7 +1774,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=False
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
             ),
             patch.object(actions, "_dialog_text", new_callable=AsyncMock) as mock_text,
         ):
@@ -1631,52 +1877,93 @@ class TestModalPolling:
     misses each case allows.
     """
 
-    async def test_open_answers_at_once_when_the_modal_is_present(self, mock_page):
+    async def test_ready_waits_for_the_modal_to_stop_changing(self, mock_page):
+        """The first read is never acted on: it can be a shell still filling.
+
+        Measured live: the modal mounted around a live region alone and its
+        controls arrived later, so a read that changes restarts the count.
+        """
         actions = _actions(mock_page)
-
-        with (
-            patch.object(
-                actions, "_modal_index", new_callable=AsyncMock, return_value=0
-            ) as mock_index,
-            _no_poll_sleep() as mock_sleep,
-        ):
-            assert await actions._dialog_is_open(timeout=60000) is True
-
-        mock_index.assert_awaited_once()
-        mock_sleep.assert_not_awaited()
-
-    async def test_open_waits_through_misses_until_the_modal_appears(self, mock_page):
-        actions = _actions(mock_page)
+        filling = _InviteDialog(
+            index=0, buttons=1, textareas=0, email_input=False, text="Connect"
+        )
+        full = _InviteDialog(
+            index=0, buttons=2, textareas=0, email_input=False, text="Connect note"
+        )
 
         with (
             patch.object(
                 actions,
-                "_modal_index",
+                "_dialog_snapshot",
                 new_callable=AsyncMock,
-                side_effect=[-1, -1, 0],
-            ) as mock_index,
+                side_effect=[None, filling, full, full, full],
+            ) as mock_snapshot,
             _no_poll_sleep() as mock_sleep,
         ):
-            assert await actions._dialog_is_open(timeout=60000) is True
+            assert await actions._ready_dialog(timeout=60000) == full
 
-        assert mock_index.await_count == 3
-        assert mock_sleep.await_args_list == [((0.25,), {})] * 2
+        assert mock_snapshot.await_count == 5
+        assert mock_sleep.await_args_list == [((0.25,), {})] * 4
 
-    async def test_open_gives_up_at_the_deadline(self, mock_page):
+    async def test_ready_gives_up_on_a_modal_that_never_settles(self, mock_page):
+        actions = _actions(mock_page)
+        reads = [
+            _InviteDialog(
+                index=0, buttons=2, textareas=0, email_input=False, text=str(n)
+            )
+            for n in range(3)
+        ]
+        loop = MagicMock()
+        loop.time = MagicMock(side_effect=[0.0, 0.0, 0.0, 99.0])
+
+        with (
+            patch.object(
+                actions, "_dialog_snapshot", new_callable=AsyncMock, side_effect=reads
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.connection_actions.asyncio"
+                ".get_running_loop",
+                return_value=loop,
+            ),
+            _no_poll_sleep(),
+        ):
+            assert await actions._ready_dialog(timeout=1000) is None
+
+    async def test_ready_gives_up_at_the_deadline(self, mock_page):
         """A zero budget is one read; a loop that ignored the deadline would
         reach the sleep, which here refuses."""
         actions = _actions(mock_page)
 
         with (
             patch.object(
-                actions, "_modal_index", new_callable=AsyncMock, return_value=-1
-            ) as mock_index,
+                actions, "_dialog_snapshot", new_callable=AsyncMock, return_value=None
+            ) as mock_snapshot,
             _no_poll_sleep() as mock_sleep,
         ):
             mock_sleep.side_effect = AssertionError("polled past the deadline")
-            assert await actions._dialog_is_open(timeout=0) is False
+            assert await actions._ready_dialog(timeout=0) is None
 
-        mock_index.assert_awaited_once()
+        mock_snapshot.assert_awaited_once()
+
+    async def test_snapshot_reads_the_script_answer(self, mock_page):
+        actions = _actions(mock_page)
+        mock_page.evaluate = AsyncMock(
+            return_value={
+                "index": 1,
+                "buttons": 2,
+                "textareas": 0,
+                "emailInput": True,
+                "text": "x",
+            }
+        )
+
+        assert await actions._dialog_snapshot() == _InviteDialog(
+            index=1, buttons=2, textareas=0, email_input=True, text="x"
+        )
+        mock_page.evaluate.assert_awaited_once_with(_INVITE_DIALOG_SNAPSHOT_JS)
+
+        mock_page.evaluate = AsyncMock(return_value=None)
+        assert await actions._dialog_snapshot() is None
 
     async def test_closed_waits_through_a_lingering_modal(self, mock_page):
         actions = _actions(mock_page)
