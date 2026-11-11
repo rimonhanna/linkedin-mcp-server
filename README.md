@@ -770,6 +770,13 @@ instead of opening their own (experimental):
 `CHROME_PATH` or `--chrome-path`: only the bundled browser is shared, so each
 such client drives its own browser.
 
+**Restart all MCP clients after upgrading to this version.** It changes
+which settings two clients must share to use one browser, so a client
+started on an earlier version no longer matches the shared browser a new
+one starts. A new client asks the older shared browser to stand down and
+takes over. Clients that are still running the earlier version cannot
+attach to the new owner and fail until they are restarted.
+
 **Option B: one long-lived `--transport streamable-http` server**, with every
 client pointed at it instead of spawning its own process:
 
