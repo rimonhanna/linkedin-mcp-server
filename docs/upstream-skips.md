@@ -347,7 +347,7 @@ them, often several commits to one PR per area. FastMCP 4 stays filed under
 | a48e21c | feat(jobs): Report why search_jobs stopped paging (#1323) | ported | This run, in {{PR:feat/backport-job-improvements}}. | 2026-11-11 |
 | 0dcffd0 | fix: Harden sidebar links and issue diagnostics (#1417) | ported | This run, in {{PR:fix/trace-evidence-and-pruning}}. | 2026-11-11 |
 | ecd25f2 | chore(deps): Update authlib, dnspython and filelock (#1418) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
-| 5abdba3 | feat(tools): Pair feed post references with their posts (#1409) | ported | This run, in {{PR:feat/backport-posts-feed-volunteering}}. | 2026-11-11 |
+| 5abdba3 | feat(tools): Pair feed post references with their posts (#1409) | skip | Today's feed exposes no post boundaries; recovering URNs needs decoding opaque internal keys (minimize-DOM rule). Ported then reverted after live measurement 2026-11-11. | 2026-11-11 |
 | 3801ee0 | chore(deps): update ci dependencies (#1366) | skip | Upstream dependency or action update; our Renovate tracks our own. | 2026-11-11 |
 | 048a7e0 | feat(mcpb): Expose CHROME_PATH as a bundle setting (#1303) | ported | This run, in {{PR:fix/backport-config-validation}}. | 2026-11-11 |
 | eeabfd8 | fix(jobs): Detect no-match on the redesigned search (#1363) | ported | This run, in {{PR:feat/backport-job-improvements}}. | 2026-11-11 |
