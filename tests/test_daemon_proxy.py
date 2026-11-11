@@ -45,6 +45,14 @@ from linkedin_mcp_server.daemon_proxy import (
 )
 
 
+#: What a client reads once no owner is left to forward to. Written out rather
+#: than imported, because the text is what a user sees.
+_THE_OWNER_IS_GONE = (
+    "This server lost the shared browser process and could not reach a new one. "
+    "Reconnect or restart your MCP client to start a new one."
+)
+
+
 def _backend(attachment: Attachment, tmp_path: Path) -> DaemonProxyBackend:
     """The state object the proxy layer is built from.
 
@@ -1105,7 +1113,8 @@ class TestRepeatingOnlyWhatIsSafe:
         what `answer is None` could not say, since a middleware returning
         `None` reads exactly the same; and that what escaped is still the
         owner-loss failure, rather than something the recovery itself broke on
-        while deciding what to do with it.
+        while deciding what to do with it. It leaves as the fixed owner-loss
+        `ToolError`, with the failure as its cause.
         """
         from linkedin_mcp_server.daemon_proxy import unreachable_owner_in
 
@@ -1113,6 +1122,8 @@ class TestRepeatingOnlyWhatIsSafe:
         assert unreachable_owner_in(answer.error) is not None, (
             f"a different failure escaped the recovery: {answer.error!r}"
         )
+        assert isinstance(answer.error, ToolError)
+        assert str(answer.error) == _THE_OWNER_IS_GONE
         return answer.error
 
     async def test_a_mutating_call_is_not_repeated_when_it_may_have_run(
@@ -1392,7 +1403,8 @@ class TestRepeatingOnlyWhatIsSafe:
         A read that could be repeated has no unknown outcome to describe, so
         turning this into a result would dress a plain transport failure up as a
         LinkedIn answer and hand a client a `retry_safe` flag about a call that
-        never acted.
+        never acted. It is raised as a `ToolError` saying the owner is gone, so
+        the masking below and the SDK above leave the reason readable.
         """
         from linkedin_mcp_server.daemon_proxy import (
             FrontendOwnerRecoveryMiddleware,
@@ -1412,7 +1424,7 @@ class TestRepeatingOnlyWhatIsSafe:
             )
 
         middleware = FrontendOwnerRecoveryMiddleware(backend)
-        with pytest.raises(OwnerUnreachableError, match="did not answer"):
+        with pytest.raises(ToolError, match="could not reach a new one"):
             await middleware.on_call_tool(
                 self._context(read_only=True),
                 call_next,  # ty: ignore
@@ -1818,6 +1830,74 @@ class TestRecoveringThroughTheWholeProxy:
         assert (
             backend.attachment.descriptor.instance_id == elected.descriptor.instance_id
         )
+
+    @pytest.fixture
+    def _nobody_left(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """A backend whose owner is gone and whose election finds nobody."""
+        from linkedin_mcp_server.daemon import OwnerLookup, OwnerState
+        from linkedin_mcp_server.daemon_election import ElectionOutcome
+
+        elected = _attachment(tmp_path)
+        elections = 0
+
+        def elect(*_args, **_kwargs):
+            nonlocal elections
+            elections += 1
+            return ElectionOutcome(
+                OwnerLookup(state=OwnerState.ABSENT, reason="nobody answered"),
+                started_owner=False,
+            )
+
+        monkeypatch.setattr("linkedin_mcp_server.daemon_election.obtain_owner", elect)
+        _reach_owners_in_process(monkeypatch, lambda _url: None)
+        return _backend(elected, tmp_path), lambda: elections
+
+    async def test_a_listing_with_no_owner_left_says_what_happened(self, _nobody_left):
+        """Recovery found nobody, so the client is told so in words it can act on.
+
+        Without the conversion it reads the transport's own text, which names a
+        loopback address and says "connect" rather than what to do.
+        """
+        backend, elections = _nobody_left
+
+        async with Client(self._proxy(backend)) as client:
+            with pytest.raises(Exception) as failed:
+                await client.list_tools()
+
+        assert elections() == 1
+        assert str(failed.value) == _THE_OWNER_IS_GONE
+
+    async def test_a_replacement_that_fails_the_repeated_listing_says_so_too(
+        self, monkeypatch: pytest.MonkeyPatch, _upgraded
+    ):
+        """The one repeat a listing gets failing as well is the same news."""
+        backend, _elected_owner, replacement, elections = _upgraded
+        _reach_owners_in_process(monkeypatch, lambda _url: None)
+
+        async with Client(self._proxy(backend)) as client:
+            with pytest.raises(Exception) as failed:
+                await client.list_tools()
+
+        assert elections() == 1
+        assert backend.attachment.descriptor.url == replacement.descriptor.url
+        assert str(failed.value) == _THE_OWNER_IS_GONE
+
+    async def test_a_tool_call_with_no_owner_left_says_what_happened(
+        self, _nobody_left
+    ):
+        """Masked by FastMCP into `Error calling tool '<name>'` without this."""
+        backend, elections = _nobody_left
+
+        async with Client(self._proxy(backend)) as client:
+            result = await client.call_tool(
+                "get_person_profile", {}, raise_on_error=False
+            )
+
+        assert elections() == 1
+        assert result.is_error
+        assert [getattr(block, "text", None) for block in result.content] == [
+            _THE_OWNER_IS_GONE
+        ]
 
     @pytest.mark.parametrize(
         "listing", ["list_resources", "list_resource_templates", "list_prompts"]
