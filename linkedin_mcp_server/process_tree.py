@@ -21,13 +21,19 @@ logger = logging.getLogger(__name__)
 
 _IS_WINDOWS = os.name == "nt"
 _adopted_windows_job: int | None = None
-#: The gate that launched this owner, which is a member of the same Job and must
-#: survive every drain below. It spawns the owner and waits, so it is the process
-#: the frontend reads an exit status from, and a drain that ends it replaces that
-#: status with the termination code. Recorded while it is provably the parent and
-#: provably alive, which is what makes the id safe to hold: Windows cannot reuse
-#: it while the gate is still waiting on this process.
-_adopted_windows_gate: int | None = None
+#: Every process the adopted Job held when this owner adopted it, by id and
+#: creation time, all of which must survive every drain below. A frontend
+#: assigns the Job before the owner exists, so the gate that spawns this owner
+#: and waits on it is a member, and so is what Windows started on the way: a
+#: venv launcher in front of each interpreter, which runs the real one as its
+#: child, and the gate's console host. Ending the gate costs the frontend this
+#: owner's exit status, and each time a drain ended this chain on Windows CI the
+#: owner's next browser start failed (upstream #1201). Not the parent alone:
+#: under a venv that is the owner's own launcher, and the gate above it went.
+#: Nothing in the Job is a browser's yet when this is recorded (see
+#: ``WindowsJob.adopt_current_process``), and the creation time keeps an id
+#: reused after one of these exited from being spared in its place.
+_adopted_windows_infrastructure: dict[int, Any] = {}
 _retained_windows_jobs: list[WindowsJob] = []
 _BROWSER_PROCESS_MARKER = "LINKEDIN_MCP_BROWSER_PROCESS_MARKER"
 
@@ -744,18 +750,89 @@ def _drain_marked_posix_groups(marker: str, deadline: float) -> bool:
 
 
 def _drain_exclusions() -> frozenset[int]:
-    """Process ids no adopted-Job drain may end.
+    """Process ids no adopted-Job drain may open, let alone end.
 
-    This owner, which has to survive its own browser, and the gate that launched
-    it, which is in the same Job because that is how a frontend assigns the Job
-    before the owner exists. The gate then waits and mirrors the owner's exit
-    status, so ending it costs the frontend that status and says nothing about
-    the browser the drain was aimed at.
+    The idle id and this owner, which has to survive its own browser. The rest
+    of the owner's infrastructure is not here: an id alone does not say it is
+    still the same process, so the drain opens it and compares its creation
+    time against ``_adopted_windows_infrastructure`` instead.
     """
-    spared = {0, os.getpid()}
-    if _adopted_windows_gate is not None:
-        spared.add(_adopted_windows_gate)
-    return frozenset(spared)
+    return frozenset({0, os.getpid()})
+
+
+def _windows_process_created(handle: Any) -> Any:
+    """When the process behind *handle* was created, from ``GetProcessTimes``.
+
+    pywin32 converts the FILETIME through a SYSTEMTIME, so this is to the
+    millisecond. That still tells two holders of one id apart: the second can
+    only start once the first has exited.
+    """
+    win32process = importlib.import_module("win32process")
+    return win32process.GetProcessTimes(handle)["CreationTime"]
+
+
+def _is_adopted_infrastructure(process: int, handle: Any) -> bool:
+    """Whether *handle* is a process the owner Job held at adoption, still."""
+    created = _adopted_windows_infrastructure.get(process)
+    return created is not None and _windows_process_created(handle) == created
+
+
+def _owner_job_infrastructure(
+    win32api: Any, win32con: Any, win32job: Any, job: Any
+) -> dict[int, Any]:
+    """Every member of the owner Job right now, by id and creation time.
+
+    Never raises. Refusing the adoption over a member that cannot be recorded
+    would stop the owner from starting at all, which is worse than the defect
+    the record prevents. So a list Windows answered in part, or without this
+    owner in it, still adds the parent: that is the gate when no venv launcher
+    sits between, and it is provably alive and waiting on this process. A
+    member that cannot be opened has most likely exited since the listing.
+    """
+    listed: list[int] = []
+    complete = True
+    try:
+        entries = tuple(
+            win32job.QueryInformationJobObject(
+                job, win32job.JobObjectBasicProcessIdList
+            )
+        )
+    except Exception:
+        entries = ()
+        complete = False
+    for entry in entries:
+        if entry is None:
+            complete = False
+        else:
+            listed.append(int(entry))
+    if os.getpid() not in listed:
+        complete = False
+    if not complete:
+        listed.append(os.getppid())
+        logger.warning(
+            "Windows listed the owner Job in part, so only the members it did "
+            "name and this owner's parent are spared by its browser drains."
+        )
+    recorded: dict[int, Any] = {}
+    for process in dict.fromkeys(listed):
+        try:
+            member = win32api.OpenProcess(
+                win32con.PROCESS_QUERY_LIMITED_INFORMATION, False, process
+            )
+        except Exception:
+            continue
+        try:
+            recorded[process] = _windows_process_created(member)
+        except Exception:
+            logger.warning(
+                "The owner Job member %s could not be recorded, so a browser "
+                "drain may end it.",
+                process,
+            )
+        finally:
+            with contextlib.suppress(Exception):
+                member.Close()
+    return recorded
 
 
 def _drain_adopted_windows_job() -> None:
@@ -777,8 +854,7 @@ def _drain_adopted_windows_job() -> None:
             for process in members
             if process is not None and int(process) not in spared
         )
-        if not descendants:
-            return
+        remaining = False
         for process in descendants:
             handle: Any | None = None
             try:
@@ -788,14 +864,20 @@ def _drain_adopted_windows_job() -> None:
                     False,
                     process,
                 )
+                if _is_adopted_infrastructure(process, handle):
+                    # Stays in the Job by design, so it cannot count as left.
+                    continue
+                remaining = True
                 if win32job.IsProcessInJob(handle, _adopted_windows_job):
                     win32api.TerminateProcess(handle, 1)
             except BaseException:  # noqa: BLE001 - the next Job query proves exit
-                pass
+                remaining = True
             finally:
                 if handle is not None:
                     with contextlib.suppress(BaseException):
                         handle.Close()
+        if not remaining:
+            return
         time.sleep(_JOB_POLL_SECONDS)
 
 
@@ -908,8 +990,10 @@ def _drain_adopted_windows_job_members(deadline: float) -> bool:
     Windows has no marker to scan for: an environment block belongs to its own
     process, and reading another one's takes the debugger APIs. The Job is the
     whole of the attribution there, so this drains what the Job still holds,
-    minus the exclusions that keep it from being a tree kill. The owner and the
-    gate that launched it, both in :func:`_drain_exclusions`. And every member of
+    minus the exclusions that keep it from being a tree kill. The owner, in
+    :func:`_drain_exclusions`. The gate chain that launched it, every process
+    the Job held at adoption that is still the same process
+    (``_adopted_windows_infrastructure``). And every member of
     another Job this owner still holds: the installer supervisor and its worker sit in one of those
     (``WindowsJob.anonymous`` in ``bootstrap``), and so now does every *other*
     live browser launch (:func:`contain_browser_launch`).
@@ -949,6 +1033,9 @@ def _drain_adopted_windows_job_members(deadline: float) -> bool:
                 if not win32job.IsProcessInJob(handle, _adopted_windows_job):
                     # The id left the Job between the query and here, so it
                     # names somebody else's process now.
+                    continue
+                if _is_adopted_infrastructure(process, handle):
+                    # In the Job before any browser was, and still that process.
                     continue
                 if _in_another_owned_job(win32job, handle):
                     continue
@@ -1310,11 +1397,19 @@ class WindowsJob:
 
     @staticmethod
     def adopt_current_process(name: str) -> None:
-        """Retain a verified named Job handle until process teardown."""
-        global _adopted_windows_job, _adopted_windows_gate
+        """Retain a verified named Job handle until process teardown.
+
+        Also records what the Job holds right now as this owner's
+        infrastructure, which every drain spares. That is sound only because no
+        browser exists yet: the owner adopts before it commits its descriptor,
+        a browser starts only for a tool call made with the token that
+        descriptor publishes, and an owner's lifespan starts no installer
+        (``browser_lifespan``).
+        """
+        global _adopted_windows_job, _adopted_windows_infrastructure
         if _adopted_windows_job is not None:
             raise ProcessTreeError("The owner already adopted a Windows Job")
-        win32api, _win32con, win32job, _winerror = _windows_modules()
+        win32api, win32con, win32job, _winerror = _windows_modules()
         handle: Any | None = None
         try:
             handle = win32job.OpenJobObject(win32job.JOB_OBJECT_QUERY, False, name)
@@ -1322,8 +1417,11 @@ class WindowsJob:
                 raise ProcessTreeError(
                     "The owner is not a member of its named Windows Job"
                 )
+            infrastructure = _owner_job_infrastructure(
+                win32api, win32con, win32job, handle
+            )
             _adopted_windows_job = int(handle.Detach())
-            _adopted_windows_gate = os.getppid()
+            _adopted_windows_infrastructure = infrastructure
             handle = None
         except ProcessTreeError:
             raise

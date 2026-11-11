@@ -329,6 +329,7 @@ class TestWindowsJobSetup:
         handle: _JobHandle,
         *,
         active: Iterator[object] | None = None,
+        members: tuple[int | None, ...] = (909, 4242),
     ) -> dict[str, object]:
         accounting = active or iter([0])
 
@@ -345,15 +346,30 @@ class TestWindowsJobSetup:
             def GetLastError() -> int:
                 return 0
 
+            @staticmethod
+            def OpenProcess(access: int, _inherit: bool, process: int) -> _JobHandle:
+                opened = _JobHandle(process)
+                events.append(("open-process", (access, opened)))
+                return opened
+
         class _Win32Con:
             HANDLE_FLAG_INHERIT = 1
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
         class _WinError:
             ERROR_ALREADY_EXISTS = 183
 
+        class _Win32Process:
+            @staticmethod
+            def GetProcessTimes(process: _JobHandle) -> dict[str, Any]:
+                # A time of its own per id, so a record pairing an id with
+                # another member's creation time would show.
+                return {"CreationTime": f"created-{process.value}"}
+
         class _Win32Job:
             JobObjectExtendedLimitInformation = 1
             JobObjectBasicAccountingInformation = 2
+            JobObjectBasicProcessIdList = 3
             JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 4
             JOB_OBJECT_QUERY = 8
 
@@ -368,11 +384,14 @@ class TestWindowsJobSetup:
                 return handle
 
             @staticmethod
-            def QueryInformationJobObject(
-                _handle: object, info_class: int
-            ) -> dict[str, Any]:
+            def QueryInformationJobObject(_handle: object, info_class: int) -> Any:
                 if info_class == _Win32Job.JobObjectExtendedLimitInformation:
                     return {"BasicLimitInformation": {"LimitFlags": 16}}
+                if info_class == _Win32Job.JobObjectBasicProcessIdList:
+                    events.append(("members", _handle))
+                    if isinstance(members, BaseException):
+                        raise members
+                    return members
                 events.append(("accounting", (_handle, info_class)))
                 value = next(accounting)
                 if isinstance(value, BaseException):
@@ -401,6 +420,7 @@ class TestWindowsJobSetup:
             "win32con": _Win32Con,
             "win32job": _Win32Job,
             "winerror": _WinError,
+            "win32process": _Win32Process,
         }
 
     def _patch_modules(
@@ -408,8 +428,8 @@ class TestWindowsJobSetup:
         monkeypatch: pytest.MonkeyPatch,
         modules: dict[str, object],
     ) -> None:
-        # getppid alongside name: adoption records the gate it was launched
-        # by, and a namespace without it reports the whole adoption as failed.
+        # getpid and getppid alongside name: adoption looks for this owner in
+        # the Job's member list, and falls back to its parent when it is not.
         monkeypatch.setattr(
             process_tree,
             "os",
@@ -506,7 +526,7 @@ class TestWindowsJobSetup:
         job_api = cast(Any, modules["win32job"])
         monkeypatch.setattr(job_api, "OpenJobObject", lambda *_args: next(handles))
         monkeypatch.setattr(process_tree, "_adopted_windows_job", None)
-        monkeypatch.setattr(process_tree, "_adopted_windows_gate", None)
+        monkeypatch.setattr(process_tree, "_adopted_windows_infrastructure", {})
         self._patch_modules(monkeypatch, modules)
 
         process_tree.WindowsJob.verify_current_process("named-owner")
@@ -517,9 +537,72 @@ class TestWindowsJobSetup:
         assert adopted.detached
         assert not adopted.closed
         assert process_tree._adopted_windows_job == 2
-        assert process_tree._adopted_windows_gate == 909, (
-            "the gate that waits on this owner was recorded while it was alive"
-        )
+        assert ("members", adopted) in events, "listed through the adopted handle"
+        assert process_tree._adopted_windows_infrastructure == {
+            909: "created-909",
+            4242: "created-4242",
+        }, "every member then, each with its own creation time"
+        members = [event[1] for event in events if event[0] == "open-process"]
+        assert [access for access, _ in members] == [0x1000, 0x1000]
+        assert all(member.closed for _, member in members)
+
+    @pytest.mark.parametrize(
+        ("members", "unreadable", "recorded"),
+        [
+            pytest.param(
+                (909, None, 4242),
+                False,
+                {909: "created-909", 4242: "created-4242"},
+                id="unnamed-member",
+            ),
+            pytest.param(
+                (7, 9),
+                False,
+                {7: "created-7", 9: "created-9", 909: "created-909"},
+                id="owner-missing",
+            ),
+            pytest.param(OSError(5), False, {909: "created-909"}, id="unlisted"),
+            pytest.param((909, 4242), True, {}, id="unreadable"),
+        ],
+    )
+    def test_an_owner_job_member_that_cannot_be_recorded_does_not_fail_adoption(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        members: Any,
+        unreadable: bool,
+        recorded: dict[int, str],
+    ):
+        """Refusing here stops the owner from starting at all.
+
+        So a list Windows answered in part still adopts, keeps what it could
+        record, and spares the parent besides, which is the gate whenever no
+        venv launcher sits between them. Each such gap is logged.
+        """
+        events: list[tuple[str, Any]] = []
+        handle = _JobHandle()
+        modules = self._modules(events, handle, members=members)
+        if unreadable:
+
+            def fails(_process: _JobHandle) -> dict[str, Any]:
+                raise OSError(5)
+
+            monkeypatch.setattr(
+                cast(Any, modules["win32process"]), "GetProcessTimes", fails
+            )
+        monkeypatch.setattr(process_tree, "_adopted_windows_job", None)
+        monkeypatch.setattr(process_tree, "_adopted_windows_infrastructure", {})
+        self._patch_modules(monkeypatch, modules)
+
+        with caplog.at_level(logging.WARNING, logger=process_tree.__name__):
+            process_tree.WindowsJob.adopt_current_process("named-owner")
+
+        assert handle.detached
+        assert process_tree._adopted_windows_job == handle.value
+        assert process_tree._adopted_windows_infrastructure == recorded
+        assert caplog.records, "a gap in the record went unreported"
+        opened = [event[1][1] for event in events if event[0] == "open-process"]
+        assert all(member.closed for member in opened)
 
     def test_failed_owner_adoption_closes_the_named_handle(
         self, monkeypatch: pytest.MonkeyPatch
@@ -2901,64 +2984,136 @@ def test_adopted_windows_job_drains_every_other_process(
     assert closed == [700]
 
 
-def test_adopted_windows_job_spares_the_gate_that_waits_on_it(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """The gate is in the same Job and relays this owner's exit status.
+class _OwnerJobWindows:
+    """The Win32 an owner's adoption and its later drains both see.
 
-    It spawns the owner and waits, so terminating it hands the frontend the
-    termination code instead of whatever the owner exited with, and it does
-    that while saying nothing about the browser the drain is aimed at.
+    One named Job whose members are ids with creation times; a terminated
+    member leaves it, as on Windows. It stands for ``win32api``, ``win32con``,
+    ``win32job`` and ``win32process`` at once, whose names do not overlap.
     """
-    current = os.getpid()
-    gate = current + 1
-    # A third answer so the mutation that drops the exclusion ends rather than
-    # spinning: it terminates the gate, sees it once more, and stops on the
-    # empty round, leaving the gate in what this asserts.
-    queries = iter([(current, gate, 700), (current, gate), (current,)])
-    terminated: list[int] = []
 
-    class ProcessHandle:
-        def __init__(self, process: int) -> None:
-            self.process = process
+    JOB_OBJECT_QUERY = 4
+    JobObjectBasicProcessIdList = 3
+    PROCESS_TERMINATE = 1
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
-        def Close(self) -> None:
-            return None
+    def __init__(self, members: dict[int, float]) -> None:
+        self.members = dict(members)
+        self.terminated: list[int] = []
 
-    class Api:
-        @staticmethod
-        def OpenProcess(_access: int, _inherit: bool, process: int) -> ProcessHandle:
-            return ProcessHandle(process)
+    def OpenJobObject(self, _access: int, _inherit: bool, _name: str) -> _JobHandle:
+        return _JobHandle(123)
 
-        @staticmethod
-        def TerminateProcess(handle: ProcessHandle, _status: int) -> None:
-            terminated.append(handle.process)
+    def GetCurrentProcess(self) -> int:
+        return -1
 
-    class Con:
-        PROCESS_TERMINATE = 1
-        PROCESS_QUERY_LIMITED_INFORMATION = 2
+    def IsProcessInJob(self, process: Any, _job: Any) -> bool:
+        return process == -1 or process.pid in self.members
 
-    class Job:
-        JobObjectBasicProcessIdList = 3
+    def QueryInformationJobObject(self, _job: Any, information: int) -> tuple:
+        assert information == self.JobObjectBasicProcessIdList
+        return tuple(self.members)
 
-        @staticmethod
-        def QueryInformationJobObject(_handle: int, _information: int):
-            return next(queries)
+    def OpenProcess(self, _access: int, _inherit: bool, pid: int) -> Any:
+        # The handle names the process holding the id when it was opened.
+        return SimpleNamespace(pid=pid, created=self.members[pid], Close=lambda: None)
 
-        @staticmethod
-        def IsProcessInJob(_handle: ProcessHandle, _job: int) -> bool:
-            return True
+    def GetProcessTimes(self, handle: Any) -> dict[str, float]:
+        return {"CreationTime": handle.created}
 
-    monkeypatch.setattr(process_tree, "_adopted_windows_job", 123)
-    monkeypatch.setattr(process_tree, "_adopted_windows_gate", gate)
+    def TerminateProcess(self, handle: Any, _status: int) -> None:
+        self.terminated.append(handle.pid)
+        if self.members.get(handle.pid) == handle.created:
+            del self.members[handle.pid]
+
+
+#: The adopted Job as Windows CI listed it under a venv: the gate's launcher,
+#: the gate, its console host, this owner's launcher and this owner.
+_GATE_LAUNCHER, _GATE, _CONSOLE, _OWNER_LAUNCHER, _OWNER = 3972, 8768, 6228, 7292, 6648
+_OWNER_JOB = {
+    _GATE_LAUNCHER: 1.0,
+    _GATE: 2.0,
+    _CONSOLE: 3.0,
+    _OWNER_LAUNCHER: 4.0,
+    _OWNER: 5.0,
+}
+
+
+def _adopt_the_owner_job(monkeypatch: pytest.MonkeyPatch) -> _OwnerJobWindows:
+    windows = _OwnerJobWindows(_OWNER_JOB)
+    modules = {
+        "win32api": windows,
+        "win32con": windows,
+        "win32job": windows,
+        "win32process": windows,
+        "winerror": SimpleNamespace(),
+    }
     monkeypatch.setattr(
-        process_tree, "_windows_modules", lambda: (Api(), Con(), Job(), object())
+        process_tree,
+        "os",
+        SimpleNamespace(
+            name="nt", getpid=lambda: _OWNER, getppid=lambda: _OWNER_LAUNCHER
+        ),
     )
+    monkeypatch.setattr(process_tree.importlib, "import_module", modules.__getitem__)
+    monkeypatch.setattr(process_tree, "_IS_WINDOWS", True)
+    monkeypatch.setattr(process_tree, "_adopted_windows_job", None)
+    monkeypatch.setattr(process_tree, "_adopted_windows_infrastructure", {})
+    monkeypatch.setattr(process_tree, "_live_windows_jobs", [])
     monkeypatch.setattr(process_tree.time, "sleep", lambda _seconds: None)
+    process_tree.WindowsJob.adopt_current_process("named-owner")
+    return windows
+
+
+_JOINED_LATER = [
+    # A browser process that got past its own launch Job.
+    pytest.param({700: 50.0}, id="escapee"),
+    # The console host exited after adoption and its id went to a browser
+    # process: the same id, a later creation time.
+    pytest.param({_CONSOLE: 51.0}, id="reused-id"),
+]
+
+
+@pytest.mark.parametrize("joined", _JOINED_LATER)
+def test_a_drain_after_adoption_ends_only_what_joined_the_owner_job_later(
+    monkeypatch: pytest.MonkeyPatch, joined: dict[int, float]
+):
+    """Everything the owner's Job held at adoption outlives a browser close.
+
+    Not only the parent: under a venv the parent is the owner's own launcher,
+    and the gate, its launcher and its console host sit above it. Ending them
+    costs the frontend this owner's exit status, and on Windows CI the owner's
+    next browser start then failed. What joined later is a browser's and goes,
+    including a process that inherited an infrastructure id.
+    """
+    windows = _adopt_the_owner_job(monkeypatch)
+    windows.members.update(joined)
+
+    proved = process_tree.drain_browser_process_marker(
+        "browser", timeout=1.0, containment=_a_buried_browser_job()
+    )
+
+    assert windows.terminated == list(joined)
+    assert proved is True
+    assert set(windows.members) == set(_OWNER_JOB) - set(joined)
+
+
+@pytest.mark.parametrize("joined", _JOINED_LATER)
+def test_a_hard_exit_spares_the_owner_job_infrastructure(
+    monkeypatch: pytest.MonkeyPatch, joined: dict[int, float]
+):
+    """The hard-exit sweep keeps the same chain, and still ends.
+
+    It loops until nothing but spared processes is left, so the
+    infrastructure, which never leaves the Job, must not count as left.
+    """
+    windows = _adopt_the_owner_job(monkeypatch)
+    windows.members.update(joined)
 
     process_tree._drain_adopted_windows_job()
 
-    assert terminated == [700], "the browser went and the gate stayed"
+    assert windows.terminated == list(joined)
+    assert set(windows.members) == set(_OWNER_JOB) - set(joined)
 
 
 def test_adopted_windows_job_revalidates_process_membership(
