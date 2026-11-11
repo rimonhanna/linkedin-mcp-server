@@ -1596,6 +1596,64 @@ class TestSendMessageDeadline:
         assert result.structured_content["status"] == "invalid_message"
         assert "thread_id" not in result.structured_content
 
+    @pytest.mark.parametrize("tool", ["send_message", "reply_to_conversation"])
+    async def test_a_send_answering_past_the_deadline_skips_the_notification(
+        self, monkeypatch, tool
+    ):
+        """A confirmed answer that arrives after the deadline still leaves.
+
+        The client asks for progress, so the final notification really awaits
+        the session, and an await past the deadline would be where its
+        cancellation discards the answer.
+        """
+        from fastmcp import Client, FastMCP
+
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        sent = {"url": "u", "status": "sent", "sent": True, "retry_safe": False}
+
+        async def late(*_args, **_kwargs):
+            # Blocks the loop itself past the deadline, as a collector pause
+            # or a starved CPU does, then answers.
+            deadline = anyio.current_effective_deadline()
+            time.sleep(max(0.0, deadline - anyio.current_time()) + 0.05)
+            return sent
+
+        extractor = SimpleNamespace(send_message=late, reply_to_conversation=late)
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.messaging.get_ready_extractor",
+            AsyncMock(return_value=extractor),
+        )
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.messaging.refuse_action", MagicMock()
+        )
+        monkeypatch.setattr(
+            "linkedin_mcp_server.tools.messaging.record_action", MagicMock()
+        )
+        target = (
+            {"linkedin_username": "testuser"}
+            if tool == "send_message"
+            else {"thread_id": "2-abc=="}
+        )
+        progress: list[float] = []
+
+        async def on_progress(value, total=None, message=None):
+            progress.append(value)
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp, tool_timeout=self._TOOL_TIMEOUT)
+        async with Client(mcp) as client:
+            result = await client.call_tool(
+                tool,
+                {**target, "message": "Hello!", "confirm_send": True},
+                raise_on_error=False,
+                progress_handler=on_progress,
+            )
+
+        assert result.is_error is False, result.content
+        assert result.structured_content == sent
+        assert progress == [0]
+
     @pytest.mark.parametrize("stage", ["writing", "budget-spent"])
     async def test_a_deadline_before_dispatch_sends_nothing(
         self, mock_page, monkeypatch, stage

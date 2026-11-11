@@ -371,11 +371,15 @@ def register_messaging_tools(
                     # The send has already answered, and this notification is
                     # the last await before the deadline. Landing there would
                     # discard a result that may say the send was confirmed, so
-                    # a notification that stalls gives up first.
-                    with before_the_reply_deadline():
-                        await ctx.report_progress(
-                            progress=100, total=100, message="Complete"
-                        )
+                    # a notification that stalls gives up first. Once the
+                    # deadline has already passed, as a stalled event loop can
+                    # leave it, any await would hand its cancellation the
+                    # result, so the notification is skipped.
+                    if anyio.current_time() < anyio.current_effective_deadline():
+                        with before_the_reply_deadline():
+                            await ctx.report_progress(
+                                progress=100, total=100, message="Complete"
+                            )
                 except BaseException:
                     # Cancellation from outside, such as a client that cancels,
                     # which nothing can answer, so the log line is all that is
@@ -485,10 +489,12 @@ def register_messaging_tools(
                     record_action(JobStore(), MESSAGES, datetime.now().astimezone())
 
                 try:
-                    with before_the_reply_deadline():
-                        await ctx.report_progress(
-                            progress=100, total=100, message="Complete"
-                        )
+                    # As send_message: no await once the deadline has passed.
+                    if anyio.current_time() < anyio.current_effective_deadline():
+                        with before_the_reply_deadline():
+                            await ctx.report_progress(
+                                progress=100, total=100, message="Complete"
+                            )
                 except BaseException:
                     if result.get("retry_safe") is False:
                         logger.warning(SEND_INTERRUPTED_WARNING)
