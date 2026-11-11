@@ -294,8 +294,6 @@ def register_company_tools(
 
             return result
 
-        except ToolError:
-            raise
         except AuthenticationError as e:
             try:
                 await handle_auth_error(e, ctx)

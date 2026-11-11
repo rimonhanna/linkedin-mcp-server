@@ -284,8 +284,6 @@ def register_enrichment_tools(
                     "to process a bunch; it returns when to call it again."
                 ),
             }
-        except ToolError:
-            raise
         except Exception as e:
             raise_tool_error(e, "start_enrichment_job")  # NoReturn
 
