@@ -7,6 +7,7 @@ from patchright.async_api import Error as PlaywrightError
 
 from linkedin_mcp_server.core.exceptions import (
     NetworkError,
+    OffLinkedInLandingError,
     ProfileNotFoundError,
     InvalidReferenceError,
     ProxyConnectionError,
@@ -292,6 +293,24 @@ def test_transient_barrier_keeps_its_own_words_and_files_no_issue(monkeypatch):
         raise_tool_error(TransientBarrierError(advice))
 
     assert str(raised.value) == advice
+
+
+def test_an_off_linkedin_landing_names_the_host_and_files_no_issue(monkeypatch):
+    # It subclasses NetworkError, whose generic text drops where the browser
+    # landed; and a portal on the user's network is not a bug to report.
+    monkeypatch.setattr(
+        "linkedin_mcp_server.error_handler.build_issue_diagnostics",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("diagnostics should not run")
+        ),
+    )
+    error = OffLinkedInLandingError("https://portal.invalid")
+
+    with pytest.raises(ToolError) as raised:
+        raise_tool_error(error)
+
+    assert str(raised.value) == str(error)
+    assert "https://portal.invalid" in str(raised.value)
 
 
 def test_invalid_reference_surfaces_the_correction_verbatim():

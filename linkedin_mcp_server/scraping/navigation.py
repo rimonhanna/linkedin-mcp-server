@@ -18,6 +18,11 @@ from linkedin_mcp_server.core.auth import (
     detect_auth_barrier_quick,
     resolve_remember_me_prompt,
 )
+from linkedin_mcp_server.core.destination import (
+    is_another_site,
+    is_linkedin_landing,
+    raise_if_off_linkedin,
+)
 from linkedin_mcp_server.core.exceptions import (
     AuthenticationError,
     RateLimitError,
@@ -414,6 +419,16 @@ class PageNavigator:
                     # that logs it.
                     error = await self._rate_limit_error(url, retry_after=None)
                     raise error from None
+                # Only another site, not a blank or error document: those are
+                # what the failure itself left behind, and its own message
+                # says more than the address does.
+                if is_another_site(page.url):
+                    await record_page_trace(
+                        page,
+                        "extractor-off-linkedin",
+                        extra={"target_url": url, "hops": hops},
+                    )
+                    raise_if_off_linkedin(page.url)
                 if allow_remember_me and await resolve_remember_me_prompt(page):
                     await stabilize_navigation(
                         f"remember-me resolution for {redact_private_navigation_value(url)}",
@@ -486,6 +501,17 @@ class PageNavigator:
 
             # Outside the block above on purpose: raising in there would be
             # caught by its own handler and re-raised as a navigation failure.
+            # Ahead of the 429, barrier and remember-me checks, which read a
+            # status, a title and an id that any page can carry. This sees where
+            # the navigation settled, not a redirect that fires later.
+            if not is_linkedin_landing(page.url):
+                await record_page_trace(
+                    page,
+                    "extractor-off-linkedin",
+                    extra={"target_url": url, "hops": hops},
+                )
+                raise_if_off_linkedin(page.url)
+
             if response is not None and response.status == HTTP_TOO_MANY_REQUESTS:
                 raise await self._rate_limit_error(
                     url,
@@ -516,6 +542,9 @@ class PageNavigator:
                 )
                 return
 
+            # The chooser wait gives a redirect time to land. Another site says
+            # nothing about the session, which the error below would retire.
+            raise_if_off_linkedin(page.url)
             await record_page_trace(
                 page,
                 "extractor-auth-barrier",

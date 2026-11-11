@@ -7,6 +7,7 @@ import time
 from patchright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
 from .auth import barrier_confirmed, raise_if_auth_route
+from .destination import raise_if_off_linkedin
 from .exceptions import AuthenticationError, RateLimitError, TransientBarrierError
 from .humanize import jitter
 
@@ -114,6 +115,7 @@ async def detect_rate_limit(page: Page) -> None:
     """Detect if LinkedIn has rate-limited or security-challenged the session.
 
     Checks (in order):
+    0. The page is one LinkedIn served (a portal's text is not LinkedIn's)
     1. URL is a login, authwall or checkpoint route (security challenge)
     2. Body text contains rate-limit phrases on error-shaped pages (throttling)
 
@@ -123,6 +125,7 @@ async def detect_rate_limit(page: Page) -> None:
     that happens to contain phrases like "slow down" or "try again later".
 
     Raises:
+        OffLinkedInLandingError: If the page is not one LinkedIn served
         AuthenticationError: If interactive authentication is required
         AccountRestrictedError: If the account is restricted
         RateLimitError: If a throttling page is detected
@@ -131,6 +134,7 @@ async def detect_rate_limit(page: Page) -> None:
     # which imports this package, so a module-level import would be a cycle.
     from linkedin_mcp_server.pacing import note_throttle_signal
 
+    raise_if_off_linkedin(page.url)
     try:
         raise_if_auth_route(page.url)
     except AuthenticationError:

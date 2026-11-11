@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from linkedin_mcp_server.core.exceptions import AuthenticationError, RateLimitError
+from linkedin_mcp_server.core.exceptions import (
+    AuthenticationError,
+    OffLinkedInLandingError,
+    RateLimitError,
+)
 from linkedin_mcp_server.core.utils import detect_rate_limit, scroll_job_sidebar
 from linkedin_mcp_server.pacing import JobStore, read_account_cooldown
 
@@ -121,6 +125,31 @@ class TestDetectRateLimit:
         mock_page.locator = MagicMock(side_effect=locator_side_effect)
         # Should NOT raise — body is too long to be an error page
         await detect_rate_limit(mock_page)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://portal.invalid/checkpoint/challenge/",
+            "https://evil-linkedin.com/in/testuser/",
+            "http://www.linkedin.com/in/testuser/",
+        ],
+    )
+    async def test_a_page_linkedin_did_not_serve_is_refused(
+        self, mock_page, tmp_path, url: str
+    ):
+        """Its text is not the section asked for, and its route is no barrier."""
+        mock_page.url = url
+        mock_page.locator.return_value.inner_text = AsyncMock(
+            return_value="Too many requests"
+        )
+        with patch(
+            "linkedin_mcp_server.core.utils.barrier_confirmed",
+            AsyncMock(return_value=True),
+        ) as confirmed:
+            with pytest.raises(OffLinkedInLandingError):
+                await detect_rate_limit(mock_page)
+        confirmed.assert_not_awaited()
+        assert _last_signal(tmp_path) is None
 
     async def test_normal_url_no_error_passes(self, mock_page):
         """A clean normal page passes all checks without raising."""

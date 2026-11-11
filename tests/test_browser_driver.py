@@ -12,6 +12,7 @@ from linkedin_mcp_server.pacing import JobStore, read_account_cooldown
 from linkedin_mcp_server.core.exceptions import (
     AccountRestrictedError,
     NetworkError,
+    OffLinkedInLandingError,
     ProxyConnectionError,
     RateLimitError,
 )
@@ -1966,3 +1967,141 @@ class TestTheCookieExportCannotStrandTheProfile:
         # on to the teardown, which is the part that must not be skipped.
         assert exported is False
         assert took < 2, f"the export was still unbounded ({took:.1f}s)"
+
+
+class TestAFeedProbeOffLinkedInGivesNoVerdict:
+    """A portal answering /feed/ says nothing about the session either way.
+
+    False would retire the profile; True would cache another site's page as a
+    passed probe and let an unchecked import through.
+    """
+
+    _PORTAL = "https://portal.invalid/login"
+
+    @staticmethod
+    def _patches(barrier=None):
+        return (
+            patch(
+                "linkedin_mcp_server.drivers.browser.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                return_value=barrier,
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.barrier_confirmed",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_landing_on_a_portal_is_refused_before_the_chooser(self):
+        browser = _make_mock_browser()
+        browser.page.url = self._PORTAL
+        remember_me, barrier, confirmed = self._patches(barrier="login title")
+
+        with (
+            remember_me as remember_me_mock,
+            barrier as barrier_mock,
+            confirmed as confirmed_mock,
+            pytest.raises(OffLinkedInLandingError, match="portal.invalid"),
+        ):
+            await _feed_auth_succeeds(browser)
+
+        remember_me_mock.assert_not_awaited()
+        barrier_mock.assert_not_awaited()
+        confirmed_mock.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_redirect_during_the_checks_is_refused(self):
+        browser = _make_mock_browser()
+
+        async def leave_for_a_portal(_page):
+            browser.page.url = self._PORTAL
+            return "login title"
+
+        remember_me, _barrier, confirmed = self._patches()
+        with (
+            remember_me,
+            patch(
+                "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+                new=leave_for_a_portal,
+            ),
+            confirmed as confirmed_mock,
+            pytest.raises(OffLinkedInLandingError, match="portal.invalid"),
+        ):
+            await _feed_auth_succeeds(browser)
+
+        confirmed_mock.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_load_that_committed_a_portal_is_refused(self):
+        browser = _make_mock_browser()
+
+        async def fail_on_a_portal(*_args, **_kwargs):
+            browser.page.url = self._PORTAL
+            raise Exception("Timeout 30000ms exceeded")
+
+        browser.page.goto = AsyncMock(side_effect=fail_on_a_portal)
+        remember_me, barrier, confirmed = self._patches(barrier="login title")
+        with (
+            remember_me,
+            barrier,
+            confirmed as confirmed_mock,
+            pytest.raises(OffLinkedInLandingError, match="portal.invalid"),
+        ):
+            await _feed_auth_succeeds(browser)
+
+        confirmed_mock.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_load_on_the_error_page_keeps_its_own_error(self):
+        browser = _make_mock_browser()
+
+        async def fail_outright(*_args, **_kwargs):
+            browser.page.url = "chrome-error://chromewebdata/"
+            raise Exception("net::ERR_NAME_NOT_RESOLVED")
+
+        browser.page.goto = AsyncMock(side_effect=fail_outright)
+        remember_me, barrier, confirmed = self._patches()
+        with (
+            remember_me,
+            barrier,
+            confirmed,
+            pytest.raises(NetworkError) as excinfo,
+        ):
+            await _feed_auth_succeeds(browser)
+
+        assert not isinstance(excinfo.value, OffLinkedInLandingError)
+
+    @pytest.mark.asyncio
+    async def test_the_owner_start_caches_no_probe_for_a_portal(self, tmp_path):
+        _write_source_state(tmp_path, runtime_id="macos-arm64-host")
+        source_browser = _make_mock_browser()
+        source_browser.page.url = self._PORTAL
+        remember_me, barrier, confirmed = self._patches()
+
+        with (
+            patch(
+                "linkedin_mcp_server.drivers.browser.get_runtime_id",
+                return_value="macos-arm64-host",
+            ),
+            patch(
+                "linkedin_mcp_server.drivers.browser.BrowserManager",
+                return_value=source_browser,
+            ),
+            patch("linkedin_mcp_server.drivers.browser.write_auth_probe") as probe,
+            remember_me,
+            barrier,
+            confirmed as confirmed_mock,
+            pytest.raises(OffLinkedInLandingError),
+        ):
+            await get_or_create_browser()
+
+        probe.assert_not_called()
+        confirmed_mock.assert_not_awaited()
+        assert not auth_probe_path().exists()
