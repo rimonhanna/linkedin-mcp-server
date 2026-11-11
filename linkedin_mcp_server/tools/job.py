@@ -133,6 +133,11 @@ def register_job_tools(
             A search with no matches returns empty job_ids and a
             section_errors entry of type no_matching_jobs, rather than the
             unrelated recommendations LinkedIn shows in its place.
+            If LinkedIn serves its AI search instead of the classic results
+            page, job_ids are still returned but section_errors carries an
+            ai_search_unverified entry: that page does not reliably apply the
+            requested location and shows a full page of postings even when
+            nothing matches, so the ids may not match the search.
             pagination ({pages_fetched, next_offset, reason}) says why paging
             stopped: complete (the results ran out), max_pages, time_budget
             (the tool timeout was near, so more results may exist) or

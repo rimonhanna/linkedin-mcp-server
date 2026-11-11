@@ -177,6 +177,38 @@ def dropped_filters_section_error(names: list[str], landed: str) -> dict[str, st
     return {"error_type": "filters_dropped", "error_message": message}
 
 
+def ai_search_section_error(names: list[str], landed: str) -> dict[str, str]:
+    """The ``section_errors`` entry for job ids read off LinkedIn's AI search.
+
+    The ids are returned with it, not dropped: they are real postings from
+    the page LinkedIn served, and an empty list would read as a search that
+    found nothing. What cannot be claimed is that they match. Measured
+    2026-11-11 on ``/jobs/search-results``: a nonsense query and "software
+    engineer" rendered the same "99+ results" header, the same structure and
+    no notice, both filled with postings for a location the account had used
+    before rather than the one asked for. So the page is reported as
+    unverified rather than read for a no-match signal it does not carry.
+
+    A dropped location or work type gets the same hint as
+    `dropped_filters_section_error`, because putting them in the keywords is
+    the one repair measured to work there.
+    """
+    message = (
+        f"LinkedIn served its AI job search (landed on {landed}), which does "
+        "not reliably apply the requested location and does not distinguish "
+        "matches from unrelated postings, so these job_ids may not match the "
+        "search."
+    )
+    if names:
+        message += f" It did not keep {', '.join(names)}."
+    if _KEYWORD_FILTERS & set(names):
+        message += (
+            " It reads location and work type from the keywords instead, as "
+            'in "remote python developer in France".'
+        )
+    return {"error_type": "ai_search_unverified", "error_message": message}
+
+
 def missing_description_section_error() -> dict[str, str]:
     """Report an absent description heading without discarding captured text."""
     return {
@@ -201,6 +233,7 @@ RESULTS_PER_LINKEDIN_PAGE = 25
 # because `/jobs/search?keywords=x` is the same route and puts a `?` where a
 # prefix test wants the slash.
 JOB_SEARCH_PATHS = frozenset({"/jobs/search", "/jobs/search-results"})
+AI_SEARCH_PATH = "/jobs/search-results"
 
 
 def route(target: str) -> tuple[str, str]:

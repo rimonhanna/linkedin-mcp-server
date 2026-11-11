@@ -24,6 +24,7 @@ from linkedin_mcp_server.scraping.contracts import (
 from linkedin_mcp_server.scraping.identifiers import job_view_url, normalize_job_id
 from linkedin_mcp_server.scraping.job_pages import JobPageReader
 from linkedin_mcp_server.scraping.job_policy import (
+    AI_SEARCH_PATH,
     JOB_SEARCH_PATHS,
     RESULTS_PER_LINKEDIN_PAGE,
     SAVED_JOBS_PAGE_SIZE,
@@ -34,6 +35,7 @@ from linkedin_mcp_server.scraping.job_policy import (
     SEARCH_TIMEOUT_FRACTION,
     ApplyType,
     JobsTrackerStage,
+    ai_search_section_error,
     apply_link_missing_section_error,
     dropped_filters_section_error,
     dropped_offset_section_error,
@@ -212,7 +214,10 @@ class JobScraper:
             {url, sections: {search_results: text}, job_ids: [str],
             pagination: {pages_fetched, next_offset, reason}}. ``pagination``
             is absent when a failure stopped the search, which
-            ``section_errors`` then explains.
+            ``section_errors`` then explains. Ids read off LinkedIn's AI search
+            at ``/jobs/search-results`` are kept with an
+            ``ai_search_unverified`` entry, since nothing on that page tells
+            matches from unrelated postings.
         """
         base_url = build_job_search_url(
             keywords,
@@ -234,6 +239,10 @@ class JobScraper:
         # response whatever stops the loop later, so a rate limit on page two
         # used to hide that page one had been unfiltered all along.
         filters_warning: dict[str, str] | None = None
+        # Set once LinkedIn's AI search supplied ids, and reported in place of
+        # `filters_warning`, whose names it carries: both describe the same
+        # results, and only one slot holds them.
+        ai_warning: dict[str, str] | None = None
         total_pages: int | None = None
         total_pages_queried = False
         total: dict[str, Any] | None = None
@@ -435,10 +444,16 @@ class JobScraper:
                 # by value: LinkedIn encodes several of these itself, a
                 # location becoming a `geoUrn`, so a value comparison would
                 # fail on every healthy call that used one.
+                #
+                # `skipRedirect` is an instruction to the page, not a filter:
+                # the classic page drops it from its own URL once it has
+                # obeyed it (measured), so counting it reported every healthy
+                # search as unfiltered.
                 lost = sorted(
                     name
                     for name in asked
-                    if name not in ("keywords", "start") and not landed_query.get(name)
+                    if name not in ("keywords", "start", "skipRedirect")
+                    and not landed_query.get(name)
                 )
                 if lost and not is_no_match:
                     logger.debug(
@@ -550,6 +565,9 @@ class JobScraper:
                     seen_ids.add(jid)
                     all_job_ids.append(jid)
 
+                if parsed_url.path.rstrip("/") == AI_SEARCH_PATH:
+                    ai_warning = ai_search_section_error(lost, capture.landed_url)
+
                 page_texts.append(extracted.text)
                 if page_refs:
                     page_references.extend(page_refs)
@@ -585,16 +603,31 @@ class JobScraper:
             result["references"] = {
                 "search_results": dedupe_references(page_references)
             }
-        if filters_warning is not None:
+        warning = ai_warning or filters_warning
+        if warning is not None:
             existing = section_errors.get("search_results")
             if existing is None:
-                section_errors["search_results"] = filters_warning
+                section_errors["search_results"] = warning
+            elif ai_warning is not None and set(existing) == {
+                "error_type",
+                "error_message",
+            }:
+                # The AI search leads over an expected stop such as a rate
+                # limit, because it qualifies every id returned and its type
+                # is what a caller checks. A defect report keeps its own type
+                # and fields, which the issue it files depends on.
+                section_errors["search_results"] = {
+                    "error_type": ai_warning["error_type"],
+                    "error_message": (
+                        f"{ai_warning['error_message']} {existing['error_message']}"
+                    ),
+                }
             else:
                 # Both are true of this response, and only one slot holds
                 # them. The stop reason leads, since it explains why the list
                 # ends where it does, and the filter note follows it whole.
                 existing["error_message"] = (
-                    f"{existing['error_message']} {filters_warning['error_message']}"
+                    f"{existing['error_message']} {warning['error_message']}"
                 )
         if section_errors:
             result["section_errors"] = section_errors

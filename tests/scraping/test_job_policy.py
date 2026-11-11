@@ -5,6 +5,7 @@ from urllib.parse import quote
 import pytest
 
 from linkedin_mcp_server.scraping.job_policy import (
+    ai_search_section_error,
     dropped_filters_section_error,
     employer_apply_url,
     label_similar_jobs,
@@ -156,6 +157,29 @@ class TestDroppedFiltersSectionError:
 
         assert "f_E, f_JT" in error["error_message"]
         assert self.HINT not in error["error_message"]
+
+
+class TestAiSearchSectionError:
+    LANDED = "https://www.linkedin.com/jobs/search-results/?keywords=python"
+
+    def test_names_the_route_and_what_it_dropped(self):
+        error = ai_search_section_error(["f_JT", "location"], self.LANDED)
+
+        assert error["error_type"] == "ai_search_unverified"
+        assert self.LANDED in error["error_message"]
+        assert "did not keep f_JT, location" in error["error_message"]
+        assert "reads location and work type" in error["error_message"]
+
+    def test_nothing_dropped_names_nothing(self):
+        error = ai_search_section_error([], self.LANDED)
+
+        assert "did not keep" not in error["error_message"]
+        assert "reads location and work type" not in error["error_message"]
+
+    def test_a_job_type_gets_no_keywords_hint(self):
+        error = ai_search_section_error(["f_JT"], self.LANDED)
+
+        assert "reads location and work type" not in error["error_message"]
 
 
 class TestEmployerApplyUrl:

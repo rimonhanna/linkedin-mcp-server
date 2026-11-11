@@ -39,7 +39,7 @@ from linkedin_mcp_server.scraping.search_urls import (
     school_id,
 )
 
-JOBS = "https://www.linkedin.com/jobs/search/?"
+JOBS = "https://www.linkedin.com/jobs/search/?skipRedirect=true&"
 PEOPLE = "https://www.linkedin.com/search/results/people/?"
 COMPANIES = "https://www.linkedin.com/search/results/companies/?"
 CONTENT = "https://www.linkedin.com/search/results/content/?"
@@ -128,6 +128,16 @@ class TestFilterTables:
 
 
 class TestBuildJobSearchUrl:
+    def test_asks_to_stay_on_the_classic_page(self):
+        """Without the flag LinkedIn moves the search to its AI route.
+
+        That route drops a free-text location and has no no-match page, so a
+        nonsense query came back as a full page of unrelated job ids.
+        """
+        query = parse_qs(urlparse(build_job_search_url("python")).query)
+
+        assert query["skipRedirect"] == ["true"]
+
     def test_keywords_only(self):
         assert build_job_search_url("python developer") == (
             f"{JOBS}keywords=python+developer"
@@ -279,6 +289,7 @@ class TestBuildJobSearchUrl:
 
         assert url == f"{JOBS}keywords=python&f_JT=x%26f_EA%3Dtrue&f_EA=true"
         assert parse_qs(urlparse(url).query) == {
+            "skipRedirect": ["true"],
             "keywords": ["python"],
             "f_JT": ["x&f_EA=true"],
             "f_EA": ["true"],

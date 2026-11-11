@@ -17,7 +17,7 @@
     {
       "call": "search_jobs",
       "extra": {
-        "target_url": "https://www.linkedin.com/jobs/search/?keywords=python",
+        "target_url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -28,7 +28,7 @@
       "call": "search_jobs",
       "kind": "navigate",
       "landed_url": "https://www.linkedin.com/jobs/search-results/?keywords=python",
-      "requested_url": "https://www.linkedin.com/jobs/search/?keywords=python",
+      "requested_url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python",
       "section": "search_results",
       "timeout_ms": 30000,
       "wait_until": "commit"
@@ -42,7 +42,7 @@
     },
     {
       "call": "search_jobs",
-      "description": "goto https://www.linkedin.com/jobs/search/?keywords=python",
+      "description": "goto https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python",
       "kind": "boundary.stabilize",
       "result": null,
       "section": "search_results"
@@ -51,7 +51,7 @@
       "call": "search_jobs",
       "extra": {
         "load_state_lagged": false,
-        "target_url": "https://www.linkedin.com/jobs/search/?keywords=python",
+        "target_url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -501,6 +501,12 @@
         }
       ]
     },
+    "section_errors": {
+      "search_results": {
+        "error_message": "LinkedIn served its AI job search (landed on https://www.linkedin.com/jobs/search-results/?keywords=python), which does not reliably apply the requested location and does not distinguish matches from unrelated postings, so these job_ids may not match the search.",
+        "error_type": "ai_search_unverified"
+      }
+    },
     "sections": {
       "search_results": "Python jobs\n500+ results"
     },
@@ -508,7 +514,7 @@
       "count": 500,
       "exact": false
     },
-    "url": "https://www.linkedin.com/jobs/search/?keywords=python"
+    "url": "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python"
   },
   "scenario": "search_jobs__route_alias",
   "schema_version": 1

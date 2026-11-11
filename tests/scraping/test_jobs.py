@@ -980,7 +980,7 @@ class TestSearchJobs:
 
         assert result["url"] == (
             "https://www.linkedin.com/jobs/search/"
-            "?keywords=python&f_JT=x%26f_EA%3Dtrue&f_EA=true"
+            "?skipRedirect=true&keywords=python&f_JT=x%26f_EA%3Dtrue&f_EA=true"
         )
         assert result["job_ids"] == ["901"]
         if expected_dropped:
@@ -1137,7 +1137,13 @@ class TestSearchJobs:
 
         assert result["job_ids"] == ["111", "222"]
         assert mock_ids.await_count == 1
-        assert "search_results" not in result.get("section_errors", {})
+        # Kept, but not presented as matches: that route renders a full page
+        # of postings even for a nonsense query.
+        error = result["section_errors"]["search_results"]
+        assert error["error_type"] == "ai_search_unverified"
+        assert set(error) == {"error_type", "error_message"}
+        assert result["sections"]["search_results"] == "Job 1\nJob 2"
+        assert result["pagination"]["reason"] == "max_pages"
 
     async def test_the_redesigned_route_still_reports_a_dropped_filter(self, mock_page):
         """Reaching the guard is what lets the filter check run at all.
@@ -1183,8 +1189,142 @@ class TestSearchJobs:
 
         assert result["job_ids"] == ["111"]
         error = result["section_errors"]["search_results"]
-        assert error["error_type"] == "filters_dropped"
-        assert "location" in error["error_message"]
+        # One entry, not two: the AI search note names what it dropped.
+        assert error["error_type"] == "ai_search_unverified"
+        assert "did not keep location" in error["error_message"]
+
+    async def test_the_classic_page_dropping_skip_redirect_drops_no_filter(
+        self, mock_page
+    ):
+        """The classic page removes `skipRedirect` from its URL once obeyed.
+
+        Measured: `?keywords=…&geoId=…&skipRedirect=true` landed on
+        `?geoId=…&keywords=…`. Counted as a filter, every healthy search
+        came back reported as unfiltered.
+        """
+        scraper = _scraper(mock_page)
+
+        with (
+            patch.object(
+                scraper._pages,
+                "_extract_search_page",
+                side_effect=self._navigating(
+                    mock_page,
+                    [extracted("Job 1")],
+                    lands_on=(
+                        "https://www.linkedin.com/jobs/search/"
+                        "?currentJobId=111&location=Berlin&keywords=python"
+                    ),
+                ),
+            ),
+            patch.object(
+                scraper._pages,
+                "_extract_job_ids",
+                new_callable=AsyncMock,
+                return_value=["111"],
+            ),
+            patch.object(
+                scraper._pages,
+                "_get_total_search_pages",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.session.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await scraper.search_jobs("python", location="Berlin", max_pages=1)
+
+        assert result["job_ids"] == ["111"]
+        assert "section_errors" not in result
+
+    async def test_the_ai_search_leads_over_a_later_rate_limit(self, mock_page):
+        """Its type is what tells a caller the ids it holds may not match.
+
+        Appended behind a rate limit the way a filter note is, the ids from
+        page one came back under `rate_limited` and read as real matches.
+        """
+        scraper = _scraper(mock_page)
+        pages = iter([extracted("Job 1"), extracted(RATE_LIMITED_SECTION_TEXT)])
+        urls = iter(
+            [
+                "https://www.linkedin.com/jobs/search-results/?keywords=python",
+                "https://www.linkedin.com/jobs/search-results/?keywords=python&start=1",
+            ]
+        )
+
+        async def land(url, *args, **kwargs):
+            mock_page.url = next(urls)
+            return captured(mock_page, next(pages))
+
+        with (
+            patch.object(scraper._pages, "_extract_search_page", side_effect=land),
+            patch.object(
+                scraper._pages,
+                "_extract_job_ids",
+                new_callable=AsyncMock,
+                return_value=["111"],
+            ),
+            patch.object(
+                scraper._pages,
+                "_get_total_search_pages",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.session.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await scraper.search_jobs("python", max_pages=2)
+
+        assert result["job_ids"] == ["111"]
+        error = result["section_errors"]["search_results"]
+        assert error["error_type"] == "ai_search_unverified"
+        assert RATE_LIMITED_SECTION_TEXT in error["error_message"]
+        assert "pagination" not in result
+
+    async def test_an_ai_search_with_no_match_signal_reports_no_matches(
+        self, mock_page
+    ):
+        """Only ids the page supplied are qualified; none came back here."""
+        scraper = _scraper(mock_page)
+
+        with (
+            patch.object(
+                scraper._pages,
+                "_extract_search_page",
+                side_effect=self._navigating(
+                    mock_page,
+                    [extracted("Jobs you may be interested in\nShadow")],
+                    lands_on=(
+                        "https://www.linkedin.com/jobs/search-results/?keywords=python"
+                    ),
+                ),
+            ),
+            patch.object(
+                scraper._pages,
+                "_extract_job_ids",
+                new_callable=AsyncMock,
+                return_value=["111"],
+            ),
+            patch.object(
+                scraper._pages,
+                "_get_total_search_pages",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.session.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await scraper.search_jobs("python", max_pages=1)
+
+        assert result["job_ids"] == []
+        error = result["section_errors"]["search_results"]
+        assert error["error_type"] == "no_matching_jobs"
 
     async def test_a_pane_job_is_not_a_search_result(self, mock_page):
         """The ids come from the rail and the references from the whole page.
