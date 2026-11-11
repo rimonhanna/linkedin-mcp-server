@@ -17,6 +17,7 @@ from linkedin_mcp_server.debug_trace import record_page_trace
 from linkedin_mcp_server.debug_utils import stabilize_navigation
 from linkedin_mcp_server.privacy import redact_private_navigation_value
 
+from .destination import is_linkedin_landing
 from .exceptions import (
     AccountRestrictedError,
     AuthenticationError,
@@ -156,6 +157,13 @@ async def _detect_auth_barrier(
         AccountRestrictedError: On LinkedIn's account-restriction route, which
             no login can clear and so is not reported as a barrier.
     """
+    # Ahead of every signal below, because none of them names a host: a filter
+    # page titled "LinkedIn Login", or one that happens to carry the picker's
+    # id, would otherwise be reported as LinkedIn asking for a sign-in, and the
+    # recovery for that retires the session. A page LinkedIn did not serve is
+    # the caller's to refuse, through `raise_if_off_linkedin`.
+    if not is_linkedin_landing(page.url):
+        return None
     # Outside the try, which answers every failure with "no barrier". Ahead of
     # the blocker routes, which the bare /login/login-restriction/ also matches.
     _raise_if_account_restricted(page.url)
@@ -340,8 +348,7 @@ def _raise_if_account_restricted(url: str) -> None:
 
 def raise_if_auth_route(url: str) -> None:
     """Classify LinkedIn authentication routes without recording a throttle."""
-    host = (urlparse(url).hostname or "").lower()
-    if host != "linkedin.com" and not host.endswith(".linkedin.com"):
+    if not is_linkedin_landing(url):
         return
     _raise_if_account_restricted(url)
     if _is_auth_blocker_url(url):

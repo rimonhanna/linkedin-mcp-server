@@ -8,6 +8,7 @@ from .exceptions import (
     ElementNotFoundError,
     LinkedInScraperException,
     NetworkError,
+    OffLinkedInLandingError,
     ProfileNotFoundError,
     ProxyConnectionError,
     RateLimitError,
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
         wait_for_manual_login,
     )
     from .browser import BrowserManager, await_deferring_cancels
+    from .destination import is_another_site, is_linkedin_landing, raise_if_off_linkedin
     from .proxy_errors import (
         as_proxy_error,
         goto_reporting_proxy_errors,
@@ -56,6 +58,9 @@ _LAZY_EXPORTS = {
     "wait_for_manual_login": ".auth",
     "BrowserManager": ".browser",
     "await_deferring_cancels": ".browser",
+    "is_another_site": ".destination",
+    "is_linkedin_landing": ".destination",
+    "raise_if_off_linkedin": ".destination",
     "as_proxy_error": ".proxy_errors",
     "goto_reporting_proxy_errors": ".proxy_errors",
     "is_proxy_error": ".proxy_errors",
@@ -101,6 +106,7 @@ __all__ = [
     "ElementNotFoundError",
     "LinkedInScraperException",
     "NetworkError",
+    "OffLinkedInLandingError",
     "ProfileNotFoundError",
     "ProxyConnectionError",
     "RateLimitError",
@@ -116,7 +122,10 @@ __all__ = [
     "redacted_copy",
     "detect_rate_limit",
     "handle_modal_close",
+    "is_another_site",
+    "is_linkedin_landing",
     "is_logged_in",
+    "raise_if_off_linkedin",
     "resolve_remember_me_prompt",
     "scroll_to_bottom",
     "wait_for_manual_login",

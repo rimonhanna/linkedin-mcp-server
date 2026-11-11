@@ -16,6 +16,7 @@ from linkedin_mcp_server.config.loaders import EnvironmentKeys
 from linkedin_mcp_server.core.exceptions import (
     AccountRestrictedError,
     AuthenticationError,
+    OffLinkedInLandingError,
     ProxyConnectionError,
     RateLimitError,
     TransientBarrierError,
@@ -1712,3 +1713,139 @@ class TestARestrictedAccountStopsTheScrape:
                 "https://www.linkedin.com/company/testco/posts/",
                 section_name="posts",
             )
+
+
+class TestALandingOffLinkedInStopsTheScrape:
+    """A portal or filter answering in LinkedIn's place is not the page asked for."""
+
+    @pytest.mark.parametrize(
+        "landing",
+        [
+            "https://portal.invalid/login",
+            "https://linkedin.com.filter.example/in/testuser/",
+            "about:blank",
+        ],
+    )
+    async def test_the_navigation_refuses_it_before_any_auth_check(
+        self, mock_page, landing: str
+    ):
+        # What a LinkedIn sign-in page would show, so only the host can tell
+        # the two apart.
+        mock_page.title = AsyncMock(return_value="LinkedIn Login")
+
+        async def land_off_linkedin(*_args, **_kwargs):
+            navigate(mock_page, landing)
+
+        mock_page.goto = AsyncMock(side_effect=land_off_linkedin)
+        navigator = PageNavigator(ScrapingSession(mock_page))
+
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.navigation.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as remember_me,
+            patch(
+                "linkedin_mcp_server.scraping.navigation.barrier_confirmed",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as confirmed,
+            pytest.raises(OffLinkedInLandingError) as excinfo,
+        ):
+            await navigator._navigate_to_page("https://www.linkedin.com/in/testuser/")
+
+        assert not isinstance(excinfo.value, AuthenticationError)
+        remember_me.assert_not_awaited()
+        confirmed.assert_not_awaited()
+        assert mock_page.goto.await_count == 1
+
+    async def test_a_failed_navigation_onto_another_site_is_refused(self, mock_page):
+        mock_page.title = AsyncMock(return_value="LinkedIn Login")
+
+        async def fail_on_a_portal(*_args, **_kwargs):
+            navigate(mock_page, "https://portal.invalid/interstitial?token=s3cret")
+            raise PatchrightError("net::ERR_ABORTED")
+
+        mock_page.goto = AsyncMock(side_effect=fail_on_a_portal)
+        navigator = PageNavigator(ScrapingSession(mock_page))
+
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.navigation.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as remember_me,
+            patch(
+                "linkedin_mcp_server.scraping.navigation.barrier_confirmed",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as confirmed,
+            pytest.raises(
+                OffLinkedInLandingError, match="https://portal.invalid"
+            ) as excinfo,
+        ):
+            await navigator._navigate_to_page("https://www.linkedin.com/in/testuser/")
+
+        assert "s3cret" not in str(excinfo.value)
+        remember_me.assert_not_awaited()
+        confirmed.assert_not_awaited()
+
+    async def test_a_request_that_failed_outright_keeps_its_own_error(self, mock_page):
+        """The browser's error page is the failure itself, not a portal."""
+
+        async def fail_to_resolve(*_args, **_kwargs):
+            navigate(mock_page, "chrome-error://chromewebdata/")
+            raise PatchrightError("net::ERR_NAME_NOT_RESOLVED")
+
+        mock_page.goto = AsyncMock(side_effect=fail_to_resolve)
+        navigator = PageNavigator(ScrapingSession(mock_page))
+
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.navigation.resolve_remember_me_prompt",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            pytest.raises(PatchrightError, match="ERR_NAME_NOT_RESOLVED") as excinfo,
+        ):
+            await navigator._navigate_to_page("https://www.linkedin.com/in/testuser/")
+
+        assert not isinstance(excinfo.value, OffLinkedInLandingError)
+
+    async def test_a_chooser_wait_that_ends_on_a_portal_is_not_an_expired_session(
+        self, mock_page
+    ):
+        """The chooser was on LinkedIn when found and on a portal by the click.
+
+        Nothing was clicked, which used to fall through to an authentication
+        error, retiring a valid session.
+        """
+        navigator = PageNavigator(ScrapingSession(mock_page))
+        mock_page.goto = AsyncMock(return_value=None)
+
+        async def refused_after_the_page_left(*args, **kwargs) -> bool:
+            mock_page.url = "https://portal.invalid/interstitial"
+            return False
+
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.navigation.resolve_remember_me_prompt",
+                new=refused_after_the_page_left,
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.navigation.detect_auth_barrier_quick",
+                new_callable=AsyncMock,
+                return_value="account picker",
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.navigation.barrier_confirmed",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as confirmed,
+            pytest.raises(OffLinkedInLandingError, match="https://portal.invalid"),
+        ):
+            await navigator._goto_with_auth_checks(
+                "https://www.linkedin.com/in/testuser/"
+            )
+
+        confirmed.assert_not_awaited()
