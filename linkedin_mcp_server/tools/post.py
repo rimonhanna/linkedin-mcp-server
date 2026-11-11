@@ -20,6 +20,7 @@ from linkedin_mcp_server.core.exceptions import AuthenticationError
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.scraping.contracts import FilterValidationError
+from linkedin_mcp_server.scraping.search_urls import build_content_search_url
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,12 @@ def register_post_tools(
             date, and reaction/comment counts.
         """
         try:
+            try:
+                # Refused before the browser starts, as search_people does.
+                build_content_search_url(keywords, date_posted=date_posted)
+            except FilterValidationError as e:
+                raise ToolError(str(e)) from e
+
             extractor = extractor or await get_ready_extractor(
                 ctx, tool_name="search_posts"
             )

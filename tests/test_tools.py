@@ -203,6 +203,12 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
             },
             "profile_urn is not a LinkedIn id",
         ),
+        (
+            "post",
+            "search_posts",
+            {"keywords": "python", "date_posted": "last-year"},
+            "Invalid date_posted",
+        ),
     ],
 )
 async def test_invalid_reference_is_rejected_before_extractor(
@@ -212,12 +218,14 @@ async def test_invalid_reference_is_rejected_before_extractor(
     from linkedin_mcp_server.tools.job import register_job_tools
     from linkedin_mcp_server.tools.messaging import register_messaging_tools
     from linkedin_mcp_server.tools.person import register_person_tools
+    from linkedin_mcp_server.tools.post import register_post_tools
 
     register_by_module = {
         "company": register_company_tools,
         "job": register_job_tools,
         "messaging": register_messaging_tools,
         "person": register_person_tools,
+        "post": register_post_tools,
     }
     mcp = FastMCP("test")
     register_by_module[module_name](mcp)
