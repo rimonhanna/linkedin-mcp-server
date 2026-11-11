@@ -19,6 +19,11 @@ _READ_STATE_PATHS = (
     "/voyager/api/voyagerMessagingDashMessengerConversations",
     "/voyager/api/voyagerMessagingDashMessagingBadge",
 )
+# The first page route is a protocol round-trip to every session on the page,
+# and the driver gives it no deadline of its own. Measured 2026-11-11: on a
+# page that had just scrolled /feed/ it never answered, and get_inbox sat in it
+# until the server was stopped 376 s later.
+_REGISTRATION_TIMEOUT_SECONDS = 15.0
 
 
 class _PageGuard:
@@ -59,9 +64,20 @@ class _PageGuard:
         if self.registration is None:
             self.registration = asyncio.create_task(self._install(page))
             self.registration.add_done_callback(self._registration_finished)
-        # A cancelled caller must not leave a half-registered route that a
-        # later caller registers again. The registration itself makes no reads.
-        await asyncio.shield(self.registration)
+        # A cancelled or timed-out caller must not leave a half-registered
+        # route that a later caller registers again, so the task outlives it.
+        # The registration itself makes no reads.
+        try:
+            async with asyncio.timeout(_REGISTRATION_TIMEOUT_SECONDS):
+                await asyncio.shield(self.registration)
+        except TimeoutError:
+            # Reading unguarded would let LinkedIn mark the threads read.
+            raise LinkedInScraperException(
+                "Read-state protection did not register within "
+                f"{_REGISTRATION_TIMEOUT_SECONDS:g}s, so messaging was not "
+                "opened and nothing was marked read. Call close_session to "
+                "restart the browser, then retry."
+            ) from None
 
     def _registration_finished(self, task: asyncio.Task[None]) -> None:
         if task.cancelled() or task.exception() is not None:

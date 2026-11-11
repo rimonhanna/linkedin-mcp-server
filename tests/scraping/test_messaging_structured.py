@@ -547,6 +547,37 @@ async def test_cancelled_registration_is_reused_without_duplicate_handlers(mock_
     assert mock_page.route.await_count == 2
 
 
+async def test_unanswered_registration_fails_inbox_before_navigation(
+    mock_page, monkeypatch
+):
+    import asyncio
+    import time
+
+    from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+    from linkedin_mcp_server.scraping import messaging_read_state
+
+    monkeypatch.setattr(messaging_read_state, "_REGISTRATION_TIMEOUT_SECONDS", 0.1)
+    release = asyncio.Event()
+
+    async def register(*args):
+        await release.wait()
+
+    mock_page.route.side_effect = register
+    reader = _reader(mock_page)
+    for _ in range(2):
+        started = time.monotonic()
+        with pytest.raises(LinkedInScraperException, match="nothing was marked read"):
+            await asyncio.wait_for(reader.get_inbox(limit=5), timeout=5)
+        assert time.monotonic() - started < 1
+    mock_page.goto.assert_not_awaited()
+    # The unanswered registration is still the one in flight, not a second.
+    assert mock_page.route.await_count == 1
+    release.set()
+    async with reader._without_read_state_writes():
+        pass
+    assert mock_page.route.await_count == 2
+
+
 @pytest.mark.browser_dom
 async def test_guard_exits_with_busy_iframe_and_context_routes_without_accumulation():
     import asyncio
