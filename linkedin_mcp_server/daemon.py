@@ -118,6 +118,12 @@ class OwnerLookup:
     #: actionable if you can see which path — so it is DEBUG-grade detail and
     #: the callers here log it accordingly.
     reason: str = ""
+    #: An owner proved for control (runtime, profile, endpoint and token) but
+    #: published with another configuration, so ``INCOMPATIBLE`` for attaching.
+    #: Kept apart from ``attachment`` because every reader of that one treats it
+    #: as attachable; this one may only be asked to stand down, and only by a
+    #: newer frontend (``daemon_election._live_lookup``).
+    turnover_candidate: Attachment | None = None
 
     @property
     def worth_connecting(self) -> bool:
@@ -174,6 +180,7 @@ def _inspect(auth_root: Path, profile: Path, config: AppConfig) -> OwnerLookup:
             # Names no values: the shared fields include a proxy password and
             # the path to someone's profile.
             reason="the published daemon uses a different configuration",
+            turnover_candidate=Attachment(descriptor=descriptor, token=token),
         )
 
     return OwnerLookup(

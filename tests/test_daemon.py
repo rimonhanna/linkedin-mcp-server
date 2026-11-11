@@ -92,6 +92,29 @@ class TestAttaching:
         assert attachment.token == token
         assert attachment.descriptor.url == "http://127.0.0.1:49152/mcp"
 
+    @pytest.mark.parametrize(
+        ("field", "theirs", "ours"),
+        [
+            ("login_timeout_seconds", 1800.0, 600.0),
+            ("login_inline_wait_seconds", 25.0, 0.0),
+            ("auto_import_from_browser", None, False),
+        ],
+    )
+    def test_a_client_with_other_login_settings_shares_the_owner(
+        self, tmp_path: Path, field: str, theirs: object, ours: object
+    ):
+        # The owner never signs in, so how a client would sign in says nothing
+        # about the browser it is served.
+        profile = tmp_path / "profile"
+        token = _publish_owner(
+            tmp_path, profile, config=_config(profile, **{field: theirs})
+        )
+
+        lookup = look_up_owner(tmp_path, profile, _config(profile, **{field: ours}))
+
+        assert lookup.attachment is not None
+        assert lookup.attachment.token == token
+
     def test_no_daemon_is_not_an_error(self, tmp_path: Path):
         # The ordinary first-start case. Nothing published, nobody to talk to.
         profile = tmp_path / "profile"
@@ -141,19 +164,55 @@ class TestRefusing:
 
         assert look_up_owner(tmp_path, ours, _config(ours)).attachment is None
 
-    def test_a_daemon_with_a_different_configuration_is_refused(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [("proxy_server", "http://proxy.example:8080"), ("headless", False)],
+    )
+    def test_a_daemon_with_a_different_configuration_is_refused(
+        self, tmp_path: Path, field: str, value: object
+    ):
         # Attaching anyway would silently give the client a browser configured
-        # differently from the one it asked for — a different proxy, in this
-        # case, which is the difference between traffic leaving the machine one
-        # way or another.
+        # differently from the one it asked for — a different proxy, for one,
+        # which is the difference between traffic leaving the machine one way or
+        # another.
         profile = tmp_path / "profile"
-        _publish_owner(
+        _publish_owner(tmp_path, profile, config=_config(profile, **{field: value}))
+
+        assert look_up_owner(tmp_path, profile, _config(profile)).attachment is None
+
+    def test_another_configuration_is_offered_only_for_turnover(self, tmp_path: Path):
+        # Proved for control, unusable for attaching. The election may ask an
+        # older one to stand down, so the attachment travels, but never in
+        # `attachment`, which every reader treats as something to forward to.
+        profile = tmp_path / "profile"
+        token = _publish_owner(
             tmp_path,
             profile,
             config=_config(profile, proxy_server="http://proxy.example:8080"),
         )
 
-        assert look_up_owner(tmp_path, profile, _config(profile)).attachment is None
+        lookup = look_up_owner(tmp_path, profile, _config(profile))
+
+        assert lookup.state is OwnerState.INCOMPATIBLE
+        assert lookup.attachment is None
+        assert lookup.turnover_candidate is not None
+        assert lookup.turnover_candidate.token == token
+        assert token not in repr(lookup)
+
+    def test_an_owner_not_proved_for_control_is_not_offered_for_turnover(
+        self, tmp_path: Path
+    ):
+        # Another runtime or another profile is refused before the token is
+        # read, so there is nothing a stand-down request could be sent with.
+        theirs = tmp_path / "their-profile"
+        ours = tmp_path / "our-profile"
+        ours.mkdir()
+        _publish_owner(tmp_path, theirs, config=_config(ours))
+
+        lookup = look_up_owner(tmp_path, ours, _config(ours))
+
+        assert lookup.state is OwnerState.INCOMPATIBLE
+        assert lookup.turnover_candidate is None
 
     def test_an_off_machine_endpoint_is_refused_before_the_token_is_sent(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture

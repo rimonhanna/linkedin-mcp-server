@@ -1842,7 +1842,6 @@ class TestConfigFingerprint:
         "field,value",
         [
             ("headless", False),
-            ("user_agent", "custom-agent"),
             ("viewport_width", 1920),
             ("proxy_server", "http://proxy.example:8080"),
             ("proxy_password", "hunter2"),
@@ -1942,27 +1941,28 @@ class TestConfigFingerprint:
             other, key=token
         )
 
-    def test_default_auto_import_matches_explicit_enabled(self):
-        # None is the enabled default, so spelling that default as True must not
-        # stop an otherwise compatible client from attaching.
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("login_timeout_seconds", 600.0),
+            ("login_inline_wait_seconds", 0.0),
+            ("auto_import_from_browser", False),
+            ("eager_full_chromium", True),
+        ],
+    )
+    def test_settings_the_owner_never_acts_on_still_match(
+        self, field: str, value: object
+    ):
+        # The owner never signs in, so how a client would sign in says nothing
+        # about the browser it is served. Refusing over it would give that
+        # client a second browser on the same account for no reason.
         token = new_token()
-        default = _config()
-        enabled = _config(auto_import_from_browser=True)
+        other = _config(**{field: value})
 
-        assert config_fingerprint(default, key=token) == config_fingerprint(
-            enabled, key=token
+        assert config_fingerprint(_config(), key=token) == config_fingerprint(
+            other, key=token
         )
-        assert mismatched_fields(default, enabled) == ()
-
-    def test_disabled_auto_import_remains_a_difference(self):
-        token = new_token()
-        default = _config()
-        disabled = _config(auto_import_from_browser=False)
-
-        assert config_fingerprint(default, key=token) != config_fingerprint(
-            disabled, key=token
-        )
-        assert mismatched_fields(default, disabled) == ("auto_import_from_browser",)
+        assert mismatched_fields(_config(), other) == ()
 
 
 class TestMismatchReporting:

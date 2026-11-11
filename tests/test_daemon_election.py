@@ -145,6 +145,13 @@ def _config(profile: Path) -> AppConfig:
     return config
 
 
+def _another_config(profile: Path) -> AppConfig:
+    """The same profile with a shared setting changed, so another fingerprint."""
+    config = _config(profile)
+    config.browser.slow_mo = 250
+    return config
+
+
 def _profile(tmp_path: Path) -> Path:
     profile = tmp_path / "auth" / "profile"
     profile.mkdir(parents=True, exist_ok=True)
@@ -5434,9 +5441,12 @@ class TestRealOwner:
         import asyncio
         import dataclasses
 
+        import httpx
         from fastmcp import Client
+        from mcp.shared.exceptions import McpError
 
         from linkedin_mcp_server.daemon import look_up_owner
+        from linkedin_mcp_server.daemon_proxy import OwnerRefusedCredentialsError
         from linkedin_mcp_server.server import ServerRole, create_mcp_server
 
         profile = real_state_root
@@ -5456,13 +5466,32 @@ class TestRealOwner:
                 async with Client(proxy) as client:
                     await client.list_tools()
 
+            # The client reads fixed text, which says what happened but not how
+            # it was found out, so the proof that the owner's bearer check
+            # refused is taken one level down: the same backend's own client,
+            # against the same owner, raising the refusal over the real 401.
             # Matched on the status rather than catching anything at all. A bare
             # `Exception` passed on any failure whatsoever, including one raised
             # before a request ever left this process, so the test would have
-            # gone green without the owner refusing anything. Measured: the real
-            # refusal is `McpError: Client error '401 Unauthorized'`.
-            with pytest.raises(Exception, match="401 Unauthorized"):
+            # gone green without the owner refusing anything.
+            async def connected() -> None:
+                async with _proxy_backend_for(wrong).open_client(timeout=30.0):
+                    pass
+
+            with pytest.raises(OwnerRefusedCredentialsError) as refused:
+                asyncio.run(connected())
+            cause = refused.value.__cause__
+            assert isinstance(cause, httpx.HTTPStatusError)
+            assert cause.response.status_code == 401
+
+            with pytest.raises(McpError) as told:
                 asyncio.run(served())
+            assert str(told.value) == (
+                "The shared browser process refused this server's credentials, "
+                "so nothing was run. The process answering may not be the one "
+                "this server attached to. Restart your MCP client so it connects with "
+                "the current one's credentials."
+            )
         finally:
             _stop(result.get("pid"))
 
@@ -5559,6 +5588,173 @@ class TestVersionSkew:
 
         assert not asked
         assert outcome.worth_connecting
+
+    def test_an_older_owner_of_another_configuration_is_turned_over(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # Proved for control but published with another fingerprint. Left
+        # running, it keeps the browser from every newer frontend, and after a
+        # release that changes the fingerprint's inputs that is every frontend.
+        profile = _profile(tmp_path)
+        config = _config(profile)
+        auth_root = profile.parent
+        _publish_stale_owner(
+            auth_root,
+            profile,
+            _another_config(profile),
+            package_version="1.0.0",
+        )
+
+        asked: list[str] = []
+        monkeypatch.setattr(
+            election_module,
+            "_ask_to_stand_down",
+            lambda attachment: asked.append(attachment.descriptor.instance_id),
+        )
+
+        outcome = obtain_owner(
+            auth_root,
+            profile,
+            config,
+            deadline_seconds=0.1,
+            settlement_seconds=0,
+            connect=lambda attachment, timeout: pytest.fail(
+                "an owner of another configuration was probed for attaching"
+            ),
+        )
+
+        assert len(asked) == 1, "asked once, then buried"
+        assert not outcome.worth_connecting
+
+    def test_an_owner_from_before_the_login_settings_left_is_turned_over(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # The upgrade that dropped the login settings from the fingerprint. An
+        # owner of the release before it published a fingerprint over the old
+        # field set, so to every frontend of this release it reads as another
+        # configuration: identical settings, different digest. Without turnover
+        # of an older owner of another configuration, that owner keeps the
+        # browser from every upgraded frontend.
+        profile = _profile(tmp_path)
+        config = _config(profile)
+        auth_root = profile.parent
+        with monkeypatch.context() as before:
+            before.setattr(
+                daemon_descriptor_module,
+                "SHARED_CONFIG_FIELDS",
+                (
+                    *daemon_descriptor_module.SHARED_CONFIG_FIELDS,
+                    "user_agent",
+                    "login_timeout_seconds",
+                    "login_inline_wait_seconds",
+                    "auto_import_from_browser",
+                    "eager_full_chromium",
+                ),
+            )
+            published = _publish_stale_owner(
+                auth_root, profile, config, package_version="1.0.0"
+            )
+
+        lookup = daemon_module._inspect(auth_root, profile, config)
+        assert lookup.attachment is None, "the old fingerprint still matched"
+        assert lookup.turnover_candidate is not None
+
+        asked: list[str] = []
+        monkeypatch.setattr(
+            election_module,
+            "_ask_to_stand_down",
+            lambda attachment: asked.append(attachment.descriptor.instance_id),
+        )
+
+        outcome = obtain_owner(
+            auth_root,
+            profile,
+            config,
+            deadline_seconds=0.1,
+            settlement_seconds=0,
+            connect=lambda attachment, timeout: Reach.ANSWERED,
+        )
+
+        assert asked == [published]
+        assert not outcome.worth_connecting
+
+    @pytest.mark.parametrize(
+        "package_version",
+        [__version__, "99.0.0", "not-a-version"],
+        ids=["same version", "newer", "unknown"],
+    )
+    def test_only_an_older_owner_of_another_configuration_is_turned_over(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        package_version: str,
+    ):
+        # A same-version owner with another configuration is a rival, and a
+        # newer or unknown one is not this frontend's to stop. Neither is
+        # probed either: it is paced like any other reading it cannot use.
+        profile = _profile(tmp_path)
+        config = _config(profile)
+        auth_root = profile.parent
+        _publish_stale_owner(
+            auth_root,
+            profile,
+            _another_config(profile),
+            package_version=package_version,
+        )
+
+        monkeypatch.setattr(
+            election_module,
+            "_ask_to_stand_down",
+            lambda attachment: pytest.fail("a non-older owner was asked to stand down"),
+        )
+
+        outcome = obtain_owner(
+            auth_root,
+            profile,
+            config,
+            deadline_seconds=0.1,
+            settlement_seconds=0,
+            connect=lambda attachment, timeout: pytest.fail(
+                "an owner of another configuration was probed"
+            ),
+        )
+
+        assert not outcome.worth_connecting
+
+    def test_settlement_never_turns_over_an_owner_of_another_configuration(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        profile = _profile(tmp_path)
+        config = _config(profile)
+        _publish_stale_owner(
+            profile.parent,
+            profile,
+            _another_config(profile),
+            package_version="1.0.0",
+        )
+        monkeypatch.setattr(
+            election_module,
+            "_start_owner",
+            lambda *a, **k: pytest.fail("settlement started an owner"),
+        )
+        monkeypatch.setattr(
+            election_module,
+            "_ask_to_stand_down",
+            lambda attachment: pytest.fail("settlement requested turnover"),
+        )
+
+        outcome = obtain_owner(
+            profile.parent,
+            profile,
+            config,
+            deadline_seconds=0,
+            settlement_seconds=0.05,
+            connect=lambda attachment, timeout: pytest.fail(
+                "settlement probed an owner of another configuration"
+            ),
+        )
+
+        assert not outcome.worth_connecting
 
     def test_a_stand_down_request_needs_the_token(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

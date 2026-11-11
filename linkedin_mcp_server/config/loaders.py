@@ -102,12 +102,11 @@ def credential_free_url(value: str) -> str:
 #
 # The second sentence about a running server is not padding. A shared owner
 # started by an older version carries its user agent in the configuration
-# fingerprint, and a client of this version can only compute ``None`` because
-# the setting is refused here. ``daemon.py`` rejects a fingerprint mismatch
-# before it ever compares package versions, so that owner can no longer be
-# asked to stand down: it keeps running and keeps the profile. Removing the
-# setting is therefore only half the fix, and the other half is invisible
-# unless this message says it.
+# fingerprint, which a client of this version never matches. A newer frontend
+# asks such an owner to stand down whatever its fingerprint, but one from
+# before the stand-down route ignores the request: it keeps running and keeps
+# the profile. Removing the setting is therefore only half the fix, and the
+# other half is invisible unless this message says it.
 _USER_AGENT_REMOVED = (
     "{setting} is no longer supported and the server will not start with it "
     "set. Overriding the user agent left the browser contradicting itself: the "

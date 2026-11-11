@@ -496,11 +496,11 @@ def _live_lookup(
             # permission failure cannot create one reader thread per loop pass.
             lookup = OwnerLookup(state=OwnerState.UNTRUSTED, reason=str(exc))
 
-        ignored = (
-            lookup.attachment is not None
-            and lookup.attachment.descriptor.instance_id in buried
-        )
-        if lookup.worth_connecting and not ignored:
+        candidate = lookup.attachment or lookup.turnover_candidate
+        ignored = candidate is not None and candidate.descriptor.instance_id in buried
+        if not ignored and (
+            lookup.worth_connecting or _older_than_this_frontend(lookup)
+        ):
             break
         remaining = min(wait_deadline, deadline) - time.monotonic()
         if remaining <= 0:
@@ -516,8 +516,8 @@ def _live_lookup(
             return lookup, False, True
         time.sleep(min(daemon_discovery._ATTACH_POLL_SECONDS, remaining))
 
-    attachment = lookup.attachment
-    assert attachment is not None  # worth_connecting implies one
+    attachment = lookup.attachment or lookup.turnover_candidate
+    assert attachment is not None  # worth_connecting or a stale candidate
     instance = attachment.descriptor.instance_id
     if instance in buried:
         return (
@@ -538,8 +538,8 @@ def _live_lookup(
     if stale:
         if may_ask_for_turnover:
             logger.info(
-                "The running daemon is version %s and this build is %s; asking it "
-                "to hand the browser over",
+                "The running daemon is version %s and this server is %s; asking "
+                "it to hand the browser over",
                 attachment.descriptor.package_version,
                 __version__,
             )
@@ -551,7 +551,7 @@ def _live_lookup(
         return (
             OwnerLookup(
                 state=OwnerState.INCOMPATIBLE,
-                reason="the running daemon is older than this build",
+                reason="the running daemon is older than this server",
             ),
             may_ask_for_turnover,
             True,
@@ -607,6 +607,25 @@ def _live_lookup(
         ),
         False,
         True,
+    )
+
+
+def _older_than_this_frontend(lookup: OwnerLookup) -> bool:
+    """Whether an owner of another configuration is one to turn over.
+
+    Only an older version is: left running, it keeps the browser from every
+    newer frontend, and after an upgrade that changes the fingerprint's inputs
+    every frontend is newer. A same-version owner with another configuration is
+    a rival and left alone, and a newer or unknown one is paced like any other
+    unusable reading, so a caller does not spin on a file it cannot use.
+    """
+    candidate = lookup.turnover_candidate
+    return (
+        candidate is not None
+        and daemon_version.compare(
+            owner=candidate.descriptor.package_version, frontend=__version__
+        )
+        is daemon_version.Skew.OWNER_IS_STALE
     )
 
 

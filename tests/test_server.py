@@ -477,11 +477,12 @@ class TestProxyRole:
         # FastMCP logs a failing provider and carries on by default. For a proxy
         # the provider *is* the server, so that default turns an unreachable
         # owner into a client that sees no tools and no reason why. Measured on
-        # 3.4.4: `tools/list` returned `[]`.
+        # 3.4.4: `tools/list` returned `[]`. With no replacement to find, the
+        # error says the owner is gone rather than repeating the transport's text.
         proxy = create_mcp_server(role=ServerRole.PROXY, proxy_backend=_a_backend())
 
         async with Client(proxy) as client:
-            with pytest.raises(Exception, match="connect"):
+            with pytest.raises(Exception, match="could not reach a new one"):
                 await client.list_tools()
 
     async def test_the_update_notice_still_reaches_a_forwarded_result(
