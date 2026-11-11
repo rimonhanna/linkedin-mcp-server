@@ -243,19 +243,26 @@ async def scroll_to_bottom(
 # replaced by a fresh pick, which is what adopting a replacement always did.
 _RAIL_STEP_JS = (
     r"""(opts) => {
-            const {selector, scroll, holder} = opts;
+            const {selector, scroll, holder, expected} = opts;
 """
     + _RAIL_PICK_JS
     + r"""
+            // Which document answered. A navigation replaces it, and a step
+            // answered by another document than the first one touches nothing
+            // and says so; see `_SidebarNavigated`.
+            const origin = performance.timeOrigin;
+            if (expected !== null && origin !== expected) {
+                return {status: 'navigated', origin};
+            }
             if (!document.querySelectorAll(selector).length) {
-                return {status: 'gone'};
+                return {status: 'gone', origin};
             }
             const tied = railGroup();
             let picked = null;
             for (const node of tied) {
                 if (!picked || node.contains(picked)) picked = node;
             }
-            if (!picked) return {status: 'no-container'};
+            if (!picked) return {status: 'no-container', origin};
             // `tied` holds attached nodes only, so a rail a re-render
             // detached falls back to the pick here.
             const kept = holder.rail;
@@ -266,6 +273,7 @@ _RAIL_STEP_JS = (
             // growth against this step.
             const measured = {
                 status: 'ok',
+                origin,
                 cards: idsIn(rail),
                 height: rail.scrollHeight,
             };
@@ -297,7 +305,13 @@ _RAIL_STEP_JS = (
 _SENT_SCROLL_GRACE = 5.0
 
 
-async def _rail_step(page: Page, holder: JSHandle, *, scroll: bool) -> dict[str, Any]:
+class _SidebarNavigated(Exception):
+    """A step was answered by a different document than the first one was."""
+
+
+async def _rail_step(
+    page: Page, holder: JSHandle, *, scroll: bool, expected: float | None = None
+) -> dict[str, Any]:
     """Measure the rail, scrolling it afterwards when ``scroll`` is set.
 
     A step that only measures writes nothing, so a cancel may abandon it. A
@@ -307,7 +321,12 @@ async def _rail_step(page: Page, holder: JSHandle, *, scroll: bool) -> dict[str,
     step = asyncio.ensure_future(
         page.evaluate(
             _RAIL_STEP_JS,
-            {"selector": _JOB_CARD_SELECTOR, "scroll": scroll, "holder": holder},
+            {
+                "selector": _JOB_CARD_SELECTOR,
+                "scroll": scroll,
+                "holder": holder,
+                "expected": expected,
+            },
         )
     )
     if not scroll:
@@ -481,9 +500,26 @@ async def scroll_job_sidebar(
     # Moving a wait back into the page puts a loop there that outlives the
     # cancel; see `_RAIL_STEP_JS`.
     holder: JSHandle | None = None
+    origin: float | None = None
     try:
         holder = await page.evaluate_handle(_NEW_HOLDER_JS)
-        latest = await _rail_step(page, holder, scroll=False)
+        rail_holder = holder
+
+        async def step(*, scroll: bool) -> dict[str, Any]:
+            # A navigation mid-scroll is detected here, by the document that
+            # answered, and not left to the rail handle: that handle belongs
+            # to the old document and today makes the next step raise, but
+            # nothing promises it. A step answered by another document would
+            # otherwise go on scrolling a page this call never measured.
+            nonlocal origin
+            result = await _rail_step(page, rail_holder, scroll=scroll, expected=origin)
+            if result.get("status") == "navigated":
+                raise _SidebarNavigated
+            if origin is None:
+                origin = result.get("origin")
+            return result
+
+        latest = await step(scroll=False)
         status = latest.get("status")
         if status == "gone":
             logger.debug("Job card link disappeared before evaluate, skipping scroll")
@@ -497,7 +533,7 @@ async def scroll_job_sidebar(
             until = min(time.monotonic() + budget, hard_deadline)
             while time.monotonic() < until:
                 await asyncio.sleep(poll_interval)
-                now = await _rail_step(page, holder, scroll=False)
+                now = await step(scroll=False)
                 if now.get("status") != "ok":
                     # A re-render can leave no rail for a moment. That is not
                     # growth, and the next step picks whatever replaced it.
@@ -535,7 +571,7 @@ async def scroll_job_sidebar(
                 break
 
             round_started = time.monotonic()
-            before = await _rail_step(page, holder, scroll=True)
+            before = await step(scroll=True)
             if before.get("status") == "ok":
                 latest = before
             else:
@@ -544,7 +580,7 @@ async def scroll_job_sidebar(
             if not grew:
                 # One confirmation round at the full budget: a batch slower
                 # than the shrunken budget is not an empty rail.
-                await _rail_step(page, holder, scroll=True)
+                await step(scroll=True)
                 grew = await grew_since(before, settle_timeout)
             if not grew:
                 timed_out = time.monotonic() >= hard_deadline
@@ -553,6 +589,11 @@ async def scroll_job_sidebar(
             took = time.monotonic() - round_started
             budget = min(settle_timeout, max(min_budget, took * 3))
             scrolls += 1
+    except _SidebarNavigated:
+        # True, as for a step that raised: the caller cannot see a navigation
+        # from `page.url` for a few milliseconds after it, and needs to know.
+        logger.debug("The page navigated during the job sidebar scroll")
+        return True
     except Exception as exc:
         # Scrolling is best effort: a navigation or a destroyed context during
         # a step must not discard the page the caller is about to read.

@@ -263,6 +263,43 @@ class TestCancelledSidebarScroll:
         holder.dispose.assert_awaited_once()
 
 
+class TestNavigatedSidebarScroll:
+    async def test_a_step_from_another_document_ends_the_scroll(self):
+        """Detected from the document that answered, not from a step raising.
+
+        The rail handle of the old document makes the next step raise today,
+        but a step that a new document answers must stop the scroll whether
+        it raises or not, and report it as the caller's page having moved.
+        """
+        page = MagicMock()
+        page.url = "https://www.linkedin.com/jobs/search/?keywords=python"
+        page.wait_for_selector = AsyncMock()
+        holder = MagicMock()
+        holder.dispose = AsyncMock()
+        page.evaluate_handle = AsyncMock(return_value=holder)
+        expected: list[float | None] = []
+        document = {"origin": 1000.0}
+
+        async def step(_program, arg):
+            # The page's side of the step: a document other than the one
+            # named answers without measuring or scrolling.
+            expected.append(arg["expected"])
+            if arg["expected"] is not None and arg["expected"] != document["origin"]:
+                return {"status": "navigated", "origin": document["origin"]}
+            # Navigated right after the first look.
+            answer = {"status": "ok", "cards": 5, "height": 200, **document}
+            document["origin"] = 2000.0
+            return answer
+
+        page.evaluate = AsyncMock(side_effect=step)
+
+        assert await scroll_job_sidebar(page) is True
+        # Every step after the first names the first document, and the first
+        # one the new document answered ended the call.
+        assert expected == [None, 1000.0]
+        holder.dispose.assert_awaited_once()
+
+
 class TestScrollToBottomToleratesAStaleRound:
     """One unchanged height is a slow batch, not the bottom of the page.
 

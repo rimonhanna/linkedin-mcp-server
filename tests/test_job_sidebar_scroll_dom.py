@@ -884,6 +884,42 @@ async def wait_until(probe, *, timeout: float) -> None:
         await asyncio.sleep(0.05)
 
 
+class TestNavigatedScroll:
+    """A navigation mid-scroll ends the call and is reported as one.
+
+    The page moves to another document holding a scrollable rail of its own,
+    so a scroll that went on would find cards to scroll there. Every request
+    is answered by a route, so nothing leaves the browser.
+    """
+
+    OTHER = (
+        "<main><div style='overflow-y:scroll;height:80px'>"
+        + "".join(
+            f"<a href='https://x.test/jobs/view/{i}/'"
+            " style='display:block;height:40px'>j</a>"
+            for i in range(900, 905)
+        )
+        + "</div></main>"
+    )
+
+    async def test_a_navigation_mid_scroll_returns_true(self, dom_page):
+        async def answer(route):
+            await route.fulfill(status=200, content_type="text/html", body=self.OTHER)
+
+        await dom_page.context.route("**/*", answer)
+        await dom_page.goto("https://x.test/a")
+        await dom_page.set_content(sidebar(total=200, batch=5, delays=[800]))
+
+        task = asyncio.create_task(scroll_job_sidebar(dom_page, deadline=8.0))
+        await asyncio.sleep(1.0)
+        await dom_page.goto("https://x.test/b")
+        started = time.monotonic()
+
+        assert await task is True
+        # Ended by the navigation, not by running out the deadline.
+        assert time.monotonic() - started < 3.0
+
+
 class TestCancelledScroll:
     """A cancelled call must leave nothing scrolling the page it shared.
 
