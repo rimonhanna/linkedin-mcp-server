@@ -3116,6 +3116,35 @@ def test_a_hard_exit_spares_the_owner_job_infrastructure(
     assert set(windows.members) == set(_OWNER_JOB) - set(joined)
 
 
+def test_a_hard_exit_spares_infrastructure_it_cannot_check(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    """The sweep has no deadline and holds the locks, so a check that cannot be
+    answered must not count as a member left, or it would never return."""
+    windows = _adopt_the_owner_job(monkeypatch)
+    windows.members[700] = 50.0
+
+    def unanswerable(_handle: Any) -> dict[str, float]:
+        raise OSError(5, "access denied")
+
+    monkeypatch.setattr(windows, "GetProcessTimes", unanswerable)
+    pauses: list[float] = []
+
+    def pause(seconds: float) -> None:
+        pauses.append(seconds)
+        assert len(pauses) < 50, "the hard exit kept waiting on its own record"
+
+    monkeypatch.setattr(process_tree.time, "sleep", pause)
+
+    with caplog.at_level(logging.WARNING, logger=process_tree.__name__):
+        process_tree._drain_adopted_windows_job()
+
+    assert windows.terminated == [700]
+    assert set(windows.members) == set(_OWNER_JOB)
+    unchecked = [r for r in caplog.records if "could not be checked" in r.message]
+    assert len(unchecked) == len(_OWNER_JOB) - 1, "one warning per member, once"
+
+
 def test_adopted_windows_job_revalidates_process_membership(
     monkeypatch: pytest.MonkeyPatch,
 ):

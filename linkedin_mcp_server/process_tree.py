@@ -841,6 +841,7 @@ def _drain_adopted_windows_job() -> None:
         return
     win32api, win32con, win32job, _winerror = _windows_modules()
     spared = _drain_exclusions()
+    unverifiable: set[int] = set()
     while True:
         try:
             members = win32job.QueryInformationJobObject(
@@ -864,7 +865,24 @@ def _drain_adopted_windows_job() -> None:
                     False,
                     process,
                 )
-                if _is_adopted_infrastructure(process, handle):
+                try:
+                    spare = _is_adopted_infrastructure(process, handle)
+                except BaseException:  # noqa: BLE001 - see below
+                    # Only a recorded id gets here. This sweep has no deadline
+                    # and holds the locks, so an unanswerable check counting as
+                    # left would hold them for good; spared, it costs at worst
+                    # one process outliving an owner that is exiting anyway.
+                    spare = True
+                    if process not in unverifiable:
+                        unverifiable.add(process)
+                        logger.warning(
+                            "The owner Job member %s could not be checked "
+                            "against its adoption record, so the hard exit "
+                            "spares it.",
+                            process,
+                            exc_info=True,
+                        )
+                if spare:
                     # Stays in the Job by design, so it cannot count as left.
                     continue
                 remaining = True
