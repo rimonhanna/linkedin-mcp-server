@@ -267,6 +267,26 @@ def test_an_auth_route_off_linkedin_is_not_linkedin_s(url: str):
     auth_module.raise_if_auth_route(url)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://portal.invalid/login/login-restriction/",
+        "https://evil-linkedin.com/flagship-web/login/login-restriction/",
+        "http://www.linkedin.com/flagship-web/login/login-restriction/",
+    ],
+)
+def test_a_restriction_route_off_linkedin_is_not_linkedin_s(url: str):
+    """Only LinkedIn can restrict the account; a portal's path says nothing."""
+    assert auth_module._is_account_restricted_url(url) is False
+    auth_module._raise_if_account_restricted(url)
+
+
+def test_linkedin_s_own_restriction_route_still_counts():
+    assert auth_module._is_account_restricted_url(
+        "https://www.linkedin.com/flagship-web/login/login-restriction/"
+    )
+
+
 @pytest.mark.asyncio
 async def test_a_healthy_page_costs_the_quick_check_nothing_but_the_count():
     """The container is absent on an ordinary page, and that ends it."""

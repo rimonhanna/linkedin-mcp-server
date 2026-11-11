@@ -333,7 +333,9 @@ async def resolve_remember_me_prompt(page: Page, *, timeout: int | None = None) 
 
 
 def _is_account_restricted_url(url: str) -> bool:
-    """Return True for LinkedIn's account-restriction route, by path alone."""
+    """Return True for LinkedIn's account-restriction route."""
+    if not is_linkedin_landing(url):
+        return False
     segments = tuple(segment for segment in urlparse(url).path.split("/") if segment)
     return segments[-len(_ACCOUNT_RESTRICTION_PATH_TAIL) :] == (
         _ACCOUNT_RESTRICTION_PATH_TAIL
