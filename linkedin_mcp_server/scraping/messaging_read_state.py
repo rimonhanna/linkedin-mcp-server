@@ -19,12 +19,15 @@ _READ_STATE_PATHS = (
     "/voyager/api/voyagerMessagingDashMessengerConversations",
     "/voyager/api/voyagerMessagingDashMessagingBadge",
 )
-# The first page route is a protocol round-trip to every session on the page,
-# and the driver gives it no deadline of its own. Measured 2026-11-11: on a
+# Patchright's ``page.route`` for a page's first route (and ``unroute`` of its
+# last) re-sends ``Network.setCacheDisabled`` to every CDP session of the page
+# (``CRNetworkManager._forEachSession``: main frame, out-of-process frames,
+# workers) and waits for all of them with no deadline. So such a route change
+# mid-session can hang once those sessions exist. Measured 2026-11-11: on a
 # page that had just scrolled /feed/ it never answered, and get_inbox sat in it
-# until the server was stopped 376 s later. Pages are therefore routed before
-# their first navigation (``register_read_state_routes``); this bound covers a
-# page that reaches a read without that.
+# until the server was stopped 376 s later. Pages are therefore routed at
+# creation, before their first navigation (``register_read_state_routes``);
+# this bound covers a page that reaches a read without that.
 _REGISTRATION_TIMEOUT_SECONDS = 15.0
 
 

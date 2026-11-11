@@ -1200,7 +1200,7 @@ class TestStartingAgainAfterAClose:
     """
 
     @staticmethod
-    def _wired(tmp_path, monkeypatch, *, drains: bool = True):
+    def _wired(tmp_path, monkeypatch, *, drains: bool = True, page: Any = None):
         """A manager whose launches, drains and marker traffic are observable."""
         from linkedin_mcp_server.process_tree import _BROWSER_PROCESS_MARKER
 
@@ -1216,7 +1216,7 @@ class TestStartingAgainAfterAClose:
 
         class _Context:
             def __init__(self) -> None:
-                self.pages = [MagicMock(name="startup-page", route=AsyncMock())]
+                self.pages = [page or MagicMock(name="startup-page", route=AsyncMock())]
                 self.closes = 0
                 self.hangs = False
                 self.entered_close = asyncio.Event()
@@ -1384,6 +1384,55 @@ class TestStartingAgainAfterAClose:
                 _READ_STATE_WRITE_ROUTES
             )
             page.goto.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("failure", "refusal"),
+        [("raises", "registration failed"), ("hangs", "did not register within")],
+    )
+    async def test_a_read_state_route_failure_does_not_fail_the_launch(
+        self, tmp_path, monkeypatch, mock_page, caplog, failure, refusal
+    ):
+        """Every other tool works without the routes; messaging refuses alone."""
+        from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+        from linkedin_mcp_server.scraping import messaging_read_state
+        from linkedin_mcp_server.scraping.navigation import PageNavigator
+        from linkedin_mcp_server.scraping.session import ScrapingSession
+        from scraping.test_conversations import _reader
+
+        monkeypatch.setattr(messaging_read_state, "_REGISTRATION_TIMEOUT_SECONDS", 0.05)
+
+        async def register(*args):
+            if failure == "raises":
+                raise RuntimeError("route refused")
+            await asyncio.Event().wait()
+
+        mock_page.route.side_effect = register
+        manager, _record, start_driver = self._wired(
+            tmp_path, monkeypatch, page=mock_page
+        )
+
+        with (
+            self._driving(start_driver),
+            caplog.at_level(logging.WARNING, logger="linkedin_mcp_server.core.browser"),
+        ):
+            await manager.start()
+            assert manager.page is mock_page
+            assert "Read-state routes did not register at launch" in caplog.text
+
+            with pytest.raises(LinkedInScraperException, match=refusal):
+                await asyncio.wait_for(_reader(mock_page).get_inbox(limit=5), 5)
+            mock_page.goto.assert_not_awaited()
+
+            url = "https://www.linkedin.com/in/testuser/"
+            await PageNavigator(ScrapingSession(mock_page))._navigate_to_page(url)
+            mock_page.goto.assert_awaited_once()
+            assert mock_page.goto.await_args.args[0] == url
+            assert await manager.close() is True
+
+        registration = messaging_read_state._GUARDS[mock_page].registration
+        if registration is not None:
+            registration.cancel()
 
     @pytest.mark.asyncio
     async def test_a_renderer_crash_marks_only_its_own_launch(

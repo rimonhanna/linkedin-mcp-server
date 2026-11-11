@@ -624,8 +624,21 @@ class BrowserManager:
             self._page.on("crash", self._note_page_crash)
             # Before the first navigation, while the page has one session to
             # answer. Registered mid-session, after /feed/, the same call was
-            # measured never returning.
-            await register_read_state_routes(self._page)
+            # measured never returning. A page route turns on Fetch
+            # interception and disables the cache for this page from its first
+            # navigation; the context route above already does that, so only
+            # BLOCK_SUBRESOURCES=0 differs (docs/browser-fingerprint.md).
+            try:
+                await register_read_state_routes(self._page)
+            except Exception:
+                # Not fatal: every other tool works without these routes, and a
+                # messaging read refuses on its own (the guard keeps the failure
+                # or the pending registration and never reads unguarded).
+                logger.warning(
+                    "Read-state routes did not register at launch; messaging "
+                    "reads will refuse until they do",
+                    exc_info=True,
+                )
 
             logger.info("Browser context and page ready")
 

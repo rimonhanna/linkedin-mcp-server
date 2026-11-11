@@ -271,6 +271,22 @@ either, because it is implied rather than skipped: the windowless path fails
 closed, so a run that produced these values had a hidden target and no window.
 That is an inference, not a CoreGraphics poll like the 148 row was.
 
+## Request interception
+
+Read from the Patchright 1.61.2 driver source on 2026-11-11, not measured
+against the detectors above.
+
+Any route, page or context, makes Patchright enable `Fetch` interception and
+send `Network.setCacheDisabled: true` to the page's sessions
+(`CRNetworkManager.setRequestInterception`; `needsRequestInterception()` is
+true once either level has a route). With the default `BLOCK_SUBRESOURCES` the
+context-wide `**/*` route already does this for every page from launch.
+`BrowserManager.start()` also routes the working page for the two messaging
+read-state endpoints before its first navigation, so with
+`BLOCK_SUBRESOURCES=0` the page still runs with interception on and the HTTP
+cache disabled from its first navigation. That was not the case before
+2026-11-11, when those routes were added only at the first messaging read.
+
 ## Things that look like fixes and are not
 
 - **`--user-agent` as a browser switch.** Reaches every target including
