@@ -96,6 +96,35 @@ class TestExtractPage:
         assert result.references == []
         mock_page.goto.assert_awaited_once()
 
+    async def test_extract_page_reports_where_it_landed(self, mock_page):
+        """A client-side redirect leaves the text with no sign of it."""
+        mock_page.evaluate = AsyncMock(
+            return_value={"source": "root", "text": "Some jobs", "references": []}
+        )
+        mock_page.url = "https://www.linkedin.com/jobs/search-results/?keywords=jobs"
+        capture = _capture(mock_page)
+        with (
+            patch(
+                "linkedin_mcp_server.scraping.session.scroll_to_bottom",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.session.detect_rate_limit",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.session.handle_modal_close",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            result = await capture.extract_page(
+                "https://www.linkedin.com/jobs/search/?f_C=1035",
+                section_name="jobs",
+            )
+
+        assert result.landed_url == mock_page.url
+
     async def test_extract_page_adapts_the_url_to_an_explicit_plan(self, mock_page):
         capture = _capture(mock_page)
         url = "https://www.linkedin.com/in/testuser/recent-activity/all/"

@@ -167,6 +167,11 @@ class TestBuildJobSearchUrl:
     def test_empty_keywords_still_produce_the_parameter(self):
         assert build_job_search_url("") == f"{JOBS}keywords="
 
+    def test_a_company_filter_follows_the_place(self):
+        assert build_job_search_url("", geo_id="92000000", company_id="1035") == (
+            f"{JOBS}keywords=&geoId=92000000&f_C=1035"
+        )
+
     def test_location_is_percent_encoded(self):
         assert build_job_search_url("python", location="New York") == (
             f"{JOBS}keywords=python&location=New+York"

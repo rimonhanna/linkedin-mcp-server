@@ -243,6 +243,11 @@ class ExtractedSection:
     text: str
     references: list[Reference]
     error: dict[str, Any] | None = None
+    # Where the browser was when the text was read, set only on a page that
+    # yielded text. LinkedIn can move a navigation client-side to a different
+    # page (the job search to its AI search), and a caller that has to know
+    # which page it read cannot tell from the text.
+    landed_url: str | None = None
 
 
 class FilterValidationError(ValueError):
