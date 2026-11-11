@@ -419,7 +419,7 @@ On startup, the MCP Bundle starts preparing the shared Patchright Chromium brows
 <details>
 <summary>Use your own Chrome</summary>
 
-- Set **Chrome executable** in the extension's settings to a Chrome, Chromium or Chrome for Testing binary, such as `/usr/bin/google-chrome`. Leave it blank to keep the bundled Chromium. It sets `CHROME_PATH`, described under *Custom Chrome path* in the [uvx setup help](#uvx-setup-help).
+- Set **Chrome executable** in the extension's settings to a Chrome, Chromium or Chrome for Testing binary, such as `/usr/bin/google-chrome`. On macOS pick the binary inside the `.app`, not the `.app` itself: `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`. Leave it blank to keep the bundled Chromium. It sets `CHROME_PATH`, described under *Custom Chrome path* in the [uvx setup help](#uvx-setup-help).
 - This is the fix when tool calls refuse to open the profile because a newer browser last opened it: point the setting at that newer browser instead of signing in again.
 
 </details>

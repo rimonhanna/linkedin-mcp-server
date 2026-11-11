@@ -35,6 +35,20 @@ class TestBrowserConfig:
         with pytest.raises(ConfigurationError):
             BrowserConfig(default_timeout=-1).validate()
 
+    def test_chrome_path_app_bundle_names_the_executable_inside(self, tmp_path):
+        app = tmp_path / "Google Chrome.app"
+        app.mkdir()
+        config = BrowserConfig(chrome_path=str(app))
+        with pytest.raises(ConfigurationError) as caught:
+            config.validate()
+        assert str(app / "Contents" / "MacOS" / "Google Chrome") in str(caught.value)
+
+    def test_chrome_path_plain_directory_gets_no_bundle_hint(self, tmp_path):
+        config = BrowserConfig(chrome_path=str(tmp_path))
+        with pytest.raises(ConfigurationError, match="is not a file") as caught:
+            config.validate()
+        assert "Contents" not in str(caught.value)
+
     def test_validate_negative_slow_mo(self):
         with pytest.raises(ConfigurationError):
             BrowserConfig(slow_mo=-1).validate()
@@ -428,6 +442,13 @@ class TestLoaders:
 
         config = load_from_env(AppConfig())
         assert config.server.log_level == "DEBUG"
+
+    @pytest.mark.parametrize("value", ["WARN", " warn "])
+    def test_load_from_env_log_level_warn_is_warning(self, monkeypatch, value):
+        monkeypatch.setenv("LOG_LEVEL", value)
+        from linkedin_mcp_server.config.loaders import load_from_env
+
+        assert load_from_env(AppConfig()).server.log_level == "WARNING"
 
     @pytest.mark.parametrize("bad_value", ["chatty", "CRITICAL", "NOTSET"])
     def test_load_from_env_invalid_log_level(self, monkeypatch, bad_value):

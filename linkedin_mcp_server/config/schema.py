@@ -308,8 +308,14 @@ class BrowserConfig:
                     f"chrome_path '{self.chrome_path}' does not exist"
                 )
             if not chrome_path.is_file():
+                hint = ""
+                if chrome_path.suffix == ".app":
+                    # A macOS app bundle is a directory; the browser is the
+                    # executable inside it.
+                    inner = chrome_path / "Contents" / "MacOS" / chrome_path.stem
+                    hint = f". Choose the executable inside the app, '{inner}'"
                 raise ConfigurationError(
-                    f"chrome_path '{self.chrome_path}' is not a file"
+                    f"chrome_path '{self.chrome_path}' is not a file{hint}"
                 )
         self._normalize_proxy()
 

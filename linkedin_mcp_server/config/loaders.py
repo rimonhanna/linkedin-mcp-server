@@ -296,6 +296,9 @@ def load_from_env(config: AppConfig) -> AppConfig:
     # default level while reading as though the setting had applied.
     if log_level_env := os.environ.get(EnvironmentKeys.LOG_LEVEL):
         log_level_upper = log_level_env.strip().upper()
+        # The stdlib treats WARN as WARNING, so a user coming from it may too.
+        if log_level_upper == "WARN":
+            log_level_upper = "WARNING"
         if log_level_upper not in ("DEBUG", "INFO", "WARNING", "ERROR"):
             raise ConfigurationError(
                 f"Invalid LOG_LEVEL: '{log_level_env}'. Must be one of "
