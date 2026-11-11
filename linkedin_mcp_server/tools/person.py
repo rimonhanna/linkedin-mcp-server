@@ -52,6 +52,20 @@ _INVITE_SUBMITTED = frozenset({"connected", "send_unverified"})
 _CONNECT_SUCCEEDED = frozenset(
     {"connected", "accepted", "pending", "already_connected"}
 )
+# How a withdraw_invitations run ended, as ``_withdraw_stop_kind`` names it. A
+# finished run and the server's own pacing stops need no explaining; a page
+# that could not be read, a dialog naming someone else, a LinkedIn throttle or
+# a withdrawal that could not be confirmed keeps the run's trace.
+_WITHDRAW_SUCCEEDED = frozenset(
+    {"finished", "deadline", "hourly_cap", "action_limit", "account_cooldown"}
+)
+
+
+def _withdraw_stop_kind(stopped_reason: object) -> str:
+    """Name a ``stopped_reason`` without the detail some carry after it."""
+    if stopped_reason is None:
+        return "finished"
+    return str(stopped_reason).split(":", 1)[0].split(" ", 1)[0]
 
 
 def _coerce_str_list(value: Any) -> Any:
@@ -528,6 +542,11 @@ def register_person_tools(
                 max_withdrawals=max_withdrawals,
                 dry_run=dry_run,
                 deadline=deadline,
+            )
+            retain_trace_for_failed_action(
+                "withdraw_invitations",
+                _withdraw_stop_kind(result.get("stopped_reason")),
+                succeeded=_WITHDRAW_SUCCEEDED,
             )
 
             await ctx.report_progress(progress=100, total=100, message="Complete")

@@ -356,6 +356,22 @@ class TestReferencesThisServerEmits:
 
     @pytest.mark.parametrize(
         "value",
+        [
+            "new",
+            "/messaging/thread/new/",
+            "https://www.linkedin.com/messaging/thread/new/?recipient=ACoAAB",
+            "/messaging/thread/%6Eew/",
+        ],
+    )
+    def test_the_new_message_composer_is_not_a_thread(self, value):
+        with pytest.raises(InvalidReferenceError, match="new-message composer"):
+            normalize_thread_id(value)
+
+    def test_a_thread_id_starting_with_new_is_kept(self):
+        assert normalize_thread_id("new-existing") == "new-existing"
+
+    @pytest.mark.parametrize(
+        "value",
         [PROFILE_ID, f"urn:li:fsd_profile:{PROFILE_ID}"],
     )
     def test_profile_urn_preserves_each_supported_form(self, value: str):

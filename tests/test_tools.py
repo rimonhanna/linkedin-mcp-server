@@ -1744,11 +1744,11 @@ class TestMessagingTools:
     ):
         """The last await can discard an answer that says a message went out.
 
-        `ctx.report_progress` is the final await inside FastMCP's
-        `anyio.fail_after()`, so a deadline landing there raises
-        `CancelledError` past `except Exception` and throws away the result
-        the send already produced. Nothing can hand it back afterwards, and
-        the log line is then the only record.
+        `ctx.report_progress` is the final await of the tool. The tool's own
+        deadline no longer reaches it, but a cancellation from outside still
+        raises `CancelledError` past `except Exception` and throws away the
+        result the send already produced. Nothing can hand it back
+        afterwards, and the log line is then the only record.
 
         Silent where the result says a retry is safe: nothing was submitted,
         so there is no duplicate delivery to warn about. That is `retry_safe`
@@ -1870,6 +1870,122 @@ def _kind_spent(tmp_path, kind: str) -> int:
     return load_account_budget(JobStore(tmp_path / "jobs"), now).ledger.spent_kind(
         kind, now
     )
+
+
+#: Every status send_message and reply_to_conversation return from the page,
+#: and whether it keeps the run's trace.
+_SEND_TRACE_KEPT = {
+    "compose_interact_failed": True,
+    "composer_occupied": True,
+    "composer_unavailable": True,
+    "confirmation_required": False,
+    "message_unavailable": True,
+    "recipient_resolution_failed": True,
+    "send_unavailable": True,
+    "send_unconfirmed": True,
+    "sent": False,
+}
+
+
+def test_send_statuses_are_the_senders_own():
+    """The table covers every page status the sender builds, and only those."""
+    import ast
+    import inspect
+
+    from linkedin_mcp_server.scraping import message_sender
+    from linkedin_mcp_server.tools.messaging import _SEND_SUCCEEDED
+
+    builders = {"message_action_result", "reply_action_result", "respond"}
+    statuses = {
+        call.args[1].value
+        for call in ast.walk(ast.parse(inspect.getsource(message_sender)))
+        if isinstance(call, ast.Call)
+        and (
+            call.func.attr
+            if isinstance(call.func, ast.Attribute)
+            else getattr(call.func, "id", None)
+        )
+        in builders
+        and len(call.args) > 1
+        and isinstance(call.args[1], ast.Constant)
+        and isinstance(call.args[1].value, str)
+    }
+
+    assert set(_SEND_TRACE_KEPT) == statuses
+    assert _SEND_SUCCEEDED == {
+        status for status, kept in _SEND_TRACE_KEPT.items() if not kept
+    }
+
+
+class TestFailedWritesKeepTheirTrace:
+    """A write that failed as a returned status, not raised, keeps evidence."""
+
+    @pytest.mark.parametrize(("status", "kept"), sorted(_SEND_TRACE_KEPT.items()))
+    async def test_send_message(self, mock_context, status, kept):
+        from linkedin_mcp_server.debug_trace import should_keep_traces
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "send_message")
+        await tool_fn(
+            "testuser",
+            "Hello!",
+            True,
+            mock_context,
+            extractor=_make_mock_extractor(
+                {"status": status, "sent": False, "retry_safe": True}
+            ),
+        )
+
+        assert should_keep_traces() is kept
+
+    @pytest.mark.parametrize(("status", "kept"), sorted(_SEND_TRACE_KEPT.items()))
+    async def test_reply_to_conversation(self, mock_context, status, kept):
+        from linkedin_mcp_server.debug_trace import should_keep_traces
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        extractor = _make_mock_extractor({})
+        extractor.reply_to_conversation = AsyncMock(
+            return_value={"status": status, "sent": False, "retry_safe": True}
+        )
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "reply_to_conversation")
+        await tool_fn("2-abc==", "Hello!", False, mock_context, extractor=extractor)
+
+        assert should_keep_traces() is kept
+
+    @pytest.mark.parametrize(
+        ("stopped_reason", "kept"),
+        [
+            (None, False),
+            ("deadline", False),
+            ("hourly_cap", False),
+            ("action_limit: daily cap reached", False),
+            ("account_cooldown until 2026-11-11T12:00:00+00:00", False),
+            ("no_rows_found", True),
+            ("list_not_fully_loaded", True),
+            ("confirmation_dialog_name_mismatch", True),
+            ("confirmation_dialog_still_open", True),
+            ("throttled: rate limited", True),
+            ("error: TimeoutError: page closed", True),
+        ],
+    )
+    async def test_withdraw_invitations(self, mock_context, stopped_reason, kept):
+        from linkedin_mcp_server.debug_trace import should_keep_traces
+        from linkedin_mcp_server.tools.person import register_person_tools
+
+        extractor = _make_mock_extractor({})
+        extractor.withdraw_invitations = AsyncMock(
+            return_value={"withdrawn": [], "stopped_reason": stopped_reason}
+        )
+        mcp = FastMCP("test")
+        register_person_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "withdraw_invitations")
+        await tool_fn(mock_context, dry_run=False, extractor=extractor)
+
+        assert should_keep_traces() is kept
 
 
 class TestWritesAreCappedAtTheAction:
@@ -2007,6 +2123,117 @@ class TestWritesAreCappedAtTheAction:
 
         extractor.send_message.assert_awaited_once()
         assert _kind_spent(tmp_path, MESSAGES) == 1
+
+    async def _reply(self, result: dict, mock_context, *, confirm_send=True):
+        mock_extractor = _make_mock_extractor({})
+        mock_extractor.reply_to_conversation = AsyncMock(return_value=result)
+
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "reply_to_conversation")
+        await tool_fn(
+            "2-abc==", "Hello!", confirm_send, mock_context, extractor=mock_extractor
+        )
+        return mock_extractor
+
+    async def test_a_reply_that_left_or_may_have_is_counted(
+        self, mock_context, tmp_path
+    ):
+        await self._reply(
+            {"status": "sent", "sent": True, "retry_safe": False}, mock_context
+        )
+        await self._reply(
+            {"status": "send_unconfirmed", "sent": False, "retry_safe": False},
+            mock_context,
+        )
+        assert _kind_spent(tmp_path, MESSAGES) == 2
+
+    async def test_a_reply_that_never_left_is_not_counted(self, mock_context, tmp_path):
+        await self._reply(
+            {"status": "composer_unavailable", "sent": False, "retry_safe": True},
+            mock_context,
+        )
+        assert _kind_spent(tmp_path, MESSAGES) == 0
+
+    async def test_a_capped_reply_is_refused_before_the_browser(
+        self, mock_context, tmp_path, monkeypatch
+    ):
+        """A reply shares the messages cap with send_message."""
+        monkeypatch.setenv(EnvironmentKeys.MESSAGES_MAX, "1")
+        await self._send(
+            {"status": "sent", "sent": True, "retry_safe": False}, mock_context
+        )
+
+        with pytest.raises(ToolError, match="limit_exceeded: messages"):
+            await self._reply({"status": "sent", "sent": True}, mock_context)
+
+        assert _kind_spent(tmp_path, MESSAGES) == 1
+
+    async def test_a_reply_dry_run_is_not_gated(
+        self, mock_context, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv(EnvironmentKeys.MESSAGES_MAX, "1")
+        await self._send(
+            {"status": "sent", "sent": True, "retry_safe": False}, mock_context
+        )
+
+        extractor = await self._reply(
+            {"status": "confirmation_required", "sent": False, "retry_safe": True},
+            mock_context,
+            confirm_send=False,
+        )
+
+        extractor.reply_to_conversation.assert_awaited_once()
+        assert _kind_spent(tmp_path, MESSAGES) == 1
+
+
+class TestReplyToConversationTool:
+    async def test_send_message_description_points_replies_elsewhere(self):
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool = await mcp.get_tool("send_message")
+
+        assert tool is not None
+        assert "reply_to_conversation" in (tool.description or "")
+        assert "Until a thread-targeted send" not in (tool.description or "")
+
+    async def test_an_invalid_reply_is_refused_before_a_session(self, mock_context):
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "reply_to_conversation")
+        with patch(
+            "linkedin_mcp_server.tools.messaging.get_ready_extractor",
+            new_callable=AsyncMock,
+        ) as ready:
+            result = await tool_fn("2-abc==", "  ", True, mock_context)
+
+        ready.assert_not_awaited()
+        assert result["status"] == "invalid_message"
+        assert result["thread_id"] == "2-abc=="
+        assert result["participant"] is None
+
+    async def test_the_composer_sentinel_is_not_a_thread(self, mock_context):
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "reply_to_conversation")
+        with (
+            patch(
+                "linkedin_mcp_server.tools.messaging.get_ready_extractor",
+                new_callable=AsyncMock,
+            ) as ready,
+            pytest.raises(ToolError, match="new-message composer"),
+        ):
+            await tool_fn("new", "Hello!", True, mock_context)
+
+        ready.assert_not_awaited()
 
 
 class TestGetMyProfileTool:

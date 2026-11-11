@@ -51,6 +51,7 @@ PUBLIC_SIGNATURES = {
     "search_posts": "(self, keywords: 'str', date_posted: 'str | None' = None, max_posts: 'int' = 10, content_type: 'str | None' = None) -> 'dict[str, Any]'",
     "withdraw_invitations": "(self, older_than_days: 'int', *, exclude_usernames: 'list[str] | None' = None, max_withdrawals: 'int' = 20, dry_run: 'bool' = True, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
+    "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
 }
 
 DELEGATES = {
@@ -74,6 +75,7 @@ DELEGATES = {
     "search_people": ("_person", "search_people"),
     "search_posts": ("_posts", "search_posts"),
     "send_message": ("_message_sender", "send_message"),
+    "reply_to_conversation": ("_message_sender", "reply_to_conversation"),
     "withdraw_invitations": ("_connection", "withdraw_invitations"),
 }
 
@@ -98,6 +100,7 @@ DELEGATE_CALLS = {
     "search_people": "self._person.search_people(keywords, location=location, network=network, current_company=current_company, max_pages=max_pages, title=title, past_company=past_company, industry=industry, school=school, first_name=first_name, last_name=last_name, profile_language=profile_language)",
     "search_posts": "self._posts.search_posts(keywords, date_posted=date_posted, max_posts=max_posts, content_type=content_type)",
     "send_message": "self._message_sender.send_message(linkedin_username, message, confirm_send=confirm_send, profile_urn=profile_urn)",
+    "reply_to_conversation": "self._message_sender.reply_to_conversation(thread_id, message, confirm_send=confirm_send)",
     "withdraw_invitations": "self._connection.withdraw_invitations(older_than_days, exclude_usernames=exclude_usernames, max_withdrawals=max_withdrawals, dry_run=dry_run, deadline=deadline)",
 }
 

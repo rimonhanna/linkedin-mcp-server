@@ -8,6 +8,7 @@ JavaScript in headless Chromium without making a LinkedIn request or write.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from unittest.mock import AsyncMock, patch
@@ -477,12 +478,14 @@ async def send(
         )
 
 
-async def read_profile_target(page, html: str) -> _ProfileMessageTargetResolution:
+async def read_profile_target(
+    page, html: str, *, query: str = ""
+) -> _ProfileMessageTargetResolution:
     async def fulfill(route):
         await route.fulfill(status=200, content_type="text/html", body=html)
 
     await page.route("https://www.linkedin.com/**", fulfill)
-    await page.goto(f"https://www.linkedin.com{PROFILE_PATH}")
+    await page.goto(f"https://www.linkedin.com{PROFILE_PATH}{query}")
     return await _sender(page)._read_profile_message_target()
 
 
@@ -570,6 +573,25 @@ class TestProfileMessageTargetDom:
         assert target.display_name == "Alice"
         assert target.profile_urn == "ACoAAB"
         assert target.compose_url == COMPOSE_URL
+
+    # Since late September 2026 LinkedIn lands /in/<name>/ on
+    # /in/<name>/?isSelfProfile=false (upstream #1181). The page script
+    # resolved that card all along; the URL check after it refused every
+    # recipient.
+    async def test_redesigned_profile_url_resolves_its_top_card(self, dom_page):
+        html = profile_page(
+            f'<section><h1>{DISPLAY_NAME}</h1><a href="{COMPOSE_URL}">message</a>'
+            "</section>"
+        )
+
+        resolution = await read_profile_target(
+            dom_page, html, query="?isSelfProfile=false"
+        )
+
+        assert resolution.status == "resolved"
+        assert resolution.target is not None
+        assert resolution.target.profile_path == PROFILE_PATH
+        assert resolution.target.profile_urn == "ACoAAB"
 
     async def test_later_sections_never_compete_with_first_top_card(self, dom_page):
         card = (
@@ -1325,6 +1347,36 @@ class TestSendConfirmationDom:
         assert result["status"] == "send_unconfirmed"
         assert result["retry_safe"] is False
 
+    async def test_new_message_route_opening_a_thread_is_confirmed(self, dom_page):
+        # /messaging/thread/new/ is the composer, so the first message moving
+        # it to a real thread is a new thread, not a send leaving its thread.
+        html = compose_page(
+            "history.replaceState({}, '', '/messaging/thread/new/');"
+            + PANE_REMOUNT_SEND_JS
+            + "remountTo('/messaging/thread/2-abc==/', "
+            "['urn:li:msg_message:(self,server-first)']);"
+        )
+
+        result = await send(dom_page, html)
+
+        assert result["status"] == "sent"
+        assert result["sent"] is True
+
+    async def test_leaving_a_thread_for_the_new_message_route_is_not_confirmed(
+        self, dom_page
+    ):
+        html = compose_page(
+            "history.replaceState({}, '', '/messaging/thread/2-open==/');"
+            + PANE_REMOUNT_SEND_JS
+            + "remountTo('/messaging/thread/new/', "
+            "['urn:li:msg_message:(self,server-first)']);"
+        )
+
+        result = await send(dom_page, html)
+
+        assert result["status"] == "send_unconfirmed"
+        assert result["retry_safe"] is False
+
     async def test_older_history_loaded_above_is_not_confirmed(self, dom_page):
         result = await send(dom_page, compose_page(OLDER_HISTORY_SEND_JS))
 
@@ -1470,3 +1522,216 @@ class TestSendConfirmationDom:
         assert (await dom_page.locator("#composer").inner_text()).strip() == MESSAGE
         with pytest.raises(Exception, match="closed"):
             await captured["owner"].evaluate("owner => owner.isConnected")
+
+
+def _sent(result: dict) -> bool:
+    return result["status"] == "sent" and result["sent"] is True
+
+
+def _unconfirmed(result: dict) -> bool:
+    return (
+        result["status"] == "send_unconfirmed"
+        and result["sent"] is False
+        and result["retry_safe"] is False
+    )
+
+
+def acknowledging_page(
+    arm: str, *, start: str | None = None, leave_to: str | None = None
+) -> str:
+    """A compose page whose click answers on one arm, maybe after a route change."""
+    start_js = f"history.replaceState({{}}, '', {json.dumps(start)});" if start else ""
+    leave_js = (
+        f"history.pushState({{}}, '', {json.dumps(leave_to)});" if leave_to else ""
+    )
+    if arm == "opaque":
+        ack = """
+          const entry = messageItem(text, 'client-opaque-id');
+          document.getElementById('thread').appendChild(entry);
+          setTimeout(() => {
+            entry.setAttribute('data-event-urn', 'server-opaque-id');
+          }, 0);
+          composer.textContent = '';
+        """
+    elif arm == "server":
+        ack = """
+          const placeholder = messageItem(text, 'client-uuid');
+          document.getElementById('thread').appendChild(placeholder);
+          composer.textContent = '';
+          setTimeout(() => {
+            document.getElementById('thread').appendChild(
+              messageItem(text, 'urn:li:msg_message:(self,server-new)', SELF_URN));
+            placeholder.remove();
+          }, 50);
+        """
+    else:
+        raise AssertionError(arm)
+    return compose_page(
+        f"""
+          {start_js}
+          document.getElementById('send').addEventListener('click', event => {{
+            event.preventDefault();
+            document.body.dataset.clicked = 'true';
+            {leave_js}
+            const composer = document.getElementById('composer');
+            const text = composer.innerText;
+            {ack}
+          }});
+        """
+    )
+
+
+_ROUTE_ARMS = ["opaque", "server"]
+_OPEN_THREAD = "/messaging/thread/2-open==/"
+_OTHER_THREAD = "/messaging/thread/2-other==/"
+_COMPOSE_PATH = "/messaging/compose/?recipient=ACoAAB"
+_COMPOSE_PATHS = [_COMPOSE_PATH, "/messaging/thread/new/"]
+
+
+@pytest.mark.parametrize("arm", _ROUTE_ARMS)
+class TestConfirmationThread:
+    """The thread id is the path the confirmation itself observed."""
+
+    async def test_the_same_thread_confirms(self, dom_page, arm):
+        result = await send(dom_page, acknowledging_page(arm, start=_OPEN_THREAD))
+
+        assert _sent(result), result
+        assert result["thread_id"] == "2-open=="
+
+    async def test_a_move_to_another_thread_does_not_confirm(self, dom_page, arm):
+        result = await send(
+            dom_page,
+            acknowledging_page(arm, start=_OPEN_THREAD, leave_to=_OTHER_THREAD),
+        )
+
+        assert _unconfirmed(result), result
+        assert "thread_id" not in result
+        assert await dom_page.evaluate("document.body.dataset.clicked") == "true"
+
+    @pytest.mark.parametrize("compose_path", _COMPOSE_PATHS)
+    async def test_leaving_a_thread_for_compose_does_not_confirm(
+        self, dom_page, arm, compose_path
+    ):
+        result = await send(
+            dom_page,
+            acknowledging_page(arm, start=_OPEN_THREAD, leave_to=compose_path),
+        )
+
+        assert _unconfirmed(result), result
+        assert "thread_id" not in result
+        assert await dom_page.evaluate("document.body.dataset.clicked") == "true"
+
+    @pytest.mark.parametrize("compose_path", _COMPOSE_PATHS)
+    async def test_compose_staying_on_compose_has_no_thread(
+        self, dom_page, arm, compose_path
+    ):
+        result = await send(dom_page, acknowledging_page(arm, start=compose_path))
+
+        assert _sent(result), result
+        assert result["thread_id"] is None
+
+    async def test_compose_redirect_to_new_has_no_thread(self, dom_page, arm):
+        result = await send(
+            dom_page,
+            acknowledging_page(arm, leave_to="/messaging/thread/new/"),
+        )
+
+        assert _sent(result), result
+        assert result["thread_id"] is None
+
+    async def test_thread_id_is_the_snapshot_not_a_later_route(self, dom_page, arm):
+        from patchright.async_api import JSHandle
+
+        original = JSHandle.json_value
+
+        async def json_value(self):
+            value = await original(self)
+            if (
+                isinstance(value, dict)
+                and value.get("path") == "/messaging/thread/2-open==/"
+            ):
+                await dom_page.evaluate(
+                    "() => history.pushState({}, '', '/messaging/thread/2-later==/')"
+                )
+            return value
+
+        with patch.object(JSHandle, "json_value", json_value):
+            result = await send(dom_page, acknowledging_page(arm, start=_OPEN_THREAD))
+
+        assert _sent(result), result
+        assert result["thread_id"] == "2-open=="
+        assert dom_page.url.endswith("/messaging/thread/2-later==/")
+
+
+class TestConfirmationThreadTransitions:
+    """Compose sends that land on a thread, on either arm."""
+
+    @pytest.mark.parametrize("compose_path", _COMPOSE_PATHS)
+    async def test_compose_opening_a_thread_reports_that_thread(
+        self, dom_page, compose_path
+    ):
+        html = compose_page(
+            f"history.replaceState({{}}, '', {json.dumps(compose_path)});"
+            + PANE_REMOUNT_SEND_JS
+            + "remountTo('/messaging/thread/2-abc==/', "
+            "['urn:li:msg_message:(self,server-first)']);"
+        )
+
+        result = await send(dom_page, html)
+
+        assert _sent(result), result
+        assert result["thread_id"] == "2-abc=="
+        assert await dom_page.locator("#conversation").count() == 0
+
+    async def test_a_compose_thread_with_history_does_not_confirm(self, dom_page):
+        """Prior history and no recipient header is some other conversation.
+
+        Both arms: a candidate must not confirm a pane the server arm refuses.
+        """
+        result = await send(
+            dom_page,
+            acknowledging_page("opaque", leave_to="/messaging/thread/2-kept==/"),
+        )
+
+        assert _unconfirmed(result), result
+        assert "thread_id" not in result
+        assert (
+            await dom_page.locator('[data-view-name="message-list-item"]').count() >= 2
+        )
+
+    async def test_owner_preserving_compose_to_thread_confirms(self, dom_page):
+        """The owner stays, and the pane is one new thread.
+
+        One visible item and the recipient linked outside the messages, which
+        is the transition both arms admit. The section is not remounted.
+        """
+        result = await send(
+            dom_page,
+            compose_page(
+                """
+                  document.getElementById('send').addEventListener('click', event => {
+                    event.preventDefault();
+                    document.body.dataset.clicked = 'true';
+                    const composer = document.getElementById('composer');
+                    const text = composer.innerText;
+                    composer.textContent = '';
+                    history.pushState({}, '', '/messaging/thread/2-kept==/');
+                    const thread = document.getElementById('thread');
+                    thread.replaceChildren();
+                    const header = document.createElement('a');
+                    header.href = 'https://www.linkedin.com/in/fadi-eliwi/';
+                    header.textContent = 'Participant';
+                    thread.before(header);
+                    const entry = messageItem(text, 'client-opaque-id');
+                    thread.appendChild(entry);
+                    setTimeout(() => {
+                      entry.setAttribute('data-event-urn', 'server-opaque-id');
+                    }, 0);
+                  });
+                """
+            ),
+        )
+
+        assert _sent(result), result
+        assert result["thread_id"] == "2-kept=="
+        assert await dom_page.locator("#conversation").count() == 1
