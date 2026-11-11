@@ -348,31 +348,45 @@ def reaches_the_public_internet(host: str) -> bool:
     return address.is_global
 
 
+# How many interstitials one apply link may be wrapped in. LinkedIn wraps the
+# employer's address once; the bound only keeps a link nested on purpose from
+# costing more than a few parses.
+_MAX_INTERSTITIAL_UNWRAPS = 3
+
+
 def employer_apply_url(href: str) -> str | None:
     """The employer's address an apply link leads to, or None.
 
     The interstitial answers with its destination, and any other address off
     LinkedIn answers as itself. A LinkedIn page that is not the interstitial is
     not the employer's site, so it answers None rather than passing for one.
-    An address that never leaves this host is refused the same way. Nothing
-    here loads the address, and nothing else in the server may either.
+    An address that never leaves this host is refused the same way, and so is
+    one carrying credentials, which no employer's form needs and which hides
+    the host from a reader. Nothing here loads the address, and nothing else
+    in the server may either.
     """
-    parsed = urlparse(href)
-    host = parsed.hostname
-    if parsed.scheme not in ("http", "https") or not host:
-        return None
-    # Chromium decodes host escapes and treats a backslash as a slash;
-    # urllib.parse does neither. Do not validate one host and hand out another.
-    if "%" in host or "\\" in parsed.netloc:
-        return None
-    if not reaches_the_public_internet(host):
-        return None
-    if host != "linkedin.com" and not host.endswith(".linkedin.com"):
-        return href
-    if parsed.path.rstrip("/") != SAFETY_REDIRECT_PATH:
-        return None
-    destination = parse_qs(parsed.query).get("url", [""])[0]
-    return employer_apply_url(destination) if destination else None
+    for _ in range(_MAX_INTERSTITIAL_UNWRAPS + 1):
+        parsed = urlparse(href)
+        host = parsed.hostname
+        if parsed.scheme not in ("http", "https") or not host:
+            return None
+        if parsed.username is not None or parsed.password is not None:
+            return None
+        # Chromium decodes host escapes and treats a backslash as a slash;
+        # urllib.parse does neither. Do not validate one host and hand out
+        # another.
+        if "%" in host or "\\" in parsed.netloc:
+            return None
+        if not reaches_the_public_internet(host):
+            return None
+        if host != "linkedin.com" and not host.endswith(".linkedin.com"):
+            return href
+        if parsed.path.rstrip("/") != SAFETY_REDIRECT_PATH:
+            return None
+        href = parse_qs(parsed.query).get("url", [""])[0]
+        if not href:
+            return None
+    return None
 
 
 def apply_link_missing_section_error() -> dict[str, str]:

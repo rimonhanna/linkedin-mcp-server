@@ -244,6 +244,42 @@ class TestEmployerApplyUrl:
 
         assert employer_apply_url(url) == url
 
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://www.linkedin.com@evil.example/jobs/1",
+            "https://user:secret@jobs.example.com/apply",
+            "https://:secret@jobs.example.com/apply",
+        ],
+    )
+    def test_an_address_carrying_credentials_is_not_an_employer(self, url):
+        """Userinfo hides the real host from whoever reads the link."""
+        assert employer_apply_url(url) is None
+
+    def test_credentials_behind_the_interstitial_are_refused_too(self):
+        href = "https://www.linkedin.com/safety/go/?url=" + quote(
+            "https://www.linkedin.com@evil.example/", safe=""
+        )
+
+        assert employer_apply_url(href) is None
+
+    @staticmethod
+    def _wrapped(destination: str, times: int) -> str:
+        for _ in range(times):
+            destination = "https://www.linkedin.com/safety/go/?url=" + quote(
+                destination, safe=""
+            )
+        return destination
+
+    def test_a_few_interstitials_are_unwrapped(self):
+        url = "https://jobs.example.com/apply"
+
+        assert employer_apply_url(self._wrapped(url, 3)) == url
+
+    def test_interstitials_nested_past_the_cap_answer_none(self):
+        """Bounded rather than recursive: a link nested on purpose stops early."""
+        assert employer_apply_url(self._wrapped("https://jobs.example.com/", 4)) is None
+
 
 class TestPostingState:
     @pytest.mark.parametrize(
