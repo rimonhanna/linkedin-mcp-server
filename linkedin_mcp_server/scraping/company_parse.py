@@ -54,8 +54,12 @@ _ABOUT_FIELDS = {
     "website": re.compile(r"^\s*Website\s*[:\n]\s*(\S+)$", re.I | re.M),
     "founded": re.compile(r"^\s*Founded\s*[:\n]\s*(.+)$", re.I | re.M),
     # "Company type" (e.g. "Privately Held") sits next to "Company size"; the
-    # label is matched whole so neither row can be read as the other.
-    "company_type": re.compile(r"^\s*Company type\s*[:\n]\s*(.+)$", re.I | re.M),
+    # label is matched whole so neither row can be read as the other. The
+    # live About page labels the row plain "Type" (Microsoft, 2026-11-11);
+    # whole-line, so "Typical time on-site" and prose never match.
+    "company_type": re.compile(
+        r"^\s*(?:Company type|Type)\s*[:\n]\s*(.+)$", re.I | re.M
+    ),
     # Kept as LinkedIn's own comma-separated string, not split: the list is
     # free text the company typed, and a split would only invent structure.
     "specialties": re.compile(r"^\s*Specialties\s*[:\n]\s*(.+)$", re.I | re.M),

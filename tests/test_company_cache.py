@@ -522,6 +522,12 @@ class TestParseAbout:
         # read as the other.
         assert out["employee_count"] == "51-200 employees"
 
+    def test_type_is_a_whole_line_label_not_a_trailing_word(self):
+        # The live page labels the row plain "Type"; a line that merely ends
+        # in the word is prose and must not be read as the row.
+        out = parse_about("Acme\nWe hire for every role type\nFull-time\n")
+        assert "company_type" not in out
+
     def test_company_type_and_specialties_absent_when_unlabelled(self):
         out = parse_about("Acme\nPrivately Held\nWidgets, Gadgets\n")
         assert "company_type" not in out
@@ -662,6 +668,25 @@ _MS_ABOUT_LIVE = (
     "Headquarters\nRedmond, Washington\n"
     "Specialties\nBusiness Software, Developer Tools"
 )
+# The same page captured live 2026-11-11 by get_company_profile, trimmed to
+# the rows from Website to Specialties plus the "Typical time on-site" row
+# that follows them; blank lines between label and value are verbatim. The
+# type row is labelled plain "Type" here.
+_MS_ABOUT_LIVE_2026_11 = (
+    "Overview\n\n"
+    "Microsoft operates in 190 countries.\n\n"
+    "Website\n\nhttps://news.microsoft.com/\n\n"
+    "Verified page\n\nAugust 15, 2023\n\n"
+    "Industry\n\nSoftware Development\n\n"
+    "Company size\n\n10,001+ employees\n\n"
+    "212,621 associated members\n\n"
+    "223,628 affiliated members\n\n"
+    "Headquarters\n\nRedmond, Washington\n\n"
+    "Type\n\nPublic Company\n\n"
+    "Specialties\n\nBusiness Software, Developer Tools\n\n"
+    "Interested in working with us in the future?\n\n"
+    "Typical time on-site\n\nFlexible\n"
+)
 _GEARSET_ABOUT_LIVE = (
     "Gearset \n"
     "Software Development DevOps Software Cambridge 15K followers 201-500 employees\n"
@@ -707,6 +732,17 @@ class TestParseRealLinkedInPages:
         # NOT "29M", "10K+", or "233,215 associated members".
         assert ms["employee_count"] == "10,001+ employees"
         assert ms["specialties"] == "Business Software, Developer Tools"
+
+    def test_real_about_reads_the_type_row(self):
+        ms = parse_about(_MS_ABOUT_LIVE_2026_11)
+        assert ms == {
+            "industry": "Software Development",
+            "headquarters": "Redmond, Washington",
+            "website": "https://news.microsoft.com/",
+            "company_type": "Public Company",
+            "specialties": "Business Software, Developer Tools",
+            "employee_count": "10,001+ employees",
+        }
 
     def test_real_partner_about(self):
         g = parse_about(_GEARSET_ABOUT_LIVE)
