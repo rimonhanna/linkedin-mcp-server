@@ -92,12 +92,14 @@ _SENT_INVITATIONS_URL = "https://www.linkedin.com/mynetwork/invitation-manager/s
 
 # Anchors on the sent-invitations page whose path is exactly /in/<username>/.
 # ``new URL`` normalises relative and absolute hrefs; the trailing-slash
-# compare stops ``/in/itadic`` from matching ``/in/itadic2``.
+# compare stops ``/in/itadic`` from matching ``/in/itadic2``. Scoped to
+# <main>: the global nav links the account's own profile, which would
+# answer yes for a check against the account itself.
 _SENT_LIST_HAS_USER_JS = r"""
 (username) => {
   // pathname comes back percent-encoded; vanity names may be non-ASCII.
   const want = ("/in/" + encodeURIComponent(username) + "/").toLowerCase();
-  return [...document.querySelectorAll('a[href*="/in/"]')].some((a) => {
+  return [...document.querySelectorAll('main a[href*="/in/"]')].some((a) => {
     try {
       const path = new URL(a.href, location.origin).pathname.toLowerCase();
       return path === want || path === want.slice(0, -1);
@@ -135,34 +137,65 @@ _PAGE_ALERTS_JS = r"""
 """
 
 # Shared JS helpers, inlined into every program below so one change to the
-# heuristics reaches all of them. Measured live 2026-11-11 on four profiles
-# (never invited, pending, 1st degree, incoming request):
+# heuristics reaches all of them. Measured live 2026-11-11 on five profiles
+# (never invited and Follow-primary, Connect-primary, pending, 1st degree,
+# incoming request):
 #
 # - The top card is the innermost <section> around the profile's
 #   /overlay/contact-info/ anchor; there is exactly one, and none in the
 #   `main aside` sidebar. `main` holds no h1, and its first <section> is the
 #   whole profile column (activity posts, a video player's menus), so
 #   neither of the older anchors scopes anything.
-# - The action row is rendered twice: the visible one and a hidden copy for
-#   the sticky header. Only rendered elements count, or every lookup
-#   answers twice.
+# - The action row is rendered twice: the in-flow one and a copy for the
+#   sticky header, hidden at the top of the page and shown once it scrolls.
+#   The profile read leaves the page scrolled to the bottom, so every
+#   program scrolls back to the top first; and where both copies are still
+#   rendered, the one outside a fixed or sticky container wins.
 # - More is a `button[aria-expanded]`. A cover video's player sits above the
 #   action row in the same section and carries expanders too, so the last
 #   rendered one is More. Its menu is portal-mounted outside <main> with no
 #   aria-controls link, and the page already holds hidden [role=menu]
 #   elements (video subtitle settings): the menu is the one that became
-#   rendered after the click.
+#   rendered after the click. It is read only once its last item is one of
+#   the profile links that close every measured menu (Report / Block, About
+#   this member: `a[role=menuitem]` to `/in/<vanity>/`); a menu read before
+#   that could be missing the Connect or Pending item.
 # - The connect state is `[componentkey^="ConnectButtonstate:"]`, suffixed
-#   `_connect` or `_pending`. On the measured profiles it lives only in the
-#   More menu; a key in the top card itself is honoured the same way. The
-#   sidebar cards carry the same keys for other members, which is one more
-#   reason the scope is the top card or its own menu, never the document.
+#   `_connect` or `_pending`, on the Connect / Pending anchor in the top card
+#   (Connect-primary) or in the More menu (everything else). The sidebar
+#   cards carry the same keys for other members, which is one more reason
+#   the scope is the top card or its own menu, never the document.
 _PROFILE_ACTION_FNS_JS = r"""
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Rendered and visible: a box, and not hidden by itself or an ancestor
+// (display, visibility, content-visibility, opacity).
 const isRendered = (el) => {
   const r = el.getBoundingClientRect();
-  return r.width > 0 && r.height > 0;
+  if (r.width <= 0 || r.height <= 0) return false;
+  return el.checkVisibility
+    ? el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true})
+    : getComputedStyle(el).visibility !== 'hidden';
 };
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function inStickyCopy(el, card) {
+  for (let node = el.parentElement; node && node !== card; node = node.parentElement) {
+    const position = getComputedStyle(node).position;
+    if (position === 'fixed' || position === 'sticky') return true;
+  }
+  return false;
+}
+// The rendered elements, preferring those outside a sticky copy whenever
+// any are; DOM order is kept.
+function inFlow(elements, card) {
+  const rendered = elements.filter(isRendered);
+  const flowing = rendered.filter((el) => !inStickyCopy(el, card));
+  return flowing.length ? flowing : rendered;
+}
+
+async function scrollToTop() {
+  if (window.scrollY === 0 && document.documentElement.scrollTop === 0) return;
+  window.scrollTo(0, 0);
+  await sleep(400);
+}
 
 function findTopCard(main) {
   const sections = new Set();
@@ -175,27 +208,38 @@ function findTopCard(main) {
 }
 
 function findMoreButton(card) {
-  const openers = [...card.querySelectorAll('button[aria-expanded]')].filter(isRendered);
+  const openers = inFlow([...card.querySelectorAll('button[aria-expanded]')], card);
   return openers.length ? openers[openers.length - 1] : null;
 }
 
 // The rendered controls carrying a connect-state key with this suffix. The
 // key sits on the clickable element and on its label wrapper, so both
 // resolve to the one control.
-function connectStateControls(scope, suffix) {
-  const controls = new Set();
+function connectStateControls(scope, suffix, card) {
   const selector =
     `[componentkey^="ConnectButtonstate:"][componentkey$="_${suffix}"]`;
-  for (const el of scope.querySelectorAll(selector)) {
-    if (!isRendered(el)) continue;
+  const controls = new Set();
+  for (const el of inFlow([...scope.querySelectorAll(selector)], card || scope)) {
     const control = el.closest('a, button, [role="menuitem"], [role="button"]');
     controls.add(control && scope.contains(control) ? control : el);
   }
   return [...controls];
 }
 
-// Click More and wait for its menu to render and stop growing. Returns
-// {clicked, menu}; menu is null when no single new menu settled in time.
+const PROFILE_PATH = /^\/in\/[^/]+\/?$/;
+function menuHasSettled(menu) {
+  const items = [...menu.querySelectorAll('[role="menuitem"]')];
+  const last = items[items.length - 1];
+  if (!last || last.tagName !== 'A') return false;
+  if ((last.getAttribute('componentkey') || '').startsWith('ConnectButtonstate:')) {
+    return false;
+  }
+  return PROFILE_PATH.test(last.pathname);
+}
+
+// Click More and wait for its menu to render, close with a profile link and
+// stop growing. Returns {clicked, menu}; menu is null when no single new
+// menu settled in time.
 async function openMoreMenu(card) {
   const more = findMoreButton(card);
   if (!more) return {clicked: false, menu: null};
@@ -220,7 +264,7 @@ async function openMoreMenu(card) {
       continue;
     }
     const count = opened[0].querySelectorAll('[role="menuitem"]').length;
-    if (opened[0] === candidate && count === lastCount && count > 0) {
+    if (opened[0] === candidate && count === lastCount && menuHasSettled(candidate)) {
       stablePolls += 1;
       if (stablePolls >= 4) return {clicked: true, menu: candidate};
     } else {
@@ -250,6 +294,7 @@ ACTION_SIGNALS_JS = (
     + r"""
   const main = document.querySelector('main');
   if (!main) return null;
+  await scrollToTop();
 
   const safe = CSS.escape(username);
   const signals = {
@@ -260,15 +305,16 @@ ACTION_SIGNALS_JS = (
     menuRead: false,
     recommendationLink: false,
     ignoreItem: false,
+    messageItemInMenu: false,
     composeInTopCard: false,
     moreClicked: false,
   };
   const card = findTopCard(main);
   if (!card) return signals;
   signals.topCard = true;
-  signals.composeInTopCard = [
-    ...card.querySelectorAll('a[href*="/messaging/compose/"]'),
-  ].some(isRendered);
+  signals.composeInTopCard =
+    inFlow([...card.querySelectorAll('a[href*="/messaging/compose/"]')], card)
+      .length > 0;
   signals.pendingItem = connectStateControls(card, 'pending').length > 0;
   signals.connectItem = connectStateControls(card, 'connect').length > 0;
   if (signals.editIntro || signals.pendingItem || signals.connectItem) {
@@ -288,16 +334,23 @@ ACTION_SIGNALS_JS = (
   signals.ignoreItem = !!menu.querySelector(
     '[role="menuitem"] svg[id="xmark-outline-medium"]'
   );
+  // A direct Message (profileUrn=), as opposed to "Send profile in a
+  // message" (body=), which every measured menu carries.
+  signals.messageItemInMenu = !!menu.querySelector(
+    'a[href*="/messaging/compose/"][href*="profileUrn="]'
+  );
   return signals;
 })
 """
 )
 
-# Click the one rendered ``_connect`` control: in the top card when it is
-# there, otherwise in the More menu, opened again here because the signal
-# probe closed it. Anything but exactly one candidate clicks nothing.
-# Returns {clicked, menuOpened}; after a successful click the menu closes on
-# its own and the invite dialog opens, so the caller must not press Escape.
+# Click the one ``_connect`` control: in the top card when it is there,
+# otherwise in the More menu, opened again here because the signal probe
+# closed it. Copies of one control (the sticky header's) share its
+# component key and resolve to the in-flow one; two different keys, or
+# none, click nothing. Returns {clicked, menuOpened}; after a successful
+# click the menu closes on its own and the invite dialog opens, so the
+# caller must not press Escape.
 CLICK_CONNECT_JS = (
     r"""
 (async () => {
@@ -305,7 +358,9 @@ CLICK_CONNECT_JS = (
     + _PROFILE_ACTION_FNS_JS
     + r"""
   const main = document.querySelector('main');
-  const card = main ? findTopCard(main) : null;
+  if (!main) return {clicked: false, menuOpened: false};
+  await scrollToTop();
+  const card = findTopCard(main);
   if (!card) return {clicked: false, menuOpened: false};
   let connectControls = connectStateControls(card, 'connect');
   let menuOpened = false;
@@ -315,27 +370,40 @@ CLICK_CONNECT_JS = (
     if (!opened.menu) return {clicked: false, menuOpened};
     connectControls = connectStateControls(opened.menu, 'connect');
   }
-  if (connectControls.length !== 1) return {clicked: false, menuOpened};
+  const keys = new Set(connectControls.map((c) => c.getAttribute('componentkey')));
+  if (connectControls.length === 0 || keys.size !== 1) {
+    return {clicked: false, menuOpened};
+  }
   connectControls[0].click();
   return {clicked: true, menuOpened};
 })
 """
 )
 
-# Click Accept on an incoming-request profile: the first rendered labeled
-# button, other than More, in the action row (the smallest ancestor of More
-# holding another rendered button). Measured 2026-11-11, the row reads
-# Accept, Save in Sales Navigator, More; Ignore has moved into the More
-# menu, so no button in the row ignores the request. The caller fires this
-# only after the incoming-request classification and verifies afterwards.
+# Click Accept on an incoming-request profile. The action row is the
+# smallest ancestor of More holding another rendered button; measured
+# 2026-11-11 it reads Accept, Save in Sales Navigator, More, with Ignore
+# moved into the More menu, so no button in the row ignores the request.
+#
+# The row itself has to look like an incoming row, so that the program
+# clicks nothing on any other profile even if it is reached by mistake: no
+# compose anchor (1st degree, pending and Premium rows carry Message), no
+# Follow/Following toggle (`auto-component-` keys, Follow-primary rows) and
+# no connect-state control. Accept is then the first labeled button that
+# is not More and carries no icon. Save in Sales Navigator has exactly the
+# same shape, so "exactly one candidate" is not available as a guard: on a
+# Sales Navigator account it would refuse every Accept. Order is the
+# discriminator, Accept leading, and the caller verifies afterwards.
 CLICK_INCOMING_ACCEPT_JS = (
     r"""
-(() => {
+(async () => {
 """
     + _PROFILE_ACTION_FNS_JS
     + r"""
   const main = document.querySelector('main');
-  const card = main ? findTopCard(main) : null;
+  if (!main) return false;
+  await scrollToTop();
+  const card = findTopCard(main);
   const more = card ? findMoreButton(card) : null;
   if (!more) return false;
   let row = more.parentElement;
@@ -347,10 +415,19 @@ CLICK_INCOMING_ACCEPT_JS = (
     row = row.parentElement;
   }
   if (!row || row === card) return false;
-  const acceptButton = [
-    ...row.querySelectorAll('button[aria-label]:not([aria-expanded])'),
-  ].find(isRendered);
-  if (!acceptButton) return false;
+  const disqualifying = [
+    ...row.querySelectorAll(
+      'a[href*="/messaging/compose/"], [componentkey^="auto-component-"],' +
+        ' [componentkey^="ConnectButtonstate:"]'
+    ),
+  ];
+  if (inFlow(disqualifying, card).length) return false;
+  const candidates = inFlow(
+    [...row.querySelectorAll('button[aria-label]:not([aria-expanded])')],
+    card
+  ).filter((b) => !b.querySelector('svg'));
+  if (!candidates.length) return false;
+  const acceptButton = candidates[0];
   acceptButton.click();
   return true;
 })
@@ -619,14 +696,24 @@ class ConnectionActions:
         Runs ``ACTION_SIGNALS_JS``, which reads the top card and, unless the
         card already answered, opens the More menu and reads that too. The
         menu is closed again before returning, so the page is left as it
-        was found. A page without ``<main>`` yields no signals at all, which
-        classifies as ``unavailable``.
+        was found. A page without ``<main>``, or a probe that fails midway,
+        yields no signals at all, which classifies as ``unavailable``; a
+        failed probe may have clicked More, so it is followed by Escape too.
         """
-        data = await self._session.page.evaluate(ACTION_SIGNALS_JS, username)
+        data: Any = None
+        failed = False
+        try:
+            data = await self._session.page.evaluate(ACTION_SIGNALS_JS, username)
+        except Exception:
+            failed = True
+            logger.warning(
+                "Connection-state probe failed for %s", username, exc_info=True
+            )
+        finally:
+            if failed or (isinstance(data, dict) and data.get("moreClicked")):
+                await self._close_more_menu()
         if not isinstance(data, dict):
             data = {}
-        if data.get("moreClicked"):
-            await self._close_more_menu()
         return ActionSignals(
             has_top_card=bool(data.get("topCard")),
             has_edit_intro_anchor=bool(data.get("editIntro")),
@@ -635,6 +722,7 @@ class ConnectionActions:
             menu_read=bool(data.get("menuRead")),
             has_recommendation_link=bool(data.get("recommendationLink")),
             has_ignore_item=bool(data.get("ignoreItem")),
+            has_message_item_in_menu=bool(data.get("messageItemInMenu")),
             has_compose_anchor_in_top_card=bool(data.get("composeInTopCard")),
         )
 
@@ -924,14 +1012,16 @@ class ConnectionActions:
             "Connection signals for %s: state=%s signals=%s", username, state, signals
         )
 
-        # Fallback only for a More menu that could not be read: the sent list
-        # shows the newest ten invitations, so a hit proves pending while a
-        # miss proves nothing, and it costs a navigation the menu does not.
-        if (
-            state == "unavailable"
-            and not signals.menu_read
-            and await self._invitation_in_sent_list(username)
-        ):
+        # Fallback only for the states that rest on absence: a menu that could
+        # not be read, signals no state explains, or a menu without a Connect
+        # or Pending item, which is also what a menu read in the middle of a
+        # re-render looks like. The sent list shows the newest ten
+        # invitations, so a hit proves pending while a miss proves nothing,
+        # and it costs a navigation a conclusive menu does not.
+        if state in (
+            "unavailable",
+            "follow_only",
+        ) and await self._invitation_in_sent_list(username):
             state = "pending"
 
         if state == "self_profile":
@@ -1025,8 +1115,8 @@ class ConnectionActions:
                 return _connection_result(
                     url,
                     "connect_unavailable",
-                    "Could not read this profile's connection state (top card"
-                    " or More menu not found); no invitation was sent.",
+                    "Could not determine this profile's connection state from"
+                    " its top card and More menu; no invitation was sent.",
                     profile=page_text,
                 )
             return _connection_result(

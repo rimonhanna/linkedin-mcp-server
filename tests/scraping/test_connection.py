@@ -16,6 +16,7 @@ def _signals(
     menu: bool = True,
     recommendation: bool = False,
     ignore: bool = False,
+    message_in_menu: bool = False,
     compose: bool = False,
 ) -> ActionSignals:
     return ActionSignals(
@@ -26,6 +27,7 @@ def _signals(
         menu_read=menu,
         has_recommendation_link=recommendation,
         has_ignore_item=ignore,
+        has_message_item_in_menu=message_in_menu,
         has_compose_anchor_in_top_card=compose,
     )
 
@@ -77,17 +79,37 @@ class TestDetectConnectionState:
             == "pending"
         )
 
-    def test_incoming_request_from_the_ignore_item(self):
-        assert detect_connection_state(_signals(ignore=True)) == "incoming_request"
+    def test_incoming_request_from_ignore_and_a_menu_message(self):
+        assert (
+            detect_connection_state(_signals(ignore=True, message_in_menu=True))
+            == "incoming_request"
+        )
 
-    def test_ignore_item_beside_a_top_card_message_is_not_incoming(self):
-        assert detect_connection_state(_signals(ignore=True, compose=True)) == (
+    @pytest.mark.parametrize(
+        "signals",
+        [
+            # The icon alone: one design token is too thin to accept on.
+            _signals(ignore=True),
+            # Message in the top card, as on 1st-degree and pending rows.
+            _signals(ignore=True, message_in_menu=True, compose=True),
+        ],
+        ids=["icon-only", "message-in-top-card"],
+    )
+    def test_half_an_incoming_request_is_unavailable(self, signals):
+        # Neither incoming nor the confident follow_only: nothing measured
+        # explains these signals.
+        assert detect_connection_state(signals) == "unavailable"
+
+    def test_a_menu_message_alone_is_not_incoming(self):
+        assert detect_connection_state(_signals(message_in_menu=True)) == (
             "follow_only"
         )
 
     def test_recommendation_links_win_over_the_ignore_item(self):
         assert (
-            detect_connection_state(_signals(recommendation=True, ignore=True))
+            detect_connection_state(
+                _signals(recommendation=True, ignore=True, message_in_menu=True)
+            )
             == "already_connected"
         )
 

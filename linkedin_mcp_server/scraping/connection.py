@@ -8,15 +8,17 @@ language. Detection here uses (measured live 2026-11-11):
 * ``[componentkey^="ConnectButtonstate:"]`` in the top card or its More menu:
   a ``_pending`` key suffix → pending, ``_connect`` → connectable
 * ``/edit/forms/recommendation/`` anchors in the More menu → 1st degree
-* the ``xmark-outline-medium`` icon on a More-menu item (Ignore), with no
-  compose anchor in the top card → incoming request
+* the ``xmark-outline-medium`` icon on a More-menu item (Ignore) together
+  with a direct Message (``/messaging/compose/?profileUrn=``) in the menu and
+  none in the top card → incoming request
 
 Per the AGENTS.md Scraping Rules no label value is read for any state. The
 component key and the icon id are design-system tokens, not words: the
 Pending and Connect items differ in nothing else that is not translated.
 
 A state is only reported on positive evidence. A profile whose top card
-or More menu could not be read is ``unavailable``, never a guess.
+or More menu could not be read, or whose signals only half match a state,
+is ``unavailable``, never a guess.
 """
 
 from __future__ import annotations
@@ -81,6 +83,12 @@ class ActionSignals:
     profile; the 1st-degree Remove connection item is
     ``person-xmark-outline-medium`` and does not match)."""
 
+    has_message_item_in_menu: bool
+    """The More menu holds a direct Message, ``/messaging/compose/`` with
+    ``profileUrn=``, as opposed to the ``body=`` "Send profile in a
+    message" every measured menu carries. On the measured incoming request
+    Message had moved there from the top card."""
+
     has_compose_anchor_in_top_card: bool
     """A rendered ``a[href*="/messaging/compose/"]`` in the top card. On
     the measured incoming request Message had moved into the More menu and
@@ -102,10 +110,15 @@ def detect_connection_state(signals: ActionSignals) -> ConnectionState:
        state key proves nothing until the menu, where LinkedIn puts it on
        Follow-primary and Message-primary profiles, has been seen.
     6. ``already_connected`` — recommendation links in the menu.
-    7. ``incoming_request`` — the Ignore item in the menu and no compose
-       anchor in the top card.
-    8. ``follow_only`` — the menu was read and offers no Connect: LinkedIn
-       exposes no way to invite this member.
+    7. ``incoming_request`` — the Ignore item and a direct Message in the
+       menu, and no compose anchor in the top card. One icon id alone is
+       too thin for an action that accepts, and "no Message in the top
+       card" is true of every Follow-primary profile.
+    8. ``unavailable`` — the Ignore item without the rest: something is
+       there that no measured state explains.
+    9. ``follow_only`` — the menu was read and offers no Connect. The
+       caller still treats this as unconfirmed, because a menu can change
+       shape without the probe noticing.
     """
     if signals.has_edit_intro_anchor:
         return "self_profile"
@@ -119,6 +132,11 @@ def detect_connection_state(signals: ActionSignals) -> ConnectionState:
         return "unavailable"
     if signals.has_recommendation_link:
         return "already_connected"
-    if signals.has_ignore_item and not signals.has_compose_anchor_in_top_card:
-        return "incoming_request"
+    if signals.has_ignore_item:
+        if (
+            signals.has_message_item_in_menu
+            and not signals.has_compose_anchor_in_top_card
+        ):
+            return "incoming_request"
+        return "unavailable"
     return "follow_only"

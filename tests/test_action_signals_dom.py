@@ -22,17 +22,17 @@ this file checks extraction JS rather than the browser, and
 ``test_browser_identity.py`` is the one that has to fail instead.
 
 The profile fixtures are sanitized copies of the top cards and More menus
-measured live on 2026-11-11 (never invited and Follow-primary, pending,
-1st degree, incoming request): names, vanity names, member ids and
+measured live on 2026-11-11 (never invited and Follow-primary,
+Connect-primary, pending, 1st degree, incoming request): names, vanity names, member ids and
 component-key uuids are synthetic, while the element structure, the
 attributes and the shape of every ``componentkey`` are kept. Each page also
 carries what made the old probe wrong: the "People you may know" sidebar in
 ``main aside`` with labeled Message anchors and other members' connect-state
-keys, the hidden sticky-header copy of the action row, and a hidden video
-subtitles ``[role=menu]`` ahead of the profile's own menu in DOM order. The
-More menu is portal-mounted outside ``<main>`` and renders 150 ms after the
-click, as the live one does. The Connect-primary card is the one shape that
-was not measured, so that fixture is a claim about the algorithm only.
+keys, the sticky-header copy of the action row (hidden at the top of the
+page, and in some cases shown, the way it is once the page has scrolled),
+and a hidden video subtitles ``[role=menu]`` ahead of the profile's own menu
+in DOM order. The More menu is portal-mounted outside ``<main>`` and renders
+150 ms after the click, as the live one does.
 """
 
 from __future__ import annotations
@@ -212,8 +212,24 @@ _PAGE_SCRIPT = r"""
     setTimeout(() => {
       menu.hidden = false;
       button.setAttribute('aria-expanded', 'true');
+      // A menu that renders in two batches: the rest arrives later.
+      const late = document.getElementById('late-items');
+      if (late && !menu.dataset.grown) {
+        menu.dataset.grown = 'yes';
+        setTimeout(() => menu.append(late.content.cloneNode(true)), 1200);
+      }
     }, 150);
   }
+  // Once the page scrolls, the sticky copy shows and the in-flow row hides.
+  window.addEventListener('scroll', () => {
+    const scrolled = window.scrollY > 0;
+    for (const el of document.querySelectorAll('[data-sticky="on-scroll"]')) {
+      el.style.display = scrolled ? 'block' : 'none';
+    }
+    for (const el of document.querySelectorAll('[data-live-row="on-scroll"]')) {
+      el.style.visibility = scrolled ? 'hidden' : 'visible';
+    }
+  });
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     const menu = document.getElementById('profile-menu');
@@ -230,16 +246,17 @@ def _onclick(what: str) -> str:
     return f"record('{what}'); event.preventDefault();"
 
 
-def _page_html(main: str, menu: str = "") -> str:
+def _page_html(main: str, menu: str = "", late: str = "") -> str:
     portal = (
         f'<div tabindex="-1"><div id="profile-menu" role="menu" hidden>{menu}</div></div>'
         if menu
         else ""
     )
+    template = f'<template id="late-items">{late}</template>' if late else ""
     return (
         f"<html><head>{_PAGE_SCRIPT}</head><body>"
         f'<header><a href="https://www.linkedin.com/in/{USER}/">Me</a></header>'
-        f"<main>{main}</main>{portal}</body></html>"
+        f"<main>{main}</main>{portal}{template}</body></html>"
     )
 
 
@@ -248,8 +265,14 @@ class Profile:
     """One profile page: the action-row controls and the More-menu items.
 
     ``row`` builds the controls between the name block and More, ``menu``
-    the items of the portal-mounted menu. ``card_extra`` lands in the top
-    card ahead of everything else (a cover video, an edit anchor).
+    the items of the portal-mounted menu, and ``menu_late`` items that
+    arrive 1.2 s after the rest. ``card_extra`` lands in the top card ahead
+    of everything else (a cover video, an edit anchor). ``sticky`` is the
+    sticky-header copy of the row: ``hidden`` (top of the page, as
+    measured), ``shown`` or ``shown-first`` (rendered, after or before the
+    in-flow row in DOM order), ``invisible`` (laid out but
+    ``visibility: hidden``), or ``on-scroll`` (shown, with the in-flow row
+    hidden, whenever the page is scrolled).
     """
 
     row: Build
@@ -257,11 +280,14 @@ class Profile:
     card_extra: Build = lambda labels: ""
     more_opens_menu: bool = True
     contact_info: bool = True
+    sticky: str = "hidden"
+    menu_late: Build | None = None
 
     def html(self, labels: Labels) -> str:
         return _page_html(
             _column(self, labels) + _sidebar(labels),
             self.menu(labels) if self.menu else "",
+            self.menu_late(labels) if self.menu_late else "",
         )
 
 
@@ -270,7 +296,7 @@ def _icon(icon_id: str) -> str:
 
 
 def _more(labels: Labels, *, live: bool, key: str) -> str:
-    handler = "toggleProfileMenu(this)" if live else "record('hidden-more')"
+    handler = "toggleProfileMenu(this)" if live else "record('sticky-more')"
     return (
         '<div data-display-contents="true">'
         f'<button type="button" componentkey="{key}" aria-label="{labels.more}"'
@@ -279,9 +305,12 @@ def _more(labels: Labels, *, live: bool, key: str) -> str:
     )
 
 
+_STICKY_HEADER = "position:fixed; top:0; left:0; right:0; background:#fff"
+
+
 def _action_row(profile: Profile, labels: Labels, *, live: bool) -> str:
-    """One copy of the action row. The sticky-header copy is not rendered."""
-    prefix = "" if live else "hidden-"
+    """One copy of the action row: the in-flow one or the sticky header's."""
+    prefix = "" if live else "sticky-"
     controls = profile.row(labels).replace("record('", f"record('{prefix}")
     more = _more(
         labels,
@@ -289,7 +318,20 @@ def _action_row(profile: Profile, labels: Labels, *, live: bool) -> str:
         key="5d8e62c6-0000-4000-8000-00000000000" + ("1" if live else "2"),
     )
     row = f"<div><div><div>{controls}{more}</div></div></div>"
-    return row if live else f'<div style="display:none">{row}</div>'
+    if live:
+        if profile.sticky == "on-scroll":
+            return f'<div data-live-row="on-scroll">{row}</div>'
+        return row
+    if profile.sticky == "hidden":
+        return f'<div style="display:none">{row}</div>'
+    if profile.sticky == "invisible":
+        return f'<div style="visibility:hidden">{row}</div>'
+    if profile.sticky == "on-scroll":
+        return (
+            f'<div data-sticky="on-scroll" style="{_STICKY_HEADER}; display:none">'
+            f"{row}</div>"
+        )
+    return f'<div style="{_STICKY_HEADER}">{row}</div>'
 
 
 def _top_card(profile: Profile, labels: Labels) -> str:
@@ -329,8 +371,7 @@ def _top_card(profile: Profile, labels: Labels) -> str:
     <div><p><span>Sam, Kim and 12 other mutual connections</span></p></div></a>
   <div data-display-contents="true">
     <div>
-      {_action_row(profile, labels, live=True)}
-      {_action_row(profile, labels, live=False)}
+      {_rows(profile, labels)}
     </div>
   </div>
   <hr role="presentation">
@@ -339,6 +380,14 @@ def _top_card(profile: Profile, labels: Labels) -> str:
     <div>{_icon("premium-chip-fill-color-small")}<p>Profile enhanced with Premium</p></div></a>
 </section>
 """
+
+
+def _rows(profile: Profile, labels: Labels) -> str:
+    rows = [
+        _action_row(profile, labels, live=True),
+        _action_row(profile, labels, live=False),
+    ]
+    return "".join(reversed(rows) if profile.sticky == "shown-first" else rows)
 
 
 def _activity(labels: Labels) -> str:
@@ -354,6 +403,7 @@ def _activity(labels: Labels) -> str:
   </div>
   <a href="https://www.linkedin.com/feed/update/urn:li:activity:1/"
     aria-label="{labels.comment}">{labels.comment}</a>
+  <div style="height:4000px"></div>
 </section>
 """
 
@@ -449,15 +499,15 @@ def _newsletter_anchor(labels: Labels) -> str:
     )
 
 
-def _card_connect_button(labels: Labels) -> str:
-    """Unmeasured Connect-primary shape: the connect-state key in the card."""
+def _card_connect_anchor(labels: Labels) -> str:
+    """Connect-primary: a labeled anchor to the profile carrying the key."""
     key = f"ConnectButtonstate:invitation:urn:li:member:{MEMBER}_connect"
     return (
         '<div><div data-display-contents="true">'
-        f'<button type="button" componentkey="{key}" aria-label="{labels.connect}"'
-        " onclick=\"record('card-connect')\">"
-        f'<span componentkey="{key}">{_icon("person-plus-outline-small")}'
-        f"<span>{labels.connect}</span></span></button></div></div>"
+        f'<a href="https://www.linkedin.com/in/{USER}/" componentkey="{key}"'
+        f' aria-label="{labels.connect}" onclick="{_onclick("card-connect")}">'
+        f"<span>{_icon('person-plus-outline-small')}"
+        f"<span>{labels.connect}</span></span></a></div></div>"
     )
 
 
@@ -623,7 +673,7 @@ NEVER_INVITED = Profile(
     ),
 )
 
-#: aaron-levy-samuels, 2026-11-11: Message in the top card, Pending and
+#: Measured pending profile, 2026-11-11: Message in the top card, Pending and
 #: Following inside More. The old probe called this follow_only.
 PENDING = Profile(
     row=lambda labels: _message_anchor(labels) + _save_button(labels),
@@ -635,7 +685,7 @@ PENDING = Profile(
     ),
 )
 
-#: jeroenvandenbrinkamsterdam, 2026-11-11: Message in the top card,
+#: Measured 1st-degree profile, 2026-11-11: Message in the top card,
 #: recommendation links and Remove connection inside More.
 FIRST_DEGREE = Profile(
     row=lambda labels: _message_anchor(labels) + _save_button(labels),
@@ -648,8 +698,8 @@ FIRST_DEGREE = Profile(
     ),
 )
 
-#: shehroze-b-5a933429, 2026-11-11: Accept in the top card, no Message there;
-#: Ignore, Message and Follow inside More.
+#: Measured incoming-request profile, 2026-11-11: Accept in the top card, no
+#: Message there; Ignore, Message and Follow inside More.
 INCOMING = Profile(
     row=lambda labels: (
         _accept_button(labels) + _save_button(labels) + _newsletter_anchor(labels)
@@ -667,6 +717,13 @@ INCOMING_WITH_COVER_VIDEO = Profile(
     row=INCOMING.row, menu=INCOMING.menu, card_extra=_video_player
 )
 
+#: Measured Connect-primary profile, 2026-11-11: the `_connect` key on a
+#: labeled anchor in the top card, so the menu is never needed.
+CONNECT_PRIMARY = Profile(
+    row=lambda labels: _card_connect_anchor(labels) + _save_button(labels),
+    menu=lambda labels: _menu_head(labels) + _menu_tail(labels),
+)
+
 # Synthetic shapes, not measured: claims about the algorithm only.
 FOLLOW_ONLY = Profile(
     row=lambda labels: _following_button(labels) + _save_button(labels),
@@ -674,9 +731,35 @@ FOLLOW_ONLY = Profile(
         _menu_head(labels) + _follow_item(labels, following=True) + _menu_tail(labels)
     ),
 )
-CONNECT_PRIMARY = Profile(
-    row=lambda labels: _card_connect_button(labels) + _save_button(labels),
-    menu=lambda labels: _menu_head(labels) + _menu_tail(labels),
+#: A Follow-primary row whose menu carries the Ignore icon and nothing else
+#: of an incoming request.
+FOLLOW_ONLY_WITH_IGNORE_ICON = Profile(
+    row=FOLLOW_ONLY.row,
+    menu=lambda labels: (
+        _menu_head(labels)
+        + _ignore_item(labels)
+        + _follow_item(labels, following=True)
+        + _menu_tail(labels)
+    ),
+)
+#: The menu renders its head first and the Connect item with the closing
+#: profile links 1.2 s later.
+MENU_IN_TWO_BATCHES = Profile(
+    row=NEVER_INVITED.row,
+    menu=_menu_head,
+    menu_late=lambda labels: (
+        _connect_state_item(labels, "connect") + _menu_tail(labels)
+    ),
+)
+STICKY_INVISIBLE = Profile(
+    row=NEVER_INVITED.row, menu=NEVER_INVITED.menu, sticky="invisible"
+)
+STICKY_SHOWN = Profile(row=NEVER_INVITED.row, menu=NEVER_INVITED.menu, sticky="shown")
+CONNECT_PRIMARY_STICKY_FIRST = Profile(
+    row=CONNECT_PRIMARY.row, menu=CONNECT_PRIMARY.menu, sticky="shown-first"
+)
+STICKY_ON_SCROLL = Profile(
+    row=NEVER_INVITED.row, menu=NEVER_INVITED.menu, sticky="on-scroll"
 )
 SELF = Profile(
     row=lambda labels: "",
@@ -795,6 +878,12 @@ STATE_CASES: tuple[tuple[str, Profile, ConnectionState], ...] = (
     ("self-profile", SELF, "self_profile"),
     ("no-top-card", NO_TOP_CARD, "unavailable"),
     ("menu-never-opens", MENU_NEVER_OPENS, "unavailable"),
+    # An Ignore icon alone is not an incoming request, and not a confident
+    # follow_only either.
+    ("ignore-icon-only", FOLLOW_ONLY_WITH_IGNORE_ICON, "unavailable"),
+    ("menu-in-two-batches", MENU_IN_TWO_BATCHES, "connectable"),
+    ("sticky-copy-shown", STICKY_SHOWN, "connectable"),
+    ("connect-primary-sticky-first", CONNECT_PRIMARY_STICKY_FIRST, "connectable"),
 )
 
 
@@ -832,7 +921,13 @@ class TestConnectionStateIsStructural:
         assert await _clicks(dom_page) is None
 
     async def test_the_hidden_sticky_copy_is_never_clicked(self, dom_page):
-        for profile in (NEVER_INVITED, PENDING, FIRST_DEGREE, INCOMING):
+        for profile in (
+            NEVER_INVITED,
+            PENDING,
+            FIRST_DEGREE,
+            INCOMING,
+            STICKY_INVISIBLE,
+        ):
             await _state(dom_page, profile.html(ENGLISH))
             assert await _clicks(dom_page) == "more"
 
@@ -847,6 +942,35 @@ class TestConnectionStateIsStructural:
         )
         html = NEVER_INVITED.html(ENGLISH).replace("<main>", stray + "<main>")
         assert await _state(dom_page, html) == "connectable"
+
+    async def test_a_shown_sticky_copy_is_not_the_one_clicked(self, dom_page):
+        # Both copies rendered, the sticky one last: the last expander in
+        # the card is the sticky More.
+        assert await _state(dom_page, STICKY_SHOWN.html(ENGLISH)) == "connectable"
+        assert await _clicks(dom_page) == "more"
+
+    async def test_the_read_starts_from_the_top_of_the_page(self, dom_page):
+        # The profile read leaves the page at the bottom, where the in-flow
+        # row is hidden and only the sticky copy, whose More opens nothing,
+        # is shown.
+        await dom_page.set_content(STICKY_ON_SCROLL.html(ENGLISH))
+        await dom_page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await dom_page.wait_for_function(
+            "getComputedStyle(document.querySelector('[data-sticky]')).display"
+            " === 'block'"
+        )
+        signals = await _actions(dom_page)._read_action_signals(USER)
+        assert detect_connection_state(signals) == "connectable"
+        assert await _clicks(dom_page) == "more"
+        assert await dom_page.evaluate("window.scrollY") == 0
+
+    async def test_a_menu_read_waits_for_its_closing_profile_links(self, dom_page):
+        # The head of the menu renders, holds still, and the Connect item
+        # comes 1.2 s later. Read early, this profile is follow_only.
+        await dom_page.set_content(MENU_IN_TWO_BATCHES.html(ENGLISH))
+        signals = await _actions(dom_page)._read_action_signals(USER)
+        assert signals.menu_read is True
+        assert signals.has_connect_item is True
 
 
 class TestActionChoiceIsStructural:
@@ -885,6 +1009,15 @@ class TestActionChoiceIsStructural:
             lambda page, html: _click(page, html, CLICK_CONNECT_JS),
         )
 
+    async def test_connect_clicks_the_in_flow_copy_of_a_card_control(self, dom_page):
+        # Both copies rendered, the sticky one first in DOM order.
+        await _in_every_locale(
+            dom_page,
+            CONNECT_PRIMARY_STICKY_FIRST.html,
+            ({"clicked": True, "menuOpened": False}, "card-connect"),
+            lambda page, html: _click(page, html, CLICK_CONNECT_JS),
+        )
+
     async def test_connect_after_a_read_reopens_the_menu(self, dom_page):
         # The signal read closes the menu; the click has to bring it back.
         await dom_page.set_content(NEVER_INVITED.html(ENGLISH))
@@ -907,6 +1040,24 @@ class TestActionChoiceIsStructural:
             dom_page,
             INCOMING_WITH_COVER_VIDEO.html,
             (True, "accept"),
+            lambda page, html: _click(page, html, CLICK_INCOMING_ACCEPT_JS),
+        )
+
+    @pytest.mark.parametrize(
+        "profile",
+        [FOLLOW_ONLY_WITH_IGNORE_ICON, NEVER_INVITED, PENDING, FIRST_DEGREE],
+        ids=["follow-row-with-ignore-icon", "never-invited", "pending", "first-degree"],
+    )
+    async def test_accept_clicks_nothing_on_a_row_that_is_not_incoming(
+        self, dom_page, profile
+    ):
+        # A Follow-primary row leads with Following: clicking it unfollows.
+        # Rows with Message (pending, 1st degree) lead with an anchor and a
+        # Save button that has Accept's exact shape.
+        await _in_every_locale(
+            dom_page,
+            profile.html,
+            (False, None),
             lambda page, html: _click(page, html, CLICK_INCOMING_ACCEPT_JS),
         )
 
@@ -954,7 +1105,9 @@ class TestModalDialogIndex:
 _SENT_URL = "https://www.linkedin.com/mynetwork/invitation-manager/sent/"
 
 
-async def _sent_list_has(page: Page, hrefs: list[str], username: str) -> bool:
+async def _sent_list_has(
+    page: Page, hrefs: list[str], username: str, *, nav: str = ""
+) -> bool:
     """Serve a sent list of ``hrefs`` from the LinkedIn origin and ask.
 
     Served rather than ``set_content``: the program resolves each href
@@ -965,7 +1118,7 @@ async def _sent_list_has(page: Page, hrefs: list[str], username: str) -> bool:
     anchors = "".join(f'<a href="{href}">row</a>' for href in hrefs)
     html = (
         '<html><head><meta charset="utf-8"></head>'
-        f"<body><main>{anchors}</main></body></html>"
+        f"<body><header>{nav}</header><main>{anchors}</main></body></html>"
     )
     await page.route(
         "https://www.linkedin.com/**",
@@ -1008,3 +1161,8 @@ class TestSentListHasUser:
 
     async def test_does_not_match_when_the_list_is_empty(self, dom_page):
         assert await _sent_list_has(dom_page, [], "itadic") is False
+
+    async def test_does_not_match_the_global_nav(self, dom_page):
+        # The nav links the account's own profile on every page.
+        nav = '<a href="/in/itadic/">Me</a>'
+        assert await _sent_list_has(dom_page, [], "itadic", nav=nav) is False

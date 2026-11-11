@@ -1004,6 +1004,7 @@ async def _connect_scenario() -> dict[str, Any]:
             "menuRead": False,
             "recommendationLink": False,
             "ignoreItem": False,
+            "messageItemInMenu": False,
             "composeInTopCard": False,
             "moreClicked": False,
         },

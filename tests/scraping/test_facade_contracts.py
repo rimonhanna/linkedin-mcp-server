@@ -247,6 +247,7 @@ async def test_connection_profile_read_resolves_the_facade_delegate_late(mock_pa
         menu_read=False,
         has_recommendation_link=False,
         has_ignore_item=False,
+        has_message_item_in_menu=False,
         has_compose_anchor_in_top_card=False,
     )
 
@@ -552,6 +553,7 @@ async def test_incoming_verification_resolves_classifier_at_call_time(
         menu_read=True,
         has_recommendation_link=False,
         has_ignore_item=True,
+        has_message_item_in_menu=True,
         has_compose_anchor_in_top_card=False,
     )
     connected = ActionSignals(
@@ -562,6 +564,7 @@ async def test_incoming_verification_resolves_classifier_at_call_time(
         menu_read=True,
         has_recommendation_link=True,
         has_ignore_item=False,
+        has_message_item_in_menu=False,
         has_compose_anchor_in_top_card=True,
     )
     calls: list[ActionSignals] = []
@@ -616,6 +619,7 @@ async def test_submitted_invite_verification_consults_the_sent_list(
         menu_read=False,
         has_recommendation_link=False,
         has_ignore_item=False,
+        has_message_item_in_menu=False,
         has_compose_anchor_in_top_card=False,
     )
     calls: list[ActionSignals] = []

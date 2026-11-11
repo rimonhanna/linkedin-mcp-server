@@ -130,6 +130,7 @@ def _signals(
     menu: bool = True,
     recommendation: bool = False,
     ignore: bool = False,
+    message_in_menu: bool = False,
     compose: bool = False,
 ) -> ActionSignals:
     return ActionSignals(
@@ -140,6 +141,7 @@ def _signals(
         menu_read=menu,
         has_recommendation_link=recommendation,
         has_ignore_item=ignore,
+        has_message_item_in_menu=message_in_menu,
         has_compose_anchor_in_top_card=compose,
     )
 
@@ -162,6 +164,7 @@ def _patch_signals(actions: ConnectionActions, *signals: ActionSignals):
 
 
 CONNECTABLE = _signals(connect=True)
+INCOMING = _signals(ignore=True, message_in_menu=True)
 FOLLOW_ONLY = _signals(compose=True)
 UNREADABLE_MENU = _signals(menu=False, compose=True)
 
@@ -525,8 +528,9 @@ class TestConnectWithPerson:
     async def test_follow_only_does_not_send(self, mock_page):
         """The menu was read and offers no Connect: nothing is clicked.
 
-        Critical write-gate guardrail — no click, no navigation, no submit,
-        and no sent-list detour either, because a read menu is evidence.
+        Critical write-gate guardrail — no click, no navigation, no submit.
+        The sent list is still asked, because a menu caught mid-render looks
+        exactly like this one, and its miss leaves the answer as it was.
         """
         text = "Public Figure\n\n· 3rd+\n\nCEO\n\nFollow\nMessage\nMore\n"
         actions = _actions(mock_page, _reads(text))
@@ -548,7 +552,10 @@ class TestConnectWithPerson:
                 return_value=(True, False, None, DIALOG_TEXT),
             ) as mock_submit,
             patch.object(
-                actions, "_invitation_in_sent_list", new_callable=AsyncMock
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                return_value=False,
             ) as mock_sent,
         ):
             result = await actions.connect_with_person("testuser")
@@ -559,7 +566,55 @@ class TestConnectWithPerson:
         mock_click.assert_not_awaited()
         mock_nav.assert_not_awaited()
         mock_submit.assert_not_awaited()
-        mock_sent.assert_not_awaited()
+        mock_sent.assert_awaited_once_with("testuser")
+
+    async def test_follow_only_on_the_sent_list_is_pending(self, mock_page):
+        """A menu without a Connect or Pending item is not proof of either."""
+        text = "Public Figure\n\n· 3rd+\n\nCEO\n\nFollow\nMore\n"
+        actions = _actions(mock_page, _reads(text))
+
+        with (
+            _patch_signals(actions, FOLLOW_ONLY),
+            patch.object(
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(
+                actions, "_click_connect", new_callable=AsyncMock
+            ) as mock_click,
+        ):
+            result = await actions.connect_with_person("testuser")
+
+        assert result["status"] == "pending"
+        mock_click.assert_not_awaited()
+
+    async def test_half_an_incoming_request_is_not_called_follow_only(self, mock_page):
+        """An Ignore icon with Message in the top card: say so, don't guess."""
+        text = "Public Figure\n\n· 2nd\n\nCEO\n\nMessage\nMore\n"
+        actions = _actions(mock_page, _reads(text))
+
+        with (
+            _patch_signals(
+                actions, _signals(ignore=True, message_in_menu=True, compose=True)
+            ),
+            patch.object(
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch.object(
+                actions, "_click_incoming_accept", new_callable=AsyncMock
+            ) as mock_accept,
+        ):
+            result = await actions.connect_with_person("testuser")
+
+        assert result["status"] == "connect_unavailable"
+        assert "Could not determine" in result["message"]
+        assert "usable Connect action" not in result["message"]
+        mock_accept.assert_not_awaited()
 
     async def test_follow_only_with_note_reports_note_limit_from_deeplink_probe(
         self, mock_page
@@ -588,6 +643,12 @@ class TestConnectWithPerson:
                 new_callable=AsyncMock,
                 return_value=(True, False, None, DIALOG_TEXT),
             ) as mock_submit,
+            patch.object(
+                actions,
+                "_invitation_in_sent_list",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
         ):
             result = await actions.connect_with_person("testuser", note="Hello")
 
@@ -626,7 +687,9 @@ class TestConnectWithPerson:
             result = await actions.connect_with_person("testuser")
 
         assert result["status"] == "connect_unavailable"
-        assert "Could not read this profile's connection state" in result["message"]
+        assert (
+            "Could not determine this profile's connection state" in result["message"]
+        )
         mock_sent.assert_awaited_once_with("testuser")
         mock_click.assert_not_awaited()
         mock_submit.assert_not_awaited()
@@ -695,7 +758,7 @@ class TestConnectWithPerson:
         with (
             _patch_signals(
                 actions,
-                _signals(ignore=True),
+                INCOMING,
                 _signals(recommendation=True, compose=True),
             ),
             patch.object(
@@ -732,7 +795,7 @@ class TestConnectWithPerson:
         actions = _actions(mock_page, _reads(pre))
 
         with (
-            _patch_signals(actions, _signals(ignore=True)),
+            _patch_signals(actions, INCOMING),
             patch.object(
                 actions,
                 "_click_incoming_accept",
@@ -757,7 +820,7 @@ class TestConnectWithPerson:
         actions = _actions(mock_page, _reads(pre, pre, pre))
 
         with (
-            _patch_signals(actions, _signals(ignore=True)),
+            _patch_signals(actions, INCOMING),
             patch.object(
                 actions,
                 "_click_incoming_accept",
@@ -780,8 +843,8 @@ class TestConnectWithPerson:
         with (
             _patch_signals(
                 actions,
-                _signals(ignore=True),
-                _signals(ignore=True),
+                INCOMING,
+                INCOMING,
                 _signals(recommendation=True, compose=True),
             ),
             patch.object(
@@ -817,7 +880,9 @@ class TestConnectWithPerson:
             result = await actions.connect_with_person("testuser")
 
         assert result["status"] == "connect_unavailable"
-        assert "Could not read this profile's connection state" in result["message"]
+        assert (
+            "Could not determine this profile's connection state" in result["message"]
+        )
         mock_click.assert_not_awaited()
 
     async def test_returns_unavailable_on_empty_page(self, mock_page):
@@ -875,6 +940,7 @@ class TestSignalRead:
                 "menuRead": True,
                 "recommendationLink": False,
                 "ignoreItem": False,
+                "messageItemInMenu": False,
                 "composeInTopCard": True,
                 "moreClicked": True,
             }
@@ -899,6 +965,18 @@ class TestSignalRead:
 
         assert signals == _signals(connect=True, menu=False)
         mock_page.keyboard.press.assert_not_awaited()
+
+    async def test_a_failed_probe_is_unavailable_and_still_closes_the_menu(
+        self, mock_page
+    ):
+        mock_page.evaluate = AsyncMock(side_effect=RuntimeError("context destroyed"))
+        mock_page.keyboard.press = AsyncMock()
+        actions = _actions(mock_page)
+
+        signals = await actions._read_action_signals("testuser")
+
+        assert signals == _signals(top_card=False, menu=False)
+        mock_page.keyboard.press.assert_awaited_once_with("Escape")
 
     async def test_no_main_reads_as_no_signals(self, mock_page):
         mock_page.evaluate = AsyncMock(return_value=None)
