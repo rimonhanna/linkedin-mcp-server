@@ -217,6 +217,13 @@ def test_action_evidence_stays_off_the_console(monkeypatch, tmp_path, capsys):
     assert "Jane Doe" in (run / "server.log").read_text(encoding="utf-8")
 
 
+def test_the_evidence_floor_names_the_connection_scraper():
+    from linkedin_mcp_server.logging_config import _ACTION_EVIDENCE_LOGGERS
+    from linkedin_mcp_server.scraping import connection_actions
+
+    assert connection_actions.logger.name in _ACTION_EVIDENCE_LOGGERS
+
+
 def test_without_tracing_action_evidence_is_not_raised(monkeypatch, tmp_path):
     monkeypatch.setenv("USER_DATA_DIR", str(tmp_path / "profile"))
     monkeypatch.setenv("LINKEDIN_TRACE_MODE", "off")

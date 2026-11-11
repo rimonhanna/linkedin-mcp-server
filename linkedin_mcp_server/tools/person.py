@@ -46,12 +46,11 @@ logger = logging.getLogger(__name__)
 # went away mid-call, so this tool body never sees it.)
 _INVITE_SUBMITTED = frozenset({"connected", "send_unverified"})
 # Outcomes that need no explaining; every other status keeps the run's trace.
-# Today the scraper reports both your own profile and a follow-only profile as
+# The scraper reports your own profile and a follow-only profile as
 # ``connect_unavailable``, the same status a misread Connect action produces, so
-# that one stays a failure; ``self_profile`` is listed for when it is reported
-# on its own.
+# that one stays a failure.
 _CONNECT_SUCCEEDED = frozenset(
-    {"connected", "accepted", "pending", "already_connected", "self_profile"}
+    {"connected", "accepted", "pending", "already_connected"}
 )
 
 
