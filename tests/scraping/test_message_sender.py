@@ -2174,6 +2174,49 @@ class TestReplyToConversation:
         }
         submit.assert_not_awaited()
 
+    @pytest.mark.parametrize("confirm_send", [False, True], ids=["dry-run", "send"])
+    async def test_opening_the_thread_cannot_mark_it_read(
+        self, mock_page, confirm_send
+    ):
+        """The thread is opened under the read guard; only a send releases it.
+
+        The latch starts released, as a previous send on this page leaves it.
+        """
+        from linkedin_mcp_server.scraping import messaging_read_state
+
+        state = messaging_read_state._GUARDS.setdefault(
+            mock_page, messaging_read_state._PageGuard()
+        )
+        state.read_mode = False
+        sender = _sender(mock_page)
+        patches = self._patches(sender, mock_page)
+        seen: dict[str, object] = {}
+
+        async def navigate(url):
+            seen["depth"] = state.depth
+            seen["read_mode"] = state.read_mode
+
+        with ExitStack() as stack:
+            nav, *_, submit = [stack.enter_context(p) for p in patches]
+            nav.side_effect = navigate
+
+            async def submitted(*_args, **_kwargs):
+                seen["read_mode_at_submit"] = state.read_mode
+                return {"status": "sent", "sent": True, "retry_safe": False}
+
+            submit.side_effect = submitted
+            await sender.reply_to_conversation(
+                "2-abc==", "Hi", confirm_send=confirm_send
+            )
+
+        assert seen["depth"] == 1
+        assert seen["read_mode"] is True
+        if confirm_send:
+            assert seen["read_mode_at_submit"] is False
+        else:
+            assert state.read_mode is True
+            submit.assert_not_awaited()
+
     async def test_confirmed_reply_goes_through_the_pinned_thread_route(
         self, mock_page
     ):

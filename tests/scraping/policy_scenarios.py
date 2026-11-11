@@ -933,7 +933,7 @@ async def _reply_scenario(outcome: str) -> dict[str, Any]:
                 arguments["message"],
                 confirm_send=arguments["confirm_send"],
             )
-    page.assert_clean()
+    page.assert_clean(retained_read_guard=True)
     return recorder.trace(
         {"method": "reply_to_conversation", "arguments": arguments}, result
     )

@@ -31,6 +31,7 @@ from linkedin_mcp_server.scraping.identifiers import (
 )
 from linkedin_mcp_server.scraping.messaging_read_state import (
     allow_explicit_message_write,
+    without_read_state_writes,
 )
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession
@@ -756,6 +757,10 @@ _MESSAGE_CONFIRMATION_READY_JS = (
         // a conversation, so both treat it as the compose route.
         const threadRoute = path =>
             /^\/messaging\/thread\/(?!new\/)[A-Za-z0-9_=-]+\/$/.test(path);
+        // A reply starts on its thread, so this only holds it to the path it
+        // started on. That the path is the requested thread rests on
+        // inspect()'s messageRoute, which compares the decoded threadKey, and
+        // on _confirmation_from_snapshot re-checking the accepted path.
         const routeContinues = marker => {
             const startPath = marker?.getAttribute('data-linkedin-mcp-route') || '';
             return !threadRoute(startPath) || window.location.pathname === startPath;
@@ -2407,66 +2412,71 @@ class MessageSender:
         respond = respond_for(None)
         # Read while the whole call is still ahead, as send_message does.
         budget_deadline = _send_budget_deadline()
-        await self._navigator._navigate_to_page(target.thread_url)
-        await self._session.check_rate_limit()
-        try:
-            await self._page.wait_for_selector("main")
-        except PlaywrightTimeoutError:
-            logger.debug("Thread page did not load for %s", target.thread_id)
+        # Opening a thread is a read until the reply is confirmed: a refusal
+        # or a dry run must leave the thread unread, so every step up to that
+        # decision runs with LinkedIn's read-state writes blocked.
+        async with without_read_state_writes(self._page):
+            await self._navigator._navigate_to_page(target.thread_url)
+            await self._session.check_rate_limit()
+            try:
+                await self._page.wait_for_selector("main")
+            except PlaywrightTimeoutError:
+                logger.debug("Thread page did not load for %s", target.thread_id)
 
-        expected_route = self._page.url
-        if not _thread_page_url_matches(expected_route, target.thread_id):
-            return respond(
-                expected_route,
-                "recipient_resolution_failed",
-                "LinkedIn did not open the requested thread. Check the thread_id "
-                "against get_inbox or search_conversations.",
-            )
+            expected_route = self._page.url
+            if not _thread_page_url_matches(expected_route, target.thread_id):
+                return respond(
+                    expected_route,
+                    "recipient_resolution_failed",
+                    "LinkedIn did not open the requested thread. Check the thread_id "
+                    "against get_inbox or search_conversations.",
+                )
 
-        composer_ready = await self._wait_for_message_composer(target)
-        if self._page.url != expected_route:
-            return respond(
-                self._page.url,
-                "recipient_resolution_failed",
-                "The thread URL changed while the composer was loading.",
-            )
-        if not composer_ready:
-            return respond(
-                self._page.url,
-                "composer_unavailable",
-                "The thread did not expose one free-text reply composer. An "
-                "InMail that offers only quick-reply buttons, or a message "
-                "request not yet accepted, has none; no quick reply was clicked.",
-            )
+            composer_ready = await self._wait_for_message_composer(target)
+            if self._page.url != expected_route:
+                return respond(
+                    self._page.url,
+                    "recipient_resolution_failed",
+                    "The thread URL changed while the composer was loading.",
+                )
+            if not composer_ready:
+                return respond(
+                    self._page.url,
+                    "composer_unavailable",
+                    "The thread did not expose one free-text reply composer. An "
+                    "InMail that offers only quick-reply buttons, or a message "
+                    "request not yet accepted, has none; no quick reply was clicked.",
+                )
 
-        state = await self._read_message_composer_state(target)
-        if self._page.url != expected_route or state.get("status") != "valid":
-            return respond(
-                self._page.url,
-                "recipient_resolution_failed",
-                "The reply composer could not be tied to the requested thread.",
-            )
-        participant = await self._read_thread_participant()
-        if self._page.url != expected_route:
-            # The name may belong to whatever thread the page moved to.
-            return respond(
-                self._page.url,
-                "recipient_resolution_failed",
-                "The thread URL changed while its title was read.",
-            )
-        respond = respond_for(participant)
+            state = await self._read_message_composer_state(target)
+            if self._page.url != expected_route or state.get("status") != "valid":
+                return respond(
+                    self._page.url,
+                    "recipient_resolution_failed",
+                    "The reply composer could not be tied to the requested thread.",
+                )
+            participant = await self._read_thread_participant()
+            if self._page.url != expected_route:
+                # The name may belong to whatever thread the page moved to.
+                return respond(
+                    self._page.url,
+                    "recipient_resolution_failed",
+                    "The thread URL changed while its title was read.",
+                )
+            respond = respond_for(participant)
 
-        if not confirm_send:
-            return respond(
-                self._page.url,
-                "confirmation_required",
-                f"Nothing was sent. The message would go to "
-                f"{participant or 'the participant of this thread'} as a reply in "
-                "this thread; set confirm_send=true to send it.",
-                recipient_selected=True,
-            )
-        # As send_message: the read latch is released only once the writer has
-        # verified its target, so a dry run or a refused thread stays passive.
+            if not confirm_send:
+                return respond(
+                    self._page.url,
+                    "confirmation_required",
+                    f"Nothing was sent. The message would go to "
+                    f"{participant or 'the participant of this thread'} as a reply in "
+                    "this thread; set confirm_send=true to send it.",
+                    recipient_selected=True,
+                )
+
+        # Only a confirmed send of a verified thread may release the latch,
+        # and only once the guarded read above has exited.
         allow_explicit_message_write(self._page)
         return await self._submit_to_verified_composer(
             message,

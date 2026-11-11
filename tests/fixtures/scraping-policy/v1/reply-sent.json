@@ -11,6 +11,27 @@
     {
       "call": "reply_to_conversation",
       "callback_id": "callback-1",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_conversation",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessengerConversations*",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_conversation",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessagingBadge*",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_conversation",
+      "callback_id": "callback-3",
       "event": "framenavigated",
       "kind": "listener.add",
       "section": "message"
@@ -67,7 +88,7 @@
     },
     {
       "call": "reply_to_conversation",
-      "callback_id": "callback-1",
+      "callback_id": "callback-3",
       "event": "framenavigated",
       "kind": "listener.remove",
       "section": "message"
@@ -206,7 +227,7 @@
       "call": "reply_to_conversation",
       "kind": "wait_for_function",
       "operation": "message_confirmation_ready",
-      "program_digest": "ea09b36b88c1",
+      "program_digest": "72b7bc5b1cf5",
       "section": "message",
       "timeout_ms": null
     },
