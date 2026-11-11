@@ -200,13 +200,22 @@ _CREDENTIALS_REFUSED = frozenset({401, 403})
 
 
 class OwnerRefusedCredentialsError(Exception):
-    """The owner answered, and what it said was that this token is not its own.
+    """The process on the owner's port answered, and refused this token.
 
-    Not an :class:`OwnerUnreachableError`, because nothing about it is a lost
-    owner. A process is listening and refusing, so an election finds the same
-    owner and a repeat is refused again; and calling it a loss tells the user
-    to reconnect over a refusal that is security-relevant in its own right.
+    Not an :class:`OwnerUnreachableError`, because a process is listening and
+    nothing ran. The usual cause is turnover: the owner this frontend attached
+    to was replaced on the same port, and the token held here is the old one's.
+    So one lookup is worth making, and a repeat is safe against a *different*
+    owner only; the same one would refuse the same token again, and calling it
+    a loss would hide a refusal that is security-relevant in its own right.
+
+    *instance_id* is the owner the token was issued by, for the same reason an
+    unreachable owner carries it.
     """
+
+    def __init__(self, *, instance_id: str) -> None:
+        super().__init__("The shared browser owner refused this frontend's token")
+        self.instance_id = instance_id
 
 
 def _refused_credentials(exc: BaseException) -> bool:
@@ -397,7 +406,7 @@ def _tells_which_owner_failed() -> type:
                     raise
                 if _refused_credentials(exc):
                     raise OwnerRefusedCredentialsError(
-                        "The shared browser owner refused this frontend's token"
+                        instance_id=self._instance_id
                     ) from exc
                 raise OwnerUnreachableError(
                     instance_id=self._instance_id,
@@ -846,10 +855,9 @@ def _owner_lost_from_a_call() -> ToolError:
 
 #: What a client is told when the owner refused this frontend's token. Fixed
 #: text for the same reason as :data:`_OWNER_LOST`, and it never names the token.
-#: The token is minted per owner and read once at attach, so a refusal means the
-#: process answering on that port is not the one this frontend attached to, and
-#: only a restart makes it read the current one. Nothing ran: the refusal is
-#: answered before the request reaches any tool.
+#: Only reached once a fresh lookup found no other owner to repeat against, so
+#: what is left is a token the current owner does not accept. Nothing ran: the
+#: refusal is answered before the request reaches any tool.
 _CREDENTIALS_REFUSED_TEXT = (
     "The shared browser process refused this server's credentials, so nothing "
     "was run. The process answering is not the one this server attached to. "
@@ -909,19 +917,25 @@ class FrontendOwnerRecoveryMiddleware(Middleware):
         the replacement failed the repeat as well, the client is told so in
         words it can act on (:func:`_owner_lost_from_a_listing`). Only a
         failure recognised as the owner's is put that way; anything else leaves
-        as it arrived. A refused token is neither, and is never repeated.
+        as it arrived. A refused token is repeated only against a different
+        owner (:meth:`_owner_after_a_refusal`).
         """
         try:
             return await call_next(context)
         except Exception as exc:
-            if credentials_refused_in(exc) is not None:
-                raise _refused_from_a_listing() from exc
-            failure = unreachable_owner_in(exc)
-            if failure is None:
-                raise
-            logger.info("Listing failed against a departed owner; looking for another")
-            if await self._backend.recover(failure.instance_id) is None:
-                raise _owner_lost_from_a_listing() from exc
+            refusal = credentials_refused_in(exc)
+            if refusal is not None:
+                if await self._owner_after_a_refusal(refusal) is None:
+                    raise _refused_from_a_listing() from exc
+            else:
+                failure = unreachable_owner_in(exc)
+                if failure is None:
+                    raise
+                logger.info(
+                    "Listing failed against a departed owner; looking for another"
+                )
+                if await self._backend.recover(failure.instance_id) is None:
+                    raise _owner_lost_from_a_listing() from exc
         # Unconditional, because listing changes nothing on LinkedIn. There is
         # no effect a second one could repeat.
         try:
@@ -932,6 +946,21 @@ class FrontendOwnerRecoveryMiddleware(Middleware):
             if unreachable_owner_in(again) is None:
                 raise
             raise _owner_lost_from_a_listing() from again
+
+    async def _owner_after_a_refusal(
+        self, refusal: OwnerRefusedCredentialsError
+    ) -> Attachment | None:
+        """Look the owner up once, and return it only if it is a different one.
+
+        A token is minted per owner instance and never changes, so the instance
+        that refused comes back with the token it just refused; repeating
+        against it would only be refused again.
+        """
+        logger.info("The shared browser owner refused our token; looking it up")
+        found = await self._backend.recover(refusal.instance_id)
+        if found is None or found.descriptor.instance_id == refusal.instance_id:
+            return None
+        return found
 
     async def on_list_tools(
         self, context: MiddlewareContext[Any], call_next: CallNext[Any, Any]
@@ -1011,9 +1040,15 @@ class FrontendOwnerRecoveryMiddleware(Middleware):
             return await call_next(context)
         except Exception as exc:
             # Ahead of the outcome question, because a refusal has an answer to
-            # it: the owner's bearer check refused before any tool ran.
-            if credentials_refused_in(exc) is not None:
-                raise _refused_from_a_call() from exc
+            # it: the owner's bearer check refused before any tool ran, which
+            # is the same answer `nothing_was_sent` gives.
+            refusal = credentials_refused_in(exc)
+            if refusal is not None:
+                if await self._owner_after_a_refusal(refusal) is None:
+                    raise _refused_from_a_call() from exc
+                return await self._repeat_once(
+                    context, call_next, could_change_something=None
+                )
             failure = unreachable_owner_in(exc)
             if failure is None:
                 raise
@@ -1060,54 +1095,67 @@ class FrontendOwnerRecoveryMiddleware(Middleware):
                 # anything.
                 raise _owner_lost_from_a_call() from exc
 
-            logger.info("Attached to a replacement owner; running the call again")
-            try:
-                return await call_next(context)
-            except Exception as again:
-                # The replacement can go away exactly like the first owner, and
-                # by then the repeat may have acted: it was made only because
-                # nothing left this process the first time, which says nothing
-                # about the second. Left to escape, it reaches the client as
-                # `Error calling tool 'send_message'` and nothing else, which is
-                # the #891 damage one round later — a client told nothing repeats
-                # a message that may already be delivered.
-                #
-                # Classified again rather than attempted again. Exactly two
-                # attempts: no recursion here and no second `recover`, because a
-                # third attempt would be a guess about an owner that has now
-                # failed twice, and the question it raises — whether the second
-                # attempt acted — is the one nothing here can answer.
-                if credentials_refused_in(again) is not None:
-                    raise _refused_from_a_call() from again
-                repeat = unreachable_owner_in(again)
-                if repeat is not None and not repeat.nothing_was_sent:
-                    # The answer the first attempt already has, rather than the
-                    # same question put to an owner that has just died. Both
-                    # readings are about one tool and the tool did not change;
-                    # what changed is who is left to answer. The lookup goes
-                    # through `fastmcp.get_tool`, which with the component cache
-                    # off is a forwarded listing against exactly that departed
-                    # owner, so it raises and `a_repeat_could_change_something`
-                    # answers `True` on the cautious side. Caution about a
-                    # question already answered is not caution: it turns a read
-                    # repeated *because* the first lookup called it read-only
-                    # into an `outcome_unknown` carrying `retry_safe: False`,
-                    # which sends the user to look on LinkedIn for an effect a
-                    # read cannot have had.
-                    if could_change_something is None:
-                        # Nothing was remembered, because the first pass
-                        # short-circuited on `nothing_was_sent` and never asked.
-                        # Here the lookup is the only source there is, and its
-                        # failing open is still the right side to fail on: an
-                        # unreadable annotation is not a promise of safety.
-                        could_change_something = await a_repeat_could_change_something(
-                            context
-                        )
-                    if could_change_something:
-                        return self._report_an_unknown_outcome(context, repeat)
-                if repeat is None:
-                    raise
-                raise _owner_lost_from_a_call() from again
+            return await self._repeat_once(context, call_next, could_change_something)
+
+    async def _repeat_once(
+        self,
+        context: MiddlewareContext[mt.CallToolRequestParams],
+        call_next: CallNext[mt.CallToolRequestParams, ToolResult],
+        could_change_something: bool | None,
+    ) -> ToolResult:
+        """Run the call again against the replacement, and classify a second failure.
+
+        *could_change_something* is the first attempt's answer, or ``None`` when
+        that attempt sent nothing and the question was never put.
+        """
+        logger.info("Attached to a replacement owner; running the call again")
+        try:
+            return await call_next(context)
+        except Exception as again:
+            # The replacement can go away exactly like the first owner, and
+            # by then the repeat may have acted: it was made only because
+            # nothing left this process the first time, which says nothing
+            # about the second. Left to escape, it reaches the client as
+            # `Error calling tool 'send_message'` and nothing else, which is
+            # the #891 damage one round later — a client told nothing repeats
+            # a message that may already be delivered.
+            #
+            # Classified again rather than attempted again. Exactly two
+            # attempts: no recursion here and no second `recover`, because a
+            # third attempt would be a guess about an owner that has now
+            # failed twice, and the question it raises — whether the second
+            # attempt acted — is the one nothing here can answer.
+            if credentials_refused_in(again) is not None:
+                raise _refused_from_a_call() from again
+            repeat = unreachable_owner_in(again)
+            if repeat is not None and not repeat.nothing_was_sent:
+                # The answer the first attempt already has, rather than the
+                # same question put to an owner that has just died. Both
+                # readings are about one tool and the tool did not change;
+                # what changed is who is left to answer. The lookup goes
+                # through `fastmcp.get_tool`, which with the component cache
+                # off is a forwarded listing against exactly that departed
+                # owner, so it raises and `a_repeat_could_change_something`
+                # answers `True` on the cautious side. Caution about a
+                # question already answered is not caution: it turns a read
+                # repeated *because* the first lookup called it read-only
+                # into an `outcome_unknown` carrying `retry_safe: False`,
+                # which sends the user to look on LinkedIn for an effect a
+                # read cannot have had.
+                if could_change_something is None:
+                    # Nothing was remembered, because the first pass
+                    # short-circuited on `nothing_was_sent` and never asked.
+                    # Here the lookup is the only source there is, and its
+                    # failing open is still the right side to fail on: an
+                    # unreadable annotation is not a promise of safety.
+                    could_change_something = await a_repeat_could_change_something(
+                        context
+                    )
+                if could_change_something:
+                    return self._report_an_unknown_outcome(context, repeat)
+            if repeat is None:
+                raise
+            raise _owner_lost_from_a_call() from again
 
 
 class FrontendCallHeartbeatMiddleware(Middleware):

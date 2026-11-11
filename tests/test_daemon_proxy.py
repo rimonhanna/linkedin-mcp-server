@@ -2200,12 +2200,13 @@ _THE_TOKEN_WAS_REFUSED = (
 class TestARefusedToken:
     """An owner that refuses this frontend's token has not been lost.
 
-    A process is there and answering, so an election finds the same one and a
-    repeat is refused again, and calling it a loss sends the user to reconnect
-    over what is a refusal of its credential. Driven through the whole proxy
-    with the real HTTP transport, so the refusal reaches the middleware as the
-    `httpx.HTTPStatusError` the SDK really raises out of the connect; only the
-    socket is stood in for.
+    The usual cause is turnover: the owner on that port was replaced and the
+    token held here is the old one's. So the owner is looked up once, and the
+    request, which ran nothing, is repeated only against a *different* owner;
+    the same one would refuse the same token again. Driven through the whole
+    proxy with the real HTTP transport, so the refusal reaches the middleware as
+    the `httpx.HTTPStatusError` the SDK really raises out of the connect; only
+    the socket is stood in for.
     """
 
     @pytest.fixture
@@ -2218,10 +2219,14 @@ class TestARefusedToken:
         that skipped that would only ever exercise the listing. Any other URL
         goes through the real HTTP transport, where *refusing* names the ones
         whose bearer check refuses and *gone* the ones with nothing listening.
+        An election finds whatever *elects* holds, the first owner by default,
+        and nobody when that is `None`.
         """
         from fastmcp.client import transports
 
         from linkedin_mcp_server import daemon_owner
+        from linkedin_mcp_server.daemon import OwnerLookup, OwnerState
+        from linkedin_mcp_server.daemon_election import ElectionOutcome
 
         elected = _attachment(tmp_path)
         replacement = _attachment(tmp_path, port=elected.descriptor.port + 1)
@@ -2232,6 +2237,7 @@ class TestARefusedToken:
         gone: set[str] = set()
         posted: list[str] = []
         elections: list[str] = []
+        elects: dict[str, Attachment | None] = {"owner": elected}
 
         def answer(request: httpx.Request) -> httpx.Response:
             url = str(request.url)
@@ -2262,7 +2268,13 @@ class TestARefusedToken:
 
         def elect(*_args: Any, **_kwargs: Any):
             elections.append("elected")
-            return _elected(replacement)
+            found = elects["owner"]
+            if found is None:
+                return ElectionOutcome(
+                    OwnerLookup(state=OwnerState.ABSENT, reason="nobody answered"),
+                    started_owner=False,
+                )
+            return _elected(found)
 
         monkeypatch.setattr(daemon_owner, "direct_async_http_client", direct)
         monkeypatch.setattr(transports, "StreamableHttpTransport", transport_for)
@@ -2271,15 +2283,41 @@ class TestARefusedToken:
             backend=backend,
             elected=elected.descriptor.url,
             replacement=replacement.descriptor.url,
+            replacement_attachment=replacement,
             served=served,
             refusing=refusing,
             gone=gone,
             posted=posted,
             elections=elections,
+            elects=elects,
             ran=ran,
         )
 
-    async def test_a_refused_listing_is_named_and_not_repeated(self, _owners):
+    @staticmethod
+    async def _call_after_listing(owners: dict[str, Any], then) -> Any:
+        """List against the first owner, apply *then*, and make a write call."""
+        owners["served"].add(owners["elected"])
+        proxy = TestRecoveringThroughTheWholeProxy._proxy(owners["backend"])
+        async with Client(proxy) as client:
+            await client.list_tools()
+            owners["served"].clear()
+            then()
+            return await client.call_tool(
+                "send_connection_request", {}, raise_on_error=False
+            )
+
+    @staticmethod
+    def _refused(result: Any) -> None:
+        """A refusal, never an `outcome_unknown`: the refused request ran nothing."""
+        assert result.is_error
+        assert result.structured_content is None
+        assert [getattr(block, "text", None) for block in result.content] == [
+            _THE_TOKEN_WAS_REFUSED
+        ]
+
+    async def test_a_listing_the_same_owner_refuses_is_named_not_repeated(
+        self, _owners
+    ):
         _owners["refusing"].add(_owners["elected"])
 
         proxy = TestRecoveringThroughTheWholeProxy._proxy(_owners["backend"])
@@ -2288,41 +2326,84 @@ class TestARefusedToken:
                 await client.list_tools()
 
         assert str(failed.value) == _THE_TOKEN_WAS_REFUSED
-        assert _owners["elections"] == []
+        assert _owners["elections"] == ["elected"]
         assert _owners["posted"] == [_owners["elected"]], "the refusal was repeated"
 
-    async def test_a_refused_call_is_named_and_not_an_unknown_outcome(self, _owners):
-        """A write refused at the bearer check never reached a tool.
+    async def test_a_call_the_same_owner_refuses_is_named_not_repeated(self, _owners):
+        def refuse() -> None:
+            _owners["refusing"].add(_owners["elected"])
 
-        So it is neither repeated nor reported as `outcome_unknown`, which would
-        send the user to LinkedIn looking for an effect that cannot have
-        happened.
-        """
-        _owners["served"].add(_owners["elected"])
+        result = await self._call_after_listing(_owners, refuse)
+
+        self._refused(result)
+        assert _owners["ran"] == []
+        assert _owners["elections"] == ["elected"]
+        assert _owners["posted"] == [_owners["elected"]], "the refusal was repeated"
+
+    async def test_a_call_refused_with_no_owner_found_is_named(self, _owners):
+        def refuse() -> None:
+            _owners["refusing"].add(_owners["elected"])
+            _owners["elects"]["owner"] = None
+
+        result = await self._call_after_listing(_owners, refuse)
+
+        self._refused(result)
+        assert _owners["elections"] == ["elected"]
+        assert _owners["posted"] == [_owners["elected"]]
+
+    async def test_a_listing_refused_by_a_replaced_owner_reaches_the_new_one(
+        self, _owners
+    ):
+        """Turnover on the same port, seen from a frontend holding the old token."""
+        _owners["refusing"].add(_owners["elected"])
+        _owners["elects"]["owner"] = _owners["replacement_attachment"]
+        _owners["served"].add(_owners["replacement"])
 
         proxy = TestRecoveringThroughTheWholeProxy._proxy(_owners["backend"])
         async with Client(proxy) as client:
-            await client.list_tools()
-            _owners["served"].clear()
-            _owners["refusing"].add(_owners["elected"])
-            result = await client.call_tool(
-                "send_connection_request", {}, raise_on_error=False
-            )
+            listed = {tool.name for tool in await client.list_tools()}
 
-        assert result.is_error
-        assert result.structured_content is None
-        assert [getattr(block, "text", None) for block in result.content] == [
-            _THE_TOKEN_WAS_REFUSED
-        ]
-        assert _owners["ran"] == []
-        assert _owners["elections"] == []
-        assert _owners["posted"] == [_owners["elected"]], "the refusal was repeated"
+        assert listed == {"send_connection_request"}
+        assert _owners["elections"] == ["elected"]
+        assert _owners["posted"] == [_owners["elected"]]
+        assert _owners["backend"].attachment.descriptor.url == _owners["replacement"]
+
+    async def test_a_call_refused_by_a_replaced_owner_runs_once_on_the_new_one(
+        self, _owners
+    ):
+        """Repeated, because the refused write ran nothing; and run exactly once."""
+
+        def turn_over() -> None:
+            _owners["refusing"].add(_owners["elected"])
+            _owners["elects"]["owner"] = _owners["replacement_attachment"]
+            _owners["served"].add(_owners["replacement"])
+
+        result = await self._call_after_listing(_owners, turn_over)
+
+        assert not result.is_error
+        assert _owners["ran"] == ["sent"]
+        assert _owners["elections"] == ["elected"]
+        assert _owners["posted"] == [_owners["elected"]]
+
+    async def test_a_call_the_new_owner_refuses_too_is_not_repeated_again(
+        self, _owners
+    ):
+        def both_refuse() -> None:
+            _owners["refusing"].update({_owners["elected"], _owners["replacement"]})
+            _owners["elects"]["owner"] = _owners["replacement_attachment"]
+
+        result = await self._call_after_listing(_owners, both_refuse)
+
+        self._refused(result)
+        assert _owners["elections"] == ["elected"]
+        assert _owners["posted"] == [_owners["elected"], _owners["replacement"]]
 
     async def test_a_replacement_that_refuses_the_repeated_listing_is_named(
         self, _owners
     ):
         _owners["gone"].add(_owners["elected"])
         _owners["refusing"].add(_owners["replacement"])
+        _owners["elects"]["owner"] = _owners["replacement_attachment"]
 
         proxy = TestRecoveringThroughTheWholeProxy._proxy(_owners["backend"])
         async with Client(proxy) as client:
@@ -2334,23 +2415,14 @@ class TestARefusedToken:
         assert _owners["posted"] == [_owners["replacement"]]
 
     async def test_a_replacement_that_refuses_the_repeated_call_is_named(self, _owners):
-        _owners["served"].add(_owners["elected"])
-
-        proxy = TestRecoveringThroughTheWholeProxy._proxy(_owners["backend"])
-        async with Client(proxy) as client:
-            await client.list_tools()
-            _owners["served"].clear()
+        def gone_then_refused() -> None:
             _owners["gone"].add(_owners["elected"])
             _owners["refusing"].add(_owners["replacement"])
-            result = await client.call_tool(
-                "send_connection_request", {}, raise_on_error=False
-            )
+            _owners["elects"]["owner"] = _owners["replacement_attachment"]
 
-        assert result.is_error
-        assert result.structured_content is None
-        assert [getattr(block, "text", None) for block in result.content] == [
-            _THE_TOKEN_WAS_REFUSED
-        ]
+        result = await self._call_after_listing(_owners, gone_then_refused)
+
+        self._refused(result)
         assert _owners["ran"] == []
         assert _owners["elections"] == ["elected"]
         assert _owners["posted"] == [_owners["replacement"]]
