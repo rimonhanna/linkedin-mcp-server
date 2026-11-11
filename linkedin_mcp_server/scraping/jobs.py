@@ -32,13 +32,17 @@ from linkedin_mcp_server.scraping.job_policy import (
     SCROLL_BUDGET_TOTAL,
     SCROLL_DEADLINE_MAX,
     SEARCH_TIMEOUT_FRACTION,
+    ApplyType,
     JobsTrackerStage,
+    apply_link_missing_section_error,
     dropped_filters_section_error,
     dropped_offset_section_error,
     label_similar_jobs,
+    employer_apply_url,
     lost_keywords_section_error,
     missing_description_section_error,
     no_matching_jobs_section_error,
+    posting_state,
     reconcile_search_references,
 )
 from linkedin_mcp_server.scraping.link_metadata import Reference, dedupe_references
@@ -46,8 +50,10 @@ from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.search_urls import build_job_search_url
 from linkedin_mcp_server.scraping.session import ScrapingSession, nav_delay
 from linkedin_mcp_server.scraping.text import (
+    JOB_APPLY_EN_US,
     JOB_POSTING_EN_US,
     JOB_SEARCH_EN_US,
+    JobApplyTextTable,
     JobSearchTextTable,
 )
 
@@ -87,18 +93,21 @@ class JobScraper:
         capture: SectionCapture,
         pages: JobPageReader,
         search_text: JobSearchTextTable = JOB_SEARCH_EN_US,
+        apply_text: JobApplyTextTable = JOB_APPLY_EN_US,
     ):
         self._session = session
         self._navigator = navigator
         self._capture = capture
         self._pages = pages
         self._search_text = search_text
+        self._apply_text = apply_text
 
     async def scrape_job(self, job_id: str) -> dict[str, Any]:
         """Scrape a single job posting.
 
         Returns:
-            {url, sections: {name: text}}
+            {url, sections: {name: text}}, plus {apply: {type, url?}} when the
+            posting text was read.
         """
         job_id = normalize_job_id(job_id)
         url = job_view_url(job_id, "/")
@@ -130,9 +139,43 @@ class JobScraper:
         }
         if references:
             result["references"] = references
+        if "job_posting" in sections:
+            apply_type, apply_url = await self._read_apply(
+                job_id, sections["job_posting"]
+            )
+            apply: dict[str, str] = {"type": apply_type}
+            result["apply"] = apply
+            if apply_url is not None:
+                apply["url"] = apply_url
+            elif apply_type == "external":
+                section_errors["apply"] = apply_link_missing_section_error()
         if section_errors:
             result["section_errors"] = section_errors
         return result
+
+    async def _read_apply(self, job_id: str, text: str) -> tuple[ApplyType, str | None]:
+        """How the open posting takes applications, from the page already loaded.
+
+        Both states before any control, so a posting in either never reads as
+        open. A failed control read is `unknown`, never a guess.
+        """
+        state = posting_state(text, self._apply_text)
+        if state is not None:
+            return state, None
+        try:
+            signals = await self._pages.read_apply_signals(job_id, self._apply_text)
+        except LinkedInScraperException:
+            raise
+        except Exception as e:
+            logger.debug("Could not read the apply control: %s", e)
+            return "unknown", None
+        if signals is None:
+            return "unknown", None
+        if signals.easy_apply:
+            return "easy_apply", None
+        if signals.external_link is not None:
+            return "external", employer_apply_url(signals.external_link)
+        return "unknown", None
 
     async def search_jobs(
         self,

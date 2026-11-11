@@ -86,7 +86,7 @@
     },
     {
       "name": "get_job_details",
-      "description": "Retrieve specific job posting details using LinkedIn job IDs"
+      "description": "Retrieve specific job posting details using LinkedIn job IDs, including how the posting takes applications"
     },
     {
       "name": "search_jobs",

@@ -23,11 +23,16 @@ from linkedin_mcp_server.scraping.contracts import (
     RATE_LIMITED_SECTION_TEXT,
     ExtractedSection,
 )
-from linkedin_mcp_server.scraping.job_pages import JobPageCapture, JobPageReader
+from linkedin_mcp_server.scraping.job_pages import (
+    JobApplySignals,
+    JobPageCapture,
+    JobPageReader,
+)
 from linkedin_mcp_server.scraping.jobs import JobScraper
 from linkedin_mcp_server.scraping.link_metadata import Reference
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession
+from linkedin_mcp_server.scraping.text import JOB_APPLY_EN_US
 from scraping.support.navigation import navigate
 
 
@@ -136,6 +141,134 @@ class TestScrapeJob:
 
         assert result["sections"] == {}
         assert "references" not in result
+
+    @staticmethod
+    def _posting(scraper, text, signals=None):
+        """Capture ``text`` and answer the apply read with ``signals``.
+
+        ``signals`` is what the page read returns, or an exception it raises.
+        """
+        read = (
+            AsyncMock(side_effect=signals)
+            if isinstance(signals, Exception)
+            else AsyncMock(return_value=signals)
+        )
+        return (
+            patch.object(
+                scraper._capture,
+                "capture",
+                new_callable=AsyncMock,
+                return_value=extracted(text),
+            ),
+            patch.object(scraper._pages, "read_apply_signals", read),
+        )
+
+    _OPEN = "Applied AI Engineer\nAcme\nApply\nAbout the job\nBuild agents."
+
+    @pytest.mark.parametrize(
+        ("state", "expected"),
+        [
+            ("Application submitted", "applied"),
+            ("No longer accepting applications", "closed"),
+        ],
+    )
+    async def test_a_posting_state_needs_no_page_read(self, mock_page, state, expected):
+        """A state line answers before any control, so it never reads as open."""
+        scraper = _scraper(mock_page)
+        text = f"Engineer\nAcme\n{state}\nAbout the job\nBuild agents."
+        capture, signals = self._posting(
+            scraper, text, JobApplySignals(easy_apply=True, external_link=None)
+        )
+        with capture, signals as read:
+            result = await scraper.scrape_job("12345")
+
+        assert result["apply"] == {"type": expected}
+        assert result["sections"]["job_posting"] == text
+        read.assert_not_awaited()
+
+    async def test_easy_apply_is_read_off_the_loaded_page(self, mock_page):
+        """One navigation, the capture's: the apply read is not another."""
+        scraper = _scraper(mock_page)
+        capture, signals = self._posting(
+            scraper, self._OPEN, JobApplySignals(easy_apply=True, external_link=None)
+        )
+        with (
+            capture as captured_page,
+            signals as read,
+            patch.object(
+                scraper._navigator, "_navigate_to_page", new_callable=AsyncMock
+            ) as navigate_to,
+        ):
+            result = await scraper.scrape_job("12345")
+
+        assert result["apply"] == {"type": "easy_apply"}
+        captured_page.assert_awaited_once()
+        read.assert_awaited_once_with("12345", JOB_APPLY_EN_US)
+        navigate_to.assert_not_awaited()
+
+    async def test_an_external_posting_names_the_employer_address(self, mock_page):
+        scraper = _scraper(mock_page)
+        link = (
+            "https://www.linkedin.com/safety/go/?url="
+            "https%3A%2F%2Fgrnh.se%2Fodiu26fu2us&isSdui=true"
+        )
+        capture, signals = self._posting(
+            scraper, self._OPEN, JobApplySignals(easy_apply=False, external_link=link)
+        )
+        with capture, signals:
+            result = await scraper.scrape_job("12345")
+
+        assert result["apply"] == {
+            "type": "external",
+            "url": "https://grnh.se/odiu26fu2us",
+        }
+        assert "section_errors" not in result
+
+    async def test_an_external_link_into_this_host_is_withheld(self, mock_page):
+        """The type is kept and the address is not, and the caller is told."""
+        scraper = _scraper(mock_page)
+        link = "https://www.linkedin.com/safety/go/?url=http%3A%2F%2F127.0.0.1%3A9%2F"
+        capture, signals = self._posting(
+            scraper, self._OPEN, JobApplySignals(easy_apply=False, external_link=link)
+        )
+        with capture, signals:
+            result = await scraper.scrape_job("12345")
+
+        assert result["apply"] == {"type": "external"}
+        error = result["section_errors"]["apply"]
+        assert error["error_type"] == "apply_link_missing"
+
+    @pytest.mark.parametrize(
+        "signals",
+        [
+            None,
+            JobApplySignals(easy_apply=False, external_link=None),
+            TypeError("Apply signals read returned str"),
+        ],
+    )
+    async def test_nothing_proven_is_unknown(self, mock_page, signals):
+        """Unknown, never open: a failed read keeps the posting text too."""
+        scraper = _scraper(mock_page)
+        capture, read = self._posting(scraper, self._OPEN, signals)
+        with capture, read:
+            result = await scraper.scrape_job("12345")
+
+        assert result["apply"] == {"type": "unknown"}
+        assert result["sections"]["job_posting"] == self._OPEN
+        assert "section_errors" not in result
+
+    async def test_a_rate_limited_posting_reads_no_apply(self, mock_page):
+        scraper = _scraper(mock_page)
+        capture, signals = self._posting(
+            scraper,
+            RATE_LIMITED_SECTION_TEXT,
+            JobApplySignals(easy_apply=True, external_link=None),
+        )
+        with capture, signals as read:
+            result = await scraper.scrape_job("12345")
+
+        assert "apply" not in result
+        read.assert_not_awaited()
 
     async def test_jobs_a_posting_links_to_are_labelled_similar(self, mock_page):
         """The posting's own link and its "More jobs" cards are both jobs.

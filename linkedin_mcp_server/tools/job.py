@@ -53,6 +53,13 @@ def register_job_tools(
             section_errors.job_posting.error_type "description_missing" means
             the captured text lacks the expected "About the job" heading.
             The text is kept but may be incomplete; calling again may return more.
+            apply ({type, url?}) says how the posting takes applications,
+            read from the page already loaded without clicking anything:
+            applied, closed, easy_apply, external or unknown. url is the
+            employer's application link as LinkedIn gives it, never opened by
+            this server, and present only for external postings; an external
+            posting without a usable link carries section_errors.apply of type
+            apply_link_missing.
         """
         try:
             job_id = normalize_job_id(job_id)

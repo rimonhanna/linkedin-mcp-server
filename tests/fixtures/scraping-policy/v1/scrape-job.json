@@ -104,9 +104,27 @@
       "kind": "evaluate",
       "operation": "root_content",
       "program_digest": "e8a0e21ac6f5"
+    },
+    {
+      "arg": {
+        "applyPath": "/jobs/view/123/apply",
+        "descriptionHeadings": [
+          "About the job"
+        ],
+        "easyApplyLabel": "Easy Apply",
+        "externalLabel": "Apply",
+        "redirectPath": "/safety/go"
+      },
+      "call": "scrape_job",
+      "kind": "evaluate",
+      "operation": "job_apply_signals",
+      "program_digest": "9e29e80e50ef"
     }
   ],
   "result": {
+    "apply": {
+      "type": "easy_apply"
+    },
     "section_names": [
       "job_posting"
     ],
