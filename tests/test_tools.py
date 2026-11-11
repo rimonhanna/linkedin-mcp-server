@@ -801,6 +801,7 @@ class TestPersonTool:
             ("accepted", False),
             ("pending", False),
             ("already_connected", False),
+            ("self_profile", False),
         ],
     )
     async def test_connect_with_person_failure_status_keeps_the_trace(
