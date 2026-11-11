@@ -122,3 +122,55 @@ def test_a_debug_run_is_not_raised_to_info(monkeypatch, tmp_path):
         handler.flush()
 
     assert "fine detail" in log_path.read_text(encoding="utf-8")
+
+
+def _runs(tmp_path):
+    root = tmp_path / "trace-runs"
+    return sorted(root.glob("run-*")) if root.exists() else []
+
+
+def test_a_process_that_logs_nothing_leaves_no_run(monkeypatch, tmp_path):
+    """A proxying frontend is killed by its host, so it never cleans up."""
+    monkeypatch.setenv("USER_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.setattr("linkedin_mcp_server.logging_config.atexit.register", id)
+
+    configure_logging(log_level="WARNING")
+    logging.getLogger("linkedin_mcp_server.scraping.extractor").info("below level")
+
+    assert _runs(tmp_path) == []
+
+
+def test_the_first_record_creates_the_run_and_its_log(monkeypatch, tmp_path):
+    monkeypatch.setenv("USER_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.setattr("linkedin_mcp_server.logging_config.atexit.register", id)
+
+    configure_logging(log_level="WARNING")
+    logging.getLogger("linkedin_mcp_server.scraping.extractor").warning("first")
+    logging.getLogger("linkedin_mcp_server.scraping.extractor").warning("second")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    [run] = _runs(tmp_path)
+    persisted = (run / "server.log").read_text(encoding="utf-8")
+    assert "first" in persisted and "second" in persisted
+    assert (run / "server.log").stat().st_mode & 0o777 == 0o600
+
+
+def test_a_record_logged_while_creating_the_run_does_not_recurse(monkeypatch, tmp_path):
+    monkeypatch.setenv("USER_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.setattr("linkedin_mcp_server.logging_config.atexit.register", id)
+    prunes = []
+
+    def noisy_prune(source_profile, root):
+        prunes.append(root)
+        logging.getLogger("linkedin_mcp_server.debug_trace").warning("pruning")
+
+    monkeypatch.setattr(
+        "linkedin_mcp_server.debug_trace._prune_stale_runs", noisy_prune
+    )
+
+    configure_logging(log_level="WARNING")
+    logging.getLogger("linkedin_mcp_server.scraping.extractor").warning("first")
+
+    assert len(prunes) == 1
+    assert len(_runs(tmp_path)) == 1

@@ -14,7 +14,11 @@ import os
 from typing import Any, Dict
 
 from linkedin_mcp_server.common_utils import secure_mkdir
-from linkedin_mcp_server.debug_trace import cleanup_trace_dir, get_trace_dir
+from linkedin_mcp_server.debug_trace import (
+    cleanup_trace_dir,
+    get_trace_dir,
+    trace_enabled,
+)
 
 _TRACE_FILE_HANDLER: logging.Handler | None = None
 _TRACE_CLEANUP_REGISTERED = False
@@ -28,6 +32,67 @@ _BROWSER_LIFECYCLE_LOGGERS = (
     "linkedin_mcp_server.core.browser",
     "linkedin_mcp_server.drivers.browser",
 )
+
+
+class _LazyTraceFileHandler(logging.Handler):
+    """Write ``server.log`` into the run directory, creating both on first use.
+
+    A frontend that only proxies to the daemon logs nothing at the default
+    level, and hosts kill it rather than letting it exit, so an eager run
+    directory was left behind empty by every spawn and read like a capture
+    that had failed. Deferring creation to the first record means such a
+    process leaves nothing.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._file: logging.FileHandler | None = None
+        self._opening = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self._file is None:
+            # Creating the run prunes old ones, which may itself log; those
+            # records arrive here re-entrantly and are dropped, not recursed on.
+            if self._opening:
+                return
+            self._opening = True
+            try:
+                self._file = self._open()
+            except Exception:
+                self.handleError(record)
+                return
+            finally:
+                self._opening = False
+            if self._file is None:
+                return
+        self._file.emit(record)
+
+    def _open(self) -> logging.FileHandler | None:
+        trace_dir = get_trace_dir()
+        if trace_dir is None:
+            return None
+        secure_mkdir(trace_dir)
+        log_path = trace_dir / "server.log"
+        try:
+            fd = os.open(str(log_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+        except FileExistsError:
+            pass
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setFormatter(self.formatter)
+        return file_handler
+
+    def flush(self) -> None:
+        if self._file is not None:
+            self._file.flush()
+
+    def close(self) -> None:
+        try:
+            if self._file is not None:
+                self._file.close()
+                self._file = None
+        finally:
+            super().close()
 
 
 class MCPJSONFormatter(logging.Formatter):
@@ -132,16 +197,8 @@ def configure_logging(log_level: str = "WARNING", json_format: bool = False) -> 
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
-    trace_dir = get_trace_dir()
-    if trace_dir is not None:
-        secure_mkdir(trace_dir)
-        log_path = trace_dir / "server.log"
-        try:
-            fd = os.open(str(log_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            os.close(fd)
-        except FileExistsError:
-            pass
-        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    if trace_enabled():
+        file_handler = _LazyTraceFileHandler()
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
         _TRACE_FILE_HANDLER = file_handler
