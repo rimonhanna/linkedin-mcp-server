@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -3075,7 +3076,7 @@ class TestSearchJobsLocation:
 
         with (
             patch.object(
-                jobs_module.time, "monotonic", side_effect=lambda: clock["now"]
+                jobs_module, "time", SimpleNamespace(monotonic=lambda: clock["now"])
             ),
             patch.object(scraper._pages, "_extract_search_page", side_effect=extract),
             patch.object(
@@ -3097,6 +3098,69 @@ class TestSearchJobsLocation:
 
         # The deadline is the clock at the start plus 80% of the timeout.
         assert budgets == [pytest.approx(100.0 * jobs_module.SEARCH_TIMEOUT_FRACTION)]
+
+    async def test_too_little_budget_skips_the_resolution(self, mock_page):
+        """A resolution can take most of a short budget and leave no page."""
+        scraper = _scraper(mock_page, geo_id=self.AMSTERDAM)
+        # 80% of 30s, less the reserve for a page, is below the minimum.
+        assert (
+            30.0 * jobs_module.SEARCH_TIMEOUT_FRACTION
+            - jobs_module.LOCATION_RESOLUTION_RESERVE
+            < jobs_module.LOCATION_RESOLUTION_MIN
+        )
+        visited, _, (a, b, c, d) = self._search(scraper, mock_page, "Job 1")
+        with a, b, c, d:
+            result = await scraper.search_jobs(
+                "python", location="Amsterdam", max_pages=1, tool_timeout=30.0
+            )
+
+        _geo(scraper).assert_not_awaited()
+        assert parse_qs(urlparse(visited[0]).query)["location"] == ["Amsterdam"]
+        error = result["section_errors"]["location"]
+        assert error["error_type"] == "location_unresolved"
+        assert "too little of the time budget" in error["error_message"]
+
+    async def test_a_resolution_outlasting_its_share_is_cut_off(self, mock_page):
+        """It gets what the budget has left after a page's reserve, so a
+        stalled dropdown costs a free-text location rather than the search."""
+        scraper = _scraper(mock_page)
+
+        async def stall(location):
+            await asyncio.sleep(3600)
+
+        _geo(scraper).side_effect = stall
+        visited, _, (a, b, c, d) = self._search(scraper, mock_page, "Job 1")
+        with (
+            a,
+            b,
+            c,
+            patch.object(jobs_module, "LOCATION_RESOLUTION_MIN", 0.0),
+            patch.object(jobs_module, "LOCATION_RESOLUTION_RESERVE", 79.95),
+        ):
+            result = await asyncio.wait_for(
+                scraper.search_jobs(
+                    "python", location="Amsterdam", max_pages=1, tool_timeout=100.0
+                ),
+                timeout=5,
+            )
+
+        assert parse_qs(urlparse(visited[0]).query)["location"] == ["Amsterdam"]
+        assert result["job_ids"] == ["111"]
+        assert result["section_errors"]["location"]["error_type"] == (
+            "location_unresolved"
+        )
+
+    async def test_the_location_is_normalised_once(self, mock_page):
+        scraper = _scraper(mock_page, geo_id=None)
+        visited, _, (a, b, c, d) = self._search(scraper, mock_page, "Job 1")
+        with a, b, c, d:
+            result = await scraper.search_jobs(
+                "python", location="  New   York ", max_pages=1
+            )
+
+        _geo(scraper).assert_awaited_once_with("New York")
+        assert parse_qs(urlparse(visited[0]).query)["location"] == ["New York"]
+        assert "'New York'" in result["section_errors"]["location"]["error_message"]
 
 
 class TestGetSavedJobs:

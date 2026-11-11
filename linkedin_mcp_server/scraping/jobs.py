@@ -35,6 +35,8 @@ from linkedin_mcp_server.scraping.job_policy import (
     SCROLL_DEADLINE_MAX,
     SEARCH_TIMEOUT_FRACTION,
     ApplyType,
+    LOCATION_RESOLUTION_MIN,
+    LOCATION_RESOLUTION_RESERVE,
     JobsTrackerStage,
     ai_search_section_error,
     apply_link_missing_section_error,
@@ -235,18 +237,25 @@ class JobScraper:
         started = time.monotonic()
         budget = tool_timeout * SEARCH_TIMEOUT_FRACTION
 
+        location = " ".join(location.split()) if location else location
         geo_id: str | None = None
         location_unresolved = False
+        out_of_time = False
         pace_first = False
-        if location and location.strip():
-            try:
-                geo_id = await self._facets.resolve_geo_urn(location)
-            except LinkedInScraperException:
-                raise
-            except Exception as e:
-                logger.debug("Could not resolve location %r: %s", location, e)
+        if location:
+            allowed = budget - LOCATION_RESOLUTION_RESERVE
+            if allowed < LOCATION_RESOLUTION_MIN:
+                out_of_time = True
+            else:
+                try:
+                    async with asyncio.timeout(allowed):
+                        geo_id = await self._facets.resolve_geo_urn(location)
+                except LinkedInScraperException:
+                    raise
+                except Exception as e:
+                    logger.debug("Could not resolve location %r: %s", location, e)
+                pace_first = self._facets.navigated
             location_unresolved = geo_id is None
-            pace_first = self._facets.navigated
 
         base_url = build_job_search_url(
             keywords,
@@ -667,7 +676,7 @@ class JobScraper:
                 )
         if location_unresolved:
             section_errors["location"] = unresolved_location_section_error(
-                location or "", applied_location
+                location or "", applied_location, out_of_time=out_of_time
             )
         if section_errors:
             result["section_errors"] = section_errors

@@ -108,7 +108,7 @@ def no_matching_jobs_section_error(keywords: str) -> dict[str, str]:
 
 
 def unresolved_location_section_error(
-    location: str, applied: str | None
+    location: str, applied: str | None, *, out_of_time: bool = False
 ) -> dict[str, str]:
     """The ``section_errors`` entry for a location sent as free text.
 
@@ -117,6 +117,12 @@ def unresolved_location_section_error(
     (measured 2026-11-11). The results are kept, because they may well be
     right, and the caller is told the place was not pinned to a geo id.
     """
+    why = (
+        f"There was too little of the time budget left to resolve {location!r} "
+        "through LinkedIn's location dropdown"
+        if out_of_time
+        else f"LinkedIn's location dropdown did not resolve {location!r}"
+    )
     where = (
         f"LinkedIn applied it as {applied!r}."
         if applied
@@ -125,10 +131,9 @@ def unresolved_location_section_error(
     return {
         "error_type": "location_unresolved",
         "error_message": (
-            f"LinkedIn's location dropdown did not resolve {location!r}, so it "
-            f"was sent as free text and may have been placed elsewhere. {where} "
-            "Retry with the place as the dropdown names it, such as a city "
-            "with its country."
+            f"{why}, so it was sent as free text and may have been placed "
+            f"elsewhere. {where} Retry with the place as the dropdown names "
+            "it, such as a city with its country."
         ),
     }
 
@@ -312,6 +317,15 @@ SCROLL_BUDGET_TOTAL = 60.0
 # The timeout arrives as an argument so this budget matches the timeout the
 # server registered for the tool, including directly constructed servers.
 SEARCH_TIMEOUT_FRACTION = 0.8
+
+# A location resolution comes out of the search budget, ahead of the pages.
+# It is given what is left after the reserve, which keeps back one results
+# page: 6.5s measured for the navigation plus `SCROLL_DEADLINE_MAX` of
+# scrolling. With less than the minimum on top of that (a load, the typing,
+# and the dropdown's and the click's waits of up to 5s each) it is not
+# started, and the name goes out as free text.
+LOCATION_RESOLUTION_RESERVE = 6.5 + SCROLL_DEADLINE_MAX
+LOCATION_RESOLUTION_MIN = 15.0
 
 # The job tracker, which lists the account's jobs one stage at a time with
 # `?stage=`. The old `/my-items/saved-jobs/` redirects here and drops the
