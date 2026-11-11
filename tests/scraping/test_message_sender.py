@@ -94,6 +94,13 @@ class TestMessageTargetUrls:
             ("https://www.linkedin.com/in/testuser/edit/intro/", None),
             ("https://www.linkedin.com/in/testuser%2Fedit/", None),
             ("https://www.linkedin.com/in/testuser/?trk=profile", None),
+            # The 2026 profile page lands on this flag; it is the only query allowed.
+            (
+                "https://www.linkedin.com/in/testuser/?isSelfProfile=false",
+                "/in/testuser/",
+            ),
+            ("https://www.linkedin.com/in/testuser/?isSelfProfile=true", None),
+            ("https://www.linkedin.com/in/testuser/?isSelfProfile=false&trk=x", None),
             ("https://www.linkedin.com/in/testuser/#details", None),
         ],
     )
@@ -332,6 +339,25 @@ class TestSendMessage:
         assert result["status"] == "recipient_resolution_failed"
         assert "connect_with_person" not in result["message"]
         assert result["retry_safe"] is True
+
+    async def test_send_waits_longer_for_the_top_card_than_a_profile_read(
+        self, mock_page
+    ):
+        """The redesigned top card renders seconds after `main` appears."""
+        mock_page.evaluate = AsyncMock(return_value=None)
+        sender = _sender(mock_page)
+        with (
+            patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
+            patch.object(ScrapingSession, "check_rate_limit", new_callable=AsyncMock),
+        ):
+            await sender.send_message("testuser", "Hello!", confirm_send=False)
+            await sender._read_profile_message_target()
+
+        timeouts = [
+            call.kwargs["timeout"]
+            for call in mock_page.wait_for_function.call_args_list
+        ]
+        assert timeouts == [10_000, 1_000]
 
     @staticmethod
     def _target():
