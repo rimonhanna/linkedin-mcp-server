@@ -230,6 +230,56 @@ async def test_invalid_reference_is_rejected_before_extractor(
     ready.assert_not_awaited()
 
 
+#: Every status ``connect_with_person`` can return, and whether it keeps the
+#: run's trace. Checked against the scraper's own vocabulary below, so a status
+#: added there has to be decided here.
+_CONNECT_TRACE_KEPT = {
+    "accepted": False,
+    "already_connected": False,
+    "connect_unavailable": True,
+    "connected": False,
+    "custom_note_limit_reached": True,
+    "dialog_not_found": True,
+    "not_sent": True,
+    "pending": False,
+    "send_failed": True,
+    "send_unverified": True,
+    "unavailable": True,
+}
+
+
+def _connection_result_statuses() -> set[str]:
+    """Collect the status literals the connection scraper passes its builder."""
+    import ast
+    import inspect
+
+    from linkedin_mcp_server.scraping import connection_actions
+
+    tree = ast.parse(inspect.getsource(connection_actions))
+    return {
+        call.args[1].value
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "_connection_result"
+        and len(call.args) > 1
+        and isinstance(call.args[1], ast.Constant)
+        and isinstance(call.args[1].value, str)
+    }
+
+
+def test_connect_success_statuses_are_the_scrapers_own():
+    """The retention set names statuses the scraper returns, and only those."""
+    from linkedin_mcp_server.tools.person import _CONNECT_SUCCEEDED
+
+    statuses = _connection_result_statuses()
+
+    assert set(_CONNECT_TRACE_KEPT) == statuses
+    assert _CONNECT_SUCCEEDED == {
+        status for status, kept in _CONNECT_TRACE_KEPT.items() if not kept
+    }
+
+
 class TestPersonTool:
     async def test_get_person_profile_success(self, mock_context):
         expected = {
@@ -788,6 +838,28 @@ class TestPersonTool:
             "test-user",
             note="Hello!",
         )
+
+    @pytest.mark.parametrize(("status", "kept"), sorted(_CONNECT_TRACE_KEPT.items()))
+    async def test_connect_with_person_failure_status_keeps_the_trace(
+        self, mock_context, status, kept
+    ):
+        """A failure reported as a status, not raised, still keeps evidence."""
+        from linkedin_mcp_server.debug_trace import should_keep_traces
+        from linkedin_mcp_server.tools.person import register_person_tools
+
+        mcp = FastMCP("test")
+        register_person_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "connect_with_person")
+
+        await tool_fn(
+            "test-user",
+            mock_context,
+            extractor=_make_mock_extractor(
+                {"url": "u", "status": status, "message": "m", "note_sent": False}
+            ),
+        )
+
+        assert should_keep_traces() is kept
 
     async def test_connect_with_person_auth_error(self, monkeypatch):
         """Auth failures in the DI layer trigger auto-relogin and report the login browser."""

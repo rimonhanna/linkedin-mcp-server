@@ -14,7 +14,11 @@ import os
 from typing import Any, Dict
 
 from linkedin_mcp_server.common_utils import secure_mkdir
-from linkedin_mcp_server.debug_trace import cleanup_trace_dir, get_trace_dir
+from linkedin_mcp_server.debug_trace import (
+    cleanup_trace_dir,
+    get_trace_dir,
+    trace_enabled,
+)
 
 _TRACE_FILE_HANDLER: logging.Handler | None = None
 _TRACE_CLEANUP_REGISTERED = False
@@ -28,6 +32,100 @@ _BROWSER_LIFECYCLE_LOGGERS = (
     "linkedin_mcp_server.core.browser",
     "linkedin_mcp_server.drivers.browser",
 )
+
+#: The same floor for the module that reads an action's page state. A trace
+#: kept for a failed ``connect_with_person`` is only worth reading with the
+#: dialog text and button signals it logged, and those are INFO. Scoped rather
+#: than a root-wide INFO: these lines appear only while an action runs, in the
+#: process that drives the browser, whereas a root at INFO would have every
+#: proxying frontend write a run directory again and the long-lived daemon's
+#: log grow with every scrape.
+#: Those lines carry the invitee's name and the dialog text, so they are for
+#: the run's own log only: the console (the host's log, or the daemon's
+#: never-rotated daemon.log) still gets just what the configured level allows,
+#: and with tracing off there is no run log and no floor.
+_ACTION_EVIDENCE_LOGGERS = ("linkedin_mcp_server.scraping.connection_actions",)
+
+
+class _ConsoleLevelFilter(logging.Filter):
+    """Keep floor-raised evidence records below *level* off the console."""
+
+    def __init__(self, level: int) -> None:
+        super().__init__()
+        self._level = level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= self._level:
+            return True
+        return not any(
+            record.name == name or record.name.startswith(name + ".")
+            for name in _ACTION_EVIDENCE_LOGGERS
+        )
+
+
+class _LazyTraceFileHandler(logging.Handler):
+    """Write ``server.log`` into the run directory, creating both on first use.
+
+    A frontend that only proxies to the daemon logs nothing at the default
+    level, and hosts kill it rather than letting it exit, so an eager run
+    directory was left behind empty by every spawn and read like a capture
+    that had failed. Deferring creation to the first record means such a
+    process leaves nothing.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._file: logging.FileHandler | None = None
+        self._opening = False
+        self._failed = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self._file is None:
+            # Creating the run prunes old ones, which may itself log; those
+            # records arrive here re-entrantly and are dropped, not recursed on.
+            if self._opening or self._failed:
+                return
+            self._opening = True
+            try:
+                self._file = self._open()
+            except Exception:
+                # Reported once; retrying on every record would repeat the
+                # traceback for as long as the process logs.
+                self._failed = True
+                self.handleError(record)
+                return
+            finally:
+                self._opening = False
+            if self._file is None:
+                return
+        self._file.emit(record)
+
+    def _open(self) -> logging.FileHandler | None:
+        trace_dir = get_trace_dir()
+        if trace_dir is None:
+            return None
+        secure_mkdir(trace_dir)
+        log_path = trace_dir / "server.log"
+        try:
+            fd = os.open(str(log_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+        except FileExistsError:
+            pass
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setFormatter(self.formatter)
+        return file_handler
+
+    def flush(self) -> None:
+        if self._file is not None:
+            self._file.flush()
+
+    def close(self) -> None:
+        try:
+            if self._file is not None:
+                self._file.close()
+                self._file = None
+        finally:
+            super().close()
 
 
 class MCPJSONFormatter(logging.Formatter):
@@ -130,18 +228,11 @@ def configure_logging(log_level: str = "WARNING", json_format: bool = False) -> 
     # Add console handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
+    console_handler.addFilter(_ConsoleLevelFilter(numeric_level))
     root_logger.addHandler(console_handler)
 
-    trace_dir = get_trace_dir()
-    if trace_dir is not None:
-        secure_mkdir(trace_dir)
-        log_path = trace_dir / "server.log"
-        try:
-            fd = os.open(str(log_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            os.close(fd)
-        except FileExistsError:
-            pass
-        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    if trace_enabled():
+        file_handler = _LazyTraceFileHandler()
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
         _TRACE_FILE_HANDLER = file_handler
@@ -164,6 +255,9 @@ def configure_logging(log_level: str = "WARNING", json_format: bool = False) -> 
     )
     for name in _BROWSER_LIFECYCLE_LOGGERS:
         logging.getLogger(name).setLevel(browser_level)
+    evidence_level = browser_level if trace_enabled() else logging.NOTSET
+    for name in _ACTION_EVIDENCE_LOGGERS:
+        logging.getLogger(name).setLevel(evidence_level)
 
     # Set specific loggers to reduce noise
     logging.getLogger("urllib3").setLevel(logging.ERROR)
