@@ -862,6 +862,37 @@ def profile_in_use_by(profile_dir: Path) -> Path | None:
     return candidate
 
 
+def _held_lock_refusal(lock: Path, action: str) -> str:
+    """Why *lock* blocks *action*, naming the file and what would free it.
+
+    A lock from another host is refused without knowing whether its writer is
+    alive, and the most common writer that is not is this machine itself under
+    an earlier host name: macOS changes the name it reports when the network
+    does. Chromium never removes that lock, so the message has to say which
+    files to delete and on what condition, or nothing short of guessing frees
+    the profile. Only says so: deleting them here would remove a live
+    container's lock, which looks exactly the same.
+    """
+    try:
+        owner = os.readlink(lock).rpartition("-")[0]
+    except OSError:
+        owner = ""
+    this_host = socket.gethostname()
+    if not owner or owner == this_host:
+        return (
+            f"The browser profile is in use by another process ({lock}). "
+            f"Stop the running server or container before {action}."
+        )
+    return (
+        f"The browser profile is locked by host {owner!r} ({lock}), and this "
+        f"machine is {this_host!r}, so whether that process still runs cannot "
+        f"be checked. Stop any server, browser or container using the profile "
+        f"before {action}. If none is, the lock is left over, often from this "
+        f"machine under an earlier host name: delete {_CHROMIUM_LOCK_NAME}, "
+        f"SingletonCookie and SingletonSocket in {lock.parent} and try again."
+    )
+
+
 @contextmanager
 def _exclusive_profile(profile_dir: Path, *, action: str) -> Iterator[None]:
     """Hold the profile exclusively for the duration of an auth-state mutation.
@@ -913,10 +944,7 @@ def _exclusive_profile(profile_dir: Path, *, action: str) -> Iterator[None]:
             None,
         )
         if lock is not None:
-            raise RuntimeError(
-                f"The browser profile is in use by another process (found {lock.name}). "
-                f"Stop the running server or container before {action}."
-            )
+            raise RuntimeError(_held_lock_refusal(lock, action))
         yield
     finally:
         lease.release()
