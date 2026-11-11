@@ -692,6 +692,7 @@ def semantic_program_id(program: str) -> str:
         ("controls.length !== 1", "sent_invitation_withdraw_click"),
         ("expanded === 'false'", "open_more_button"),
         ("acceptButton.click()", "incoming_accept"),
+        ("threadParticipant", "thread_participant"),
         ("status === 'resolved'", "profile_message_target_ready"),
         ("const validComposeHref", "profile_message_target"),
         ("return inspect(target).status === 'valid'", "message_composer_ready"),

@@ -1,7 +1,8 @@
 """
 LinkedIn messaging tools.
 
-Provides inbox listing, conversation reading, message search, and sending.
+Provides inbox listing, conversation reading, message search, sending, and
+replying in an existing thread.
 """
 
 import logging
@@ -35,6 +36,7 @@ from linkedin_mcp_server.scraping.contracts import (
     SEND_INTERRUPTED_WARNING,
     before_the_reply_deadline,
     refuse_an_invalid_message,
+    refuse_an_invalid_reply,
 )
 from linkedin_mcp_server.scraping.identifiers import (
     normalize_person_identifier,
@@ -263,9 +265,9 @@ def register_messaging_tools(
         Profile-based targeting opens LinkedIn's compose flow. It is not a safe
         reply path for an existing recruiter/InMail or messaging thread: it may
         create a separate DM even after you inspect that thread with
-        get_conversation or search_conversations. Those tools only read an
-        existing thread; they do not send a reply. Until a thread-targeted send
-        path is available, do not treat profile-based send_message as a reply.
+        get_conversation or search_conversations. To answer an existing thread,
+        including an InMail from someone who is not a connection, use
+        reply_to_conversation with the thread's id instead.
 
         The recipient must be directly messageable from the profile page. If
         LinkedIn does not expose a normal Message action, use connect_with_person
@@ -392,3 +394,112 @@ def register_messaging_tools(
                 raise_tool_error(relogin_exc, "send_message")
         except Exception as e:
             raise_tool_error(e, "send_message")  # NoReturn
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="Reply to Conversation",
+        annotations={"destructiveHint": True, "openWorldHint": True},
+        tags={"messaging", "actions"},
+        exclude_args=["extractor"],
+    )
+    async def reply_to_conversation(
+        thread_id: str,
+        message: str,
+        confirm_send: bool,
+        ctx: Context,
+        extractor: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        Reply inside an existing LinkedIn messaging thread, InMail included.
+
+        Opens /messaging/thread/<thread_id>/ and types into that thread's own
+        reply composer, so the message lands in the same conversation. This is
+        the path for answering a recruiter InMail, whose sender may have no
+        Message action on their profile. Get the thread_id from get_inbox,
+        search_conversations or get_conversation.
+
+        The thread is verified before anything is typed: the page must land on
+        exactly the requested thread and stay there, and the composer must be
+        the page's one visible editor, inside the thread's main region, with
+        one submit button in its own form. Any doubt fails closed. Quick-reply
+        buttons an InMail shows are never clicked; a thread that offers only
+        those has no composer and returns composer_unavailable. A draft
+        already in the composer is left untouched and returns
+        composer_occupied. No Voyager or other private API is used. This is a
+        write operation when confirm_send is True.
+
+        Args:
+            thread_id: LinkedIn messaging thread ID, or a /messaging/thread/<id>/
+                reference as another tool returned it
+            message: Message text to send, read as send_message reads it. Line
+                breaks (LF or CRLF) are typed as Shift+Enter; three or more in a
+                row collapse to one blank line. Other C0 control characters
+                (including tab and a lone CR) and DEL are rejected.
+            confirm_send: Must be True to send. False is a dry run that verifies
+                the thread and composer, types nothing, and says who the reply
+                would go to.
+            ctx: FastMCP context for progress reporting
+
+        Returns:
+            Dict with url, status, message, recipient_selected, sent, retry_safe,
+            thread_id and participant. ``participant`` is the name shown in the
+            thread's title, or null where it could not be read; it is reported,
+            never used to decide anything. ``sent`` and ``retry_safe`` mean what
+            they mean for send_message: calling again while ``retry_safe`` is
+            false can deliver the message twice. A ``status`` of
+            ``outcome_unknown`` means the browser went away mid-call and only
+            LinkedIn can say whether the message left.
+        """
+        try:
+            # Answered before a session is acquired, as in send_message, and
+            # inside the `try` for the same reason: an unusable thread id
+            # raises `InvalidReferenceError`, which has to name the correction.
+            refusal = refuse_an_invalid_reply(thread_id, message)
+            if refusal is not None:
+                return refusal
+            # A dry run submits nothing and owes nothing. A reply shares the
+            # messages cap with send_message: it is the same act on the account.
+            if confirm_send:
+                refuse_action(JobStore(), MESSAGES, datetime.now().astimezone())
+            thread_id = normalize_thread_id(thread_id)
+            extractor = extractor or await get_ready_extractor(
+                ctx, tool_name="reply_to_conversation"
+            )
+            logger.info(
+                "Replying in thread %s (confirm_send=%s)", thread_id, confirm_send
+            )
+
+            await ctx.report_progress(progress=0, total=100, message="Sending reply")
+
+            # Budgeted from arrival, as send_message is.
+            arrived = request_arrived_at.get()
+            with anyio.fail_after(
+                None if arrived is None else arrived + tool_timeout - time.monotonic()
+            ):
+                result = await extractor.reply_to_conversation(
+                    thread_id,
+                    message,
+                    confirm_send=confirm_send,
+                )
+                if result.get("sent") or result.get("retry_safe") is False:
+                    record_action(JobStore(), MESSAGES, datetime.now().astimezone())
+
+                try:
+                    with before_the_reply_deadline():
+                        await ctx.report_progress(
+                            progress=100, total=100, message="Complete"
+                        )
+                except BaseException:
+                    if result.get("retry_safe") is False:
+                        logger.warning(SEND_INTERRUPTED_WARNING)
+                    raise
+
+            return result
+
+        except AuthenticationError as e:
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "reply_to_conversation")
+        except Exception as e:
+            raise_tool_error(e, "reply_to_conversation")  # NoReturn

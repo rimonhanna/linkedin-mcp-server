@@ -22,7 +22,7 @@ a page-owning collaborator.
 | `connection` | `ActionSignals`, `ConnectionState`, `detect_connection_state()` | `browser-free` |
 | `connection_actions` | `ACTION_SIGNALS_JS`, `CLICK_CONNECT_JS`, `CLICK_INCOMING_ACCEPT_JS`, `ConnectionActions`, `ReadMainProfile` | `page-owning` |
 | `content` | `PageContentReader` | `page-owning` |
-| `contracts` | `ExtractedSection`, `FilterValidationError`, `RATE_LIMITED_SECTION_TEXT`, `SEND_INTERRUPTED_WARNING`, `before_the_reply_deadline()`, `limit_exceeded_section_error()`, `message_action_result()`, `normalize_message_line_breaks()`, `rate_limited_section_error()`, `refuse_an_invalid_message()` | `browser-free` |
+| `contracts` | `ExtractedSection`, `FilterValidationError`, `RATE_LIMITED_SECTION_TEXT`, `SEND_INTERRUPTED_WARNING`, `before_the_reply_deadline()`, `limit_exceeded_section_error()`, `message_action_result()`, `normalize_message_line_breaks()`, `rate_limited_section_error()`, `refuse_an_invalid_message()`, `refuse_an_invalid_reply()`, `reply_action_result()` | `browser-free` |
 | `conversations` | `ConversationReader` | `page-owning` |
 | `extractor` | `LinkedInExtractor` | `page-owning` |
 | `facets` | `FacetResolver`, `GEO_ID_PATTERN`, `LOCATION_BOX_SELECTOR`, `SUGGESTION_SETTLE_INTERVAL`, `SUGGESTION_SETTLE_READS`, `TYPEAHEAD_TIMEOUT_MS`, `TYPEAHEAD_URL` | `page-owning` |
@@ -100,6 +100,7 @@ a page-owning collaborator.
 - `get_page_text`
 - `get_saved_jobs`
 - `get_sidebar_profiles`
+- `reply_to_conversation`
 - `scrape_company`
 - `scrape_job`
 - `scrape_person`

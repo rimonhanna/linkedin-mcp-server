@@ -6,12 +6,15 @@ import math
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import unquote
 
 import anyio
 
 from linkedin_mcp_server.exceptions import ActionLimitError
 from linkedin_mcp_server.scraping.identifiers import (
+    messaging_thread_url,
     normalize_person_identifier,
+    normalize_thread_id,
     person_profile_url,
 )
 from linkedin_mcp_server.scraping.link_metadata import Reference
@@ -159,14 +162,40 @@ def normalize_message_line_breaks(message: str) -> str:
     return _NEWLINE_RUN_RE.sub("\n\n", message.replace("\r\n", "\n")).strip("\n")
 
 
-def refuse_an_invalid_message(
-    linkedin_username: str, message: str
-) -> dict[str, Any] | None:
-    """Return the shared browser-free refusal for an unsafe message."""
-    reason = None
+def reply_action_result(
+    url: str,
+    status: str,
+    message: str,
+    *,
+    thread_id: str,
+    participant: str | None,
+    recipient_selected: bool = False,
+    sent: bool = False,
+    retry_safe: bool = True,
+) -> dict[str, Any]:
+    """``message_action_result`` for reply_to_conversation, plus its thread.
+
+    ``participant`` is the name the thread's title showed, or None where it
+    could not be read; it is reported, never used to decide anything.
+    """
+    return {
+        **message_action_result(
+            url,
+            status,
+            message,
+            recipient_selected=recipient_selected,
+            sent=sent,
+            retry_safe=retry_safe,
+        ),
+        "thread_id": thread_id,
+        "participant": participant,
+    }
+
+
+def _invalid_message_reason(message: str) -> str | None:
     if not message.strip():
-        reason = "Message must contain non-whitespace characters."
-    elif any(
+        return "Message must contain non-whitespace characters."
+    if any(
         (ord(character) < 32 and character != "\n") or ord(character) == 127
         for character in normalize_message_line_breaks(message)
     ):
@@ -174,13 +203,36 @@ def refuse_an_invalid_message(
         # line breaks. Reject every other C0 control and DEL (a lone CR
         # included) before a session is acquired so no control input can reach
         # the contenteditable surface.
-        reason = "Message must not contain control characters other than line breaks."
+        return "Message must not contain control characters other than line breaks."
+    return None
+
+
+def refuse_an_invalid_message(
+    linkedin_username: str, message: str
+) -> dict[str, Any] | None:
+    """Return the shared browser-free refusal for an unsafe message."""
+    reason = _invalid_message_reason(message)
     if reason is None:
         return None
     return message_action_result(
         person_profile_url(normalize_person_identifier(linkedin_username), "/"),
         "invalid_message",
         reason,
+    )
+
+
+def refuse_an_invalid_reply(thread_id: str, message: str) -> dict[str, Any] | None:
+    """The same refusal for a reply, addressed to the thread."""
+    reason = _invalid_message_reason(message)
+    if reason is None:
+        return None
+    thread_id = unquote(normalize_thread_id(thread_id))
+    return reply_action_result(
+        messaging_thread_url(thread_id, "/"),
+        "invalid_message",
+        reason,
+        thread_id=thread_id,
+        participant=None,
     )
 
 

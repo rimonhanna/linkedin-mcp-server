@@ -2008,6 +2008,117 @@ class TestWritesAreCappedAtTheAction:
         extractor.send_message.assert_awaited_once()
         assert _kind_spent(tmp_path, MESSAGES) == 1
 
+    async def _reply(self, result: dict, mock_context, *, confirm_send=True):
+        mock_extractor = _make_mock_extractor({})
+        mock_extractor.reply_to_conversation = AsyncMock(return_value=result)
+
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "reply_to_conversation")
+        await tool_fn(
+            "2-abc==", "Hello!", confirm_send, mock_context, extractor=mock_extractor
+        )
+        return mock_extractor
+
+    async def test_a_reply_that_left_or_may_have_is_counted(
+        self, mock_context, tmp_path
+    ):
+        await self._reply(
+            {"status": "sent", "sent": True, "retry_safe": False}, mock_context
+        )
+        await self._reply(
+            {"status": "send_unconfirmed", "sent": False, "retry_safe": False},
+            mock_context,
+        )
+        assert _kind_spent(tmp_path, MESSAGES) == 2
+
+    async def test_a_reply_that_never_left_is_not_counted(self, mock_context, tmp_path):
+        await self._reply(
+            {"status": "composer_unavailable", "sent": False, "retry_safe": True},
+            mock_context,
+        )
+        assert _kind_spent(tmp_path, MESSAGES) == 0
+
+    async def test_a_capped_reply_is_refused_before_the_browser(
+        self, mock_context, tmp_path, monkeypatch
+    ):
+        """A reply shares the messages cap with send_message."""
+        monkeypatch.setenv(EnvironmentKeys.MESSAGES_MAX, "1")
+        await self._send(
+            {"status": "sent", "sent": True, "retry_safe": False}, mock_context
+        )
+
+        with pytest.raises(ToolError, match="limit_exceeded: messages"):
+            await self._reply({"status": "sent", "sent": True}, mock_context)
+
+        assert _kind_spent(tmp_path, MESSAGES) == 1
+
+    async def test_a_reply_dry_run_is_not_gated(
+        self, mock_context, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv(EnvironmentKeys.MESSAGES_MAX, "1")
+        await self._send(
+            {"status": "sent", "sent": True, "retry_safe": False}, mock_context
+        )
+
+        extractor = await self._reply(
+            {"status": "confirmation_required", "sent": False, "retry_safe": True},
+            mock_context,
+            confirm_send=False,
+        )
+
+        extractor.reply_to_conversation.assert_awaited_once()
+        assert _kind_spent(tmp_path, MESSAGES) == 1
+
+
+class TestReplyToConversationTool:
+    async def test_send_message_description_points_replies_elsewhere(self):
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool = await mcp.get_tool("send_message")
+
+        assert tool is not None
+        assert "reply_to_conversation" in (tool.description or "")
+        assert "Until a thread-targeted send" not in (tool.description or "")
+
+    async def test_an_invalid_reply_is_refused_before_a_session(self, mock_context):
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "reply_to_conversation")
+        with patch(
+            "linkedin_mcp_server.tools.messaging.get_ready_extractor",
+            new_callable=AsyncMock,
+        ) as ready:
+            result = await tool_fn("2-abc==", "  ", True, mock_context)
+
+        ready.assert_not_awaited()
+        assert result["status"] == "invalid_message"
+        assert result["thread_id"] == "2-abc=="
+        assert result["participant"] is None
+
+    async def test_the_composer_sentinel_is_not_a_thread(self, mock_context):
+        from linkedin_mcp_server.tools.messaging import register_messaging_tools
+
+        mcp = FastMCP("test")
+        register_messaging_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "reply_to_conversation")
+        with (
+            patch(
+                "linkedin_mcp_server.tools.messaging.get_ready_extractor",
+                new_callable=AsyncMock,
+            ) as ready,
+            pytest.raises(ToolError, match="new-message composer"),
+        ):
+            await tool_fn("new", "Hello!", True, mock_context)
+
+        ready.assert_not_awaited()
+
 
 class TestGetMyProfileTool:
     async def test_get_my_profile_success(self, mock_context):

@@ -88,7 +88,12 @@ class SequentialToolExecutionMiddleware(Middleware):
     # needs the FastMCP context, which a direct call does not carry. The
     # enrichment tools are not here; they write to local disk only.
     _WRITE_TOOLS = frozenset(
-        {"connect_with_person", "send_message", "withdraw_invitations"}
+        {
+            "connect_with_person",
+            "send_message",
+            "reply_to_conversation",
+            "withdraw_invitations",
+        }
     )
 
     # How often the wait for the gap re-reports progress. A single notification

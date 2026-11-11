@@ -54,7 +54,8 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `get_inbox` | List recent conversations without changing their read/unread state |
 | `get_conversation` | Read a conversation by username or thread ID without marking it read |
 | `search_conversations` | Search messages by keyword without changing read/unread state |
-| `send_message` | Compose/send a new message to a LinkedIn user (requires confirmation; profile-based targeting may open a separate DM instead of replying in an existing thread — see #483) |
+| `send_message` | Compose/send a new message to a LinkedIn user (requires confirmation; profile-based targeting may open a separate DM instead of replying in an existing thread — use `reply_to_conversation` for that) |
+| `reply_to_conversation` | Reply inside an existing thread by thread ID, InMail included (requires confirmation; verifies the thread and its composer first and never clicks quick-reply buttons) |
 | `get_company_profile` | Extract company information with explicit section selection (posts, jobs); about-section references may include a `company_urn` entry carrying the numeric id used by LinkedIn's people-search `currentCompany` URL facet |
 | `get_company_posts` | Get recent posts from a company's LinkedIn feed, with optional `max_scrolls` (1-50, default 10) to read further back |
 | `search_companies` | Search for companies by keywords and/or Clay-style facets: `industry` (LinkedIn numeric id, or a known name such as "Software Development"), `size` (headcount bucket like `51-200` or facet letter `A`-`I`), `hq_location` (country/city, resolved like `search_people`'s location) and `has_jobs`, with `max_pages` pagination (1-10, 10 companies per page). Facets narrow at search time, so `enrich_companies` only pays for the shortlist. The `industry` and `size` parameter names/values are unverified against live LinkedIn; a wrong name is ignored, so cross-check results. Returns `companies` rows (`name`, `industry`, `location`, `tagline`, `followers`, `url`) parsed from the page text plus `result_count`, alongside the raw text |
@@ -870,8 +871,8 @@ off.
 ### Gaps, the hourly cap and the account cooldown
 
 Two consecutive tool calls are spaced by a random gap drawn log-uniformly
-from 8–20 s for tools that only read and 20–60 s for `connect_with_person` and
-`send_message`. The middleware reports progress while it waits, so a client
+from 8–20 s for tools that only read and 20–60 s for `connect_with_person`,
+`send_message` and `reply_to_conversation`. The middleware reports progress while it waits, so a client
 never sees a silent server. `TOOL_CALL_GAP_SECONDS` replaces the read minimum
 and scales every other bound with it.
 

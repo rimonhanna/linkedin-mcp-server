@@ -159,8 +159,9 @@ class TestBulkToolsAreStillPaced:
 class TestWriteToolsWaitLonger:
     """An invitation or a message is spaced further from the previous call."""
 
-    async def test_a_write_tool_arms_the_longer_gap(self, paced):
-        await _timed_call(paced, "send_message")
+    @pytest.mark.parametrize("tool", ["send_message", "reply_to_conversation"])
+    async def test_a_write_tool_arms_the_longer_gap(self, paced, tool):
+        await _timed_call(paced, tool)
         second = await _timed_call(paced, "get_inbox")
 
         # The write band starts at 2.5x the read minimum.

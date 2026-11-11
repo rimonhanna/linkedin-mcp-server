@@ -187,7 +187,7 @@
       "call": "send_message",
       "kind": "wait_for_function",
       "operation": "message_composer_ready",
-      "program_digest": "1e738a03c39b",
+      "program_digest": "0f5b1c9a7b1f",
       "section": "message",
       "timeout_ms": null
     },
@@ -199,7 +199,7 @@
       "call": "send_message",
       "kind": "evaluate",
       "operation": "message_composer_state",
-      "program_digest": "51178a7a46af",
+      "program_digest": "fef5dc478d3e",
       "section": "message"
     },
     {
@@ -210,7 +210,7 @@
       "call": "send_message",
       "kind": "evaluate",
       "operation": "message_composer_state",
-      "program_digest": "51178a7a46af",
+      "program_digest": "fef5dc478d3e",
       "section": "message"
     },
     {
@@ -224,7 +224,7 @@
       "call": "send_message",
       "kind": "evaluate_handle",
       "operation": "message_composer_owner",
-      "program_digest": "438ca7ee906d",
+      "program_digest": "a8a32129fc6c",
       "section": "message"
     },
     {
@@ -244,7 +244,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_composer_write",
-      "program_digest": "f6e7031f3de2",
+      "program_digest": "8aac82aa6ba5",
       "section": "message"
     },
     {
@@ -257,7 +257,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_submit_ready",
-      "program_digest": "89d915ade375",
+      "program_digest": "24facb65c150",
       "section": "message"
     },
     {
@@ -272,7 +272,7 @@
       "call": "send_message",
       "kind": "evaluate",
       "operation": "message_confirmation_prepare",
-      "program_digest": "ac96e8ede221",
+      "program_digest": "c036f478e8be",
       "section": "message"
     },
     {
@@ -285,7 +285,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_submit",
-      "program_digest": "ae6e827fd842",
+      "program_digest": "a74086787e9f",
       "section": "message"
     },
     {
@@ -309,7 +309,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_composer_cleanup",
-      "program_digest": "c9d00e833386",
+      "program_digest": "e0c9b0480c2f",
       "section": "message"
     },
     {
