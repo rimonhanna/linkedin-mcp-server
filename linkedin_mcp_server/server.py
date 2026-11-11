@@ -74,9 +74,9 @@ only when the user asked for it, and then only through the enrichment tools
 (start_enrichment_job, run_enrichment_bunch, enrich_companies,
 enrich_company_deep), never by looping the single-item tools.
 
-send_message, connect_with_person and withdraw_invitations act as the user.
-Use them only for the recipient and text the user approved; when asked for a
-draft, reply with the text instead. If a write's outcome is unknown, ask the
+send_message, reply_to_conversation, connect_with_person and
+withdraw_invitations act as the user. Use them only for the recipient and text
+the user approved; when asked for a draft, reply with the text instead. If a write's outcome is unknown, ask the
 user to check LinkedIn before acting again.
 
 Calls are paced and run one at a time on purpose. If a tool reports a rate
