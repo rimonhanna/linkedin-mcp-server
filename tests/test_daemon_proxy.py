@@ -1432,6 +1432,45 @@ class TestRepeatingOnlyWhatIsSafe:
 
         assert attempts == 1
 
+    @pytest.mark.parametrize("hook", ["on_call_tool", "on_list_tools"])
+    async def test_a_repeat_that_fails_for_another_reason_is_not_an_owner_loss(
+        self, _recovering, hook: str
+    ):
+        """Only a failure recognised as the owner's becomes the owner-lost error.
+
+        The repeat ran against a replacement that answered, and what it raised
+        is the tool's or the provider's own failure. Calling that a lost owner
+        would send the user to restart a client over an error a restart cannot
+        fix, and hide the error itself.
+        """
+        from linkedin_mcp_server.daemon_proxy import (
+            FrontendOwnerRecoveryMiddleware,
+            OwnerUnreachableError,
+        )
+
+        backend, failed = _recovering
+        attempts = 0
+
+        async def call_next(_context: Any) -> Any:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise OwnerUnreachableError(
+                    instance_id=failed,
+                    nothing_was_sent=True,
+                    cause=httpx.ConnectError("gone"),
+                )
+            raise ValueError("the replacement's own failure")
+
+        middleware = FrontendOwnerRecoveryMiddleware(backend)
+        with pytest.raises(ValueError, match="the replacement's own failure"):
+            await getattr(middleware, hook)(
+                self._context(read_only=True),
+                call_next,
+            )
+
+        assert attempts == 2
+
     async def test_a_failure_from_something_else_is_left_alone(self, _recovering):
         # Only an unreachable owner is this middleware's business. Swallowing or
         # retrying anything else would hide a real tool error behind a recovery.
