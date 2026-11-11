@@ -124,6 +124,22 @@ def dropped_offset_section_error(offset: int, landed: str) -> dict[str, str]:
     }
 
 
+def dropped_stage_section_error(stage: str, landed: str) -> dict[str, str]:
+    """The ``section_errors`` entry for a tracker that lost its stage mid-list.
+
+    Past the first page, a tracker answering with another tab ends the list
+    where paging failed, like a lost offset does. That page is not kept, since
+    its jobs belong to another tab, and the pages already read are.
+    """
+    return {
+        "error_type": "pagination_stopped",
+        "error_message": (
+            f"LinkedIn did not keep stage {stage} (landed on {landed}), "
+            "so the list stops at the results already read."
+        ),
+    }
+
+
 # The two filters the redesigned route reads out of the query's words instead
 # of its parameters. Every other filter it drops (`f_JT`, `f_E`, `f_EA`,
 # `sortBy`) has no such second home, so naming the keywords for one of those

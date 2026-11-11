@@ -2897,6 +2897,84 @@ class TestGetSavedJobs:
         assert "saved_jobs" in result["section_errors"]
         mock_ids.assert_not_awaited()
 
+    async def _stage_lost_on_page_two(self, mock_page, page_two):
+        """Page one reads the applied tab; ``page_two`` answers the second."""
+        scraper = _scraper(mock_page)
+
+        async def first_page(url, *args, **kwargs):
+            mock_page.url = url
+            return captured(mock_page, extracted("Applied Job 1"))
+
+        pages = iter([first_page, page_two])
+
+        async def navigate_page(url, *args, **kwargs):
+            return await next(pages)(url)
+
+        with (
+            patch.object(
+                scraper._pages, "_extract_saved_jobs_page", side_effect=navigate_page
+            ),
+            patch.object(
+                scraper._pages,
+                "_extract_job_ids",
+                new_callable=AsyncMock,
+                side_effect=[["111"], ["222"]],
+            ) as mock_ids,
+            patch.object(
+                scraper._pages,
+                "_get_total_list_pages",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch.object(
+                scraper._navigator, "_raise_if_auth_barrier", new_callable=AsyncMock
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.session.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await scraper.get_saved_jobs(max_pages=2, stage="applied")
+
+        assert result["job_ids"] == ["111"]
+        assert result["sections"] == {"saved_jobs": "Applied Job 1"}
+        error = result["section_errors"]["saved_jobs"]
+        # An expected page state, not a defect to file.
+        assert set(error) == {"error_type", "error_message"}
+        assert error["error_type"] == "pagination_stopped"
+        assert "applied" in error["error_message"]
+        assert mock_ids.await_count == 1
+
+    async def test_a_stage_lost_on_a_later_page_stops_the_list(self, mock_page):
+        """Past page one the stage is lost like an offset, and is reported so.
+
+        The pages already read are the asked tab's; the one that lost the
+        stage is another tab's and is not kept.
+        """
+
+        async def other_tab(url):
+            mock_page.url = (
+                "https://www.linkedin.com/jobs-tracker/?stage=saved&start=10"
+            )
+            return captured(mock_page, extracted("Saved Job 1"))
+
+        await self._stage_lost_on_page_two(mock_page, other_tab)
+
+    async def test_a_stage_lost_after_landing_on_a_later_page_stops_the_list(
+        self, mock_page
+    ):
+        """The same, when the page moves after the landing check passed."""
+
+        async def moves_after_landing(url):
+            mock_page.url = (
+                "https://www.linkedin.com/jobs-tracker/?stage=saved&start=10"
+            )
+            return JobPageCapture(
+                section=extracted("Saved Job 1"), landed_url=url, scroll_seconds=0.0
+            )
+
+        await self._stage_lost_on_page_two(mock_page, moves_after_landing)
+
     async def test_returns_job_ids(self, mock_page):
         scraper = _scraper(mock_page)
         with (

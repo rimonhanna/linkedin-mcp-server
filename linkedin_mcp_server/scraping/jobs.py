@@ -37,6 +37,7 @@ from linkedin_mcp_server.scraping.job_policy import (
     apply_link_missing_section_error,
     dropped_filters_section_error,
     dropped_offset_section_error,
+    dropped_stage_section_error,
     label_similar_jobs,
     employer_apply_url,
     lost_keywords_section_error,
@@ -60,19 +61,19 @@ from linkedin_mcp_server.scraping.text import (
 logger = logging.getLogger(__name__)
 
 
-def _on_tracker_tab(url: str, stage: JobsTrackerStage) -> bool:
-    """Whether ``url`` is LinkedIn's own tracker, showing the ``stage`` tab.
+def _tracker_stage(url: str) -> str | None:
+    """The tab ``url`` shows on LinkedIn's own tracker, or None off it.
 
     Host and parsed path rather than a substring, so another origin serving
     the same path is not the account's list. No ``?stage=`` is the saved tab.
     """
     parsed = urlparse(url)
-    landed_stage = parse_qs(parsed.query).get("stage", ["saved"])[0]
-    return (
-        parsed.netloc == "www.linkedin.com"
-        and parsed.path.rstrip("/") in SAVED_JOBS_PATHS
-        and landed_stage == stage
-    )
+    if (
+        parsed.netloc != "www.linkedin.com"
+        or parsed.path.rstrip("/") not in SAVED_JOBS_PATHS
+    ):
+        return None
+    return parse_qs(parsed.query).get("stage", ["saved"])[0]
 
 
 class JobScraper:
@@ -696,8 +697,12 @@ class JobScraper:
                 #
                 # The stage too: a tracker that dropped it shows another tab,
                 # and applied jobs would come back as saved ones. No
-                # parameter is the saved tab.
-                if not _on_tracker_tab(capture.landed_url, stage):
+                # parameter is the saved tab. Past the first page a lost
+                # stage is the list ending where paging failed, which is
+                # reported below like a lost offset; on the first page there
+                # is nothing of the asked tab to keep.
+                landed_stage = _tracker_stage(capture.landed_url)
+                if landed_stage is None or (landed_stage != stage and page_num == 0):
                     logger.debug(
                         "Unexpected page URL after saved-jobs extraction: %s "
                         "(requested %s) — skipping job ID extraction",
@@ -718,6 +723,17 @@ class JobScraper:
                     raise RuntimeError(
                         f"Saved jobs navigation ended on {capture.landed_url}"
                     )
+                if landed_stage != stage:
+                    logger.debug(
+                        "Saved-jobs stage %s did not survive navigation "
+                        "(landed on %s), stopping",
+                        stage,
+                        capture.landed_url,
+                    )
+                    section_errors["saved_jobs"] = dropped_stage_section_error(
+                        stage, capture.landed_url
+                    )
+                    break
 
                 if not extracted.text:
                     # Nothing to read, and the page is the one that was asked
@@ -750,8 +766,10 @@ class JobScraper:
                 landed_url = self._pages.current_url
                 # The tab too, for the same reason: a page-one address that
                 # lost `?stage=` has no `start` to fail on, and would hand the
-                # saved tab's ids back as the stage asked for.
-                if not _on_tracker_tab(landed_url, stage):
+                # saved tab's ids back as the stage asked for. Later pages
+                # stop with what was read, as at the landing check above.
+                moved_stage = _tracker_stage(landed_url)
+                if moved_stage is None or (moved_stage != stage and page_num == 0):
                     logger.debug(
                         "Saved-jobs page moved to %s while its page count "
                         "was read (requested %s)",
@@ -760,6 +778,11 @@ class JobScraper:
                     )
                     await self._navigator._raise_if_auth_barrier(landed_url)
                     raise RuntimeError(f"Saved jobs page moved to {landed_url}")
+                if moved_stage != stage:
+                    section_errors["saved_jobs"] = dropped_stage_section_error(
+                        stage, landed_url
+                    )
+                    break
                 landed_start = parse_qs(urlparse(landed_url).query).get("start", ["0"])[
                     0
                 ]
