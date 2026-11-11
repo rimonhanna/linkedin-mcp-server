@@ -196,3 +196,51 @@ def test_a_kept_failed_action_leaves_its_evidence_in_the_log(monkeypatch, tmp_pa
     persisted = (run / "server.log").read_text(encoding="utf-8")
     assert "Invite dialog text: weekly limit" in persisted
     assert "connect_with_person ended with status 'not_sent'" in persisted
+
+
+def test_action_evidence_stays_off_the_console(monkeypatch, tmp_path, capsys):
+    """Dialog text names the invitee; only the run's own log may hold it."""
+    monkeypatch.setenv("USER_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.setattr("linkedin_mcp_server.logging_config.atexit.register", id)
+    configure_logging(log_level="WARNING")
+
+    logging.getLogger("linkedin_mcp_server.scraping.connection_actions").info(
+        "Invite dialog text: Jane Doe"
+    )
+    logging.getLogger("linkedin_mcp_server.drivers.browser").info("Browser launched")
+    teardown_trace_logging(keep_traces=True)
+
+    console = capsys.readouterr().err
+    assert "Jane Doe" not in console
+    assert "Browser launched" in console
+    [run] = _runs(tmp_path)
+    assert "Jane Doe" in (run / "server.log").read_text(encoding="utf-8")
+
+
+def test_without_tracing_action_evidence_is_not_raised(monkeypatch, tmp_path):
+    monkeypatch.setenv("USER_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.setenv("LINKEDIN_TRACE_MODE", "off")
+
+    configure_logging(log_level="WARNING")
+
+    evidence = logging.getLogger("linkedin_mcp_server.scraping.connection_actions")
+    assert evidence.getEffectiveLevel() == logging.WARNING
+
+
+def test_a_run_that_cannot_be_opened_is_tried_once(monkeypatch, tmp_path):
+    monkeypatch.setenv("USER_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.setattr("linkedin_mcp_server.logging_config.atexit.register", id)
+    attempts = []
+
+    def unopenable():
+        attempts.append(1)
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr("linkedin_mcp_server.logging_config.get_trace_dir", unopenable)
+    monkeypatch.setattr(logging, "raiseExceptions", False)
+    configure_logging(log_level="WARNING")
+
+    for message in ("one", "two", "three"):
+        logging.getLogger("linkedin_mcp_server.scraping.extractor").warning(message)
+
+    assert len(attempts) == 1

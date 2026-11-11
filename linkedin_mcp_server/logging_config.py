@@ -40,7 +40,27 @@ _BROWSER_LIFECYCLE_LOGGERS = (
 #: process that drives the browser, whereas a root at INFO would have every
 #: proxying frontend write a run directory again and the long-lived daemon's
 #: log grow with every scrape.
+#: Those lines carry the invitee's name and the dialog text, so they are for
+#: the run's own log only: the console (the host's log, or the daemon's
+#: never-rotated daemon.log) still gets just what the configured level allows,
+#: and with tracing off there is no run log and no floor.
 _ACTION_EVIDENCE_LOGGERS = ("linkedin_mcp_server.scraping.connection_actions",)
+
+
+class _ConsoleLevelFilter(logging.Filter):
+    """Keep floor-raised evidence records below *level* off the console."""
+
+    def __init__(self, level: int) -> None:
+        super().__init__()
+        self._level = level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= self._level:
+            return True
+        return not any(
+            record.name == name or record.name.startswith(name + ".")
+            for name in _ACTION_EVIDENCE_LOGGERS
+        )
 
 
 class _LazyTraceFileHandler(logging.Handler):
@@ -57,17 +77,21 @@ class _LazyTraceFileHandler(logging.Handler):
         super().__init__()
         self._file: logging.FileHandler | None = None
         self._opening = False
+        self._failed = False
 
     def emit(self, record: logging.LogRecord) -> None:
         if self._file is None:
             # Creating the run prunes old ones, which may itself log; those
             # records arrive here re-entrantly and are dropped, not recursed on.
-            if self._opening:
+            if self._opening or self._failed:
                 return
             self._opening = True
             try:
                 self._file = self._open()
             except Exception:
+                # Reported once; retrying on every record would repeat the
+                # traceback for as long as the process logs.
+                self._failed = True
                 self.handleError(record)
                 return
             finally:
@@ -204,6 +228,7 @@ def configure_logging(log_level: str = "WARNING", json_format: bool = False) -> 
     # Add console handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
+    console_handler.addFilter(_ConsoleLevelFilter(numeric_level))
     root_logger.addHandler(console_handler)
 
     if trace_enabled():
@@ -228,8 +253,11 @@ def configure_logging(log_level: str = "WARNING", json_format: bool = False) -> 
         if numeric_level <= logging.WARNING
         else numeric_level
     )
-    for name in (*_BROWSER_LIFECYCLE_LOGGERS, *_ACTION_EVIDENCE_LOGGERS):
+    for name in _BROWSER_LIFECYCLE_LOGGERS:
         logging.getLogger(name).setLevel(browser_level)
+    evidence_level = browser_level if trace_enabled() else logging.NOTSET
+    for name in _ACTION_EVIDENCE_LOGGERS:
+        logging.getLogger(name).setLevel(evidence_level)
 
     # Set specific loggers to reduce noise
     logging.getLogger("urllib3").setLevel(logging.ERROR)
