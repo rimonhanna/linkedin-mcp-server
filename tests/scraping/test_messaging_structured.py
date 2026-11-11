@@ -578,6 +578,49 @@ async def test_unanswered_registration_fails_inbox_before_navigation(
     assert mock_page.route.await_count == 2
 
 
+async def test_a_page_routed_at_creation_reads_without_a_new_route(mock_page):
+    import asyncio
+    from types import SimpleNamespace
+
+    from linkedin_mcp_server.scraping.messaging_read_state import (
+        _READ_STATE_WRITE_ROUTES,
+        allow_explicit_message_write,
+        register_read_state_routes,
+    )
+
+    class Request:
+        method = "POST"
+        url = "https://www.linkedin.com/voyager/api/voyagerMessagingDashMessagingBadge"
+
+    async def verdict(handler):
+        post = SimpleNamespace(
+            request=Request(), abort=AsyncMock(), fallback=AsyncMock()
+        )
+        await handler(post)
+        return "aborted" if post.abort.await_count else "passed"
+
+    await register_read_state_routes(mock_page)
+    assert [call.args[0] for call in mock_page.route.await_args_list] == list(
+        _READ_STATE_WRITE_ROUTES
+    )
+    handler = mock_page.route.await_args_list[0].args[1]
+    # Routed but inert: nothing is blocked before a passive read.
+    assert await verdict(handler) == "passed"
+    await mock_page.goto("https://www.linkedin.com/feed/")
+
+    async def unanswered(*args):
+        await asyncio.Event().wait()
+
+    mock_page.route.side_effect = unanswered
+    async with asyncio.timeout(1):
+        async with _reader(mock_page)._without_read_state_writes():
+            assert await verdict(handler) == "aborted"
+    assert mock_page.route.await_count == 2
+    assert await verdict(handler) == "aborted"
+    allow_explicit_message_write(mock_page)
+    assert await verdict(handler) == "passed"
+
+
 @pytest.mark.browser_dom
 async def test_guard_exits_with_busy_iframe_and_context_routes_without_accumulation():
     import asyncio

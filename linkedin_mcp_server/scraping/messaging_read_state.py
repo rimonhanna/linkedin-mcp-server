@@ -22,14 +22,17 @@ _READ_STATE_PATHS = (
 # The first page route is a protocol round-trip to every session on the page,
 # and the driver gives it no deadline of its own. Measured 2026-11-11: on a
 # page that had just scrolled /feed/ it never answered, and get_inbox sat in it
-# until the server was stopped 376 s later.
+# until the server was stopped 376 s later. Pages are therefore routed before
+# their first navigation (``register_read_state_routes``); this bound covers a
+# page that reaches a read without that.
 _REGISTRATION_TIMEOUT_SECONDS = 15.0
 
 
 class _PageGuard:
     def __init__(self) -> None:
         self.depth = 0
-        self.read_mode = True
+        # Nothing is blocked until a passive read latches it.
+        self.read_mode = False
         self.registered: set[str] = set()
         self.listening = False
         self.registration: asyncio.Task[None] | None = None
@@ -99,13 +102,27 @@ class _PageGuard:
 _GUARDS: WeakKeyDictionary[Any, _PageGuard] = WeakKeyDictionary()
 
 
-@asynccontextmanager
-async def without_read_state_writes(page: Any) -> AsyncIterator[None]:
-    """Activate read protection without reconfiguring interception at exit."""
+def _guard_for(page: Any) -> _PageGuard:
     state = _GUARDS.get(page)
     if state is None:
         state = _PageGuard()
         _GUARDS[page] = state
+    return state
+
+
+async def register_read_state_routes(page: Any) -> None:
+    """Route the mark-read endpoints on a page that has not navigated yet.
+
+    The routes stay inert until ``without_read_state_writes`` latches them, so
+    a later passive read finds them present and makes no protocol call.
+    """
+    await _guard_for(page).install(page)
+
+
+@asynccontextmanager
+async def without_read_state_writes(page: Any) -> AsyncIterator[None]:
+    """Activate read protection without reconfiguring interception at exit."""
+    state = _guard_for(page)
     state.depth += 1
     state.read_mode = True
     try:

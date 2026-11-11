@@ -42,6 +42,9 @@ from linkedin_mcp_server.process_tree import (
     new_browser_process_marker,
     remember_detached_process_groups,
 )
+from linkedin_mcp_server.scraping.messaging_read_state import (
+    register_read_state_routes,
+)
 
 from .exceptions import NetworkError, ProxyConnectionError
 
@@ -619,6 +622,10 @@ class BrowserManager:
             # fails. Only this event says so; see ``page_crashed``.
             self._page_crashed = False
             self._page.on("crash", self._note_page_crash)
+            # Before the first navigation, while the page has one session to
+            # answer. Registered mid-session, after /feed/, the same call was
+            # measured never returning.
+            await register_read_state_routes(self._page)
 
             logger.info("Browser context and page ready")
 
