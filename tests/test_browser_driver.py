@@ -71,6 +71,8 @@ def _make_mock_browser() -> MagicMock:
     browser.start = AsyncMock()
     browser.close = AsyncMock()
     browser.page = MagicMock()
+    # A bare mock attribute is truthy, which reads as a crashed renderer.
+    browser.page_crashed = False
     browser.page.url = "https://www.linkedin.com/feed/"
     browser.page.goto = AsyncMock()
     browser.page.set_default_timeout = MagicMock()
@@ -304,6 +306,41 @@ async def test_dead_cached_browser_is_recreated(tmp_path, caplog):
         ctor.assert_called_once()
 
         first.context.browser.is_connected.return_value = False
+        result = await get_or_create_browser()
+
+    assert result is second
+    assert ctor.call_count == 2
+    first.close.assert_awaited_once()
+    assert "Browser died out from under the session; recreating" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_cached_browser_whose_page_crashed_is_recreated(tmp_path, caplog):
+    """A renderer crash leaves the page open and Chromium connected, so only
+    the manager's crash flag says every later call on it would fail."""
+    _write_source_state(tmp_path, runtime_id="macos-arm64-host")
+    first = _make_mock_browser()
+    second = _make_mock_browser()
+
+    with (
+        patch(
+            "linkedin_mcp_server.drivers.browser.get_runtime_id",
+            return_value="macos-arm64-host",
+        ),
+        patch(
+            "linkedin_mcp_server.drivers.browser.BrowserManager",
+            side_effect=[first, second],
+        ) as ctor,
+        patch(
+            "linkedin_mcp_server.drivers.browser.detect_auth_barrier_quick",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        caplog.at_level(logging.WARNING, logger="linkedin_mcp_server.drivers.browser"),
+    ):
+        assert await get_or_create_browser() is first
+
+        first.page_crashed = True
         result = await get_or_create_browser()
 
     assert result is second
