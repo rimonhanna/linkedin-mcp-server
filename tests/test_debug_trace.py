@@ -315,3 +315,36 @@ def test_a_successful_action_does_not_keep_its_trace(monkeypatch, tmp_path):
         is None
     )
     assert not should_keep_traces()
+
+
+def test_concurrent_first_writes_share_one_run(monkeypatch, tmp_path):
+    import tempfile
+    import threading
+
+    import linkedin_mcp_server.debug_trace as debug_trace
+
+    _use_profile(monkeypatch, tmp_path / "profile")
+    real_mkdtemp = tempfile.mkdtemp
+
+    def slow_mkdtemp(*args, **kwargs):
+        # Long enough that both threads pass the unset check before either
+        # publishes its run, when nothing serialises them.
+        time.sleep(0.2)
+        return real_mkdtemp(*args, **kwargs)
+
+    monkeypatch.setattr(debug_trace.tempfile, "mkdtemp", slow_mkdtemp)
+    barrier = threading.Barrier(2)
+    seen: list[Path | None] = []
+
+    def first_write():
+        barrier.wait()
+        seen.append(get_trace_dir())
+
+    threads = [threading.Thread(target=first_write) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(set(seen)) == 1
+    assert len(list((tmp_path / "trace-runs").glob("run-*"))) == 1

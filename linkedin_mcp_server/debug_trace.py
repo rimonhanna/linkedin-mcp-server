@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
+import threading
 import time
 from typing import Any, Literal
 
@@ -27,6 +28,8 @@ TraceMode = Literal["off", "on_error", "always"]
 
 _TRACE_COUNTER = itertools.count(1)
 _TRACE_DIR: Path | None = None
+#: Serialises creating the run, so two threads' first writes share one run.
+_TRACE_DIR_LOCK = threading.Lock()
 _TRACE_KEEP = False
 _EXPLICIT_TRACE_DIR = False
 #: This process's lock on its own run directory, held until it exits.
@@ -81,9 +84,17 @@ def get_trace_dir() -> Path | None:
         # One lookup, so the root pruned is the root whose claim was checked.
         source_profile = _safe_source_profile_dir()
         root = _trace_root(source_profile)
+        # Outside the lock: the claim check behind pruning can log, and the
+        # trace log handler calls this while holding its own lock, so logging
+        # under _TRACE_DIR_LOCK could deadlock against a thread already in
+        # that handler. Pruning twice is harmless; a run held by this process
+        # reads as in use. Nothing under the lock may log.
         _prune_stale_runs(source_profile, root)
-        _TRACE_DIR = Path(tempfile.mkdtemp(prefix="run-", dir=root)).resolve()
-        _hold_run(_TRACE_DIR)
+        with _TRACE_DIR_LOCK:
+            if _TRACE_DIR is None:
+                run = Path(tempfile.mkdtemp(prefix="run-", dir=root)).resolve()
+                _hold_run(run)
+                _TRACE_DIR = run
     return _TRACE_DIR
 
 
@@ -206,6 +217,10 @@ def retain_trace_for_failed_action(
     outside *succeeded* counts as a failure, so a status added later is kept
     rather than lost. Call it in the process that drove the browser, which is
     the one holding the page trace.
+
+    Retention is process-wide: there is one run per process, so in the daemon
+    owner this keeps the whole run, including every call before and after the
+    failed one, not just the failed call's artifacts.
     """
     if status in succeeded:
         return None
