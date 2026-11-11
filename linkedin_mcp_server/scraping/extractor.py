@@ -264,12 +264,14 @@ class LinkedInExtractor:
         keywords: str,
         date_posted: str | None = None,
         max_posts: int = 10,
+        content_type: str | None = None,
     ) -> dict[str, Any]:
         """Search LinkedIn posts and extract the results page."""
         return await self._posts.search_posts(
             keywords,
             date_posted=date_posted,
             max_posts=max_posts,
+            content_type=content_type,
         )
 
     async def get_inbox(

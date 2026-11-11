@@ -209,6 +209,12 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
             {"keywords": "python", "date_posted": "last-year"},
             "Invalid date_posted",
         ),
+        (
+            "post",
+            "search_posts",
+            {"keywords": "python", "content_type": "articles"},
+            "Invalid content_type",
+        ),
     ],
 )
 async def test_invalid_reference_is_rejected_before_extractor(
@@ -2491,6 +2497,7 @@ class TestPostTools:
             "Buscamos Unity",
             mock_context,
             date_posted="past-week",
+            content_type="documents",
             extractor=mock_extractor,
         )
         assert "search_results" in result["sections"]
@@ -2498,6 +2505,7 @@ class TestPostTools:
             "Buscamos Unity",
             date_posted="past-week",
             max_posts=10,
+            content_type="documents",
         )
 
     async def test_search_posts_validation_error_surfaced_as_tool_error(

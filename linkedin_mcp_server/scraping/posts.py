@@ -34,6 +34,7 @@ class PostSearch:
         keywords: str,
         date_posted: str | None = None,
         max_posts: int = 10,
+        content_type: str | None = None,
     ) -> dict[str, Any]:
         """Search LinkedIn posts/content and extract the results page.
 
@@ -53,6 +54,10 @@ class PostSearch:
                 per-page URL, so the loop counts cards rather than pages; the
                 page may hold a few more than this when a scroll batch
                 overshoots.
+            content_type: Optional "Content type" filter, one of the keys of
+                ``search_urls.CONTENT_TYPE_MAP`` (e.g. "documents" for the
+                PDFs and slide decks people upload). Refused when unknown,
+                like ``date_posted``.
 
         Returns:
             {url, sections: {search_results: text}} plus optional ``references``
@@ -66,7 +71,9 @@ class PostSearch:
         """
         # Builds before it navigates, so a recency filter LinkedIn would
         # ignore is refused rather than answered with unfiltered results.
-        url = build_content_search_url(keywords, date_posted=date_posted)
+        url = build_content_search_url(
+            keywords, date_posted=date_posted, content_type=content_type
+        )
         # Uncapped: the section cap (15) is below what ``max_posts`` allows,
         # and a post is addressable only through its author, so a capped
         # capture cut the prospect list short. Capped here instead, as the
