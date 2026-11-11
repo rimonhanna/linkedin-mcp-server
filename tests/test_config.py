@@ -429,6 +429,49 @@ class TestLoaders:
         config = load_from_env(AppConfig())
         assert config.server.log_level == "DEBUG"
 
+    @pytest.mark.parametrize("bad_value", ["chatty", "CRITICAL", "NOTSET"])
+    def test_load_from_env_invalid_log_level(self, monkeypatch, bad_value):
+        monkeypatch.setenv("LOG_LEVEL", bad_value)
+        from linkedin_mcp_server.config.loaders import load_from_env
+
+        with pytest.raises(ConfigurationError, match="Invalid LOG_LEVEL"):
+            load_from_env(AppConfig())
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "HEADLESS",
+            "AUTO_IMPORT_FROM_BROWSER",
+            "EAGER_FULL_CHROMIUM",
+            "BLOCK_SUBRESOURCES",
+            "DAEMON_ENABLED",
+        ],
+    )
+    def test_load_from_env_refuses_an_unreadable_flag(self, monkeypatch, key):
+        monkeypatch.setenv(key, "flase")
+        from linkedin_mcp_server.config.loaders import load_from_env
+
+        with pytest.raises(ConfigurationError, match=f"Invalid {key}: 'flase'"):
+            load_from_env(AppConfig())
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "HEADLESS",
+            "AUTO_IMPORT_FROM_BROWSER",
+            "EAGER_FULL_CHROMIUM",
+            "BLOCK_SUBRESOURCES",
+            "DAEMON_ENABLED",
+        ],
+    )
+    def test_load_from_env_reads_a_blank_flag_as_unset(self, monkeypatch, key):
+        from linkedin_mcp_server.config.loaders import load_from_env
+
+        monkeypatch.delenv(key, raising=False)
+        unset = load_from_env(AppConfig())
+        monkeypatch.setenv(key, "  ")
+        assert load_from_env(AppConfig()) == unset
+
     def test_load_from_env_defaults(self, monkeypatch):
         # Clear env vars
         for var in ["HEADLESS", "LOG_LEVEL"]:
@@ -520,6 +563,21 @@ class TestLoaders:
         config = load_config(["--log-level", "DEBUG"])
 
         assert config.server.log_level == "DEBUG"
+
+    def test_zero_port_flag_is_refused_like_the_environment(self):
+        # PORT=0 has always been refused, but `--port 0` was dropped as if it
+        # had never been given, so the same invalid value behaved two ways.
+        from linkedin_mcp_server.config import load_config
+
+        with pytest.raises(ConfigurationError, match="Port 0 is not in valid range"):
+            load_config(["--port", "0"])
+
+    def test_zero_port_environment_is_refused(self, monkeypatch):
+        monkeypatch.setenv("PORT", "0")
+        from linkedin_mcp_server.config import load_config
+
+        with pytest.raises(ConfigurationError, match="Port 0 is not in valid range"):
+            load_config([])
 
     def test_unknown_explicit_arg_exits_with_status_two(self):
         from linkedin_mcp_server.config import load_config
@@ -751,6 +809,18 @@ class TestLoaders:
 
         config = load_config(["--no-auto-import"])
         assert config.browser.auto_import_from_browser is False
+
+    def test_slow_mo_zero_overrides_env(self, monkeypatch):
+        monkeypatch.setenv("SLOW_MO", "500")
+        from linkedin_mcp_server.config import load_config
+
+        assert load_config(["--slow-mo", "0"]).browser.slow_mo == 0
+
+    def test_absent_slow_mo_keeps_env(self, monkeypatch):
+        monkeypatch.setenv("SLOW_MO", "500")
+        from linkedin_mcp_server.config import load_config
+
+        assert load_config([]).browser.slow_mo == 500
 
     def test_absent_args_keep_env_false(self, monkeypatch):
         monkeypatch.setenv("AUTO_IMPORT_FROM_BROWSER", "false")
