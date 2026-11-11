@@ -641,6 +641,9 @@ def _fake_playwright(
         def on(self, event, handler):
             pass
 
+        async def route(self, pattern, handler) -> None:
+            return None
+
         async def close(self):
             return None
 

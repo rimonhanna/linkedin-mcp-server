@@ -19,12 +19,23 @@ _READ_STATE_PATHS = (
     "/voyager/api/voyagerMessagingDashMessengerConversations",
     "/voyager/api/voyagerMessagingDashMessagingBadge",
 )
+# Patchright's ``page.route`` for a page's first route (and ``unroute`` of its
+# last) re-sends ``Network.setCacheDisabled`` to every CDP session of the page
+# (``CRNetworkManager._forEachSession``: main frame, out-of-process frames,
+# workers) and waits for all of them with no deadline. So such a route change
+# mid-session can hang once those sessions exist. Measured 2026-11-11: on a
+# page that had just scrolled /feed/ it never answered, and get_inbox sat in it
+# until the server was stopped 376 s later. Pages are therefore routed at
+# creation, before their first navigation (``register_read_state_routes``);
+# this bound covers a page that reaches a read without that.
+_REGISTRATION_TIMEOUT_SECONDS = 15.0
 
 
 class _PageGuard:
     def __init__(self) -> None:
         self.depth = 0
-        self.read_mode = True
+        # Nothing is blocked until a passive read latches it.
+        self.read_mode = False
         self.registered: set[str] = set()
         self.listening = False
         self.registration: asyncio.Task[None] | None = None
@@ -59,9 +70,20 @@ class _PageGuard:
         if self.registration is None:
             self.registration = asyncio.create_task(self._install(page))
             self.registration.add_done_callback(self._registration_finished)
-        # A cancelled caller must not leave a half-registered route that a
-        # later caller registers again. The registration itself makes no reads.
-        await asyncio.shield(self.registration)
+        # A cancelled or timed-out caller must not leave a half-registered
+        # route that a later caller registers again, so the task outlives it.
+        # The registration itself makes no reads.
+        try:
+            async with asyncio.timeout(_REGISTRATION_TIMEOUT_SECONDS):
+                await asyncio.shield(self.registration)
+        except TimeoutError:
+            # Reading unguarded would let LinkedIn mark the threads read.
+            raise LinkedInScraperException(
+                "Read-state protection did not register within "
+                f"{_REGISTRATION_TIMEOUT_SECONDS:g}s, so messaging was not "
+                "opened and nothing was marked read. Call close_session to "
+                "restart the browser, then retry."
+            ) from None
 
     def _registration_finished(self, task: asyncio.Task[None]) -> None:
         if task.cancelled() or task.exception() is not None:
@@ -83,13 +105,27 @@ class _PageGuard:
 _GUARDS: WeakKeyDictionary[Any, _PageGuard] = WeakKeyDictionary()
 
 
-@asynccontextmanager
-async def without_read_state_writes(page: Any) -> AsyncIterator[None]:
-    """Activate read protection without reconfiguring interception at exit."""
+def _guard_for(page: Any) -> _PageGuard:
     state = _GUARDS.get(page)
     if state is None:
         state = _PageGuard()
         _GUARDS[page] = state
+    return state
+
+
+async def register_read_state_routes(page: Any) -> None:
+    """Route the mark-read endpoints on a page that has not navigated yet.
+
+    The routes stay inert until ``without_read_state_writes`` latches them, so
+    a later passive read finds them present and makes no protocol call.
+    """
+    await _guard_for(page).install(page)
+
+
+@asynccontextmanager
+async def without_read_state_writes(page: Any) -> AsyncIterator[None]:
+    """Activate read protection without reconfiguring interception at exit."""
+    state = _guard_for(page)
     state.depth += 1
     state.read_mode = True
     try:

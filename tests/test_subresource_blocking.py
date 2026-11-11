@@ -68,6 +68,9 @@ def _fake_playwright(recorder: dict):
         def on(self, event, handler) -> None:
             pass
 
+        async def route(self, pattern, handler) -> None:
+            return None
+
         async def close(self) -> None:
             return None
 

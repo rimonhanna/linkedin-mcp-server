@@ -256,9 +256,13 @@ class TestTheWindowlessLaunchEndToEnd:
             def __init__(self, url: str):
                 self.url = url
                 self.closed = False
+                self.routes: list[str] = []
 
             def on(self, event, handler):
                 pass
+
+            async def route(self, pattern, handler):
+                self.routes.append(pattern)
 
             async def close(self):
                 self.closed = True
@@ -364,6 +368,14 @@ class TestTheWindowlessLaunchEndToEnd:
         # The startup page went, and only once the hidden one existed.
         assert pages[0].closed is True
         assert recorder["hidden_present_at_close"] is True
+        # The read-state routes are on the page callers get, not the one closed.
+        from linkedin_mcp_server.scraping.messaging_read_state import (
+            _READ_STATE_WRITE_ROUTES,
+        )
+
+        assert manager.page is pages[-1]
+        assert pages[-1].routes == list(_READ_STATE_WRITE_ROUTES)
+        assert pages[0].routes == []
 
     async def test_detached_groups_are_retained_before_page_setup(
         self, tmp_path, monkeypatch
@@ -709,7 +721,7 @@ class TestTheFallbackDrainAgainstRealProcesses:
                 return _Context()
 
         class _Context:
-            pages = [MagicMock(url="about:blank")]
+            pages = [MagicMock(url="about:blank", route=AsyncMock())]
 
             async def route(self, pattern, handler):
                 return None
@@ -1188,7 +1200,7 @@ class TestStartingAgainAfterAClose:
     """
 
     @staticmethod
-    def _wired(tmp_path, monkeypatch, *, drains: bool = True):
+    def _wired(tmp_path, monkeypatch, *, drains: bool = True, page: Any = None):
         """A manager whose launches, drains and marker traffic are observable."""
         from linkedin_mcp_server.process_tree import _BROWSER_PROCESS_MARKER
 
@@ -1204,7 +1216,7 @@ class TestStartingAgainAfterAClose:
 
         class _Context:
             def __init__(self) -> None:
-                self.pages = [MagicMock(name="startup-page")]
+                self.pages = [page or MagicMock(name="startup-page", route=AsyncMock())]
                 self.closes = 0
                 self.hangs = False
                 self.entered_close = asyncio.Event()
@@ -1336,6 +1348,91 @@ class TestStartingAgainAfterAClose:
             await manager.start()
             assert manager.is_authenticated is False
             assert await manager.close() is True
+
+    @pytest.mark.asyncio
+    async def test_each_launch_routes_read_state_before_its_page_is_used(
+        self, tmp_path, monkeypatch
+    ):
+        """Mid-session, after /feed/, the first page route never answered.
+
+        A page replaced after a crash is a new launch, so it is routed too.
+        """
+        from linkedin_mcp_server.scraping.messaging_read_state import (
+            _READ_STATE_WRITE_ROUTES,
+        )
+
+        manager, record, start_driver = self._wired(tmp_path, monkeypatch)
+
+        with self._driving(start_driver):
+            await manager.start()
+            first = manager.page
+            crash = next(
+                call.args[1]
+                for call in first.on.call_args_list
+                if call.args[0] == "crash"
+            )
+            crash(first)
+            assert await manager.close() is True
+
+            await manager.start()
+            second = manager.page
+            assert await manager.close() is True
+
+        assert second is not first
+        for page in (first, second):
+            assert [call.args[0] for call in page.route.await_args_list] == list(
+                _READ_STATE_WRITE_ROUTES
+            )
+            page.goto.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("failure", "refusal"),
+        [("raises", "registration failed"), ("hangs", "did not register within")],
+    )
+    async def test_a_read_state_route_failure_does_not_fail_the_launch(
+        self, tmp_path, monkeypatch, mock_page, caplog, failure, refusal
+    ):
+        """Every other tool works without the routes; messaging refuses alone."""
+        from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+        from linkedin_mcp_server.scraping import messaging_read_state
+        from linkedin_mcp_server.scraping.navigation import PageNavigator
+        from linkedin_mcp_server.scraping.session import ScrapingSession
+        from scraping.test_conversations import _reader
+
+        monkeypatch.setattr(messaging_read_state, "_REGISTRATION_TIMEOUT_SECONDS", 0.05)
+
+        async def register(*args):
+            if failure == "raises":
+                raise RuntimeError("route refused")
+            await asyncio.Event().wait()
+
+        mock_page.route.side_effect = register
+        manager, _record, start_driver = self._wired(
+            tmp_path, monkeypatch, page=mock_page
+        )
+
+        with (
+            self._driving(start_driver),
+            caplog.at_level(logging.WARNING, logger="linkedin_mcp_server.core.browser"),
+        ):
+            await manager.start()
+            assert manager.page is mock_page
+            assert "Read-state routes did not register at launch" in caplog.text
+
+            with pytest.raises(LinkedInScraperException, match=refusal):
+                await asyncio.wait_for(_reader(mock_page).get_inbox(limit=5), 5)
+            mock_page.goto.assert_not_awaited()
+
+            url = "https://www.linkedin.com/in/testuser/"
+            await PageNavigator(ScrapingSession(mock_page))._navigate_to_page(url)
+            mock_page.goto.assert_awaited_once()
+            assert mock_page.goto.await_args.args[0] == url
+            assert await manager.close() is True
+
+        registration = messaging_read_state._GUARDS[mock_page].registration
+        if registration is not None:
+            registration.cancel()
 
     @pytest.mark.asyncio
     async def test_a_renderer_crash_marks_only_its_own_launch(
@@ -1583,7 +1680,7 @@ class TestABrowserThatLeavesOnItsOwn:
 
         class _Context:
             def __init__(self) -> None:
-                self.pages = [MagicMock(name="startup-page")]
+                self.pages = [MagicMock(name="startup-page", route=AsyncMock())]
                 self.browser = _Browser()
 
             async def route(self, pattern, handler) -> None:

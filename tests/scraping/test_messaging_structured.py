@@ -547,6 +547,80 @@ async def test_cancelled_registration_is_reused_without_duplicate_handlers(mock_
     assert mock_page.route.await_count == 2
 
 
+async def test_unanswered_registration_fails_inbox_before_navigation(
+    mock_page, monkeypatch
+):
+    import asyncio
+    import time
+
+    from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+    from linkedin_mcp_server.scraping import messaging_read_state
+
+    monkeypatch.setattr(messaging_read_state, "_REGISTRATION_TIMEOUT_SECONDS", 0.1)
+    release = asyncio.Event()
+
+    async def register(*args):
+        await release.wait()
+
+    mock_page.route.side_effect = register
+    reader = _reader(mock_page)
+    for _ in range(2):
+        started = time.monotonic()
+        with pytest.raises(LinkedInScraperException, match="nothing was marked read"):
+            await asyncio.wait_for(reader.get_inbox(limit=5), timeout=5)
+        assert time.monotonic() - started < 1
+    mock_page.goto.assert_not_awaited()
+    # The unanswered registration is still the one in flight, not a second.
+    assert mock_page.route.await_count == 1
+    release.set()
+    async with reader._without_read_state_writes():
+        pass
+    assert mock_page.route.await_count == 2
+
+
+async def test_a_page_routed_at_creation_reads_without_a_new_route(mock_page):
+    import asyncio
+    from types import SimpleNamespace
+
+    from linkedin_mcp_server.scraping.messaging_read_state import (
+        _READ_STATE_WRITE_ROUTES,
+        allow_explicit_message_write,
+        register_read_state_routes,
+    )
+
+    class Request:
+        method = "POST"
+        url = "https://www.linkedin.com/voyager/api/voyagerMessagingDashMessagingBadge"
+
+    async def verdict(handler):
+        post = SimpleNamespace(
+            request=Request(), abort=AsyncMock(), fallback=AsyncMock()
+        )
+        await handler(post)
+        return "aborted" if post.abort.await_count else "passed"
+
+    await register_read_state_routes(mock_page)
+    assert [call.args[0] for call in mock_page.route.await_args_list] == list(
+        _READ_STATE_WRITE_ROUTES
+    )
+    handler = mock_page.route.await_args_list[0].args[1]
+    # Routed but inert: nothing is blocked before a passive read.
+    assert await verdict(handler) == "passed"
+    await mock_page.goto("https://www.linkedin.com/feed/")
+
+    async def unanswered(*args):
+        await asyncio.Event().wait()
+
+    mock_page.route.side_effect = unanswered
+    async with asyncio.timeout(1):
+        async with _reader(mock_page)._without_read_state_writes():
+            assert await verdict(handler) == "aborted"
+    assert mock_page.route.await_count == 2
+    assert await verdict(handler) == "aborted"
+    allow_explicit_message_write(mock_page)
+    assert await verdict(handler) == "passed"
+
+
 @pytest.mark.browser_dom
 async def test_guard_exits_with_busy_iframe_and_context_routes_without_accumulation():
     import asyncio

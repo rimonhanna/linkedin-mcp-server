@@ -38,7 +38,7 @@ a page-owning collaborator.
 | `message_sender` | `MessageSender` | `page-owning` |
 | `messaging_api` | `MessagingApiCapture`, `has_searchable_text()`, `normalize_keywords()` | `browser-free` |
 | `messaging_payload` | `HistoryStopReason`, `MessageHistory`, `MessagingParticipant`, `ParticipantCoverage`, `StructuredConversation`, `StructuredMessage`, `build_conversation_references()`, `build_message_page_url()`, `build_message_references()`, `build_structured_conversation()`, `conversation_container()`, `conversation_elements()`, `conversation_matches_username()`, `conversation_rows_text()`, `conversation_thread_path()`, `find_conversation_by_thread_id()`, `format_message_elements()`, `merge_message_elements()`, `message_elements()`, `provider_timestamp()`, `replace_conversation_urn()` | `browser-free` |
-| `messaging_read_state` | `allow_explicit_message_write()`, `without_read_state_writes()` | `browser-free` |
+| `messaging_read_state` | `allow_explicit_message_write()`, `register_read_state_routes()`, `without_read_state_writes()` | `browser-free` |
 | `navigation` | `PageNavigator`, `WaitUntil` | `page-owning` |
 | `person` | `PersonScraper` | `page-owning` |
 | `posts` | `PostSearch` | `browser-free` |
