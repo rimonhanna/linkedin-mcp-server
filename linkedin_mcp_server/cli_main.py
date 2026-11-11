@@ -210,6 +210,9 @@ def import_from_browser_and_exit() -> None:
 def _shared_browser_recorded(config: AppConfig) -> bool:
     """Whether a trusted shared browser of this runtime is recorded for the profile.
 
+    Whatever its configuration: the question is who may hold the profile, not
+    whether this client could attach to it.
+
     For ``--status`` to name what may hold the profile. A local lookup that
     reads the daemon state but contacts no owner, made only by a process that
     would itself use a shared browser, and silent: an unreadable record means
@@ -230,7 +233,11 @@ def _shared_browser_recorded(config: AppConfig) -> bool:
     except Exception:
         logger.debug("The shared browser record could not be read", exc_info=True)
         return False
-    return lookup.state is OwnerState.ATTACHABLE
+    # An owner with another configuration still holds the profile: it is
+    # proved for this runtime and profile, just not one this client may use.
+    return (
+        lookup.state is OwnerState.ATTACHABLE or lookup.turnover_candidate is not None
+    )
 
 
 def profile_info_and_exit() -> None:

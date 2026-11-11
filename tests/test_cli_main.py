@@ -1252,7 +1252,7 @@ class TestStatusUnderAHeldProfile:
         )
         self.monkeypatch = monkeypatch
 
-    def _publish_owner(self) -> None:
+    def _publish_owner(self, config: AppConfig | None = None) -> None:
         from linkedin_mcp_server.daemon_descriptor import (
             build,
             new_instance_id,
@@ -1273,7 +1273,7 @@ class TestStatusUnderAHeldProfile:
                 port=49152,
                 path="/mcp",
                 token=token,
-                config=self.config,
+                config=config or self.config,
                 log_path=self.profile.parent / "daemon.log",
             ),
             token,
@@ -1298,6 +1298,18 @@ class TestStatusUnderAHeldProfile:
         self, capsys, caplog
     ):
         self._publish_owner()
+
+        assert "shared browser" in self._status(capsys, caplog)
+
+    def test_a_shared_browser_of_another_configuration_is_named_too(
+        self, capsys, caplog
+    ):
+        # It holds the profile all the same; only attaching to it is refused.
+        theirs = AppConfig()
+        theirs.server.daemon_enabled = True
+        theirs.browser.user_data_dir = str(self.profile)
+        theirs.browser.slow_mo = 250
+        self._publish_owner(theirs)
 
         assert "shared browser" in self._status(capsys, caplog)
 
