@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import logging
 
@@ -24,9 +25,9 @@ from linkedin_mcp_server.scraping.contracts import (
     FilterValidationError,
 )
 from linkedin_mcp_server.scraping.facets import (
-    GEO_ID_PATTERN,
     LOCATION_BOX_SELECTOR,
     TYPEAHEAD_TIMEOUT_MS,
+    TYPEAHEAD_URL,
     FacetResolver,
 )
 from linkedin_mcp_server.scraping.link_metadata import Reference
@@ -64,15 +65,88 @@ def _location_box(**attrs: str | None) -> AsyncMock:
     return box
 
 
-def _typeahead(page, box, suggestion=None):
-    """Drive the page like the jobs-search typeahead: the location box answers
-    the selector scan, the dropdown answers the scoped wait, and selecting a
-    suggestion is what moves the URL."""
-    page.query_selector = AsyncMock(return_value=box)
-    page.wait_for_selector = AsyncMock(return_value=suggestion)
-    page.wait_for_url = AsyncMock()
-    return patch(
-        "linkedin_mcp_server.scraping.facets.human_type", new_callable=AsyncMock
+class _Dropdown:
+    """The classic jobs-search page as the resolver drives it.
+
+    The location box answers its own wait (``None`` never appears), the
+    dropdown answers the scoped option wait once ``open``, each read of the
+    options' text takes the next of ``reads`` (the last one repeats), and
+    the top option is the handle ``top`` names for whatever the latest read
+    put first. Pauses advance a fake clock instead of sleeping.
+    """
+
+    def __init__(self, page, box, suggestion=None, *, reads=None, top=None):
+        self.page = page
+        self.box = box
+        self.open = suggestion is not None or top is not None
+        self.reads = list(reads or [["Egypt, Africa"]])
+        self.top = top or {}
+        self.suggestion = suggestion
+        self.shown: list[str] = []
+        self.now = 0.0
+        self.option_waits: list[str] = []
+        page.wait_for_selector = AsyncMock(side_effect=self._wait)
+        page.query_selector = AsyncMock(side_effect=self._top)
+        page.wait_for_url = AsyncMock()
+        options = MagicMock()
+        options.all_inner_texts = AsyncMock(side_effect=self._read)
+        page.locator = MagicMock(return_value=options)
+
+    async def _wait(self, selector, **kwargs):
+        if selector == LOCATION_BOX_SELECTOR:
+            assert kwargs.get("state") == "visible"
+            if self.box is None:
+                raise PlaywrightTimeoutError("no box")
+            return self.box
+        self.option_waits.append(selector)
+        if not self.open:
+            raise PlaywrightTimeoutError("empty")
+        return self.suggestion
+
+    async def _read(self):
+        self.shown = self.reads.pop(0) if len(self.reads) > 1 else self.reads[0]
+        return self.shown
+
+    async def _top(self, selector):
+        return self.top.get(self.shown[0], self.suggestion)
+
+    async def _sleep(self, seconds):
+        self.now += seconds
+
+
+@contextmanager
+def _typeahead(page, box, suggestion=None, **kwargs):
+    """Yield the patched ``human_type`` for a page driven by ``_Dropdown``."""
+    dropdown = _Dropdown(page, box, suggestion, **kwargs)
+    with (
+        patch(
+            "linkedin_mcp_server.scraping.facets.human_type", new_callable=AsyncMock
+        ) as typed,
+        patch(
+            "linkedin_mcp_server.scraping.session.asyncio.sleep",
+            side_effect=dropdown._sleep,
+        ),
+        patch.object(ScrapingSession, "monotonic", lambda self: dropdown.now),
+    ):
+        typed.dropdown = dropdown
+        yield typed
+
+
+def _choosing(page, geo_id: str) -> AsyncMock:
+    """A suggestion whose click moves the page to ``geo_id``, as selecting one
+    does."""
+    suggestion = AsyncMock()
+
+    def _navigated(*args, **kwargs):
+        page.url = f"https://www.linkedin.com/jobs/search/?geoId={geo_id}"
+
+    suggestion.click.side_effect = _navigated
+    return suggestion
+
+
+def _goto(resolver):
+    return patch.object(
+        resolver._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
     )
 
 
@@ -83,13 +157,13 @@ class TestResolveGeoUrn:
         resolver = _resolver(mock_page)
         box = _location_box(**{"aria-controls": "location-listbox"})
         suggestion = AsyncMock()
-        mock_page.url = "https://www.linkedin.com/jobs/search/?geoId=106155005&foo=1"
-        with (
-            patch.object(
-                resolver._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ) as goto,
-            _typeahead(mock_page, box, suggestion) as typed,
-        ):
+        mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
+
+        def _navigated(*args, **kwargs):
+            mock_page.url = "https://www.linkedin.com/jobs/search/?geoId=106155005"
+
+        suggestion.click.side_effect = _navigated
+        with _goto(resolver) as goto, _typeahead(mock_page, box, suggestion) as typed:
             first = await resolver.resolve_geo_urn("Egypt")
             assert first == "106155005"
             assert resolver._geo_cache["egypt"] == "106155005"
@@ -102,31 +176,50 @@ class TestResolveGeoUrn:
             assert await resolver.resolve_geo_urn("EGYPT") == "106155005"
             assert goto.await_count == 1
 
-        goto.assert_awaited_once_with("https://www.linkedin.com/jobs/search/?keywords=")
-        # One structural query, no text fallback: an ``aria-label`` match
+        # The classic page: without skipRedirect it hops to the AI search,
+        # whose location control is another one.
+        goto.assert_awaited_once_with(TYPEAHEAD_URL)
+        assert "skipRedirect=true" in TYPEAHEAD_URL
+        # One structural wait, no text fallback: an ``aria-label`` match
         # would be the locale's word for "location" and miss elsewhere.
-        mock_page.query_selector.assert_awaited_once_with(LOCATION_BOX_SELECTOR)
+        mock_page.wait_for_selector.assert_any_await(
+            LOCATION_BOX_SELECTOR, state="visible", timeout=TYPEAHEAD_TIMEOUT_MS
+        )
         assert "aria-label" not in LOCATION_BOX_SELECTOR
         box.fill.assert_awaited_once_with("")
         typed.assert_awaited_once_with(mock_page, "Egypt")
         suggestion.click.assert_awaited_once()
+
+    async def test_the_name_is_typed_and_cached_in_one_spelling(self, mock_page):
+        resolver = _resolver(mock_page)
+        box = _location_box(**{"aria-controls": "location-listbox"})
+        mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
+        suggestion = _choosing(mock_page, "102011674")
+        with _goto(resolver) as goto, _typeahead(mock_page, box, suggestion) as typed:
+            assert await resolver.resolve_geo_urn("  Amsterdam,   Netherlands ") == (
+                "102011674"
+            )
+            assert await resolver.resolve_geo_urn("amsterdam, netherlands") == (
+                "102011674"
+            )
+
+        typed.assert_awaited_once_with(mock_page, "Amsterdam, Netherlands")
+        assert goto.await_count == 1
 
     async def test_suggestion_is_scoped_to_the_location_listbox(self, mock_page):
         """The jobs page carries other ``role=option`` elements; only the listbox
         the location input names in ``aria-controls`` may answer."""
         resolver = _resolver(mock_page)
         box = _location_box(**{"aria-controls": "location-listbox"})
-        mock_page.url = "https://www.linkedin.com/jobs/search/?geoId=1"
-        with (
-            patch.object(
-                resolver._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ),
-            _typeahead(mock_page, box, AsyncMock()),
-        ):
+        mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
+        suggestion = _choosing(mock_page, "1")
+        with _goto(resolver), _typeahead(mock_page, box, suggestion) as typed:
             assert await resolver.resolve_geo_urn("Egypt") == "1"
 
-        mock_page.wait_for_selector.assert_awaited_once_with(
-            '[id="location-listbox"] [role=option]', timeout=TYPEAHEAD_TIMEOUT_MS
+        assert typed.dropdown.option_waits == ['[id="location-listbox"] [role=option]']
+        mock_page.locator.assert_called_with('[id="location-listbox"] [role=option]')
+        mock_page.query_selector.assert_awaited_once_with(
+            '[id="location-listbox"] [role=option]'
         )
 
     async def test_aria_owns_names_the_listbox_when_aria_controls_is_absent(
@@ -134,36 +227,68 @@ class TestResolveGeoUrn:
     ):
         resolver = _resolver(mock_page)
         box = _location_box(**{"aria-controls": None, "aria-owns": "owned-listbox"})
-        mock_page.url = "https://www.linkedin.com/jobs/search/?geoId=1"
-        with (
-            patch.object(
-                resolver._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ),
-            _typeahead(mock_page, box, AsyncMock()),
-        ):
+        mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
+        suggestion = _choosing(mock_page, "1")
+        with _goto(resolver), _typeahead(mock_page, box, suggestion) as typed:
             assert await resolver.resolve_geo_urn("Egypt") == "1"
 
-        mock_page.wait_for_selector.assert_awaited_once_with(
-            '[id="owned-listbox"] [role=option]', timeout=TYPEAHEAD_TIMEOUT_MS
-        )
+        assert typed.dropdown.option_waits == ['[id="owned-listbox"] [role=option]']
 
     async def test_without_aria_scope_any_listbox_option_is_taken(self, mock_page):
         """No ``aria-controls``/``aria-owns``: the option still has to sit inside a
         listbox, never be a bare ``role=option`` anywhere on the page."""
         resolver = _resolver(mock_page)
         box = _location_box()
-        mock_page.url = "https://www.linkedin.com/jobs/search/?geoId=1"
-        with (
-            patch.object(
-                resolver._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ),
-            _typeahead(mock_page, box, AsyncMock()),
-        ):
+        mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
+        suggestion = _choosing(mock_page, "1")
+        with _goto(resolver), _typeahead(mock_page, box, suggestion) as typed:
             assert await resolver.resolve_geo_urn("Egypt") == "1"
 
-        mock_page.wait_for_selector.assert_awaited_once_with(
-            "[role=listbox] [role=option]", timeout=TYPEAHEAD_TIMEOUT_MS
-        )
+        assert typed.dropdown.option_waits == ["[role=listbox] [role=option]"]
+
+    async def test_the_top_option_is_read_once_the_options_settle(self, mock_page):
+        """The options showing as typing ends can still answer a prefix; the
+        top one then resolves, and caches, another place."""
+        resolver = _resolver(mock_page)
+        box = _location_box(**{"aria-controls": "location-listbox"})
+        stale, settled = AsyncMock(), AsyncMock()
+        mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
+
+        def _navigated(*args, **kwargs):
+            mock_page.url = "https://www.linkedin.com/jobs/search/?geoId=102011674"
+
+        settled.click.side_effect = _navigated
+        with (
+            _goto(resolver),
+            _typeahead(
+                mock_page,
+                box,
+                reads=[
+                    ["Amsterdam, Mpumalanga, South Africa"],
+                    ["Amsterdam, North Holland, Netherlands", "Amsterdam, NY"],
+                ],
+                top={
+                    "Amsterdam, Mpumalanga, South Africa": stale,
+                    "Amsterdam, North Holland, Netherlands": settled,
+                },
+            ),
+        ):
+            assert await resolver.resolve_geo_urn("Amsterdam") == "102011674"
+
+        stale.click.assert_not_awaited()
+        settled.click.assert_awaited_once()
+
+    async def test_options_that_never_settle_are_an_uncached_miss(self, mock_page):
+        resolver = _resolver(mock_page)
+        box = _location_box(**{"aria-controls": "location-listbox"})
+        suggestion = AsyncMock()
+        mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
+        changing = [[f"Place {n}"] for n in range(1000)]
+        with _goto(resolver), _typeahead(mock_page, box, suggestion, reads=changing):
+            assert await resolver.resolve_geo_urn("Egypt") is None
+
+        suggestion.click.assert_not_awaited()
+        assert "egypt" not in resolver._geo_cache
 
     async def test_geoid_is_read_only_after_the_url_carries_it(self, mock_page):
         """Selecting a suggestion navigates; the id is read after that navigation
@@ -176,29 +301,35 @@ class TestResolveGeoUrn:
         def _navigated(*args, **kwargs):
             mock_page.url = "https://www.linkedin.com/jobs/search/?geoId=104305776"
 
-        with (
-            patch.object(
-                resolver._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ),
-            _typeahead(mock_page, box, suggestion),
-        ):
+        with _goto(resolver), _typeahead(mock_page, box, suggestion):
             mock_page.wait_for_url.side_effect = _navigated
             assert await resolver.resolve_geo_urn("United Arab Emirates") == "104305776"
 
-        mock_page.wait_for_url.assert_awaited_once_with(
-            GEO_ID_PATTERN, timeout=TYPEAHEAD_TIMEOUT_MS
-        )
+        assert mock_page.wait_for_url.await_args.kwargs == {
+            "timeout": TYPEAHEAD_TIMEOUT_MS
+        }
+
+    async def test_a_geoid_already_in_the_url_is_not_the_answer(self, mock_page):
+        """A plain pattern wait returns at once on an id the page already had,
+        and that id would be cached as the typed place."""
+        resolver = _resolver(mock_page)
+        box = _location_box(**{"aria-controls": "location-listbox"})
+        mock_page.url = "https://www.linkedin.com/jobs/search/?geoId=92000000"
+        with _goto(resolver), _typeahead(mock_page, box, AsyncMock()):
+            mock_page.wait_for_url.side_effect = PlaywrightTimeoutError("unchanged")
+            assert await resolver.resolve_geo_urn("Amsterdam") is None
+
+        landed = mock_page.wait_for_url.await_args.args[0]
+        assert not landed("https://www.linkedin.com/jobs/search/?geoId=92000000")
+        assert not landed("https://www.linkedin.com/jobs/search/?keywords=")
+        assert landed("https://www.linkedin.com/jobs/search/?geoId=102011674")
+        assert "amsterdam" not in facets_module._RESOLVED_GEO_IDS
 
     async def test_url_never_carrying_geoid_is_a_cached_miss(self, mock_page):
         resolver = _resolver(mock_page)
         box = _location_box(**{"aria-controls": "location-listbox"})
         mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
-        with (
-            patch.object(
-                resolver._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ),
-            _typeahead(mock_page, box, AsyncMock()),
-        ):
+        with _goto(resolver), _typeahead(mock_page, box, AsyncMock()):
             mock_page.wait_for_url.side_effect = PlaywrightTimeoutError("no geoId")
             assert await resolver.resolve_geo_urn("Atlantis") is None
 
@@ -212,22 +343,15 @@ class TestResolveGeoUrn:
         resolver = _resolver(mock_page)
         box = _location_box(**{"aria-controls": "location-listbox"})
         mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
-        with (
-            patch.object(
-                resolver._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ) as goto,
-            _typeahead(mock_page, box),
-        ):
+        with _goto(resolver) as goto, _typeahead(mock_page, box) as typed:
             # The location box is found; the dropdown then never opens.
-            mock_page.wait_for_selector.side_effect = PlaywrightTimeoutError("empty")
             assert await resolver.resolve_geo_urn("Egypt") is None
             assert "egypt" not in resolver._geo_cache
             mock_page.wait_for_url.assert_not_awaited()
 
             # Second attempt: the dropdown answers this time.
-            mock_page.wait_for_selector.side_effect = None
-            mock_page.wait_for_selector.return_value = AsyncMock()
-            mock_page.url = "https://www.linkedin.com/jobs/search/?geoId=106155005"
+            typed.dropdown.open = True
+            typed.dropdown.suggestion = _choosing(mock_page, "106155005")
             assert await resolver.resolve_geo_urn("egypt") == "106155005"
 
         assert goto.await_count == 2
@@ -237,16 +361,12 @@ class TestResolveGeoUrn:
         """Job search names the same city call after call, and each call has
         its own resolver: a second one must not drive the dropdown again."""
         box = _location_box(**{"aria-controls": "location-listbox"})
-        mock_page.url = "https://www.linkedin.com/jobs/search/?geoId=102011674"
+        mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
         first, second = _resolver(mock_page), _resolver(mock_page)
         with (
-            patch.object(
-                first._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ) as first_goto,
-            patch.object(
-                second._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ) as second_goto,
-            _typeahead(mock_page, box, AsyncMock()),
+            _goto(first) as first_goto,
+            _goto(second) as second_goto,
+            _typeahead(mock_page, box, _choosing(mock_page, "102011674")),
         ):
             assert await first.resolve_geo_urn("Amsterdam") == "102011674"
             assert await second.resolve_geo_urn("amsterdam") == "102011674"
@@ -262,12 +382,8 @@ class TestResolveGeoUrn:
         mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
         first, second = _resolver(mock_page), _resolver(mock_page)
         with (
-            patch.object(
-                first._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ),
-            patch.object(
-                second._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ) as second_goto,
+            _goto(first),
+            _goto(second) as second_goto,
             _typeahead(mock_page, box, AsyncMock()),
         ):
             mock_page.wait_for_url.side_effect = PlaywrightTimeoutError("no geoId")
@@ -278,21 +394,43 @@ class TestResolveGeoUrn:
 
     async def test_no_location_box_is_a_miss_without_typing(self, mock_page):
         resolver = _resolver(mock_page)
-        mock_page.query_selector = AsyncMock(return_value=None)
-        with (
-            patch.object(
-                resolver._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
-            ),
-            patch(
-                "linkedin_mcp_server.scraping.facets.human_type",
-                new_callable=AsyncMock,
-            ) as typed,
-        ):
+        mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
+        with _goto(resolver), _typeahead(mock_page, None) as typed:
             assert await resolver.resolve_geo_urn("Egypt") is None
 
         typed.assert_not_awaited()
         # A missing box is a miss, not a cue to widen the scan to text.
-        mock_page.query_selector.assert_awaited_once_with(LOCATION_BOX_SELECTOR)
+        assert typed.dropdown.option_waits == []
+        assert "egypt" not in resolver._geo_cache
+
+    @pytest.mark.parametrize("hop", ["at_load", "after_the_box"])
+    async def test_a_hop_to_the_ai_search_is_a_miss_without_typing(
+        self, mock_page, hop
+    ):
+        """Its location control is another one, so typing would drive nothing,
+        or a page already navigating away."""
+        resolver = _resolver(mock_page)
+        box = _location_box(**{"aria-controls": "location-listbox"})
+        ai = "https://www.linkedin.com/jobs/search-results/?keywords="
+        mock_page.url = (
+            ai if hop == "at_load" else "https://www.linkedin.com/jobs/search/"
+        )
+        with _goto(resolver), _typeahead(mock_page, box, AsyncMock()) as typed:
+            if hop == "after_the_box":
+                waited = mock_page.wait_for_selector.side_effect
+
+                async def hop_then_answer(selector, **kwargs):
+                    mock_page.url = ai
+                    return await waited(selector, **kwargs)
+
+                mock_page.wait_for_selector.side_effect = hop_then_answer
+            assert await resolver.resolve_geo_urn("Egypt") is None
+
+        typed.assert_not_awaited()
+        box.click.assert_not_awaited()
+        if hop == "at_load":
+            mock_page.wait_for_selector.assert_not_awaited()
+        assert "egypt" not in resolver._geo_cache
 
 
 class TestResolveCompanyUrn:
