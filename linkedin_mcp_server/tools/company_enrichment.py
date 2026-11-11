@@ -86,6 +86,8 @@ from linkedin_mcp_server.scraping.company_parse import (
 )
 from linkedin_mcp_server.scraping.contracts import RATE_LIMITED_SECTION_TEXT
 from linkedin_mcp_server.scraping.identifiers import company_page_url
+from linkedin_mcp_server.scraping.job_policy import AI_SEARCH_PATH, route
+from linkedin_mcp_server.scraping.search_urls import build_job_search_url
 from linkedin_mcp_server.exceptions import ActionLimitError
 from linkedin_mcp_server.tools.enrichment import (
     RETRY_AFTER_QUEUED_OUT,
@@ -825,7 +827,9 @@ def register_company_enrichment_tools(
                 # company Page's own /jobs/ tab is empty for most employers. Needs
                 # the URN, so a jobs-only refresh relies on the one cached earlier.
                 if want_jobs and urn:
-                    jobs_url = f"https://www.linkedin.com/jobs/search/?f_C={urn}&geoId=92000000"
+                    jobs_url = build_job_search_url(
+                        "", geo_id="92000000", company_id=urn
+                    )
                     try:
                         extracted = await extractor.extract_page(
                             jobs_url, section_name="jobs"
@@ -848,6 +852,19 @@ def register_company_enrichment_tools(
                         )[:160]
                     elif not text:
                         jobs_failure = "empty page"
+                    elif (
+                        extracted.landed_url
+                        and route(extracted.landed_url)[1] == AI_SEARCH_PATH
+                    ):
+                        # The AI search ignores the company filter: Microsoft
+                        # read 2 open roles there (2026-11-11). Its count is
+                        # not one, so nothing is recorded and the next call
+                        # retries, the way search_jobs keeps that page's ids
+                        # only under an ai_search_unverified entry.
+                        jobs_failure = (
+                            "ai_search_unverified: LinkedIn served its AI job "
+                            "search, whose count ignores the company filter"
+                        )
                     else:
                         parsed = parse_job_search(text)
                         cache.record_jobs(

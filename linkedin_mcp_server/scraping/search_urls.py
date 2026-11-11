@@ -320,6 +320,7 @@ def build_job_search_url(
     easy_apply: bool = False,
     sort_by: str | None = None,
     geo_id: str | None = None,
+    company_id: str | None = None,
 ) -> str:
     """Build a LinkedIn job search URL with optional filters.
 
@@ -346,6 +347,8 @@ def build_job_search_url(
         params += f"&geoId={quote_plus(geo_id)}"
     elif location:
         params += f"&location={quote_plus(location)}"
+    if company_id:
+        params += f"&f_C={quote_plus(company_id)}"
 
     if date_posted:
         mapped = JOB_DATE_POSTED_MAP.get(date_posted.strip(), date_posted)

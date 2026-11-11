@@ -361,6 +361,7 @@ class SectionCapture:
             references=build_references(
                 raw_result["references"], section_name, apply_cap=plan.apply_cap
             ),
+            landed_url=self._session.page.url,
         )
 
     async def _count_content_search_results(self) -> int:

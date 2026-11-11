@@ -9,6 +9,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -1479,7 +1480,11 @@ class TestEnrichCompanyDeep:
         assert out["open_roles_count"] == 42  # from the job SEARCH, not the tab
         # Open roles came from job-search-by-URN, not the company /jobs/ tab.
         jobs_url = extractor.extract_page.await_args.args[0]
-        assert "/jobs/search/?f_C=9999" in jobs_url
+        query = parse_qs(urlparse(jobs_url).query)
+        assert urlparse(jobs_url).path == "/jobs/search/"
+        assert query["f_C"] == ["9999"]
+        # Without it LinkedIn moves the page to its AI search (2026-11-11).
+        assert query["skipRedirect"] == ["true"]
         rec = cache.get("Acme")
         assert rec.has_firmographics() and rec.has_jobs()
         assert rec.company_urn == "9999"  # cached for later jobs-only refresh
@@ -1639,6 +1644,57 @@ class TestEnrichCompanyDeep:
         assert out["status"] == "jobs_failed"
         assert "empty page" in out["jobs_note"]
         assert not cache.get("Acme").has_jobs()
+
+    async def test_a_jobs_page_moved_to_the_ai_search_is_not_a_count(
+        self, mcp, wired, mock_context
+    ):
+        """Measured 2026-11-11: the company filter landed on
+        /jobs/search-results and Microsoft read 2 open roles. That number
+        answers no question about the company, so it is neither returned nor
+        cached, and the next call retries."""
+        from linkedin_mcp_server.scraping.contracts import ExtractedSection
+
+        cache, _ = wired
+        extractor = self._deep_extractor()
+        extractor.extract_page = AsyncMock(
+            return_value=ExtractedSection(
+                text="Jobs in Worldwide\n2 results\nSoftware Engineer\n",
+                references=[],
+                landed_url=(
+                    "https://www.linkedin.com/jobs/search-results/"
+                    "?keywords=jobs&geoId=92000000&f_C=9999"
+                ),
+            )
+        )
+
+        fn = await get_tool_fn(mcp, "enrich_company_deep")
+        out = await fn("Acme", mock_context, extractor=extractor)
+
+        assert out["status"] == "jobs_failed"
+        assert out["open_roles_count"] is None
+        assert "ai_search_unverified" in out["jobs_note"]
+        assert out["industry"] == "Retail"  # About half still recorded
+        assert not cache.get("Acme").has_jobs()
+
+    async def test_a_jobs_page_that_stayed_classic_is_counted(
+        self, mcp, wired, mock_context
+    ):
+        from linkedin_mcp_server.scraping.contracts import ExtractedSection
+
+        extractor = self._deep_extractor()
+        extractor.extract_page = AsyncMock(
+            return_value=ExtractedSection(
+                text="Jobs in Worldwide\n42 results\n",
+                references=[],
+                landed_url="https://www.linkedin.com/jobs/search/?f_C=9999",
+            )
+        )
+
+        fn = await get_tool_fn(mcp, "enrich_company_deep")
+        out = await fn("Acme", mock_context, extractor=extractor)
+
+        assert out["status"] == "fetched"
+        assert out["open_roles_count"] == 42
 
     async def test_an_unparsed_count_is_stamped_fresh_but_said_so(
         self, mcp, wired, mock_context
