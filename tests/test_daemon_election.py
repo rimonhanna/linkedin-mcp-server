@@ -5290,6 +5290,18 @@ class TestRealOwner:
 
         from linkedin_mcp_server.daemon import look_up_owner
         from linkedin_mcp_server.server import ServerRole, create_mcp_server
+        from linkedin_mcp_server.server_role import reset_process_role_for_testing
+
+        async def listed(server) -> set[str]:
+            async with Client(server) as client:
+                return {tool.name for tool in await client.list_tools()}
+
+        # The set the owner registers, built in-process the way the detached
+        # owner builds its own, so a tool added later moves both sides at once.
+        registered = asyncio.run(
+            listed(create_mcp_server(role=ServerRole.OWNER, auth_token="a-token"))
+        )
+        reset_process_role_for_testing()
 
         profile = real_state_root
         result = _run_frontend(profile)
@@ -5308,20 +5320,17 @@ class TestRealOwner:
                 proxy_backend=_proxy_backend_for(lookup.attachment),
             )
 
-            async def served() -> set[str]:
-                async with Client(proxy) as client:
-                    return {tool.name for tool in await client.list_tools()}
+            names = asyncio.run(listed(proxy))
 
-            names = asyncio.run(served())
-
-            # The owner registers the full local set, so the proxy must show it
-            # all, including `close_session`, the one defined inline rather than
-            # in a `register_*` call.
+            # The proxy must show the owner's full set, no more and no less,
+            # including `close_session`, the one defined inline rather than in
+            # a `register_*` call.
             assert "get_person_profile" in names
             assert "close_session" in names
-            assert len(names) == 27, sorted(
-                names
-            )  # every @mcp.tool, query_company_cache included
+            assert names == registered, (
+                sorted(registered - names),
+                sorted(names - registered),
+            )
         finally:
             _stop(result.get("pid"))
 
