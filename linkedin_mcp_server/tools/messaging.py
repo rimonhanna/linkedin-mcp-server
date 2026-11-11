@@ -5,9 +5,11 @@ Provides inbox listing, conversation reading, message search, and sending.
 """
 
 import logging
+import time
 from datetime import datetime
 from typing import Annotated, Any
 
+import anyio
 from fastmcp import Context, FastMCP
 from pydantic import Field, StringConstraints
 
@@ -22,9 +24,16 @@ from linkedin_mcp_server.core.exceptions import (
 )
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
-from linkedin_mcp_server.pacing import MESSAGES, JobStore, record_action, refuse_action
+from linkedin_mcp_server.pacing import (
+    MESSAGES,
+    JobStore,
+    record_action,
+    refuse_action,
+    request_arrived_at,
+)
 from linkedin_mcp_server.scraping.contracts import (
     SEND_INTERRUPTED_WARNING,
+    before_the_reply_deadline,
     refuse_an_invalid_message,
 )
 from linkedin_mcp_server.scraping.identifiers import (
@@ -327,30 +336,46 @@ def register_messaging_tools(
 
             await ctx.report_progress(progress=0, total=100, message="Sending message")
 
-            result = await extractor.send_message(
-                linkedin_username,
-                message,
-                confirm_send=confirm_send,
-                profile_urn=profile_urn,
-            )
-            # `retry_safe` is false from the moment a submission is attempted,
-            # which is exactly when a message exists or may: an unconfirmed
-            # send is counted because a repeat can deliver it twice.
-            if result.get("sent") or result.get("retry_safe") is False:
-                record_action(JobStore(), MESSAGES, datetime.now().astimezone())
+            # The deadline the send budgets against. FastMCP's `fail_after()`
+            # starts only once the scraper lock lets the call through, but a
+            # daemon frontend gives up `tool_timeout` plus a 30 s margin after
+            # it forwarded the call, and the queue and the write gap before
+            # the lock can outlast that margin. Counted from arrival, the send
+            # answers before either deadline instead of after the frontend's.
+            arrived = request_arrived_at.get()
+            with anyio.fail_after(
+                None if arrived is None else arrived + tool_timeout - time.monotonic()
+            ):
+                result = await extractor.send_message(
+                    linkedin_username,
+                    message,
+                    confirm_send=confirm_send,
+                    profile_urn=profile_urn,
+                )
+                # `retry_safe` is false from the moment a submission is
+                # attempted, which is exactly when a message exists or may: an
+                # unconfirmed send is counted because a repeat can deliver it
+                # twice.
+                if result.get("sent") or result.get("retry_safe") is False:
+                    record_action(JobStore(), MESSAGES, datetime.now().astimezone())
 
-            try:
-                await ctx.report_progress(progress=100, total=100, message="Complete")
-            except BaseException:
-                # The send has already answered, and this notification is the
-                # last await inside FastMCP's `anyio.fail_after()`. A deadline
-                # landing here discards a result that may say the send was
-                # confirmed, and nothing can hand it back afterwards, so the
-                # log line is all that is left. Quiet where the result says a
-                # retry is safe, because then there is nothing to warn about.
-                if result.get("retry_safe") is False:
-                    logger.warning(SEND_INTERRUPTED_WARNING)
-                raise
+                try:
+                    # The send has already answered, and this notification is
+                    # the last await before the deadline. Landing there would
+                    # discard a result that may say the send was confirmed, so
+                    # a notification that stalls gives up first.
+                    with before_the_reply_deadline():
+                        await ctx.report_progress(
+                            progress=100, total=100, message="Complete"
+                        )
+                except BaseException:
+                    # Cancellation from outside, such as a client that cancels,
+                    # which nothing can answer, so the log line is all that is
+                    # left. Quiet where the result says a retry is safe,
+                    # because then there is nothing to warn about.
+                    if result.get("retry_safe") is False:
+                        logger.warning(SEND_INTERRUPTED_WARNING)
+                    raise
 
             return result
 

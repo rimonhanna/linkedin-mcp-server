@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import logging
+import math
 import re
 import time
 from typing import Any, Literal
@@ -195,6 +196,14 @@ _PROFILE_MESSAGE_TARGET_READY_JS = (
 _PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 1_000
 _MESSAGE_SUBMIT_READY_TIMEOUT_MS = 1_000
 _MESSAGE_CLEANUP_TIMEOUT_SECONDS = 1.0
+# A send that may already have left has to answer. FastMCP runs a tool inside
+# `anyio.fail_after()`, and a deadline landing after the click discards
+# whatever the send would have returned, so the work after dispatch stops this
+# far ahead of the deadline the call runs under and answers `send_unconfirmed`
+# itself. A sixth of the time left, capped so a long TOOL_TIMEOUT does not cut
+# confirmation short for nothing.
+_SEND_REPLY_RESERVE_FRACTION = 1 / 6
+_SEND_REPLY_RESERVE_SECONDS = 5.0
 
 _MESSAGE_COMPOSER_INSPECT_JS = r"""
     const visible = element => {
@@ -1219,6 +1228,17 @@ def _profile_urn_from_compose_url(value: str, *, base: str | None = None) -> str
     return identifiers.pop()
 
 
+def _send_budget_deadline() -> float:
+    """When the work after dispatch has to stop, on the event loop's clock."""
+    deadline = anyio.current_effective_deadline()
+    if math.isinf(deadline):
+        return deadline
+    remaining = max(0.0, deadline - anyio.current_time())
+    return deadline - min(
+        _SEND_REPLY_RESERVE_SECONDS, remaining * _SEND_REPLY_RESERVE_FRACTION
+    )
+
+
 def _message_page_url_is_safe(value: str, profile_urn: str) -> bool:
     parsed = _safe_linkedin_url(value)
     if parsed is None:
@@ -1444,7 +1464,7 @@ class MessageSender:
     @staticmethod
     async def _cleanup_owned_message(message: str, owner: Any) -> None:
         """Best-effort removal of text proven to belong to this tool call."""
-        with anyio.move_on_after(
+        with contracts.before_the_reply_deadline(
             _MESSAGE_CLEANUP_TIMEOUT_SECONDS, shield=True
         ) as scope:
             try:
@@ -1478,7 +1498,7 @@ class MessageSender:
     async def _dispose_message_owner(owner: Any) -> None:
         """Release all owner-scoped observers, pins, markers and handles."""
         try:
-            with anyio.move_on_after(
+            with contracts.before_the_reply_deadline(
                 _MESSAGE_CLEANUP_TIMEOUT_SECONDS, shield=True
             ) as dom_scope:
                 try:
@@ -1488,7 +1508,7 @@ class MessageSender:
             if dom_scope.cancel_called:
                 logger.warning("Timed out clearing pinned message nodes")
         finally:
-            with anyio.move_on_after(
+            with contracts.before_the_reply_deadline(
                 _MESSAGE_CLEANUP_TIMEOUT_SECONDS, shield=True
             ) as handle_scope:
                 try:
@@ -1499,7 +1519,6 @@ class MessageSender:
                     )
             if handle_scope.cancel_called:
                 logger.warning("Timed out releasing message owner handle")
-        await anyio.lowlevel.checkpoint()
 
     def _message_confirmation_argument(
         self,
@@ -1567,7 +1586,7 @@ class MessageSender:
         self, owner: Any, confirmation: str
     ) -> None:
         """Disconnect a request-local confirmation observer."""
-        with anyio.move_on_after(
+        with contracts.before_the_reply_deadline(
             _MESSAGE_CLEANUP_TIMEOUT_SECONDS, shield=True
         ) as scope:
             try:
@@ -1579,7 +1598,6 @@ class MessageSender:
                 logger.debug("Could not disconnect message observer", exc_info=True)
         if scope.cancel_called:
             logger.warning("Timed out disconnecting message observer")
-        await anyio.lowlevel.checkpoint()
 
     async def send_message(
         self,
@@ -1614,6 +1632,9 @@ class MessageSender:
         if profile_urn is not None:
             profile_urn = normalize_profile_urn(profile_urn)
         profile_url = person_profile_url(linkedin_username, "/")
+        # Read while the whole call is still ahead, so the reserve is a share
+        # of the tool's time rather than of whatever navigation left over.
+        budget_deadline = _send_budget_deadline()
 
         await self._navigator._navigate_to_page(profile_url)
         await self._session.check_rate_limit()
@@ -1852,63 +1873,92 @@ class MessageSender:
                         recipient_selected=recipient_selected,
                     )
 
+                if anyio.current_time() >= budget_deadline:
+                    # Too little time is left to confirm a send, and nothing
+                    # has been submitted. Wait for the deadline instead of
+                    # clicking, so this ends like every other timeout before
+                    # dispatch: an error the caller can safely retry on.
+                    await anyio.sleep_forever()
+
+                # The deadline the call runs under discards anything returned
+                # after it, so the work after dispatch ends at this earlier
+                # one and still answers. Only the tool's own deadline is
+                # covered: a client that cancels gets no answer either way.
+                budget = anyio.CancelScope(deadline=budget_deadline)
                 try:
-                    try:
-                        # A click can dispatch before the evaluate call reports an
-                        # error, so an exception from this round trip is ambiguous.
-                        may_have_submitted = True
-                        submission = await self._submit_verified_message(
+                    with budget:
+                        try:
+                            # A click can dispatch before the evaluate call
+                            # reports an error, so an exception from this
+                            # round trip is ambiguous.
+                            may_have_submitted = True
+                            submission = await self._submit_verified_message(
+                                message,
+                                target=target,
+                                owner=owner,
+                            )
+                        except Exception:
+                            logger.debug(
+                                "Message submission did not complete", exc_info=True
+                            )
+                            return contracts.message_action_result(
+                                self._page.url,
+                                "send_unconfirmed",
+                                "The message submission was interrupted and "
+                                "LinkedIn did not confirm the send. Check the "
+                                "conversation before retrying; retrying may "
+                                "deliver the message twice.",
+                                recipient_selected=recipient_selected,
+                                retry_safe=False,
+                            )
+
+                        if submission != "clicked":
+                            may_have_submitted = False
+                            return contracts.message_action_result(
+                                self._page.url,
+                                "send_unavailable",
+                                "The local submit path was missing, disabled, or "
+                                "ambiguous.",
+                                recipient_selected=recipient_selected,
+                            )
+
+                        confirmed = await self._message_send_confirmed(
                             message,
                             target=target,
                             owner=owner,
+                            confirmation=confirmation,
                         )
-                    except Exception:
-                        logger.debug(
-                            "Message submission did not complete", exc_info=True
-                        )
+                        if not confirmed:
+                            return contracts.message_action_result(
+                                self._page.url,
+                                "send_unconfirmed",
+                                "The message was submitted but LinkedIn did not "
+                                "confirm the message-list transition in time. "
+                                "Check the conversation before retrying; retrying "
+                                "may deliver the message twice.",
+                                recipient_selected=recipient_selected,
+                                retry_safe=False,
+                            )
+
                         return contracts.message_action_result(
                             self._page.url,
-                            "send_unconfirmed",
-                            "The message submission was interrupted and LinkedIn did "
-                            "not confirm the send. Check the conversation before "
-                            "retrying; retrying may deliver the message twice.",
+                            "sent",
+                            "Message submitted and confirmed in the conversation UI.",
                             recipient_selected=recipient_selected,
+                            sent=True,
                             retry_safe=False,
                         )
 
-                    if submission != "clicked":
-                        may_have_submitted = False
-                        return contracts.message_action_result(
-                            self._page.url,
-                            "send_unavailable",
-                            "The local submit path was missing, disabled, or ambiguous.",
-                            recipient_selected=recipient_selected,
-                        )
-
-                    confirmed = await self._message_send_confirmed(
-                        message,
-                        target=target,
-                        owner=owner,
-                        confirmation=confirmation,
-                    )
-                    if not confirmed:
-                        return contracts.message_action_result(
-                            self._page.url,
-                            "send_unconfirmed",
-                            "The message was submitted but LinkedIn did not confirm "
-                            "the message-list transition in time. Check the "
-                            "conversation before retrying; retrying may deliver the "
-                            "message twice.",
-                            recipient_selected=recipient_selected,
-                            retry_safe=False,
-                        )
-
+                    # Reached only when the budget ran out.
+                    logger.debug("Message send reached its deadline unconfirmed")
                     return contracts.message_action_result(
                         self._page.url,
-                        "sent",
-                        "Message submitted and confirmed in the conversation UI.",
+                        "send_unconfirmed",
+                        "The tool deadline arrived before LinkedIn confirmed the "
+                        "send, and the message may already have been submitted. "
+                        "Check the conversation before retrying; retrying may "
+                        "deliver the message twice.",
                         recipient_selected=recipient_selected,
-                        sent=True,
                         retry_safe=False,
                     )
                 finally:
@@ -1938,8 +1988,8 @@ class MessageSender:
                 retry_safe=False,
             )
         except BaseException:
-            # Cancellation only. FastMCP runs the tool inside
-            # `anyio.fail_after()` and a cancelled scope discards whatever it
+            # Cancellation the send's budget does not own: a client that
+            # cancels or goes away. A cancelled scope discards whatever it
             # returns, so the answer the branch above gives cannot be given
             # here and the log line is all that is left.
             #
