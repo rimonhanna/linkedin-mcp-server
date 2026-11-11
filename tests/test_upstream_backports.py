@@ -149,7 +149,7 @@ async def test_job_page_timeout_preserves_previous_results():
     pages._extract_job_ids = AsyncMock(return_value=["123"])
     pages._extract_promoted_job_ids = AsyncMock(return_value=[])
     pages._get_total_search_pages = AsyncMock(return_value=3)
-    scraper = JobScraper(session, MagicMock(), MagicMock(), pages)
+    scraper = JobScraper(session, MagicMock(), MagicMock(), pages, MagicMock())
     with patch("linkedin_mcp_server.scraping.jobs.nav_delay", return_value=0):
         result = await scraper.search_jobs("python", max_pages=3, tool_timeout=0.1)
     assert result["job_ids"] == ["123"]

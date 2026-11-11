@@ -19,6 +19,7 @@ def reset_singletons():
     from linkedin_mcp_server.logging_config import teardown_trace_logging
     from linkedin_mcp_server.drivers.browser import reset_browser_for_testing
     from linkedin_mcp_server.profile_lease import reset_leases_for_testing
+    from linkedin_mcp_server.scraping import facets
     from linkedin_mcp_server.server_role import reset_process_role_for_testing
 
     reset_bootstrap_for_testing()
@@ -45,6 +46,9 @@ def reset_singletons():
     # a directory is a test's own business, not this fixture's.
     teardown_trace_logging(keep_traces=True)
     reset_trace_state_for_testing()
+    # Resolved locations are kept for the process, so one test's place would
+    # answer the next test's dropdown without it ever being driven.
+    facets._RESOLVED_GEO_IDS.clear()
     yield
     reset_bootstrap_for_testing()
     reset_daemon_descriptor_for_testing()

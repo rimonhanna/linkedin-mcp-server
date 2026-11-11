@@ -385,6 +385,10 @@ class JobSearchTextTable:
     # from this table never finds the line, so its no-match page is kept as
     # results, which is how every search was read before.
     inexact_notices: tuple[str, ...]
+    # What joins the keywords to the place in the classic page's heading,
+    # "<keywords> in <location>". The heading is the only place the page says
+    # which location it applied, and it says so in the locale's words.
+    heading_location_joiner: str
 
     def shows_no_match(self, text: str) -> bool:
         """Whether a search page's text opens with a no-match heading.
@@ -404,6 +408,21 @@ class JobSearchTextTable:
             if line.strip() in self.inexact_notices:
                 return line.strip()
         return None
+
+    def applied_location(self, text: str, keywords: str) -> str | None:
+        """The place the classic page's heading says the search applied.
+
+        Read only behind the keywords the search asked for, so a heading in
+        another shape, the redesigned page's count line or a no-match heading
+        reads as unknown rather than as a place. Whitespace and case are
+        compared loosely, since LinkedIn echoes the query in its own casing.
+        """
+        asked = " ".join(keywords.split())
+        first = next((line.strip() for line in text.splitlines() if line.strip()), "")
+        prefix = f"{asked}{self.heading_location_joiner}"
+        if not asked or not first.casefold().startswith(prefix.casefold()):
+            return None
+        return first[len(prefix) :].strip() or None
 
     def result_count(self, text: str) -> tuple[int, bool] | None:
         """The advertised number of results, and whether it is exact.
@@ -434,6 +453,7 @@ _JOB_SEARCH_TEXT: dict[str, JobSearchTextTable] = {
             "We found more results related to your search that may not be "
             "exact matches, but could still be a great fit.",
         ),
+        heading_location_joiner=" in ",
     ),
 }
 

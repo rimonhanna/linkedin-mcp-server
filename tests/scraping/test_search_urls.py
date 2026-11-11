@@ -363,6 +363,16 @@ class TestBuildJobSearchUrl:
             sort_by="",
         ) == (f"{JOBS}keywords=python")
 
+    def test_a_geo_id_replaces_the_free_text_location(self):
+        """The classic page placed a free-text "Amsterdam" in South Africa;
+        geoId was honoured on both routes (measured 2026-11-11)."""
+        assert build_job_search_url(
+            "python", location="Amsterdam", geo_id="102011674"
+        ) == (f"{JOBS}keywords=python&geoId=102011674")
+        assert build_job_search_url("python", geo_id="102011674") == (
+            f"{JOBS}keywords=python&geoId=102011674"
+        )
+
     def test_whitespace_filter_values_are_sent_rather_than_dropped(self):
         # Only emptiness is a "no filter" signal here. Whitespace survives to
         # the url, where LinkedIn ignores it: visible in the request rather

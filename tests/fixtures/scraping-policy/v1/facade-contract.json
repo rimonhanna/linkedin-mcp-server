@@ -934,7 +934,7 @@
                 }
               ],
               "default": null,
-              "description": "Optional location filter (e.g., \"San Francisco\", \"Remote\")"
+              "description": "Optional place name (e.g., \"San Francisco\", \"Amsterdam\"), resolved to LinkedIn's geo id; for remote roles use work_type=\"remote\""
             },
             "max_pages": {
               "default": 3,

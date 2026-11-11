@@ -114,7 +114,7 @@ def register_job_tools(
         Args:
             keywords: Search keywords (e.g., "software engineer", "data scientist")
             ctx: FastMCP context for progress reporting
-            location: Optional location filter (e.g., "San Francisco", "Remote")
+            location: Optional place name (e.g., "San Francisco", "Amsterdam"), resolved to LinkedIn's geo id; for remote roles use work_type="remote"
             max_pages: Maximum number of result pages to load (1-10, default 3)
             date_posted: Filter by posting date (past_hour, past_24_hours, past_week, past_month)
             job_type: Filter by job type, comma-separated (full_time, part_time, contract, temporary, volunteer, internship, other)
@@ -130,6 +130,11 @@ def register_job_tools(
             with exact false for a lower bound such as "1,000+".
             promoted_job_ids is the subset of job_ids LinkedIn marks as
             promoted, present only when every page could be read.
+            applied_location is the place LinkedIn's results heading says it
+            searched, present when a location was given and the heading read.
+            A location LinkedIn's dropdown could not resolve is sent as free
+            text, which LinkedIn may place elsewhere, and section_errors then
+            carries a location entry of type location_unresolved.
             A search with no matches returns empty job_ids and a
             section_errors entry of type no_matching_jobs, rather than the
             unrelated recommendations LinkedIn shows in its place.

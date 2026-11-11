@@ -23,6 +23,7 @@ from patchright.async_api import async_playwright
 from linkedin_mcp_server.scraping.capture import SectionCapture
 from linkedin_mcp_server.scraping.content import PageContentReader
 from linkedin_mcp_server.scraping.contracts import ExtractedSection
+from linkedin_mcp_server.scraping.facets import FacetResolver
 from linkedin_mcp_server.scraping.job_pages import JobApplySignals, JobPageReader
 from linkedin_mcp_server.scraping.jobs import JobScraper
 from linkedin_mcp_server.scraping.navigation import PageNavigator
@@ -257,11 +258,13 @@ async def test_get_job_details_withholds_a_link_into_this_host(
     session = ScrapingSession(dom_page)
     navigator = PageNavigator(session)
     content = PageContentReader(session)
+    capture = SectionCapture(session, navigator, content)
     scraper = JobScraper(
         session,
         navigator,
-        SectionCapture(session, navigator, content),
+        capture,
         JobPageReader(session, navigator, content),
+        FacetResolver(session, navigator, capture),
     )
     text = "Applied AI Engineer\nAcme\nApply\nAbout the job\nBuild agents."
     with patch.object(

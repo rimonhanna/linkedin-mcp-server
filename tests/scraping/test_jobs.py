@@ -23,6 +23,7 @@ from linkedin_mcp_server.scraping.contracts import (
     RATE_LIMITED_SECTION_TEXT,
     ExtractedSection,
 )
+from linkedin_mcp_server.scraping.facets import FacetResolver
 from linkedin_mcp_server.scraping.job_pages import (
     JobApplySignals,
     JobPageCapture,
@@ -36,17 +37,32 @@ from linkedin_mcp_server.scraping.text import JOB_APPLY_EN_US
 from scraping.support.navigation import navigate
 
 
-def _scraper(page) -> JobScraper:
-    """Wire the job owner the way the facade does."""
+def _scraper(page, geo_id: str | None = None) -> JobScraper:
+    """Wire the job owner the way the facade does.
+
+    The location dropdown answers ``geo_id`` without navigating; a test that
+    drives the dropdown itself replaces the resolver's method again.
+    """
     session = ScrapingSession(page)
     navigator = PageNavigator(session)
     content = PageContentReader(session)
+    capture = SectionCapture(session, navigator, content)
+    facets = FacetResolver(session, navigator, capture)
+    facets.resolve_geo_urn = AsyncMock(return_value=geo_id)  # ty: ignore[invalid-assignment]
     return JobScraper(
         session,
         navigator,
-        SectionCapture(session, navigator, content),
+        capture,
         JobPageReader(session, navigator, content),
+        facets,
     )
+
+
+def _geo(scraper: JobScraper) -> AsyncMock:
+    """The location dropdown `_scraper` stood in for."""
+    resolve = scraper._facets.resolve_geo_urn
+    assert isinstance(resolve, AsyncMock)
+    return resolve
 
 
 def _identity_jitter():
@@ -1202,7 +1218,7 @@ class TestSearchJobs:
         `?geoId=…&keywords=…`. Counted as a filter, every healthy search
         came back reported as unfiltered.
         """
-        scraper = _scraper(mock_page)
+        scraper = _scraper(mock_page, geo_id="102011674")
 
         with (
             patch.object(
@@ -1213,7 +1229,7 @@ class TestSearchJobs:
                     [extracted("Job 1")],
                     lands_on=(
                         "https://www.linkedin.com/jobs/search/"
-                        "?currentJobId=111&location=Berlin&keywords=python"
+                        "?currentJobId=111&geoId=102011674&keywords=python"
                     ),
                 ),
             ),
@@ -2345,7 +2361,7 @@ class TestSearchJobs:
 
     async def test_discarded_recommendations_do_not_warn_about_filters(self, mock_page):
         """A dropped filter on the discarded substitute page changes no result."""
-        scraper = _scraper(mock_page)
+        scraper = _scraper(mock_page, geo_id="106967730")
         pages = iter(
             [
                 extracted("python in Berlin\n1 result\nPython Developer"),
@@ -2890,6 +2906,197 @@ class TestSearchJobs:
         # guard this reads "Two again" while the count still says four.
         assert jobs[0]["text"] == "Two"
         assert jobs[2] == {"kind": "job", "url": "/jobs/view/333/"}
+
+
+class TestSearchJobsLocation:
+    """A place name is pinned to LinkedIn's geo id before the search runs.
+
+    Measured 2026-11-11: the classic page placed a free-text "Amsterdam" in
+    Mpumalanga, South Africa, while ``geoId=102011674`` was honoured.
+    """
+
+    AMSTERDAM = "102011674"
+    HEADING = "software engineer in Amsterdam, North Holland, Netherlands"
+
+    @staticmethod
+    def _search(scraper, mock_page, text, *, lands_on=None):
+        visited: list[str] = []
+        navigate_page = TestSearchJobs._navigating(
+            mock_page, [extracted(text)], lands_on=lands_on
+        )
+
+        async def extract(url, *args, **kwargs):
+            visited.append(url)
+            return await navigate_page(url)
+
+        sleep = AsyncMock()
+        stack = (
+            patch.object(scraper._pages, "_extract_search_page", side_effect=extract),
+            patch.object(
+                scraper._pages,
+                "_extract_job_ids",
+                new_callable=AsyncMock,
+                return_value=["111"],
+            ),
+            patch.object(
+                scraper._pages,
+                "_get_total_search_pages",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("linkedin_mcp_server.scraping.session.asyncio.sleep", sleep),
+        )
+        return visited, sleep, stack
+
+    async def test_a_resolved_place_is_sent_as_its_geo_id(self, mock_page):
+        scraper = _scraper(mock_page, geo_id=self.AMSTERDAM)
+        visited, _, (a, b, c, d) = self._search(
+            scraper, mock_page, f"{self.HEADING}\n100+ results\nJob 1"
+        )
+        with a, b, c, d:
+            result = await scraper.search_jobs(
+                "software engineer", location="Amsterdam", max_pages=1
+            )
+
+        _geo(scraper).assert_awaited_once_with("Amsterdam")
+        query = parse_qs(urlparse(visited[0]).query)
+        assert query["geoId"] == [self.AMSTERDAM]
+        assert "location" not in query
+        assert result["url"] == visited[0]
+        assert result["job_ids"] == ["111"]
+        assert result["applied_location"] == "Amsterdam, North Holland, Netherlands"
+        assert "section_errors" not in result
+
+    async def test_an_unresolved_place_falls_back_to_free_text_and_says_so(
+        self, mock_page
+    ):
+        scraper = _scraper(mock_page, geo_id=None)
+        visited, _, (a, b, c, d) = self._search(
+            scraper,
+            mock_page,
+            "software engineer in Amsterdam, Mpumalanga, South Africa\n"
+            "100+ results\nJob 1",
+        )
+        with a, b, c, d:
+            result = await scraper.search_jobs(
+                "software engineer", location="Amsterdam", max_pages=1
+            )
+
+        query = parse_qs(urlparse(visited[0]).query)
+        assert query["location"] == ["Amsterdam"]
+        assert "geoId" not in query
+        # The results stay: the free-text place may well be the right one.
+        assert result["job_ids"] == ["111"]
+        assert result["applied_location"] == "Amsterdam, Mpumalanga, South Africa"
+        error = result["section_errors"]["location"]
+        assert set(error) == {"error_type", "error_message"}
+        assert error["error_type"] == "location_unresolved"
+        assert "'Amsterdam'" in error["error_message"]
+        assert "Mpumalanga" in error["error_message"]
+        assert "search_results" not in result["section_errors"]
+
+    async def test_a_failed_resolution_is_an_unresolved_place(self, mock_page):
+        scraper = _scraper(mock_page)
+        _geo(scraper).side_effect = PatchrightError("detached")
+        visited, _, (a, b, c, d) = self._search(scraper, mock_page, "Job 1")
+        with a, b, c, d:
+            result = await scraper.search_jobs(
+                "python", location="Amsterdam", max_pages=1
+            )
+
+        assert parse_qs(urlparse(visited[0]).query)["location"] == ["Amsterdam"]
+        error = result["section_errors"]["location"]
+        assert error["error_type"] == "location_unresolved"
+        assert "could not be read" in error["error_message"]
+
+    async def test_an_auth_barrier_during_resolution_is_not_swallowed(self, mock_page):
+        scraper = _scraper(mock_page)
+        _geo(scraper).side_effect = AuthenticationError("expired")
+        visited, _, (a, b, c, d) = self._search(scraper, mock_page, "Job 1")
+        with a, b, c, d, pytest.raises(AuthenticationError):
+            await scraper.search_jobs("python", location="Amsterdam", max_pages=1)
+        assert visited == []
+
+    async def test_no_location_resolves_nothing(self, mock_page):
+        scraper = _scraper(mock_page)
+        visited, _, (a, b, c, d) = self._search(
+            scraper, mock_page, "python in Netherlands\n3 results\nJob 1"
+        )
+        with a, b, c, d:
+            result = await scraper.search_jobs("python", max_pages=1)
+            await scraper.search_jobs("python", location="  ", max_pages=1)
+
+        _geo(scraper).assert_not_awaited()
+        assert "applied_location" not in result
+        assert "section_errors" not in result
+
+    async def test_the_first_page_is_paced_after_a_resolution_navigated(
+        self, mock_page
+    ):
+        """The dropdown is a page load and its click another; the results page
+        straight behind them would be a burst."""
+        scraper = _scraper(mock_page)
+
+        async def resolve(location):
+            scraper._facets.navigated = True
+            return self.AMSTERDAM
+
+        _geo(scraper).side_effect = resolve
+        _, sleep, (a, b, c, d) = self._search(scraper, mock_page, "Job 1")
+        with a, b, c, d, _identity_jitter():
+            await scraper.search_jobs("python", location="Amsterdam", max_pages=1)
+
+        sleep.assert_awaited_once_with(jobs_module.nav_delay())
+
+    async def test_a_cached_place_does_not_pace_the_first_page(self, mock_page):
+        scraper = _scraper(mock_page, geo_id=self.AMSTERDAM)
+        _, sleep, (a, b, c, d) = self._search(scraper, mock_page, "Job 1")
+        with a, b, c, d:
+            await scraper.search_jobs("python", location="Amsterdam", max_pages=1)
+
+        sleep.assert_not_awaited()
+
+    async def test_the_resolution_spends_the_search_budget(self, mock_page):
+        """Started before the dropdown, so a slow one leaves the pages less."""
+        scraper = _scraper(mock_page)
+        clock = {"now": 0.0}
+
+        async def slow_resolve(location):
+            clock["now"] += 50.0
+            return self.AMSTERDAM
+
+        _geo(scraper).side_effect = slow_resolve
+        budgets: list[float] = []
+
+        async def extract(url, *args, page_deadline, **kwargs):
+            budgets.append(page_deadline)
+            navigate(mock_page, url)
+            return captured(mock_page, extracted("Job 1"))
+
+        with (
+            patch.object(
+                jobs_module.time, "monotonic", side_effect=lambda: clock["now"]
+            ),
+            patch.object(scraper._pages, "_extract_search_page", side_effect=extract),
+            patch.object(
+                scraper._pages,
+                "_extract_job_ids",
+                new_callable=AsyncMock,
+                return_value=["111"],
+            ),
+            patch.object(
+                scraper._pages,
+                "_get_total_search_pages",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            await scraper.search_jobs(
+                "python", location="Amsterdam", max_pages=1, tool_timeout=100.0
+            )
+
+        # The deadline is the clock at the start plus 80% of the timeout.
+        assert budgets == [pytest.approx(100.0 * jobs_module.SEARCH_TIMEOUT_FRACTION)]
 
 
 class TestGetSavedJobs:

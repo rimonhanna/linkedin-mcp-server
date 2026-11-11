@@ -83,6 +83,42 @@ class TestJobSearchText:
     def test_the_promoted_label_is_the_cards_own_line(self):
         assert JOB_SEARCH_EN_US.promoted_label == "Promoted"
 
+    def test_the_classic_heading_names_the_applied_place(self):
+        """Measured 2026-11-11 for a free-text "Amsterdam"."""
+        text = (
+            "software engineer in Amsterdam, Mpumalanga, South Africa\n"
+            "100+ results\nSet alert"
+        )
+        assert JOB_SEARCH_EN_US.applied_location(text, "software engineer") == (
+            "Amsterdam, Mpumalanga, South Africa"
+        )
+
+    def test_the_heading_echoes_the_keywords_in_its_own_casing(self):
+        assert (
+            JOB_SEARCH_EN_US.applied_location(
+                "software engineer in Berlin, Germany\n1 result", "Software  Engineer"
+            )
+            == "Berlin, Germany"
+        )
+
+    def test_a_place_is_read_only_behind_the_asked_keywords(self):
+        """A keyword holding the joiner cannot split the heading early, and a
+        heading in another shape says nothing about the place."""
+        assert (
+            JOB_SEARCH_EN_US.applied_location(
+                "engineer in test in Berlin, Germany\n3 results", "engineer in test"
+            )
+            == "Berlin, Germany"
+        )
+        for text in (
+            "99+ results\n\nPortugal",
+            "Jobs you may be interested in\nMLOps Engineer",
+            "java in Berlin, Germany\n3 results",
+            "",
+        ):
+            assert JOB_SEARCH_EN_US.applied_location(text, "python") is None
+        assert JOB_SEARCH_EN_US.applied_location("in Berlin\n1 result", "") is None
+
 
 class TestDetailCaptureText:
     def test_en_us_table_preserves_detail_capture_policy(self):

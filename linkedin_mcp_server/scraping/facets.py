@@ -64,13 +64,22 @@ TYPEAHEAD_TIMEOUT_MS = 5000
 GEO_ID_PATTERN = re.compile(r"[?&]geoId=(\d+)")
 LOCATION_BOX_SELECTOR = "input[id*='jobs-search-box-location']"
 
+# Location name (casefolded) -> geo id, for every name the dropdown resolved
+# in this process. A geo id is LinkedIn's own constant for a place, and a
+# resolution costs a navigation plus the click's own one, which job search
+# would otherwise pay on every call naming the same city. Hits only: a miss
+# can be a slow page, and remembering one for the life of a daemon pins a
+# valid place as unknown until it restarts.
+_RESOLVED_GEO_IDS: dict[str, str] = {}
+
 
 class FacetResolver:
     """Resolve locations and companies to ids, once per name per tool call.
 
-    Shared by people and company search. One resolver is built per facade,
-    which is one per tool call, so the caches span a batch of names and no
-    more.
+    Shared by people, company and job search. One resolver is built per
+    facade, which is one per tool call, so the caches span a batch of names
+    and no more; a resolved location is also kept for the process
+    (``_RESOLVED_GEO_IDS``).
     """
 
     def __init__(
@@ -113,9 +122,12 @@ class FacetResolver:
         Returns the id, or ``None`` if the dropdown offered no match. Results
         are cached per resolver so a repeated region costs one resolution; a
         dropdown that never opened is not, since a timeout says nothing about
-        the name.
+        the name. A resolved id is kept for the process as well, so a later
+        call naming the same place does not navigate at all.
         """
         key = location.casefold()
+        if key in _RESOLVED_GEO_IDS:
+            return _RESOLVED_GEO_IDS[key]
         if key in self._geo_cache:
             return self._geo_cache[key] or None
 
@@ -151,6 +163,8 @@ class FacetResolver:
         # LinkedIn answered, with or without an id: cache either so a repeated
         # name does not re-drive the dropdown.
         self._geo_cache[key] = geo_id or ""
+        if geo_id:
+            _RESOLVED_GEO_IDS[key] = geo_id
         return geo_id
 
     async def resolve_company_urn(self, name_or_urn: str) -> str:

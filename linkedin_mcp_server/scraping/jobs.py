@@ -21,6 +21,7 @@ from linkedin_mcp_server.scraping.contracts import (
     RATE_LIMITED_SECTION_TEXT,
     rate_limited_section_error,
 )
+from linkedin_mcp_server.scraping.facets import FacetResolver
 from linkedin_mcp_server.scraping.identifiers import job_view_url, normalize_job_id
 from linkedin_mcp_server.scraping.job_pages import JobPageReader
 from linkedin_mcp_server.scraping.job_policy import (
@@ -47,6 +48,7 @@ from linkedin_mcp_server.scraping.job_policy import (
     no_matching_jobs_section_error,
     posting_state,
     reconcile_search_references,
+    unresolved_location_section_error,
 )
 from linkedin_mcp_server.scraping.link_metadata import Reference, dedupe_references
 from linkedin_mcp_server.scraping.navigation import PageNavigator
@@ -95,6 +97,7 @@ class JobScraper:
         navigator: PageNavigator,
         capture: SectionCapture,
         pages: JobPageReader,
+        facets: FacetResolver,
         search_text: JobSearchTextTable = JOB_SEARCH_EN_US,
         apply_text: JobApplyTextTable = JOB_APPLY_EN_US,
     ):
@@ -102,6 +105,7 @@ class JobScraper:
         self._navigator = navigator
         self._capture = capture
         self._pages = pages
+        self._facets = facets
         self._search_text = search_text
         self._apply_text = apply_text
 
@@ -201,7 +205,12 @@ class JobScraper:
 
         Args:
             keywords: Search keywords
-            location: Optional location filter
+            location: Optional location filter, a place name. Resolved to
+                LinkedIn's geo id through its own location dropdown (see
+                ``FacetResolver.resolve_geo_urn``) and sent as ``geoId``. A
+                name the dropdown does not resolve is sent as free text, as
+                before, with a ``location_unresolved`` entry under
+                ``section_errors["location"]``.
             max_pages: Maximum pages to load (1-10, default 3)
             date_posted: Filter by date posted (past_hour, past_24_hours, past_week, past_month)
             job_type: Filter by job type (full_time, part_time, contract, temporary, volunteer, internship, other)
@@ -212,13 +221,33 @@ class JobScraper:
 
         Returns:
             {url, sections: {search_results: text}, job_ids: [str],
-            pagination: {pages_fetched, next_offset, reason}}. ``pagination``
+            pagination: {pages_fetched, next_offset, reason}}, plus
+            ``applied_location`` when the classic page's heading names the
+            place the search applied. ``pagination``
             is absent when a failure stopped the search, which
             ``section_errors`` then explains. Ids read off LinkedIn's AI search
             at ``/jobs/search-results`` are kept with an
             ``ai_search_unverified`` entry, since nothing on that page tells
             matches from unrelated postings.
         """
+        # Before the resolution below, which navigates and types and has to
+        # come out of the same budget as the pages it is for.
+        started = time.monotonic()
+        budget = tool_timeout * SEARCH_TIMEOUT_FRACTION
+
+        geo_id: str | None = None
+        location_unresolved = False
+        pace_first = False
+        if location and location.strip():
+            try:
+                geo_id = await self._facets.resolve_geo_urn(location)
+            except LinkedInScraperException:
+                raise
+            except Exception as e:
+                logger.debug("Could not resolve location %r: %s", location, e)
+            location_unresolved = geo_id is None
+            pace_first = self._facets.navigated
+
         base_url = build_job_search_url(
             keywords,
             location=location,
@@ -228,7 +257,9 @@ class JobScraper:
             work_type=work_type,
             easy_apply=easy_apply,
             sort_by=sort_by,
+            geo_id=geo_id,
         )
+        applied_location: str | None = None
         all_job_ids: list[str] = []
         seen_ids: set[str] = set()
         page_texts: list[str] = []
@@ -274,8 +305,6 @@ class JobScraper:
         # The next navigation is costed from the slowest one so far rather than
         # a constant: the real figure is 6.5s and the `goto` timeout alone is
         # 30s, so a fixed guess is wrong in both directions.
-        started = time.monotonic()
-        budget = tool_timeout * SEARCH_TIMEOUT_FRACTION
         slowest_page = 0.0
 
         for page_num in range(max_pages):
@@ -306,7 +335,8 @@ class JobScraper:
                 stop_reason = "time_budget"
                 break
 
-            if page_num > 0:
+            # A location resolution navigated just before the first page.
+            if page_num > 0 or pace_first:
                 await self._session.pace(delay)
 
             # Started after the delay, because the prediction above adds
@@ -507,6 +537,10 @@ class JobScraper:
                     count = self._search_text.result_count(extracted.text)
                     if count is not None:
                         total = {"count": count[0], "exact": count[1]}
+                    if location:
+                        applied_location = self._search_text.applied_location(
+                            extracted.text, keywords
+                        )
 
                 # Read total pages from pagination state (once only, best-effort)
                 if not total_pages_queried:
@@ -595,6 +629,8 @@ class JobScraper:
         }
         if total is not None:
             result["total"] = total
+        if applied_location is not None:
+            result["applied_location"] = applied_location
         # Each page adds its ids only after its promoted read, so ids with no
         # failed read mean every page that contributed was read.
         if all_job_ids and promoted_complete:
@@ -629,6 +665,10 @@ class JobScraper:
                 existing["error_message"] = (
                     f"{existing['error_message']} {warning['error_message']}"
                 )
+        if location_unresolved:
+            section_errors["location"] = unresolved_location_section_error(
+                location or "", applied_location
+            )
         if section_errors:
             result["section_errors"] = section_errors
         if stop_reason is not None:

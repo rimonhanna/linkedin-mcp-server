@@ -66,7 +66,7 @@ class LinkedInExtractor:
             lambda username: self.scrape_person(username, {"main_profile"}),
         )
         job_pages = JobPageReader(session, navigator, content)
-        self._jobs = JobScraper(session, navigator, capture, job_pages)
+        self._jobs = JobScraper(session, navigator, capture, job_pages, facets)
         self._posts = PostSearch(capture)
         self._conversations = ConversationReader(
             session, navigator, content, profile_page

@@ -107,6 +107,32 @@ def no_matching_jobs_section_error(keywords: str) -> dict[str, str]:
     }
 
 
+def unresolved_location_section_error(
+    location: str, applied: str | None
+) -> dict[str, str]:
+    """The ``section_errors`` entry for a location sent as free text.
+
+    LinkedIn places a free-text ``location`` by its own lights, and not always
+    where the caller meant: "Amsterdam" landed in Mpumalanga, South Africa
+    (measured 2026-11-11). The results are kept, because they may well be
+    right, and the caller is told the place was not pinned to a geo id.
+    """
+    where = (
+        f"LinkedIn applied it as {applied!r}."
+        if applied
+        else "Which place LinkedIn applied could not be read."
+    )
+    return {
+        "error_type": "location_unresolved",
+        "error_message": (
+            f"LinkedIn's location dropdown did not resolve {location!r}, so it "
+            f"was sent as free text and may have been placed elsewhere. {where} "
+            "Retry with the place as the dropdown names it, such as a city "
+            "with its country."
+        ),
+    }
+
+
 def dropped_offset_section_error(offset: int, landed: str) -> dict[str, str]:
     """The ``section_errors`` entry for a list that cannot be paged further.
 

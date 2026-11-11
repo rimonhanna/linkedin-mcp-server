@@ -233,6 +233,49 @@ class TestResolveGeoUrn:
         assert goto.await_count == 2
         assert resolver._geo_cache["egypt"] == "106155005"
 
+    async def test_a_resolved_place_is_kept_for_the_process(self, mock_page):
+        """Job search names the same city call after call, and each call has
+        its own resolver: a second one must not drive the dropdown again."""
+        box = _location_box(**{"aria-controls": "location-listbox"})
+        mock_page.url = "https://www.linkedin.com/jobs/search/?geoId=102011674"
+        first, second = _resolver(mock_page), _resolver(mock_page)
+        with (
+            patch.object(
+                first._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
+            ) as first_goto,
+            patch.object(
+                second._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
+            ) as second_goto,
+            _typeahead(mock_page, box, AsyncMock()),
+        ):
+            assert await first.resolve_geo_urn("Amsterdam") == "102011674"
+            assert await second.resolve_geo_urn("amsterdam") == "102011674"
+
+        first_goto.assert_awaited_once()
+        second_goto.assert_not_awaited()
+        assert second.navigated is False
+
+    async def test_a_miss_is_not_kept_beyond_its_resolver(self, mock_page):
+        """A clicked suggestion with no geoId can be a slow page; pinned for
+        the life of a daemon it would refuse a valid place until restart."""
+        box = _location_box(**{"aria-controls": "location-listbox"})
+        mock_page.url = "https://www.linkedin.com/jobs/search/?keywords="
+        first, second = _resolver(mock_page), _resolver(mock_page)
+        with (
+            patch.object(
+                first._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
+            ),
+            patch.object(
+                second._navigator, "_goto_with_auth_checks", new_callable=AsyncMock
+            ) as second_goto,
+            _typeahead(mock_page, box, AsyncMock()),
+        ):
+            mock_page.wait_for_url.side_effect = PlaywrightTimeoutError("no geoId")
+            assert await first.resolve_geo_urn("Atlantis") is None
+            assert await second.resolve_geo_urn("Atlantis") is None
+
+        second_goto.assert_awaited_once()
+
     async def test_no_location_box_is_a_miss_without_typing(self, mock_page):
         resolver = _resolver(mock_page)
         mock_page.query_selector = AsyncMock(return_value=None)
