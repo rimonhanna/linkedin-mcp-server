@@ -577,6 +577,10 @@ class PageNavigator:
             "_navigate_to_page: target=%s", redact_private_navigation_value(url)
         )
         await self._goto_with_auth_checks(url)
+        logger.debug(
+            "_navigate_to_page: landed=%s",
+            redact_private_navigation_value(self._session.page.url),
+        )
 
     @contextmanager
     def _watching_navigations(self) -> Iterator[list[str]]:

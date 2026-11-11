@@ -1849,3 +1849,45 @@ class TestALandingOffLinkedInStopsTheScrape:
             )
 
         confirmed.assert_not_awaited()
+
+
+class TestTheLandedUrlIsLogged:
+    """Where a navigation ended is what a redirect report needs, and the
+    target alone said only where it was meant to go."""
+
+    async def test_the_landing_is_logged_after_the_target(self, mock_page, caplog):
+        navigator = PageNavigator(ScrapingSession(mock_page))
+        landed = "https://www.linkedin.com/jobs/search/?geoId=102011674&keywords=python"
+
+        with (
+            patch.object(
+                navigator,
+                "_goto_with_auth_checks",
+                side_effect=lambda url: navigate(mock_page, landed),
+            ),
+            caplog.at_level(logging.DEBUG, logger=navigation_module.__name__),
+        ):
+            await navigator._navigate_to_page(
+                "https://www.linkedin.com/jobs/search/?skipRedirect=true&keywords=python"
+            )
+
+        messages = [r.getMessage() for r in caplog.records]
+        assert messages[-1] == f"_navigate_to_page: landed={landed}"
+
+    async def test_a_private_landing_is_redacted(self, mock_page, caplog):
+        navigator = PageNavigator(ScrapingSession(mock_page))
+
+        with (
+            patch.object(
+                navigator,
+                "_goto_with_auth_checks",
+                side_effect=lambda url: navigate(
+                    mock_page, "https://www.linkedin.com/messaging/thread/2-s3cret/"
+                ),
+            ),
+            caplog.at_level(logging.DEBUG, logger=navigation_module.__name__),
+        ):
+            await navigator._navigate_to_page("https://www.linkedin.com/messaging/")
+
+        assert "landed=" in caplog.text
+        assert "2-s3cret" not in caplog.text
