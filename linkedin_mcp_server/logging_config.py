@@ -33,6 +33,15 @@ _BROWSER_LIFECYCLE_LOGGERS = (
     "linkedin_mcp_server.drivers.browser",
 )
 
+#: The same floor for the module that reads an action's page state. A trace
+#: kept for a failed ``connect_with_person`` is only worth reading with the
+#: dialog text and button signals it logged, and those are INFO. Scoped rather
+#: than a root-wide INFO: these lines appear only while an action runs, in the
+#: process that drives the browser, whereas a root at INFO would have every
+#: proxying frontend write a run directory again and the long-lived daemon's
+#: log grow with every scrape.
+_ACTION_EVIDENCE_LOGGERS = ("linkedin_mcp_server.scraping.connection_actions",)
+
 
 class _LazyTraceFileHandler(logging.Handler):
     """Write ``server.log`` into the run directory, creating both on first use.
@@ -219,7 +228,7 @@ def configure_logging(log_level: str = "WARNING", json_format: bool = False) -> 
         if numeric_level <= logging.WARNING
         else numeric_level
     )
-    for name in _BROWSER_LIFECYCLE_LOGGERS:
+    for name in (*_BROWSER_LIFECYCLE_LOGGERS, *_ACTION_EVIDENCE_LOGGERS):
         logging.getLogger(name).setLevel(browser_level)
 
     # Set specific loggers to reduce noise

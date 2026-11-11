@@ -789,6 +789,41 @@ class TestPersonTool:
             note="Hello!",
         )
 
+    @pytest.mark.parametrize(
+        ("status", "kept"),
+        [
+            ("dialog_not_found", True),
+            ("not_sent", True),
+            ("send_unverified", True),
+            ("connect_unavailable", True),
+            ("unavailable", True),
+            ("connected", False),
+            ("accepted", False),
+            ("pending", False),
+            ("already_connected", False),
+        ],
+    )
+    async def test_connect_with_person_failure_status_keeps_the_trace(
+        self, mock_context, status, kept
+    ):
+        """A failure reported as a status, not raised, still keeps evidence."""
+        from linkedin_mcp_server.debug_trace import should_keep_traces
+        from linkedin_mcp_server.tools.person import register_person_tools
+
+        mcp = FastMCP("test")
+        register_person_tools(mcp)
+        tool_fn = await get_tool_fn(mcp, "connect_with_person")
+
+        await tool_fn(
+            "test-user",
+            mock_context,
+            extractor=_make_mock_extractor(
+                {"url": "u", "status": status, "message": "m", "note_sent": False}
+            ),
+        )
+
+        assert should_keep_traces() is kept
+
     async def test_connect_with_person_auth_error(self, monkeypatch):
         """Auth failures in the DI layer trigger auto-relogin and report the login browser."""
         from fastmcp.exceptions import ToolError

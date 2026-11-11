@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 import itertools
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -18,6 +20,8 @@ from linkedin_mcp_server.privacy import (
 )
 from linkedin_mcp_server.profile_lease import ProfileLeaseUnavailableError, try_lock
 from linkedin_mcp_server.session_state import auth_root_dir, get_source_profile_dir
+
+logger = logging.getLogger(__name__)
 
 TraceMode = Literal["off", "on_error", "always"]
 
@@ -188,6 +192,28 @@ def mark_trace_for_retention() -> Path | None:
     if trace_dir is not None:
         secure_mkdir(trace_dir)
         _TRACE_KEEP = True
+    return trace_dir
+
+
+def retain_trace_for_failed_action(
+    tool_name: str, status: object, *, succeeded: Collection[str]
+) -> Path | None:
+    """Keep this run's trace when an action tool ended in a non-success status.
+
+    Retention was otherwise reached only through an exception, while an action
+    such as ``connect_with_person`` reports most of its failures as a returned
+    status, so exactly the runs worth reading were deleted at exit. Anything
+    outside *succeeded* counts as a failure, so a status added later is kept
+    rather than lost. Call it in the process that drove the browser, which is
+    the one holding the page trace.
+    """
+    if status in succeeded:
+        return None
+    trace_dir = mark_trace_for_retention()
+    # Also the line that puts the outcome into the kept server.log.
+    logger.warning(
+        "%s ended with status %r; keeping trace run %s", tool_name, status, trace_dir
+    )
     return trace_dir
 
 

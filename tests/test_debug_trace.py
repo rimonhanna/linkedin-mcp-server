@@ -17,6 +17,8 @@ from linkedin_mcp_server.debug_trace import (
     mark_trace_for_retention,
     record_page_trace,
     reset_trace_state_for_testing,
+    retain_trace_for_failed_action,
+    should_keep_traces,
 )
 
 
@@ -289,3 +291,27 @@ def test_a_linked_trace_root_is_not_pruned(monkeypatch, tmp_path):
     get_trace_dir()
 
     assert stale.exists()
+
+
+@pytest.mark.parametrize("status", ["dialog_not_found", "a_status_added_later", None])
+def test_a_failed_action_keeps_its_trace(monkeypatch, tmp_path, status):
+    monkeypatch.setenv("USER_DATA_DIR", str(tmp_path / "profile"))
+
+    trace_dir = retain_trace_for_failed_action(
+        "connect_with_person", status, succeeded={"connected", "pending"}
+    )
+    cleanup_trace_dir()
+
+    assert trace_dir is not None and trace_dir.exists()
+
+
+def test_a_successful_action_does_not_keep_its_trace(monkeypatch, tmp_path):
+    monkeypatch.setenv("USER_DATA_DIR", str(tmp_path / "profile"))
+
+    assert (
+        retain_trace_for_failed_action(
+            "connect_with_person", "pending", succeeded={"connected", "pending"}
+        )
+        is None
+    )
+    assert not should_keep_traces()

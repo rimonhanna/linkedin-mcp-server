@@ -174,3 +174,25 @@ def test_a_record_logged_while_creating_the_run_does_not_recurse(monkeypatch, tm
 
     assert len(prunes) == 1
     assert len(_runs(tmp_path)) == 1
+
+
+def test_a_kept_failed_action_leaves_its_evidence_in_the_log(monkeypatch, tmp_path):
+    """The run is kept and its log says why, with the page reads behind it."""
+    from linkedin_mcp_server.debug_trace import retain_trace_for_failed_action
+
+    monkeypatch.setenv("USER_DATA_DIR", str(tmp_path / "profile"))
+    monkeypatch.setattr("linkedin_mcp_server.logging_config.atexit.register", id)
+    configure_logging(log_level="WARNING")
+
+    logging.getLogger("linkedin_mcp_server.scraping.connection_actions").info(
+        "Invite dialog text: weekly limit"
+    )
+    retain_trace_for_failed_action(
+        "connect_with_person", "not_sent", succeeded={"connected"}
+    )
+    teardown_trace_logging()
+
+    [run] = _runs(tmp_path)
+    persisted = (run / "server.log").read_text(encoding="utf-8")
+    assert "Invite dialog text: weekly limit" in persisted
+    assert "connect_with_person ended with status 'not_sent'" in persisted

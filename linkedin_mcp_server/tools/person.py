@@ -21,6 +21,7 @@ from linkedin_mcp_server.config.schema import (
     PER_TOOL_TIMEOUT_SECONDS,
 )
 from linkedin_mcp_server.core.exceptions import AuthenticationError
+from linkedin_mcp_server.debug_trace import retain_trace_for_failed_action
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.pacing import (
@@ -44,6 +45,10 @@ logger = logging.getLogger(__name__)
 # (``outcome_unknown`` is synthesised by the frontend proxy when the daemon
 # went away mid-call, so this tool body never sees it.)
 _INVITE_SUBMITTED = frozenset({"connected", "send_unverified"})
+# Outcomes that need no explaining; every other status keeps the run's trace.
+_CONNECT_SUCCEEDED = frozenset(
+    {"connected", "accepted", "pending", "already_connected"}
+)
 
 
 def _coerce_str_list(value: Any) -> Any:
@@ -427,6 +432,11 @@ def register_person_tools(
             )
             if result.get("status") in _INVITE_SUBMITTED:
                 record_action(JobStore(), INVITES, datetime.now().astimezone())
+            retain_trace_for_failed_action(
+                "connect_with_person",
+                result.get("status"),
+                succeeded=_CONNECT_SUCCEEDED,
+            )
 
             await ctx.report_progress(progress=100, total=100, message="Complete")
 
