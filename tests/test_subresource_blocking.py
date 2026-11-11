@@ -65,6 +65,9 @@ def _fake_playwright(recorder: dict):
     class _Page:
         url = "about:blank"
 
+        def on(self, event, handler) -> None:
+            pass
+
         async def close(self) -> None:
             return None
 
