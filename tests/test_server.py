@@ -904,6 +904,51 @@ class TestBrowserLifespan:
         close_browser.assert_awaited_once()
 
 
+class TestServerInstructions:
+    """Every client is told how to use LinkedIn, plugin or not.
+
+    The rules are written out here rather than imported from the server: the
+    contract is this text, above all the line that forbids retrying into a
+    rate limit or cooldown.
+    """
+
+    RULES = """\
+Use these tools only for what the user asked about on LinkedIn. Read the
+smallest thing that answers the request, and do not collect profiles, searches
+or conversations in bulk.
+
+send_message and connect_with_person act as the user. Use them only for the
+recipient and text the user approved; when asked for a draft, reply with the
+text instead. If a write's outcome is unknown, ask the user to check LinkedIn
+before acting again.
+
+Calls are paced and run one at a time on purpose. If a tool reports a rate
+limit, an account cooldown or a pacing cap, stop and tell the user when it
+lifts. Do not retry or work around it: every retry counts against the account.
+
+If LinkedIn asks for a captcha or other verification, ask the user to complete
+it in the browser, then continue when they say so.
+
+Report what the tools returned, and say when a result may be incomplete.
+"""
+
+    @pytest.mark.parametrize("role", list(ServerRole))
+    async def test_every_role_sends_the_same_operating_rules(
+        self, monkeypatch: pytest.MonkeyPatch, role: ServerRole
+    ):
+        monkeypatch.setattr(server_module, "initialize_bootstrap", MagicMock())
+        monkeypatch.setattr(server_module, "get_runtime_policy", MagicMock())
+        monkeypatch.setattr(
+            server_module, "start_background_browser_setup_if_needed", AsyncMock()
+        )
+        monkeypatch.setattr(server_module, "watch_for_handoff_requests", AsyncMock())
+        monkeypatch.setattr(server_module, "close_browser", AsyncMock())
+
+        async with Client(_server_for(role)) as client:
+            assert client.initialize_result is not None
+            assert client.initialize_result.instructions == self.RULES
+
+
 class TestServerVersion:
     def test_create_mcp_server_advertises_package_version(self):
         # Without an explicit version=, FastMCP advertises its own library

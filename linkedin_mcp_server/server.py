@@ -63,6 +63,31 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Sent on initialize to every client, plugin or not, and for every role: a
+# proxy registers no tools of its own but is what the client talks to. The
+# pacing paragraph is the one that matters most. Throttling and logouts were
+# measured to follow retry bursts after a throttle signal, not daily volume.
+_SERVER_INSTRUCTIONS = """\
+Use these tools only for what the user asked about on LinkedIn. Read the
+smallest thing that answers the request, and do not collect profiles, searches
+or conversations in bulk.
+
+send_message and connect_with_person act as the user. Use them only for the
+recipient and text the user approved; when asked for a draft, reply with the
+text instead. If a write's outcome is unknown, ask the user to check LinkedIn
+before acting again.
+
+Calls are paced and run one at a time on purpose. If a tool reports a rate
+limit, an account cooldown or a pacing cap, stop and tell the user when it
+lifts. Do not retry or work around it: every retry counts against the account.
+
+If LinkedIn asks for a captcha or other verification, ask the user to complete
+it in the browser, then continue when they say so.
+
+Report what the tools returned, and say when a result may be incomplete.
+"""
+
+
 class _StaticTokenAuth(TokenVerifier):
     """Accepts exactly the one token the owner published, and nothing else.
 
@@ -217,6 +242,7 @@ def create_mcp_server(
         # and then claim to be closing a browser it never had.
         lifespan=browser_lifespan if role.drives_browser else None,
         mask_error_details=True,
+        instructions=_SERVER_INSTRUCTIONS,
         auth=_StaticTokenAuth(auth_token) if auth_token is not None else None,
     )
     # Added before the serializing middleware below, which makes it the outer one.
