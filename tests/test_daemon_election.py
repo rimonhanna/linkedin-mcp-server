@@ -5488,8 +5488,8 @@ class TestRealOwner:
                 asyncio.run(served())
             assert str(told.value) == (
                 "The shared browser process refused this server's credentials, "
-                "so nothing was run. The process answering is not the one this "
-                "server attached to. Restart your MCP client so it connects with "
+                "so nothing was run. The process answering may not be the one "
+                "this server attached to. Restart your MCP client so it connects with "
                 "the current one's credentials."
             )
         finally:

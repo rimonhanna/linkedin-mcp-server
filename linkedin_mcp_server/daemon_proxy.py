@@ -192,10 +192,13 @@ def unreachable_owner_in(exc: BaseException) -> OwnerUnreachableError | None:
     return None
 
 
-#: The statuses the owner's bearer check answers with. Both come from
-#: ``RequireAuthMiddleware`` (``mcp/server/auth/middleware/bearer_auth.py``),
-#: which answers before the request reaches the MCP handler, so neither can come
-#: from a tool that ran.
+#: The statuses the owner refuses a request with before its MCP handler runs, so
+#: neither can come from a tool that ran. A 401 is the bearer check
+#: (``RequireAuthMiddleware``, ``mcp/server/auth/middleware/bearer_auth.py``),
+#: which also answers 403 for a missing scope, though this owner requires none.
+#: The other 403 is the SDK transport's Origin check
+#: (``mcp/server/transport_security.py``, ``validate_request``), run by the
+#: streamable HTTP handler ahead of dispatch when DNS rebinding protection is on.
 _CREDENTIALS_REFUSED = frozenset({401, 403})
 
 
@@ -860,7 +863,7 @@ def _owner_lost_from_a_call() -> ToolError:
 #: refusal is answered before the request reaches any tool.
 _CREDENTIALS_REFUSED_TEXT = (
     "The shared browser process refused this server's credentials, so nothing "
-    "was run. The process answering is not the one this server attached to. "
+    "was run. The process answering may not be the one this server attached to. "
     "Restart your MCP client so it connects with the current one's credentials."
 )
 

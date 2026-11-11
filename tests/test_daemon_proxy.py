@@ -2192,9 +2192,40 @@ class TestRecoveringThroughTheWholeProxy:
 #: for the same reason as `_THE_OWNER_IS_GONE`.
 _THE_TOKEN_WAS_REFUSED = (
     "The shared browser process refused this server's credentials, so nothing "
-    "was run. The process answering is not the one this server attached to. "
+    "was run. The process answering may not be the one this server attached to. "
     "Restart your MCP client so it connects with the current one's credentials."
 )
+
+
+class _DropsAfterRunningTheCall(FastMCPTransport):
+    """An owner that runs a call and then loses the connection before answering.
+
+    The departure a client cannot see past: the tool ran, and what comes back is
+    the session's own `CONNECTION_CLOSED`, which no owner sends.
+    """
+
+    @asynccontextmanager
+    async def connect_session(self, **kwargs: Any) -> AsyncIterator[Any]:
+        async with super().connect_session(**kwargs) as session:
+            yield _DropsAfterCalling(session)
+
+
+class _DropsAfterCalling:
+    def __init__(self, session: Any) -> None:
+        self._session = session
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
+    async def send_request(self, request: Any, *args: Any, **kwargs: Any):
+        from mcp.shared.exceptions import McpError
+
+        answer = await self._session.send_request(request, *args, **kwargs)
+        if isinstance(request.root, mt.CallToolRequest):
+            raise McpError(
+                mt.ErrorData(code=mt.CONNECTION_CLOSED, message="Connection closed")
+            )
+        return answer
 
 
 class TestARefusedToken:
@@ -2219,7 +2250,8 @@ class TestARefusedToken:
         that skipped that would only ever exercise the listing. Any other URL
         goes through the real HTTP transport, where *refusing* names the ones
         whose bearer check refuses and *gone* the ones with nothing listening.
-        An election finds whatever *elects* holds, the first owner by default,
+        A URL in *dropping* is served in process by an owner that runs the call
+        and then loses the connection. An election finds whatever *elects* holds, the first owner by default,
         and nobody when that is `None`.
         """
         from fastmcp.client import transports
@@ -2235,6 +2267,7 @@ class TestARefusedToken:
         served: set[str] = set()
         refusing: set[str] = set()
         gone: set[str] = set()
+        dropping: set[str] = set()
         posted: list[str] = []
         elections: list[str] = []
         elects: dict[str, Attachment | None] = {"owner": elected}
@@ -2264,6 +2297,8 @@ class TestARefusedToken:
         def transport_for(url: str, **kwargs: Any) -> ClientTransport:
             if url in served:
                 return FastMCPTransport(owner)
+            if url in dropping:
+                return _DropsAfterRunningTheCall(owner)
             return over_http(url, **kwargs)
 
         def elect(*_args: Any, **_kwargs: Any):
@@ -2287,6 +2322,7 @@ class TestARefusedToken:
             served=served,
             refusing=refusing,
             gone=gone,
+            dropping=dropping,
             posted=posted,
             elections=elections,
             elects=elects,
@@ -2426,3 +2462,28 @@ class TestARefusedToken:
         assert _owners["ran"] == []
         assert _owners["elections"] == ["elected"]
         assert _owners["posted"] == [_owners["replacement"]]
+
+    async def test_a_new_owner_that_drops_the_repeated_write_is_an_unknown_outcome(
+        self, _owners
+    ):
+        """The refused attempt ran nothing; the repeat on the new owner may have.
+
+        So a repeat lost mid-flight is reported, never named as a refusal or a
+        lost owner and never run a third time: the tool's own annotation is
+        asked, because the refusal left nothing remembered to answer with.
+        """
+
+        def turn_over_then_drop() -> None:
+            _owners["refusing"].add(_owners["elected"])
+            _owners["elects"]["owner"] = _owners["replacement_attachment"]
+            _owners["dropping"].add(_owners["replacement"])
+
+        result = await self._call_after_listing(_owners, turn_over_then_drop)
+
+        assert result.is_error
+        assert result.structured_content is not None
+        assert result.structured_content["status"] == "outcome_unknown"
+        assert result.structured_content["retry_safe"] is False
+        assert _owners["ran"] == ["sent"]
+        assert _owners["elections"] == ["elected"]
+        assert _owners["posted"] == [_owners["elected"]]
