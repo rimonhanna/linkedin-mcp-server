@@ -395,6 +395,35 @@ class TestFeedScrollRecovery:
         ]
         page.assert_clean()
 
+    async def test_a_batch_past_the_target_is_cut_to_num_posts(self):
+        # Measured live: one pagination payload carried enough permalinks to
+        # take num_posts=5 to 8 between two checks of the stop condition.
+        recorder = TraceRecorder(
+            "feed-batch-past-target",
+            _COMMON_ALLOWED | {"response.body.start", "response.body.finish"},
+        )
+        clock = FakeClock(recorder)
+        batch = ScriptedResponse(
+            recorder,
+            "https://www.linkedin.com/feed/",
+            "".join(
+                f'{{"postSlugUrl":"https://www.linkedin.com/posts/b{i}-ugcPost-{i}-x"}}'
+                for i in range(8)
+            ).encode(),
+        )
+        page = _page(recorder).script("evaluate:root_content", _root("Feed content"))
+        page.script("mouse.wheel", lambda: page.emit("response", batch))
+        scraper = _scraper(page)
+
+        async with boundaries(recorder, clock):
+            with recorder.context("extract_feed", "feed"):
+                result = await scraper.extract_feed(num_posts=5)
+
+        assert [ref["url"] for ref in result.references] == [
+            f"/posts/b{i}-ugcPost-{i}-x" for i in range(5)
+        ]
+        page.assert_clean()
+
 
 class TestFeedOutputBoundaries:
     """Text governs whether captured references are meaningful output."""

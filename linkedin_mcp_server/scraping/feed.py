@@ -295,5 +295,7 @@ class FeedScraper:
         cleaned = filter_linkedin_noise_lines(truncated)
         return ExtractedSection(
             text=cleaned,
-            references=build_feed_references(raw_result["references"], captured_urls),
+            references=build_feed_references(
+                raw_result["references"], captured_urls, num_posts=num_posts
+            ),
         )
