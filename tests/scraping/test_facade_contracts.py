@@ -239,7 +239,16 @@ async def test_connection_profile_read_resolves_the_facade_delegate_late(mock_pa
         }
     )
     extractor.scrape_person = replacement  # ty: ignore[invalid-assignment]
-    self_profile = ActionSignals(False, False, True, False, False, False)
+    self_profile = ActionSignals(
+        has_top_card=True,
+        has_edit_intro_anchor=True,
+        has_pending_item=False,
+        has_connect_item=False,
+        menu_read=False,
+        has_recommendation_link=False,
+        has_ignore_item=False,
+        has_compose_anchor_in_top_card=False,
+    )
 
     with patch.object(
         ConnectionActions,
@@ -535,8 +544,26 @@ async def test_incoming_verification_resolves_classifier_at_call_time(
             "sections": {"main_profile": "Target profile"},
         }
     )
-    incoming = ActionSignals(False, False, False, False, False, True)
-    connected = ActionSignals(False, True, False, False, False, False)
+    incoming = ActionSignals(
+        has_top_card=True,
+        has_edit_intro_anchor=False,
+        has_pending_item=False,
+        has_connect_item=False,
+        menu_read=True,
+        has_recommendation_link=False,
+        has_ignore_item=True,
+        has_compose_anchor_in_top_card=False,
+    )
+    connected = ActionSignals(
+        has_top_card=True,
+        has_edit_intro_anchor=False,
+        has_pending_item=False,
+        has_connect_item=False,
+        menu_read=True,
+        has_recommendation_link=True,
+        has_ignore_item=False,
+        has_compose_anchor_in_top_card=True,
+    )
     calls: list[ActionSignals] = []
 
     def classify(value: ActionSignals) -> connection.ConnectionState:
@@ -581,7 +608,16 @@ async def test_submitted_invite_verification_consults_the_sent_list(
             "sections": {"main_profile": "Target profile"},
         }
     )
-    connectable = ActionSignals(True, False, False, False, False, False)
+    connectable = ActionSignals(
+        has_top_card=True,
+        has_edit_intro_anchor=False,
+        has_pending_item=False,
+        has_connect_item=True,
+        menu_read=False,
+        has_recommendation_link=False,
+        has_ignore_item=False,
+        has_compose_anchor_in_top_card=False,
+    )
     calls: list[ActionSignals] = []
 
     def classify(value: ActionSignals) -> connection.ConnectionState:
@@ -597,6 +633,12 @@ async def test_submitted_invite_verification_consults_the_sent_list(
             return_value=connectable,
         ),
         patch.object(PageNavigator, "_navigate_to_page", new_callable=AsyncMock),
+        patch.object(
+            ConnectionActions,
+            "_click_connect",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
         patch.object(
             ConnectionActions,
             "_submit_invite_dialog",

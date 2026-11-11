@@ -131,7 +131,7 @@
       "call": "connect_with_person",
       "kind": "evaluate",
       "operation": "connection_action_signals",
-      "program_digest": "638a6d3b49bd",
+      "program_digest": "331d3a026c7e",
       "section": "main_profile"
     }
   ],

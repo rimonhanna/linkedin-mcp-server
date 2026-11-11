@@ -3,22 +3,24 @@
 ``connection.py`` answers what a profile's action area *says* about the
 relationship and stays browser-free; this module is everything that reads
 or touches that area: the structural signal probe, the More menu, the
-incoming-request Accept click, the invite dialog, the non-submitting
-note-quota probe and the verification re-read after a write.
+Connect and incoming-request Accept clicks, the invite dialog, the
+non-submitting note-quota probe and the verification after a write.
 
 Per the AGENTS.md Scraping Rules every decision here rests on a URL pattern
-(``/preload/custom-invite/?vanityName=USER``, ``/in/USER/edit/intro/``,
-``/messaging/compose/``), on the *presence* of an ARIA attribute
-(``aria-label`` on a button versus an anchor, ``aria-expanded`` on the menu
-opener) or on a structural count. No label value is read anywhere, so a
-German or an opaquely labelled page classifies exactly as an English one;
-``tests/test_action_signals_dom.py`` holds that line against a real DOM in
-all four label sets.
+(``/in/USER/edit/intro/``, ``/edit/forms/recommendation/``,
+``/messaging/compose/``, ``/overlay/contact-info/``), on a design-system
+token LinkedIn does not translate (the ``ConnectButtonstate:`` component key
+and its ``_connect`` / ``_pending`` suffix, one icon id), on the *presence*
+of an attribute (``aria-expanded`` on the menu opener, ``aria-label`` on a
+button) or on whether an element is rendered. No label value is read
+anywhere, so a German or an opaquely labelled page classifies exactly as an
+English one; ``tests/test_action_signals_dom.py`` holds that line against a
+real DOM in all four label sets.
 
 The write gate is the reason the order of the checks below matters: the
-invite deeplink fires only after ``has_invite_anchor`` is true, and the only
-other thing that may open it is the note-quota probe, which never clicks a
-primary button.
+Connect control is clicked only when ``has_connect_item`` is true, and the
+only other thing that may open an invite dialog is the note-quota probe,
+which never clicks a primary button.
 """
 
 from __future__ import annotations
@@ -78,14 +80,14 @@ _MODAL_DIALOG_INDEX_JS = r"""
 }
 """
 
-# Ground truth for "did the invite go out". The profile header cannot answer
-# it any more: since LinkedIn's 2026 profile UI the sent-invite state is a
-# text-only menu item ("Pending") inside the More menu, and the header after
-# a send is structurally identical to a follow-only profile (compose anchor
-# plus labeled buttons). Measured 2026-09-14: an invite that LinkedIn quietly
-# dropped read exactly like one it delivered. The sent list is sorted newest
+# Ground truth for "did the invite go out". The profile page is not: the
+# More menu's Pending key is the state the page that sent the click holds,
+# and measured 2026-09-14, an invite that LinkedIn quietly dropped read on
+# the profile exactly like one it delivered. The sent list is sorted newest
 # first and links every row by vanity URL, so a URL match on its first page
-# is locale-independent and needs no text.
+# is locale-independent and needs no text. It is also the fallback for a
+# profile whose More menu could not be read, and only that: it holds the ten
+# newest invitations, so a miss there proves nothing.
 _SENT_INVITATIONS_URL = "https://www.linkedin.com/mynetwork/invitation-manager/sent/"
 
 # Anchors on the sent-invitations page whose path is exactly /in/<username>/.
@@ -132,222 +134,224 @@ _PAGE_ALERTS_JS = r"""
   .join(" | ")
 """
 
-# Shared JS function that walks up from any /messaging/compose/ anchor
-# inside <main> to find the smallest ancestor that satisfies the
-# action-root predicate (>=2 interactive children, >=1 button). This is
-# the top-card action row regardless of LinkedIn's class names.
+# Shared JS helpers, inlined into every program below so one change to the
+# heuristics reaches all of them. Measured live 2026-11-11 on four profiles
+# (never invited, pending, 1st degree, incoming request):
 #
-# Inlined into both ACTION_SIGNALS_JS and OPEN_MORE_BUTTON_JS so a
-# single change to the heuristic propagates to both call sites.
-_FIND_ACTION_ROOT_FN_JS = r"""
-function findActionRoot(main) {
-  const composeAnchors = main.querySelectorAll('a[href*="/messaging/compose/"]');
-  for (const a of composeAnchors) {
-    let el = a.parentElement;
-    while (el && el !== main) {
-      const interactive = el.querySelectorAll('button, a').length;
-      const buttons = el.querySelectorAll('button').length;
-      if (interactive >= 2 && buttons >= 1) {
-        return el;
-      }
-      el = el.parentElement;
-    }
+# - The top card is the innermost <section> around the profile's
+#   /overlay/contact-info/ anchor; there is exactly one, and none in the
+#   `main aside` sidebar. `main` holds no h1, and its first <section> is the
+#   whole profile column (activity posts, a video player's menus), so
+#   neither of the older anchors scopes anything.
+# - The action row is rendered twice: the visible one and a hidden copy for
+#   the sticky header. Only rendered elements count, or every lookup
+#   answers twice.
+# - More is a `button[aria-expanded]`. A cover video's player sits above the
+#   action row in the same section and carries expanders too, so the last
+#   rendered one is More. Its menu is portal-mounted outside <main> with no
+#   aria-controls link, and the page already holds hidden [role=menu]
+#   elements (video subtitle settings): the menu is the one that became
+#   rendered after the click.
+# - The connect state is `[componentkey^="ConnectButtonstate:"]`, suffixed
+#   `_connect` or `_pending`. On the measured profiles it lives only in the
+#   More menu; a key in the top card itself is honoured the same way. The
+#   sidebar cards carry the same keys for other members, which is one more
+#   reason the scope is the top card or its own menu, never the document.
+_PROFILE_ACTION_FNS_JS = r"""
+const isRendered = (el) => {
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+};
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function findTopCard(main) {
+  const sections = new Set();
+  for (const a of main.querySelectorAll('a[href*="/overlay/contact-info/"]')) {
+    if (a.closest('main aside')) continue;
+    const section = a.closest('section');
+    if (section) sections.add(section);
   }
-  return null;
+  return sections.size === 1 ? [...sections][0] : null;
+}
+
+function findMoreButton(card) {
+  const openers = [...card.querySelectorAll('button[aria-expanded]')].filter(isRendered);
+  return openers.length ? openers[openers.length - 1] : null;
+}
+
+// The rendered controls carrying a connect-state key with this suffix. The
+// key sits on the clickable element and on its label wrapper, so both
+// resolve to the one control.
+function connectStateControls(scope, suffix) {
+  const controls = new Set();
+  const selector =
+    `[componentkey^="ConnectButtonstate:"][componentkey$="_${suffix}"]`;
+  for (const el of scope.querySelectorAll(selector)) {
+    if (!isRendered(el)) continue;
+    const control = el.closest('a, button, [role="menuitem"], [role="button"]');
+    controls.add(control && scope.contains(control) ? control : el);
+  }
+  return [...controls];
+}
+
+// Click More and wait for its menu to render and stop growing. Returns
+// {clicked, menu}; menu is null when no single new menu settled in time.
+async function openMoreMenu(card) {
+  const more = findMoreButton(card);
+  if (!more) return {clicked: false, menu: null};
+  if (more.getAttribute('aria-expanded') === 'true') {
+    more.click();
+    await sleep(300);
+  }
+  const before = new Set(
+    [...document.querySelectorAll('[role="menu"]')].filter(isRendered)
+  );
+  more.click();
+  let candidate = null;
+  let lastCount = -1;
+  let stablePolls = 0;
+  for (let waited = 0; waited < 5000; waited += 100) {
+    await sleep(100);
+    const opened = [...document.querySelectorAll('[role="menu"]')].filter(
+      (m) => isRendered(m) && !before.has(m) && !m.closest('main aside')
+    );
+    if (opened.length !== 1) {
+      candidate = null;
+      continue;
+    }
+    const count = opened[0].querySelectorAll('[role="menuitem"]').length;
+    if (opened[0] === candidate && count === lastCount && count > 0) {
+      stablePolls += 1;
+      if (stablePolls >= 4) return {clicked: true, menu: candidate};
+    } else {
+      stablePolls = 0;
+    }
+    candidate = opened[0];
+    lastCount = count;
+  }
+  return {clicked: true, menu: null};
 }
 """
 
-# Shared JS function that fingerprints the incoming-request action row.
-# Incoming-request profiles render no Message button in the top card, so
-# findActionRoot (compose-anchor walk) cannot locate their action row and
-# would mis-anchor on sidebar mutual-connection cards instead. This walk
-# anchors on button[aria-expanded] (the More button) and validates the
-# smallest multi-button ancestor against the fingerprint verified live
-# 2026-06-11 on two German-locale incoming-request profiles:
+# Locale-independent connection-state probe. Reads the top card first and
+# opens More only when the card has not already answered, so a profile with
+# Connect or Pending in its top card costs no click. Returns the fields of
+# ``ActionSignals`` plus ``moreClicked``, which tells the caller a menu may
+# be open and needs closing.
 #
-#   [button aria-label (Accept)] [button aria-label (Ignore)]
-#   [button aria-expanded, no aria-label (More)]
-#
-# All checks are attribute presence and structural counts per the
-# AGENTS.md Scraping Rules — no label values are read. Every guard kills
-# a known false positive: total-button-count === 3 and labeled === 2
-# exclude video-player control bars (play/mute/captions all carry
-# aria-label); the unlabeled-expander check excludes player settings
-# expanders (the profile More button never carries aria-label); the
-# DOM-order guard excludes bars with trailing labeled buttons; the
-# compose/invite/labeled-anchor exclusions kill follow_only, pending,
-# connected top cards and sidebar cards. The scan continues over ALL
-# expander candidates because cover-video profiles render the player's
-# expander before the top-card row in DOM order.
-#
-# The search is scoped to the top card — the first <section> of <main>
-# (falling back to main's first child, then main). Profile pages render
-# the action row in the top card; feed, "people also viewed", and other
-# widgets live in later sections. Without the scope an unrelated widget
-# elsewhere in main with the same button shape could be misclassified and
-# its first labeled button clicked.
-#
-# Inlined into ACTION_SIGNALS_JS and CLICK_INCOMING_ACCEPT_JS so a
-# single change to the fingerprint propagates to both call sites.
-_FIND_INCOMING_ACTION_ROW_FN_JS = r"""
-function findIncomingActionRow(main) {
-  const scope = main.querySelector('section') || main.firstElementChild || main;
-  const matches = [];
-  for (const expander of scope.querySelectorAll('button[aria-expanded]')) {
-    let el = expander.parentElement;
-    while (el && el !== scope && el !== main) {
-      if (el.querySelectorAll('button').length >= 2) {
-        const buttons = el.querySelectorAll('button');
-        const labeled = el.querySelectorAll('button[aria-label]');
-        const expanders = el.querySelectorAll('button[aria-expanded]');
-        if (
-          buttons.length === 3 &&
-          labeled.length === 2 &&
-          expanders.length === 1 &&
-          !expanders[0].hasAttribute('aria-label') &&
-          expanders[0].compareDocumentPosition(labeled[1]) &
-            Node.DOCUMENT_POSITION_PRECEDING &&
-          !el.querySelector('a[href*="/messaging/compose/"]') &&
-          !el.querySelector('a[href*="/preload/custom-invite/"]') &&
-          !el.querySelector('a[aria-label]')
-        ) {
-          matches.push(el);
-        }
-        break;
-      }
-      el = el.parentElement;
-    }
-  }
-  // Require a unique match: a profile's top card has exactly one action
-  // row. Ambiguity (two rows matching the shape) is treated as no match so
-  // the irreversible Accept click never fires on a guessed control.
-  return matches.length === 1 ? matches[0] : null;
-}
-"""
-
-# Locale-independent connection-state probe. Returns four booleans;
-# per AGENTS.md Scraping Rules, every signal is based on URL patterns
-# or ARIA-attribute *presence* — never on label text values.
-#
-# - hasInvite: vanityName-scoped invite anchor anywhere in document.
-#   Searches document (not main) so a post-More-menu reread sees
-#   portal-rendered menu items. The vanityName parameter is unique to
-#   the target user, so document-wide search has no false-positive risk.
-# - hasComposeInActionRoot: any /messaging/compose/ anchor exists inside
-#   the action root. Scoped to main (not document) to avoid the More
-#   menu's "Send profile in a message" anchor, which is a compose URL
-#   but lives outside the action area.
-# - hasEditIntro: edit-intro URL exists, only rendered on own profile.
-# - hasLabeledActionButton: at least one <button[aria-label]> inside the
-#   action root. Primary action buttons (Follow / Connect /
-#   Save in Sales Navigator) carry aria-label for screen readers; the
-#   profile More button uses aria-expanded instead and is not counted.
-# - hasLabeledActionAnchor: at least one <a[aria-label]> inside the
-#   action root. LinkedIn renders the Pending state as an anchor (linking
-#   back to the profile URL) carrying aria-label like "Pending, click to
-#   withdraw…". The Message anchor has only aria-disabled, so a labeled
-#   anchor is the locale-independent Pending signal.
-# - hasIncomingActionRow: the incoming-request fingerprint matched (see
-#   _FIND_INCOMING_ACTION_ROW_FN_JS). Computed independently of
-#   findActionRoot, which cannot locate the top-card row on incoming
-#   profiles (no compose anchor there) and would mis-anchor on sidebar
-#   cards.
-#
-# The username is CSS-escaped before interpolation into attribute
-# selectors to defend against malformed inputs containing characters
-# that would otherwise break the selector syntax (quotes, brackets).
+# The username is CSS-escaped before interpolation into the attribute
+# selector to defend against malformed inputs containing characters that
+# would otherwise break the selector syntax (quotes, brackets).
 ACTION_SIGNALS_JS = (
     r"""
-((username) => {
+(async (username) => {
 """
-    + _FIND_ACTION_ROOT_FN_JS
-    + _FIND_INCOMING_ACTION_ROW_FN_JS
+    + _PROFILE_ACTION_FNS_JS
     + r"""
   const main = document.querySelector('main');
   if (!main) return null;
 
   const safe = CSS.escape(username);
-  const inviteSel = `a[href*="/preload/custom-invite/?vanityName=${safe}"]`;
-  const editSel = `a[href*="/in/${safe}/edit/intro/"]`;
-
-  const hasInvite = !!document.querySelector(inviteSel);
-  const hasEditIntro = !!main.querySelector(editSel);
-
-  const actionRoot = findActionRoot(main);
-
-  let hasComposeInActionRoot = false;
-  let hasLabeledActionButton = false;
-  let hasLabeledActionAnchor = false;
-  if (actionRoot) {
-    hasComposeInActionRoot =
-      !!actionRoot.querySelector('a[href*="/messaging/compose/"]');
-    for (const b of actionRoot.querySelectorAll('button')) {
-      if (b.hasAttribute('aria-label')) {
-        hasLabeledActionButton = true;
-        break;
-      }
-    }
-    for (const a of actionRoot.querySelectorAll('a')) {
-      if (a.hasAttribute('aria-label')) {
-        hasLabeledActionAnchor = true;
-        break;
-      }
-    }
+  const signals = {
+    topCard: false,
+    editIntro: !!main.querySelector(`a[href*="/in/${safe}/edit/intro/"]`),
+    pendingItem: false,
+    connectItem: false,
+    menuRead: false,
+    recommendationLink: false,
+    ignoreItem: false,
+    composeInTopCard: false,
+    moreClicked: false,
+  };
+  const card = findTopCard(main);
+  if (!card) return signals;
+  signals.topCard = true;
+  signals.composeInTopCard = [
+    ...card.querySelectorAll('a[href*="/messaging/compose/"]'),
+  ].some(isRendered);
+  signals.pendingItem = connectStateControls(card, 'pending').length > 0;
+  signals.connectItem = connectStateControls(card, 'connect').length > 0;
+  if (signals.editIntro || signals.pendingItem || signals.connectItem) {
+    return signals;
   }
 
-  return {
-    hasInvite,
-    hasComposeInActionRoot,
-    hasEditIntro,
-    hasLabeledActionButton,
-    hasLabeledActionAnchor,
-    hasIncomingActionRow: !!findIncomingActionRow(main),
-  };
+  const opened = await openMoreMenu(card);
+  signals.moreClicked = opened.clicked;
+  const menu = opened.menu;
+  if (!menu) return signals;
+  signals.menuRead = true;
+  signals.pendingItem = connectStateControls(menu, 'pending').length > 0;
+  signals.connectItem = connectStateControls(menu, 'connect').length > 0;
+  signals.recommendationLink = !!menu.querySelector(
+    'a[href*="/edit/forms/recommendation/"]'
+  );
+  signals.ignoreItem = !!menu.querySelector(
+    '[role="menuitem"] svg[id="xmark-outline-medium"]'
+  );
+  return signals;
 })
 """
 )
 
-# Open the profile's More button, located inside the action root via the
-# aria-expanded attribute. The aria-expanded attribute uniquely identifies
-# the menu opener without text labels (the More button has no aria-label,
-# while Follow/Connect/Pending buttons do — the inverse pattern). Returns
-# true iff the click landed; the caller waits for [role='menu'] visibility
-# before re-scanning signals.
-OPEN_MORE_BUTTON_JS = (
+# Click the one rendered ``_connect`` control: in the top card when it is
+# there, otherwise in the More menu, opened again here because the signal
+# probe closed it. Anything but exactly one candidate clicks nothing.
+# Returns {clicked, menuOpened}; after a successful click the menu closes on
+# its own and the invite dialog opens, so the caller must not press Escape.
+CLICK_CONNECT_JS = (
     r"""
-(() => {
+(async () => {
 """
-    + _FIND_ACTION_ROOT_FN_JS
+    + _PROFILE_ACTION_FNS_JS
     + r"""
   const main = document.querySelector('main');
-  if (!main) return false;
-  const actionRoot = findActionRoot(main);
-  if (!actionRoot) return false;
-  const moreBtn = actionRoot.querySelector('button[aria-expanded]');
-  if (!moreBtn) return false;
-  moreBtn.click();
-  return true;
+  const card = main ? findTopCard(main) : null;
+  if (!card) return {clicked: false, menuOpened: false};
+  let connectControls = connectStateControls(card, 'connect');
+  let menuOpened = false;
+  if (connectControls.length === 0) {
+    const opened = await openMoreMenu(card);
+    menuOpened = opened.clicked;
+    if (!opened.menu) return {clicked: false, menuOpened};
+    connectControls = connectStateControls(opened.menu, 'connect');
+  }
+  if (connectControls.length !== 1) return {clicked: false, menuOpened};
+  connectControls[0].click();
+  return {clicked: true, menuOpened};
 })
 """
 )
 
-# Click Accept on an incoming-request profile. Accept is the FIRST labeled
-# button in the fingerprinted row — primary actions render first in
-# top-card action rows (Connect/Message lead on other profile states; the
-# inverse of dialogs, where the primary button renders last). Clicking the
-# second button would silently and irreversibly Ignore the request, so the
-# click only fires when the full fingerprint matched.
+# Click Accept on an incoming-request profile: the first rendered labeled
+# button, other than More, in the action row (the smallest ancestor of More
+# holding another rendered button). Measured 2026-11-11, the row reads
+# Accept, Save in Sales Navigator, More; Ignore has moved into the More
+# menu, so no button in the row ignores the request. The caller fires this
+# only after the incoming-request classification and verifies afterwards.
 CLICK_INCOMING_ACCEPT_JS = (
     r"""
 (() => {
 """
-    + _FIND_INCOMING_ACTION_ROW_FN_JS
+    + _PROFILE_ACTION_FNS_JS
     + r"""
   const main = document.querySelector('main');
-  if (!main) return false;
-  const row = findIncomingActionRow(main);
-  if (!row) return false;
-  row.querySelectorAll('button[aria-label]')[0].click();
+  const card = main ? findTopCard(main) : null;
+  const more = card ? findMoreButton(card) : null;
+  if (!more) return false;
+  let row = more.parentElement;
+  while (
+    row &&
+    row !== card &&
+    ![...row.querySelectorAll('button')].some((b) => b !== more && isRendered(b))
+  ) {
+    row = row.parentElement;
+  }
+  if (!row || row === card) return false;
+  const acceptButton = [
+    ...row.querySelectorAll('button[aria-label]:not([aria-expanded])'),
+  ].find(isRendered);
+  if (!acceptButton) return false;
+  acceptButton.click();
   return true;
 })
 """
@@ -566,45 +570,41 @@ class ConnectionActions:
             await asyncio.sleep(1.5)
         return False
 
-    async def _open_more_menu(self) -> bool:
-        """Open the profile's More (three-dot) menu in a locale-independent way.
+    async def _close_more_menu(self) -> None:
+        """Close an open More menu so it cannot intercept the next action."""
+        try:
+            await self._session.page.keyboard.press("Escape")
+        except Exception:
+            logger.debug("Escape after the More-menu read failed", exc_info=True)
 
-        Locates the More button structurally as ``actionRoot
-        button[aria-expanded]`` — the action-root walk discriminates the
-        profile More button from any other More-labelled buttons elsewhere
-        on the page (notably the video-player More on profiles with
-        background videos), and ``aria-expanded`` distinguishes the menu
-        opener from primary action buttons (which carry ``aria-label``
-        instead). Returns True iff the click landed and a ``[role='menu']``
-        became visible. The caller is expected to follow up with
-        ``_read_action_signals`` to scan the now-rendered menu items for
-        the vanityName invite anchor; this helper does not classify menu
-        contents itself.
+    async def _click_connect(self) -> bool:
+        """Click the profile's Connect control, locale-independently.
+
+        Delegates to ``CLICK_CONNECT_JS``, which clicks the one rendered
+        ``_connect`` connect-state control in the top card or its More menu
+        and nothing when there is not exactly one. Returns True iff the
+        click landed.
         """
         try:
-            clicked = await self._session.page.evaluate(OPEN_MORE_BUTTON_JS)
+            data = await self._session.page.evaluate(CLICK_CONNECT_JS)
         except Exception:
-            logger.debug("More button click via JS failed", exc_info=True)
+            logger.debug("Connect click via JS failed", exc_info=True)
             return False
-        if not clicked:
+        if not isinstance(data, dict):
             return False
-        try:
-            await self._session.page.wait_for_selector("[role='menu']", timeout=3000)
+        if data.get("clicked"):
             return True
-        except PlaywrightTimeoutError:
-            logger.debug("More menu did not appear after click")
-            return False
+        if data.get("menuOpened"):
+            await self._close_more_menu()
+        return False
 
     async def _click_incoming_accept(self) -> bool:
         """Click Accept on an incoming-request profile, locale-independently.
 
-        Delegates to ``CLICK_INCOMING_ACCEPT_JS``: the click fires only
-        when the full incoming-row fingerprint matches, and it targets the
-        FIRST labeled button (Accept renders before Ignore — primary
-        actions lead in top-card rows). Clicking the second button would
-        silently and irreversibly Ignore the request; the strict
-        fingerprint plus the caller's verify-after-click are the
-        mitigations. Returns True iff the click landed.
+        Delegates to ``CLICK_INCOMING_ACCEPT_JS``, which clicks the first
+        labeled button of the top-card action row. The caller fires it only
+        once the profile classified as ``incoming_request`` and verifies the
+        transition afterwards. Returns True iff the click landed.
         """
         try:
             return bool(await self._session.page.evaluate(CLICK_INCOMING_ACCEPT_JS))
@@ -616,43 +616,36 @@ class ConnectionActions:
         """Read locale-independent structural signals for a profile's
         relationship state.
 
-        Detection uses URL patterns and ARIA attribute presence only — never
-        text values — per the AGENTS.md Scraping Rules. The vanityName invite
-        anchor is searched document-wide because LinkedIn renders the More
-        menu's contents in a portal-mounted ``[role='menu']`` outside ``<main>``;
-        the URL is uniquely scoped to the target user, so document-wide
-        search introduces no false positives. The compose anchor used for
-        action-root discovery is scoped to ``<main>`` to avoid the
-        portal-rendered "Send profile in a message" anchor that appears
-        inside the More menu after click.
+        Runs ``ACTION_SIGNALS_JS``, which reads the top card and, unless the
+        card already answered, opens the More menu and reads that too. The
+        menu is closed again before returning, so the page is left as it
+        was found. A page without ``<main>`` yields no signals at all, which
+        classifies as ``unavailable``.
         """
         data = await self._session.page.evaluate(ACTION_SIGNALS_JS, username)
         if not isinstance(data, dict):
-            return ActionSignals(
-                has_invite_anchor=False,
-                has_compose_anchor_in_action_root=False,
-                has_edit_intro_anchor=False,
-                has_labeled_action_button=False,
-                has_labeled_action_anchor=False,
-                has_incoming_action_row=False,
-            )
+            data = {}
+        if data.get("moreClicked"):
+            await self._close_more_menu()
         return ActionSignals(
-            has_invite_anchor=bool(data.get("hasInvite")),
-            has_compose_anchor_in_action_root=bool(data.get("hasComposeInActionRoot")),
-            has_edit_intro_anchor=bool(data.get("hasEditIntro")),
-            has_labeled_action_button=bool(data.get("hasLabeledActionButton")),
-            has_labeled_action_anchor=bool(data.get("hasLabeledActionAnchor")),
-            has_incoming_action_row=bool(data.get("hasIncomingActionRow")),
+            has_top_card=bool(data.get("topCard")),
+            has_edit_intro_anchor=bool(data.get("editIntro")),
+            has_pending_item=bool(data.get("pendingItem")),
+            has_connect_item=bool(data.get("connectItem")),
+            menu_read=bool(data.get("menuRead")),
+            has_recommendation_link=bool(data.get("recommendationLink")),
+            has_ignore_item=bool(data.get("ignoreItem")),
+            has_compose_anchor_in_top_card=bool(data.get("composeInTopCard")),
         )
 
     async def _submit_invite_dialog(
         self, note: str | None
     ) -> tuple[bool, bool, str | None, str | None]:
-        """Submit the invite dialog opened by the custom-invite deeplink.
+        """Submit the invite dialog opened by the Connect click.
 
         Returns ``(submitted, note_sent, note_limit_message, dialog_text)``.
 
-        ``dialog_text`` is the raw text of whatever dialog the deeplink
+        ``dialog_text`` is the raw text of whatever dialog the click
         opened, read before anything is clicked, and ``None`` when no
         dialog opened at all. It is the only record of what LinkedIn
         actually showed: a weekly-limit or add-an-email dialog closes on
@@ -823,8 +816,8 @@ class ConnectionActions:
     async def _probe_invite_note_limit(self) -> str | None:
         """Open the note editor only to read a Premium note-quota message.
 
-        This is used when the profile did not expose the normal invite anchor.
-        Navigating to the custom-invite deeplink and opening the note editor is
+        This is used when the profile exposed no Connect control. Navigating
+        to the custom-invite deeplink and opening the note editor is
         non-destructive, but submitting would weaken the write gate for
         follow-only/unavailable profiles. Therefore this helper never clicks
         the primary Send button: it returns the raw LinkedIn Premium dialog
@@ -899,18 +892,15 @@ class ConnectionActions:
     ) -> dict[str, Any]:
         """Send a LinkedIn connection request or accept an incoming one.
 
-        Detection is locale-independent: classification uses URL patterns
-        (vanityName invite anchor, edit-intro anchor) and ARIA-attribute
-        presence on top-card buttons (`aria-label` for primary actions,
-        `aria-expanded` for the More-menu opener). The deeplink-submit
-        path is gated strictly on `has_invite_anchor=True` *after* the
-        optional More-menu retry, so Pending and follow-only profiles
-        cannot trigger a write. If a note was requested but no invite
-        anchor is visible, the custom-invite deeplink may still be opened
-        only as a non-submitting note-quota probe. Sending itself uses the
-        ``/preload/custom-invite/?vanityName=`` deeplink, which works
-        whether the user-visible Connect button is in the action bar
-        or buried under the More menu.
+        Detection is locale-independent (see ``connection.py``): the state
+        comes from the top card and its More menu, and every state is
+        reported only on positive evidence. The write gate is
+        ``connectable``, which only a ``_connect`` connect-state control
+        produces; the send path clicks that same control, so a Pending,
+        1st-degree, follow-only or unreadable profile cannot trigger a
+        write. If a note was requested and no Connect control exists, the
+        custom-invite deeplink may still be opened, only as a non-submitting
+        note-quota probe.
         """
         username = normalize_person_identifier(username)
         url = person_profile_url(username, "/")
@@ -933,6 +923,16 @@ class ConnectionActions:
         logger.info(
             "Connection signals for %s: state=%s signals=%s", username, state, signals
         )
+
+        # Fallback only for a More menu that could not be read: the sent list
+        # shows the newest ten invitations, so a hit proves pending while a
+        # miss proves nothing, and it costs a navigation the menu does not.
+        if (
+            state == "unavailable"
+            and not signals.menu_read
+            and await self._invitation_in_sent_list(username)
+        ):
+            state = "pending"
 
         if state == "self_profile":
             return _connection_result(
@@ -957,13 +957,9 @@ class ConnectionActions:
             )
 
         if state == "incoming_request":
-            # Accept clicks the first labeled button in the fingerprinted
-            # row. There is deliberately no locale-text fallback: clicking
-            # a button matched by exact text anywhere in the page risks
-            # hitting the wrong control (or the Ignore button in another
-            # locale), and accepting/ignoring is irreversible. When the
-            # fingerprint does not match we report send_failed rather than
-            # guess.
+            # There is deliberately no locale-text fallback: accepting is
+            # irreversible, so when the structural click does not land we
+            # report send_failed rather than guess.
             clicked = await self._click_incoming_accept()
             if not clicked:
                 return _connection_result(
@@ -1001,43 +997,21 @@ class ConnectionActions:
                 profile=verified_text,
             )
 
-        # Follow-only profiles may have Connect hidden under the More menu
-        # (high-follower / creator-mode profiles). Try opening it and
-        # re-reading signals; if the vanityName invite anchor surfaces in
-        # the menu, we can proceed with the deeplink. (The
-        # has_invite_anchor=False guard is implicit: detect_connection_state
-        # only returns "follow_only" after the has_invite_anchor branch
-        # has already failed, so reaching this branch already implies it.)
-        if state == "follow_only":
-            opened = await self._open_more_menu()
-            if opened:
-                signals = await self._read_action_signals(username)
-                # Close the menu before any subsequent navigation so it
-                # doesn't intercept the upcoming page transition.
-                try:
-                    await self._session.page.keyboard.press("Escape")
-                except Exception:
-                    logger.debug("Escape after More-menu reread failed", exc_info=True)
-                logger.info("Post-More signals for %s: signals=%s", username, signals)
-
-        invite_url = (
-            "https://www.linkedin.com/preload/custom-invite/"
-            f"?vanityName={quote_plus(username)}"
-        )
-
-        # Write-gate: submit only when LinkedIn exposed the vanityName invite
-        # anchor. When a note is requested without that anchor, open the
-        # deeplink only as a non-submitting probe so we can report the Premium
-        # note-quota block without accidentally sending from a follow-only or
-        # otherwise unavailable profile.
-        if not signals.has_invite_anchor:
+        if state != "connectable":
+            # When a note is requested without a Connect control, open the
+            # deeplink only as a non-submitting probe so we can report the
+            # Premium note-quota block without accidentally sending from a
+            # follow-only or otherwise unavailable profile.
             if note:
                 logger.info(
-                    "No visible invite anchor for %s; probing custom-invite deeplink "
+                    "No Connect control for %s; probing custom-invite deeplink "
                     "because a personalized note was requested",
                     username,
                 )
-                await self._navigator._navigate_to_page(invite_url)
+                await self._navigator._navigate_to_page(
+                    "https://www.linkedin.com/preload/custom-invite/"
+                    f"?vanityName={quote_plus(username)}"
+                )
                 note_limit_message = await self._probe_invite_note_limit()
                 if note_limit_message is not None:
                     return _connection_result(
@@ -1047,6 +1021,14 @@ class ConnectionActions:
                         note_sent=False,
                         profile=page_text,
                     )
+            if state == "unavailable":
+                return _connection_result(
+                    url,
+                    "connect_unavailable",
+                    "Could not read this profile's connection state (top card"
+                    " or More menu not found); no invitation was sent.",
+                    profile=page_text,
+                )
             return _connection_result(
                 url,
                 "connect_unavailable",
@@ -1054,7 +1036,14 @@ class ConnectionActions:
                 profile=page_text,
             )
 
-        await self._navigator._navigate_to_page(invite_url)
+        if not await self._click_connect():
+            return _connection_result(
+                url,
+                "connect_unavailable",
+                "LinkedIn showed a Connect action for this profile, but it could"
+                " not be clicked; no invitation was sent.",
+                profile=page_text,
+            )
 
         (
             submitted,
@@ -1070,23 +1059,7 @@ class ConnectionActions:
                 note_sent=False,
                 profile=page_text,
             )
-        if not submitted:
-            if dialog_text is None:
-                # The deeplink opened nothing. Measured 2026-09-14 on an
-                # account with ~255 pending invites: the same profile's
-                # Connect button also did nothing when clicked by hand, so
-                # this is LinkedIn refusing, not a selector miss. Hand the
-                # caller where the page landed and whatever LinkedIn said.
-                landed = self._session.page.url
-                alerts = await self._page_alerts()
-                return _connection_result(
-                    url,
-                    "dialog_not_found",
-                    f"LinkedIn did not open an invite dialog at {invite_url}"
-                    f" (landed on {landed}; selector {_DIALOG_SELECTOR!r})."
-                    + (f" Page notice: {alerts}" if alerts else ""),
-                    profile=page_text,
-                )
+        if not submitted and dialog_text is not None:
             return _connection_result(
                 url,
                 "connect_unavailable",
@@ -1094,17 +1067,35 @@ class ConnectionActions:
                 f" Dialog text: {dialog_text}",
                 profile=page_text,
             )
+        no_dialog = not submitted
+        landed = alerts = ""
+        if no_dialog:
+            # Read before the sent-list navigation leaves the page. Measured
+            # 2026-09-14 on an account with ~255 pending invites: Connect did
+            # nothing even when clicked by hand, so this is usually LinkedIn
+            # refusing, and its notice is the caller's only clue.
+            landed = self._session.page.url
+            alerts = await self._page_alerts()
 
+        # The click itself may have sent the invite without asking for a
+        # note, so even a click that opened no dialog is checked against the
+        # sent list before it is reported as unsent.
         try:
             listed = await self._invitation_in_sent_list(username)
         except Exception as exc:
-            # The write already happened; a failed read must not hide it.
+            # The write may already have happened; a failed read must not
+            # hide it.
             logger.warning("Could not verify invitation to %s: %s", username, exc)
             return _connection_result(
                 url,
                 "send_unverified",
-                "Submitted the invite dialog but could not read the sent"
-                f" invitations list to confirm it: {exc}",
+                (
+                    "Clicked Connect; no invite dialog opened"
+                    if no_dialog
+                    else "Submitted the invite dialog"
+                )
+                + " but could not read the sent invitations list to confirm"
+                f" whether it was sent: {exc}",
                 note_sent=note_sent,
                 profile=page_text,
             )
@@ -1112,8 +1103,24 @@ class ConnectionActions:
             return _connection_result(
                 url,
                 "connected",
-                "Connection request sent; it appears in the sent invitations list.",
+                "Connection request sent; it appears in the sent invitations list."
+                + (
+                    " LinkedIn sent it on the Connect click without an invite"
+                    " dialog, so no note was attached."
+                    if no_dialog and note
+                    else ""
+                ),
                 note_sent=note_sent,
+                profile=page_text,
+            )
+        if no_dialog:
+            return _connection_result(
+                url,
+                "dialog_not_found",
+                "LinkedIn opened no invite dialog after the Connect click"
+                f" (landed on {landed}; selector {_DIALOG_SELECTOR!r}), and the"
+                " invitation does not appear in the sent invitations list."
+                + (f" Page notice: {alerts}" if alerts else ""),
                 profile=page_text,
             )
         return _connection_result(

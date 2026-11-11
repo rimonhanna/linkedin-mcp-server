@@ -1,103 +1,123 @@
 """Locale-independent connection-state classification tests."""
 
+import pytest
+
 from linkedin_mcp_server.scraping.connection import (
     ActionSignals,
     detect_connection_state,
 )
 
 
+def _signals(
+    top_card: bool = True,
+    edit: bool = False,
+    pending: bool = False,
+    connect: bool = False,
+    menu: bool = True,
+    recommendation: bool = False,
+    ignore: bool = False,
+    compose: bool = False,
+) -> ActionSignals:
+    return ActionSignals(
+        has_top_card=top_card,
+        has_edit_intro_anchor=edit,
+        has_pending_item=pending,
+        has_connect_item=connect,
+        menu_read=menu,
+        has_recommendation_link=recommendation,
+        has_ignore_item=ignore,
+        has_compose_anchor_in_top_card=compose,
+    )
+
+
 class TestDetectConnectionState:
-    @staticmethod
-    def _signals(
-        invite: bool = False,
-        compose_in_root: bool = False,
-        edit: bool = False,
-        labeled_action: bool = False,
-        labeled_anchor: bool = False,
-        incoming_row: bool = False,
-    ) -> ActionSignals:
-        return ActionSignals(
-            has_invite_anchor=invite,
-            has_compose_anchor_in_action_root=compose_in_root,
-            has_edit_intro_anchor=edit,
-            has_labeled_action_button=labeled_action,
-            has_labeled_action_anchor=labeled_anchor,
-            has_incoming_action_row=incoming_row,
-        )
-
     def test_self_profile(self):
-        assert detect_connection_state(self._signals(edit=True)) == "self_profile"
+        assert detect_connection_state(_signals(edit=True)) == "self_profile"
 
-    def test_connectable(self):
-        assert detect_connection_state(self._signals(invite=True)) == "connectable"
-
-    def test_already_connected(self):
+    def test_self_profile_needs_no_top_card(self):
         assert (
-            detect_connection_state(
-                self._signals(compose_in_root=True, labeled_action=False)
-            )
-            == "already_connected"
-        )
-
-    def test_follow_only(self):
-        assert (
-            detect_connection_state(
-                self._signals(compose_in_root=True, labeled_action=True)
-            )
-            == "follow_only"
-        )
-
-    def test_pending_via_labeled_anchor(self):
-        assert (
-            detect_connection_state(
-                self._signals(compose_in_root=True, labeled_anchor=True)
-            )
-            == "pending"
-        )
-
-    def test_pending_takes_priority_over_already_connected(self):
-        assert (
-            detect_connection_state(
-                self._signals(compose_in_root=True, labeled_anchor=True)
-            )
-            == "pending"
-        )
-
-    def test_incoming_request_via_structural_row(self):
-        assert (
-            detect_connection_state(self._signals(incoming_row=True))
-            == "incoming_request"
-        )
-
-    def test_incoming_structural_beats_pending_misclassification(self):
-        assert (
-            detect_connection_state(
-                self._signals(
-                    incoming_row=True,
-                    compose_in_root=True,
-                    labeled_action=True,
-                    labeled_anchor=True,
-                )
-            )
-            == "incoming_request"
-        )
-
-    def test_connectable_takes_priority_over_incoming_row(self):
-        assert (
-            detect_connection_state(self._signals(invite=True, incoming_row=True))
-            == "connectable"
-        )
-
-    def test_self_profile_takes_priority_over_incoming_row(self):
-        assert (
-            detect_connection_state(self._signals(edit=True, incoming_row=True))
+            detect_connection_state(_signals(edit=True, top_card=False, menu=False))
             == "self_profile"
         )
 
-    def test_unavailable_when_no_signals(self):
-        assert detect_connection_state(self._signals()) == "unavailable"
+    def test_pending_from_the_menu(self):
+        assert detect_connection_state(_signals(pending=True)) == "pending"
 
-    def test_unavailable_when_compose_missing(self):
+    def test_pending_from_the_top_card_without_a_menu_read(self):
+        assert detect_connection_state(_signals(pending=True, menu=False)) == "pending"
+
+    def test_connectable_from_the_menu(self):
+        assert detect_connection_state(_signals(connect=True)) == "connectable"
+
+    def test_connectable_from_the_top_card_without_a_menu_read(self):
         assert (
-            detect_connection_state(self._signals(labeled_action=True)) == "unavailable"
+            detect_connection_state(_signals(connect=True, menu=False)) == "connectable"
+        )
+
+    def test_pending_wins_over_connectable(self):
+        # Both keys at once is a contradiction; the answer that cannot
+        # trigger a write wins.
+        assert (
+            detect_connection_state(_signals(pending=True, connect=True)) == "pending"
+        )
+
+    def test_already_connected_from_recommendation_links(self):
+        assert (
+            detect_connection_state(_signals(recommendation=True, compose=True))
+            == "already_connected"
+        )
+
+    def test_pending_wins_over_already_connected(self):
+        # The case upstream settled with the sent list: Message in the top
+        # card and Pending in the menu.
+        assert (
+            detect_connection_state(
+                _signals(pending=True, recommendation=True, compose=True)
+            )
+            == "pending"
+        )
+
+    def test_incoming_request_from_the_ignore_item(self):
+        assert detect_connection_state(_signals(ignore=True)) == "incoming_request"
+
+    def test_ignore_item_beside_a_top_card_message_is_not_incoming(self):
+        assert detect_connection_state(_signals(ignore=True, compose=True)) == (
+            "follow_only"
+        )
+
+    def test_recommendation_links_win_over_the_ignore_item(self):
+        assert (
+            detect_connection_state(_signals(recommendation=True, ignore=True))
+            == "already_connected"
+        )
+
+    def test_follow_only_when_the_menu_offers_no_connect(self):
+        assert detect_connection_state(_signals(compose=True)) == "follow_only"
+
+    def test_unavailable_without_a_top_card(self):
+        assert (
+            detect_connection_state(_signals(top_card=False, menu=False))
+            == "unavailable"
+        )
+
+    @pytest.mark.parametrize(
+        "signals",
+        [
+            _signals(menu=False),
+            _signals(menu=False, compose=True),
+            # Menu-only signals mean nothing when the menu was never read.
+            _signals(menu=False, recommendation=True),
+            _signals(menu=False, ignore=True),
+        ],
+        ids=["bare", "compose", "recommendation", "ignore"],
+    )
+    def test_unavailable_when_the_menu_could_not_be_read(self, signals):
+        assert detect_connection_state(signals) == "unavailable"
+
+    def test_no_signals_is_never_pending(self):
+        # The regression: a page with nothing to say said "pending".
+        assert detect_connection_state(_signals()) == "follow_only"
+        assert (
+            detect_connection_state(_signals(top_card=False, menu=False))
+            == "unavailable"
         )

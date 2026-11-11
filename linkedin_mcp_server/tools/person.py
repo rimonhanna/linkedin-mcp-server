@@ -386,9 +386,9 @@ def register_person_tools(
             on the sent-invitations list. ``not_sent`` means the invite
             dialog was submitted but LinkedIn created no invitation (the
             ``message`` carries the dialog's raw text, e.g. a weekly limit
-            notice). ``dialog_not_found`` means the invite deeplink opened
-            no dialog at all; the ``message`` names the landing URL and any
-            page notice. ``send_unverified`` means the dialog was submitted
+            notice). ``dialog_not_found`` means the Connect click opened
+            no dialog and no invitation reached the sent list; the
+            ``message`` names the landing URL and any page notice. ``send_unverified`` means the dialog was submitted
             but the sent list could not be read; check it before retrying.
 
             When status is ``custom_note_limit_reached`` LinkedIn rejected
