@@ -235,7 +235,6 @@ class TestFeedScrollCeiling:
         )
         clock = FakeClock(recorder)
         page = _page(recorder).script("evaluate:root_content", _root("Feed content"))
-        page.script("evaluate:feed_post_boundaries", {"posts": []})
         page.script(
             "mouse.wheel",
             *[self._one_batch_per_wheel(page, index) for index in range(self._CEILING)],
@@ -283,7 +282,6 @@ class TestFeedScrollRecovery:
             release=release,
         )
         page = _page(recorder).script("evaluate:root_content", _root("Feed content"))
-        page.script("evaluate:feed_post_boundaries", {"posts": []})
         page.script("mouse.wheel", lambda: page.emit("response", response))
         scraper = _scraper(page)
         delay_calls = 0
@@ -347,7 +345,6 @@ class TestFeedScrollRecovery:
         )
         valid = self._response(recorder, "valid-ugcPost-1234567890-example")
         page = _page(recorder).script("evaluate:root_content", _root("Feed content"))
-        page.script("evaluate:feed_post_boundaries", {"posts": []})
         page.script(
             "mouse.wheel",
             lambda: (page.emit("response", broken), page.emit("response", valid)),
@@ -381,7 +378,6 @@ class TestFeedScrollRecovery:
         clock = FakeClock(recorder)
         duplicate = self._response(recorder, "same-ugcPost-1234567890-example")
         page = _page(recorder).script("evaluate:root_content", _root("Feed content"))
-        page.script("evaluate:feed_post_boundaries", {"posts": []})
         page.script(
             "mouse.wheel",
             *[lambda: page.emit("response", duplicate) for _ in range(4)],
@@ -426,8 +422,6 @@ class TestFeedOutputBoundaries:
         )
         clock = FakeClock(recorder)
         page = _page(recorder).script("evaluate:root_content", _root(raw))
-        if raw and not warns:
-            page.script("evaluate:feed_post_boundaries", {"posts": []})
         scraper = _scraper(page)
         captured = ["https://www.linkedin.com/posts/output-ugcPost-1234567890-example"]
 
@@ -448,106 +442,6 @@ class TestFeedOutputBoundaries:
         warning = "returned only LinkedIn chrome (likely rate-limited)"
         assert (warning in caplog.text) is warns
         page.assert_clean()
-
-
-class TestFeedPostBoundaries:
-    """The per-post boundary read pairs each reference with its post."""
-
-    async def test_a_rendered_post_emits_a_paired_reference(self):
-        recorder = TraceRecorder("feed-paired-posts", _COMMON_ALLOWED)
-        clock = FakeClock(recorder)
-        page = _page(recorder).script("evaluate:root_content", _root("Feed content"))
-        page.script(
-            "evaluate:feed_post_boundaries",
-            {
-                "posts": [
-                    {
-                        "text": "Ada writes about engines",
-                        "urn": "urn:li:activity:7214916299838103554",
-                    }
-                ]
-            },
-        )
-        scraper = _scraper(page)
-
-        async with boundaries(recorder, clock):
-            with recorder.context("extract_feed", "feed"):
-                result = await scraper._extract_feed_body(
-                    "https://www.linkedin.com/feed/", 1, [], []
-                )
-
-        assert result.references == [
-            {
-                "kind": "feed_post",
-                "url": "/feed/update/urn:li:activity:7214916299838103554/",
-                "context": "feed",
-                "text": "Ada writes about engines",
-                "value": "urn:li:activity:7214916299838103554",
-            }
-        ]
-        page.assert_clean()
-
-    async def test_a_failing_boundary_read_falls_back_to_unpaired_references(
-        self,
-    ):
-        recorder = TraceRecorder("feed-boundary-read-failure", _COMMON_ALLOWED)
-        clock = FakeClock(recorder)
-        page = _page(recorder).script("evaluate:root_content", _root("Feed content"))
-        page.script("evaluate:feed_post_boundaries", RuntimeError("detached frame"))
-        scraper = _scraper(page)
-        captured = ["https://www.linkedin.com/posts/fallback-activity-1234567890-ex"]
-
-        async with boundaries(recorder, clock):
-            with recorder.context("extract_feed", "feed"):
-                try:
-                    result = await scraper._extract_feed_body(
-                        "https://www.linkedin.com/feed/", 1, captured, []
-                    )
-                except RuntimeError:
-                    result = None
-
-        assert result is not None
-        assert result.text == "Feed content"
-        assert [ref["url"] for ref in result.references] == [
-            "/posts/fallback-activity-1234567890-ex"
-        ]
-        page.assert_clean()
-
-
-@pytest.mark.parametrize(
-    "boundary_read",
-    [None, [], "posts", {"posts": "not a list"}, {"posts": 7}, {"posts": None}, {}],
-    ids=(
-        "none",
-        "list",
-        "string",
-        "posts-string",
-        "posts-int",
-        "posts-none",
-        "empty-dict",
-    ),
-)
-async def test_a_malformed_boundary_read_falls_back_to_unpaired_references(
-    boundary_read,
-):
-    recorder = TraceRecorder("feed-boundary-read-malformed", _COMMON_ALLOWED)
-    clock = FakeClock(recorder)
-    page = _page(recorder).script("evaluate:root_content", _root("Feed content"))
-    page.script("evaluate:feed_post_boundaries", boundary_read)
-    scraper = _scraper(page)
-    captured = ["https://www.linkedin.com/posts/fallback-activity-1234567890-ex"]
-
-    async with boundaries(recorder, clock):
-        with recorder.context("extract_feed", "feed"):
-            result = await scraper._extract_feed_body(
-                "https://www.linkedin.com/feed/", 1, captured, []
-            )
-
-    assert result.text == "Feed content"
-    assert [ref["url"] for ref in result.references] == [
-        "/posts/fallback-activity-1234567890-ex"
-    ]
-    page.assert_clean()
 
 
 class TestDrainListenerTasks:

@@ -26,7 +26,7 @@ a page-owning collaborator.
 | `conversations` | `ConversationReader` | `page-owning` |
 | `extractor` | `LinkedInExtractor` | `page-owning` |
 | `facets` | `FacetResolver`, `GEO_ID_PATTERN`, `LOCATION_BOX_SELECTOR`, `TYPEAHEAD_TIMEOUT_MS` | `page-owning` |
-| `feed` | `FEED_POST_BOUNDARIES_JS`, `FeedScraper` | `page-owning` |
+| `feed` | `FeedScraper` | `page-owning` |
 | `feed_payload` | `POST_SLUG_URL_RE`, `build_feed_references()`, `is_feed_payload_response()` | `browser-free` |
 | `fields` | `COMPANY_SECTIONS`, `PERSON_SECTIONS`, `parse_company_sections()`, `parse_person_sections()` | `browser-free` |
 | `identifiers` | `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_company_identifier()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_person_identifier()`, `normalize_profile_urn()`, `normalize_thread_id()`, `person_profile_url()` | `browser-free` |

@@ -35,16 +35,9 @@ def is_feed_payload_response(url: str) -> bool:
     return url.split("?", 1)[0] in _FEED_DOCUMENT_URLS
 
 
-# How much of a post's own text a reference carries: enough to recognise the
-# post inside ``sections["feed"]``, which remains the full text.
-_POST_EXCERPT_LIMIT = 240
-
-
 def build_feed_references(
     raw_references: list[Any],
     captured_urls: list[str],
-    *,
-    post_boundaries: list[Any] | None = None,
 ) -> list[Reference]:
     """Compose feed references from DOM anchors + SDUI captures.
 
@@ -64,41 +57,11 @@ def build_feed_references(
     matches strings, not URNs. Both are valid LinkedIn permalinks, so
     consumers should treat ``feed_post`` as polymorphic on URL form;
     URN-based equivalence is left to the consumer.
-
-    ``post_boundaries`` is the per-post read of the same page (see
-    ``FEED_POST_BOUNDARIES_JS`` in feed.py): each entry names one rendered
-    post by its own URN, or carries ``urn: None`` when the post's own
-    markup does not name exactly one, so the reference can carry the
-    post's text as an excerpt and its URN as ``value``. A post without
-    a URN is not paired: no URL is guessed for it. Boundary entries sit
-    before the anchor-derived slice, and an anchor whose URL a boundary
-    already claimed is skipped outright, so a paired post never competes
-    with its bare anchor on label richness or cap space. An entry that is
-    not a dict, or whose ``urn`` or ``text`` is not a string, is treated as
-    unpaired: the read comes from the page, so its shape is not trusted.
     """
-    paired: list[Reference] = []
-    for post in post_boundaries or []:
-        if not isinstance(post, dict):
-            continue
-        urn = post.get("urn")
-        if not isinstance(urn, str) or not urn:
-            continue
-        ref: Reference = {
-            "kind": "feed_post",
-            "url": f"/feed/update/{urn}/",
-            "context": "feed",
-            "value": urn,
-        }
-        text = post.get("text")
-        if isinstance(text, str) and text:
-            ref["text"] = text[:_POST_EXCERPT_LIMIT]
-        paired.append(ref)
-    paired_urls = {ref["url"] for ref in paired}
-    refs = paired + [
+    refs = [
         ref
         for ref in build_references(raw_references, "feed")
-        if ref["kind"] == "feed_post" and ref["url"] not in paired_urls
+        if ref["kind"] == "feed_post"
     ]
     existing = {r["url"] for r in refs}
     for sdui_url in captured_urls:
