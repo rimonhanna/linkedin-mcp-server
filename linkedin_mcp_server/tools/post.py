@@ -20,6 +20,7 @@ from linkedin_mcp_server.core.exceptions import AuthenticationError
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.scraping.contracts import FilterValidationError
+from linkedin_mcp_server.scraping.search_urls import build_content_search_url
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ def register_post_tools(
         ctx: Context,
         date_posted: str | None = None,
         max_posts: Annotated[int, Field(ge=1, le=50)] = 10,
+        content_type: str | None = None,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -63,6 +65,9 @@ def register_post_tools(
             max_posts: Stop scrolling once this many results are loaded
                 (1-50, default 10). Content search is an infinite scroll, so
                 results are capped by count rather than by page.
+            content_type: Optional "Content type" filter. One of
+                "documents" (PDFs and slide decks people upload), "images",
+                "videos", "live_videos", "job_posts". Omit for all posts.
 
         Returns:
             Dict with url, sections (search_results -> raw text), and optional
@@ -75,13 +80,23 @@ def register_post_tools(
             date, and reaction/comment counts.
         """
         try:
+            try:
+                # Refused before the browser starts, as search_people does.
+                build_content_search_url(
+                    keywords, date_posted=date_posted, content_type=content_type
+                )
+            except FilterValidationError as e:
+                raise ToolError(str(e)) from e
+
             extractor = extractor or await get_ready_extractor(
                 ctx, tool_name="search_posts"
             )
             logger.info(
-                "Searching posts: keywords='%s', date_posted='%s', max_posts=%d",
+                "Searching posts: keywords='%s', date_posted='%s', "
+                "content_type='%s', max_posts=%d",
                 keywords,
                 date_posted,
+                content_type,
                 max_posts,
             )
 
@@ -94,6 +109,7 @@ def register_post_tools(
                     keywords,
                     date_posted=date_posted,
                     max_posts=max_posts,
+                    content_type=content_type,
                 )
             except FilterValidationError as e:
                 # Validation messages carry actionable detail; surface them as

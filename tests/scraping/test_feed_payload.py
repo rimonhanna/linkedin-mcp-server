@@ -11,7 +11,7 @@ class TestBuildFeedReferences:
             "https://www.linkedin.com/posts/alice_some-slug-ugcPost-1-xx",
             "https://www.linkedin.com/posts/bob_other-post-share-2-yy",
         ]
-        refs = build_feed_references([], captured)
+        refs = build_feed_references([], captured, num_posts=50)
         assert refs == [
             {
                 "kind": "feed_post",
@@ -30,7 +30,7 @@ class TestBuildFeedReferences:
             "https://www.linkedin.com/posts/alice_x-ugcPost-1-xx",
             "https://www.linkedin.com/posts/alice_x-ugcPost-1-xx",
         ]
-        refs = build_feed_references([], captured)
+        refs = build_feed_references([], captured, num_posts=50)
         assert len(refs) == 1
         assert refs[0]["url"] == "/posts/alice_x-ugcPost-1-xx"
 
@@ -43,7 +43,7 @@ class TestBuildFeedReferences:
                 "text": "View post",
             }
         ]
-        refs = build_feed_references(raw_anchors, [])
+        refs = build_feed_references(raw_anchors, [], num_posts=50)
         assert any(
             r["url"] == "/feed/update/urn:li:activity:1234567890/"
             and r["kind"] == "feed_post"
@@ -56,16 +56,25 @@ class TestBuildFeedReferences:
             "https://www.linkedin.com/in/someuser/",
             "https://www.linkedin.com/posts/alice_x-ugcPost-1-xx",
         ]
-        refs = build_feed_references([], captured)
+        refs = build_feed_references([], captured, num_posts=50)
         assert [r["url"] for r in refs] == ["/posts/alice_x-ugcPost-1-xx"]
 
     def test_cap_matches_num_posts_ceiling(self):
         captured = [
             f"https://www.linkedin.com/posts/p{i}-ugcPost-{i}-xx" for i in range(60)
         ]
-        refs = build_feed_references([], captured)
+        refs = build_feed_references([], captured, num_posts=50)
         # Cap is 50, mirroring _REFERENCE_CAPS["feed"] / num_posts <= 50.
         assert len(refs) == 50
+
+    def test_references_are_cut_to_num_posts(self):
+        captured = [
+            f"https://www.linkedin.com/posts/p{i}-ugcPost-{i}-xx" for i in range(8)
+        ]
+        refs = build_feed_references([], captured, num_posts=5)
+        assert [r["url"] for r in refs] == [
+            f"/posts/p{i}-ugcPost-{i}-xx" for i in range(5)
+        ]
 
     def test_non_feed_post_dom_anchors_are_filtered(self):
         # Sidebar profile / company / external anchors must not crowd
@@ -84,7 +93,7 @@ class TestBuildFeedReferences:
                 "text": "External Link",
             },
         ]
-        refs = build_feed_references(raw_anchors, [])
+        refs = build_feed_references(raw_anchors, [], num_posts=50)
         assert refs == []
 
     def test_feed_post_dom_anchors_coexist_with_sdui_captures(self):
@@ -97,7 +106,7 @@ class TestBuildFeedReferences:
             }
         ]
         captured = ["https://www.linkedin.com/posts/alice_x-ugcPost-1-xx"]
-        refs = build_feed_references(raw_anchors, captured)
+        refs = build_feed_references(raw_anchors, captured, num_posts=50)
         urls = [r["url"] for r in refs]
         kinds = {r["kind"] for r in refs}
         assert urls == [

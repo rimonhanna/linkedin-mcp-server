@@ -38,6 +38,8 @@ def is_feed_payload_response(url: str) -> bool:
 def build_feed_references(
     raw_references: list[Any],
     captured_urls: list[str],
+    *,
+    num_posts: int,
 ) -> list[Reference]:
     """Compose feed references from DOM anchors + SDUI captures.
 
@@ -57,6 +59,9 @@ def build_feed_references(
     matches strings, not URNs. Both are valid LinkedIn permalinks, so
     consumers should treat ``feed_post`` as polymorphic on URL form;
     URN-based equivalence is left to the consumer.
+
+    Payloads arrive in batches, so the scroll loop can capture more
+    permalinks than were asked for; the result is cut to ``num_posts``.
     """
     refs = [
         ref
@@ -82,4 +87,4 @@ def build_feed_references(
     # Cap kept in sync with _REFERENCE_CAPS["feed"] in link_metadata.py;
     # changing one without the other will drop or duplicate entries
     # silently. Matches get_feed's num_posts ceiling (Field(ge=1, le=50)).
-    return dedupe_references(refs, cap=50)
+    return dedupe_references(refs, cap=min(num_posts, 50))

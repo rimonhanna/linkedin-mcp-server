@@ -203,6 +203,18 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
             },
             "profile_urn is not a LinkedIn id",
         ),
+        (
+            "post",
+            "search_posts",
+            {"keywords": "python", "date_posted": "last-year"},
+            "Invalid date_posted",
+        ),
+        (
+            "post",
+            "search_posts",
+            {"keywords": "python", "content_type": "articles"},
+            "Invalid content_type",
+        ),
     ],
 )
 async def test_invalid_reference_is_rejected_before_extractor(
@@ -212,12 +224,14 @@ async def test_invalid_reference_is_rejected_before_extractor(
     from linkedin_mcp_server.tools.job import register_job_tools
     from linkedin_mcp_server.tools.messaging import register_messaging_tools
     from linkedin_mcp_server.tools.person import register_person_tools
+    from linkedin_mcp_server.tools.post import register_post_tools
 
     register_by_module = {
         "company": register_company_tools,
         "job": register_job_tools,
         "messaging": register_messaging_tools,
         "person": register_person_tools,
+        "post": register_post_tools,
     }
     mcp = FastMCP("test")
     register_by_module[module_name](mcp)
@@ -2483,6 +2497,7 @@ class TestPostTools:
             "Buscamos Unity",
             mock_context,
             date_posted="past-week",
+            content_type="documents",
             extractor=mock_extractor,
         )
         assert "search_results" in result["sections"]
@@ -2490,6 +2505,7 @@ class TestPostTools:
             "Buscamos Unity",
             date_posted="past-week",
             max_posts=10,
+            content_type="documents",
         )
 
     async def test_search_posts_validation_error_surfaced_as_tool_error(

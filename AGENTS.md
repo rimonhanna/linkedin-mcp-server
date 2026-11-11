@@ -154,7 +154,7 @@ Optional additional keys:
 - `result_count: int | null` (search_people and search_companies) — the first page's "About N results" header. Present on company search; null on the measured people-search page shape, which renders no such header.
 - `total: {count, exact}` (search_jobs only) — the result count LinkedIn advertises on the first page; `exact` is false for a lower bound such as "500+"
 - `promoted_job_ids: [id, ...]` (search_jobs only) — the subset of `job_ids` shown as promoted; present only when every page could be read, so an empty list means none were
-- `references["feed"]` (get_feed only) — every entry is `kind: "feed_post"`; non-post anchors (sidebar profiles, employer logos) are filtered. URLs may carry either `/feed/update/<urn>/` (DOM-anchor-derived) or `/posts/<slug>` (SDUI-derived) form; both are valid LinkedIn permalinks. Cap is 50 entries, matching `get_feed`'s `num_posts` ceiling.
+- `references["feed"]` (get_feed only) — every entry is `kind: "feed_post"`; non-post anchors (sidebar profiles, employer logos) are filtered. URLs may carry either `/feed/update/<urn>/` (DOM-anchor-derived) or `/posts/<slug>` (SDUI-derived) form; both are valid LinkedIn permalinks. At most `num_posts` entries, and so never more than 50, the `num_posts` ceiling.
 
 ## Tests
 
