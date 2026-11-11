@@ -37,6 +37,7 @@ in DOM order. The More menu is portal-mounted outside ``<main>`` and renders
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, fields
 from typing import Any, cast
@@ -54,6 +55,7 @@ from linkedin_mcp_server.scraping.connection_actions import (
     CLICK_CONNECT_JS,
     CLICK_INCOMING_ACCEPT_JS,
     ConnectionActions,
+    _InviteDialog,
 )
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession
@@ -1082,7 +1084,8 @@ _CHAT_WINDOW = (
 _HIDDEN_DIALOG = '<div role="dialog" style="display:none">closed</div>'
 _MODAL = (
     '<div role="dialog" style="position:fixed; top:32px; left:50%;'
-    ' transform:translateX(-50%); width:552px; height:300px">modal</div>'
+    ' transform:translateX(-50%); width:552px; height:300px">modal'
+    "<button>x</button></div>"
 )
 
 
@@ -1099,6 +1102,139 @@ class TestModalDialogIndex:
         # A chat window alone is not a modal: nothing is centred, so the
         # answer is the sentinel the caller turns into "no dialog".
         await dom_page.set_content(f"<html><body>{_CHAT_WINDOW}</body></html>")
+        assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1
+
+
+# The invite modal as measured on 2026-11-11, in a synthetic container: a
+# centred <dialog> that mounts around nothing but a live region (LinkedIn's
+# notifications counter, which read "0 notifications") and is filled in later.
+# The words are a parameter so the same structure runs in two languages; the
+# decisions read counts and input types only.
+_INVITE_WORDS = {
+    "en": (
+        "To verify this member knows you, please enter their email to connect.",
+        "Learn why",
+        "Add a note",
+        "Send without a note",
+    ),
+    "de": (
+        "Bitte geben Sie die E-Mail-Adresse dieses Mitglieds ein.",
+        "Mehr erfahren",
+        "Nachricht hinzufügen",
+        "Ohne Nachricht senden",
+    ),
+}
+
+
+def _invite_body(locale: str, *, email: bool) -> str:
+    message, learn, add_note, send = _INVITE_WORDS[locale]
+    field = '<input type="email" name="email">' if email else ""
+    return (
+        f'<p>{message} <a href="#">{learn}</a></p>{field}'
+        f"<button onclick=\"record('add-note')\">{add_note}</button>"
+        f"<button onclick=\"record('send')\">{send}</button>"
+    )
+
+
+def _invite_page(body: str, *, delay_ms: int = 0, extra: str = "") -> str:
+    # Escape closes the dialog, as LinkedIn's does, so a dismissal is quick.
+    return (
+        "<html><head><script>"
+        "function record(what) { document.body.setAttribute('data-clicked', what); }"
+        "document.addEventListener('keydown', (e) => {"
+        " if (e.key === 'Escape') document.getElementById('invite').close(); });"
+        "</script></head><body>"
+        f"{extra}"
+        '<dialog id="invite" open style="width:544px">'
+        '<div aria-live="polite" id="counter">0 notifications'
+        "<button>Dismiss</button></div>"
+        '<div id="content"></div></dialog>'
+        f"<template id='late'>{body}</template>"
+        "<script>"
+        "setTimeout(() => document.getElementById('content').append("
+        "document.getElementById('late').content.cloneNode(true)),"
+        f" {delay_ms});"
+        "</script></body></html>"
+    )
+
+
+class TestInviteDialogReadiness:
+    async def test_waits_for_controls_that_arrive_late(self, dom_page):
+        # Straight after the click the dialog is open, centred and rendered,
+        # and holds only the live region, button and all: no modal yet. A wait that took the
+        # first open dialog would answer at once with no buttons in it.
+        await dom_page.set_content(
+            _invite_page(_invite_body("en", email=False), delay_ms=1000)
+        )
+        assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        ready = await _actions(dom_page)._ready_dialog(timeout=5000)
+        elapsed = loop.time() - started
+
+        assert ready is not None
+        assert elapsed >= 0.9
+        assert (ready.index, ready.buttons, ready.textareas, ready.email_input) == (
+            0,
+            2,
+            0,
+            False,
+        )
+        assert "notifications" not in ready.text
+        assert await _clicks(dom_page) is None
+
+    async def test_a_live_region_neither_counts_nor_blocks(self, dom_page):
+        # A centred toast with a close button sits ahead of the modal in
+        # document order, and the counter inside the modal keeps ticking.
+        # Neither is the modal, and the ticking must not keep the modal
+        # from settling.
+        toast = (
+            '<div role="dialog" aria-live="assertive" style="position:fixed;'
+            " top:0; left:50%; transform:translateX(-50%); width:400px;"
+            ' height:60px">Saved<button>x</button></div>'
+        )
+        ticker = (
+            "<script>let n = 0; setInterval(() => {"
+            " document.getElementById('counter').textContent ="
+            " (n++) + ' notifications'; }, 100);</script>"
+        )
+        await dom_page.set_content(
+            _invite_page(_invite_body("en", email=False), extra=toast).replace(
+                "</body>", ticker + "</body>"
+            )
+        )
+
+        ready = await _actions(dom_page)._ready_dialog(timeout=5000)
+
+        assert ready is not None
+        assert ready.index == 1
+        assert ready.buttons == 2
+
+    @pytest.mark.parametrize("locale", sorted(_INVITE_WORDS))
+    async def test_the_email_gate_is_found_by_input_type(self, dom_page, locale):
+        async def read(email: bool) -> _InviteDialog | None:
+            await dom_page.set_content(_invite_page(_invite_body(locale, email=email)))
+            return await _actions(dom_page)._ready_dialog(timeout=5000)
+
+        gated = await read(True)
+        plain = await read(False)
+
+        assert gated is not None and gated.email_input is True
+        assert plain is not None and plain.email_input is False
+        assert (gated.buttons, gated.textareas) == (2, 0)
+
+    async def test_the_email_gated_dialog_is_dismissed_unsent(self, dom_page):
+        await dom_page.set_content(
+            _invite_page(_invite_body("de", email=True), delay_ms=500)
+        )
+
+        result = await _actions(dom_page)._submit_invite_dialog("Hallo")
+
+        submitted, note_sent, limit, text = result
+        assert (submitted, note_sent, limit) == (False, False, None)
+        assert text is not None and "Ohne Nachricht senden" in text
+        assert await _clicks(dom_page) is None
         assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1
 
 

@@ -26,6 +26,7 @@ which never clicks a primary button.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -62,23 +63,81 @@ _DIALOG_TEXTAREA = "textarea"
 # window's "Open send options" that day, one index away from its "Send".
 # Vertical position is deliberately ignored: the same modal sat at top 32,
 # nowhere near the vertical centre.
-_MODAL_DIALOG_INDEX_JS = r"""
-() => {
+#
+# A centred box is not yet the modal. Measured 2026-11-11: straight after
+# the Connect click the invite <dialog> was open and centred while its whole
+# text read "0 notifications"; about 2.5 s later it held the message, "Add a
+# note" and "Send without a note", still followed by that same "0
+# notifications" (a notifications counter rendered inside it). So a dialog
+# counts only once it holds a rendered control outside any live region, the
+# dialog itself included (``closest`` starts at the element), and live-region
+# text is left out of what the readiness wait compares, so a counter ticking
+# inside the dialog can neither fake nor hold back its readiness.
+_INVITE_MODAL_FNS_JS = r"""
+const LIVE = '[aria-live], [role="status"], [role="alert"], [role="log"]';
+const CONTROLS = 'button, [role="button"], input, textarea';
+const EMAIL_INPUT = 'input[type="email"], input[autocomplete="email"]';
+const isShown = (el) => {
+  const r = el.getBoundingClientRect();
+  if (r.width <= 0 || r.height <= 0) return false;
+  return el.checkVisibility
+    ? el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true})
+    : getComputedStyle(el).visibility !== 'hidden';
+};
+const ownControls = (d, selector) => [...d.querySelectorAll(selector)].filter(
+  (el) => isShown(el) && !el.closest(LIVE)
+);
+function ownText(d) {
+  const copy = d.cloneNode(true);
+  copy.querySelectorAll(LIVE).forEach((el) => el.remove());
+  return (copy.textContent || '').replace(/\s+/g, ' ').trim();
+}
+function inviteModal() {
   const dialogs = [...document.querySelectorAll('dialog[open], [role="dialog"]')];
   let best = -1;
   let bestOff = Infinity;
   dialogs.forEach((d, i) => {
+    if (!isShown(d)) return;
+    if (ownControls(d, CONTROLS).length === 0) return;
     const r = d.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return;
     const off = Math.abs(r.left + r.width / 2 - innerWidth / 2);
     if (off <= innerWidth * 0.1 && off < bestOff) {
       best = i;
       bestOff = off;
     }
   });
-  return best;
+  return {index: best, dialog: best < 0 ? null : dialogs[best]};
 }
 """
+
+_MODAL_DIALOG_INDEX_JS = (
+    "() => {"
+    + _INVITE_MODAL_FNS_JS
+    + """
+  return inviteModal().index;
+}
+"""
+)
+
+# What the readiness wait compares between polls: the modal's position among
+# the dialogs, its control counts and its own text. Counts and presence only,
+# never a label: the email field is found by its input type.
+_INVITE_DIALOG_SNAPSHOT_JS = (
+    "() => {"
+    + _INVITE_MODAL_FNS_JS
+    + """
+  const {index, dialog} = inviteModal();
+  if (!dialog) return null;
+  return {
+    index,
+    buttons: ownControls(dialog, 'button, [role="button"]').length,
+    textareas: ownControls(dialog, 'textarea').length,
+    emailInput: ownControls(dialog, EMAIL_INPUT).length > 0,
+    text: ownText(dialog),
+  };
+}
+"""
+)
 
 # Ground truth for "did the invite go out". The profile page is not: the
 # More menu's Pending key is the state the page that sent the click holds,
@@ -455,6 +514,21 @@ def _connection_result(
     return result
 
 
+@dataclass(frozen=True, slots=True)
+class _InviteDialog:
+    """One read of the invite modal, compared whole between polls."""
+
+    index: int
+    buttons: int
+    textareas: int
+    email_input: bool
+    text: str
+
+
+#: Consecutive identical reads, 250 ms apart, before the modal is acted on.
+_DIALOG_SETTLED_READS = 3
+
+
 # One main-profile read of one member, by username. The person workflow owns
 # that read and this one only ever needs its ``main_profile`` text, so the
 # borrow is a callable rather than the scraper: this module never learns what
@@ -482,13 +556,42 @@ class ConnectionActions:
         except Exception:
             return -1
 
-    async def _dialog_is_open(self, *, timeout: int = 1000) -> bool:
-        """Poll until the invite modal is present, or ``timeout`` ms pass.
+    async def _dialog_snapshot(self) -> _InviteDialog | None:
+        try:
+            data = await self._session.page.evaluate(_INVITE_DIALOG_SNAPSHOT_JS)
+            return _InviteDialog(
+                index=int(data["index"]),
+                buttons=int(data["buttons"]),
+                textareas=int(data["textareas"]),
+                email_input=bool(data["emailInput"]),
+                text=str(data["text"]),
+            )
+        except Exception:
+            return None
+
+    async def _ready_dialog(self, *, timeout: int = 10000) -> _InviteDialog | None:
+        """Poll until the invite modal is present and settled, ``None`` if not.
 
         Deliberately not "any dialog is visible": chat windows are dialogs
-        that never close, so that question always answers yes.
+        that never close, so that question always answers yes. Settled means
+        the same read ``_DIALOG_SETTLED_READS`` times running: the modal
+        mounts before its content does, and a decision made on the first
+        read is made on a dialog that is not there yet.
         """
-        return await self._poll_modal(present=True, timeout=timeout)
+        deadline = asyncio.get_running_loop().time() + timeout / 1000
+        last: _InviteDialog | None = None
+        same = 0
+        while True:
+            snapshot = await self._dialog_snapshot()
+            same = same + 1 if snapshot is not None and snapshot == last else 1
+            last = snapshot
+            if snapshot is not None and same >= _DIALOG_SETTLED_READS:
+                return snapshot
+            if asyncio.get_running_loop().time() >= deadline:
+                if snapshot is not None:
+                    logger.info("Invite dialog never settled: %s", snapshot)
+                return None
+            await asyncio.sleep(0.25)
 
     async def _dialog_is_closed(self, *, timeout: int = 1000) -> bool:
         """Poll until no invite modal is present, or ``timeout`` ms pass."""
@@ -751,8 +854,14 @@ class ConnectionActions:
         — no localized text matching. Owns dialog cleanup: the dialog is
         dismissed on every failure path, callers must not dismiss again.
         """
-        if not await self._dialog_is_open(timeout=5000):
-            return False, False, None, None
+        ready = await self._ready_dialog()
+        if ready is None:
+            if await self._modal_index() < 0:
+                return False, False, None, None
+            # Present but still changing: nothing in it is safe to click.
+            dialog_text = await self._dialog_text()
+            await self._dismiss_dialog()
+            return False, False, None, dialog_text
         dialog = await self._invite_dialog()
         if dialog is None:
             return False, False, None, None
@@ -765,6 +874,14 @@ class ConnectionActions:
             )
         except Exception:
             logger.debug("Invite dialog button dump failed", exc_info=True)
+
+        if ready.email_input:
+            # LinkedIn asks for the member's email address before it will
+            # send; the server has none to give, so the dialog is reported
+            # as one that could not be submitted.
+            logger.info("Invite dialog asks for the member's email")
+            await self._dismiss_dialog()
+            return False, False, None, dialog_text
 
         note_filled = False
         if note:
@@ -912,7 +1029,9 @@ class ConnectionActions:
         text if LinkedIn shows it while opening the note editor, then
         dismisses the dialog.
         """
-        if not await self._dialog_is_open(timeout=5000):
+        if await self._ready_dialog() is None:
+            if await self._modal_index() >= 0:
+                await self._dismiss_dialog()
             return None
         dialog = await self._invite_dialog()
         if dialog is None:

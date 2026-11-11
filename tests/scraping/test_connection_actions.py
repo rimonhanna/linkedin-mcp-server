@@ -25,10 +25,12 @@ from linkedin_mcp_server.scraping.connection import ActionSignals
 from linkedin_mcp_server.scraping.connection_actions import (
     _DIALOG_SELECTOR,
     _MODAL_DIALOG_INDEX_JS,
+    _INVITE_DIALOG_SNAPSHOT_JS,
     _SENT_LIST_HAS_USER_JS,
     ACTION_SIGNALS_JS,
     CLICK_CONNECT_JS,
     ConnectionActions,
+    _InviteDialog,
 )
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession
@@ -38,6 +40,8 @@ PREMIUM_MESSAGE = (
 )
 INVITE_URL = "https://www.linkedin.com/preload/custom-invite/?vanityName=testuser"
 DIALOG_TEXT = "Invite Jane to connect Add a note Send without a note"
+#: The settled invite modal ``_ready_dialog`` hands back: no email field.
+READY = _InviteDialog(index=0, buttons=2, textareas=0, email_input=False, text="")
 LIMIT_DIALOG_TEXT = "You've reached the weekly invitation limit Got it"
 
 
@@ -193,9 +197,9 @@ class TestConnectWithPerson:
             ) as mock_nav,
             patch.object(
                 actions,
-                "_dialog_is_open",
+                "_ready_dialog",
                 new_callable=AsyncMock,
-                return_value=True,
+                return_value=READY,
             ),
             patch.object(
                 actions,
@@ -285,7 +289,7 @@ class TestConnectWithPerson:
                 actions, "_click_connect", new_callable=AsyncMock, return_value=True
             ),
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions, "_dialog_is_closed", new_callable=AsyncMock, return_value=True
@@ -317,6 +321,85 @@ class TestConnectWithPerson:
         assert f"Dialog text: {LIMIT_DIALOG_TEXT}" in result["message"]
         mock_sent.assert_awaited_once_with("testuser")
 
+    async def test_email_gated_dialog_is_unavailable_and_never_sent(self, mock_page):
+        """An invite modal asking for the member's email is not submitted.
+
+        The shape measured on 2026-11-11: two buttons, no textarea, and an
+        email field. The server has no address to give, so the dialog is
+        dismissed, nothing in it is clicked, and the existing status for an
+        unsubmittable dialog carries LinkedIn's own words.
+        """
+        text = "Jane\n\n· 3rd\n\nEngineer\n\nConnect\nMore\nAbout\n"
+        actions = _actions(mock_page, _reads(text))
+        _modal_at(mock_page, 0)
+        email_text = (
+            "Connect To verify this member knows you, please enter their email"
+            " to connect. Add a note Send without a note"
+        )
+        gated = _InviteDialog(
+            index=0, buttons=2, textareas=0, email_input=True, text=email_text
+        )
+
+        with (
+            _patch_signals(actions, CONNECTABLE),
+            patch.object(
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
+            ),
+            patch.object(
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=gated
+            ),
+            patch.object(
+                actions, "_dialog_text", new_callable=AsyncMock, return_value=email_text
+            ),
+            patch.object(
+                actions, "_click_dialog_primary_button", new_callable=AsyncMock
+            ) as mock_send,
+            patch.object(
+                actions, "_dismiss_dialog", new_callable=AsyncMock
+            ) as mock_dismiss,
+            patch.object(
+                actions, "_invitation_in_sent_list", new_callable=AsyncMock
+            ) as mock_sent,
+        ):
+            result = await actions.connect_with_person("testuser", note="Hi")
+
+        assert result["status"] == "connect_unavailable"
+        assert f"Dialog text: {email_text}" in result["message"]
+        mock_send.assert_not_awaited()
+        mock_dismiss.assert_awaited_once()
+        mock_sent.assert_not_awaited()
+
+    async def test_unsettled_dialog_is_dismissed_not_submitted(self, mock_page):
+        """A modal that never stops changing is reported, not acted on."""
+        text = "Jane\n\n· 3rd\n\nEngineer\n\nConnect\nMore\nAbout\n"
+        actions = _actions(mock_page, _reads(text))
+        _modal_at(mock_page, 0)
+
+        with (
+            _patch_signals(actions, CONNECTABLE),
+            patch.object(
+                actions, "_click_connect", new_callable=AsyncMock, return_value=True
+            ),
+            patch.object(
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
+            ),
+            patch.object(
+                actions, "_dialog_text", new_callable=AsyncMock, return_value="Conn"
+            ),
+            patch.object(
+                actions, "_click_dialog_primary_button", new_callable=AsyncMock
+            ) as mock_send,
+            patch.object(
+                actions, "_dismiss_dialog", new_callable=AsyncMock
+            ) as mock_dismiss,
+        ):
+            result = await actions.connect_with_person("testuser")
+
+        assert result["status"] == "connect_unavailable"
+        assert "Dialog text: Conn" in result["message"]
+        mock_send.assert_not_awaited()
+        mock_dismiss.assert_awaited_once()
+
     async def test_connectable_no_dialog_returns_dialog_not_found(self, mock_page):
         """Click opened nothing and nothing was sent → dialog_not_found.
 
@@ -345,7 +428,7 @@ class TestConnectWithPerson:
                 actions, "_click_connect", new_callable=AsyncMock, return_value=True
             ),
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=False
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
             ),
             patch.object(actions, "_page_alerts", side_effect=alerts),
             patch.object(actions, "_invitation_in_sent_list", side_effect=sent),
@@ -374,7 +457,7 @@ class TestConnectWithPerson:
                 actions, "_click_connect", new_callable=AsyncMock, return_value=True
             ),
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=False
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
             ),
             patch.object(
                 actions, "_page_alerts", new_callable=AsyncMock, return_value=""
@@ -402,7 +485,7 @@ class TestConnectWithPerson:
                 actions, "_click_connect", new_callable=AsyncMock, return_value=True
             ),
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=False
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
             ),
             patch.object(
                 actions, "_page_alerts", new_callable=AsyncMock, return_value=""
@@ -429,7 +512,7 @@ class TestConnectWithPerson:
                 actions, "_click_connect", new_callable=AsyncMock, return_value=True
             ),
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=False
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
             ),
             patch.object(
                 actions, "_page_alerts", new_callable=AsyncMock, return_value=""
@@ -1058,7 +1141,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1123,7 +1206,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions, "_dialog_is_closed", new_callable=AsyncMock, return_value=True
@@ -1193,7 +1276,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1238,7 +1321,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1285,7 +1368,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1343,7 +1426,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1413,7 +1496,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1495,7 +1578,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1534,7 +1617,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions,
@@ -1578,7 +1661,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(actions, "_dismiss_dialog", new_callable=AsyncMock),
         ):
@@ -1641,7 +1724,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=True
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
             patch.object(
                 actions, "_dialog_is_closed", new_callable=AsyncMock, return_value=True
@@ -1691,7 +1774,7 @@ class TestInviteDialog:
 
         with (
             patch.object(
-                actions, "_dialog_is_open", new_callable=AsyncMock, return_value=False
+                actions, "_ready_dialog", new_callable=AsyncMock, return_value=None
             ),
             patch.object(actions, "_dialog_text", new_callable=AsyncMock) as mock_text,
         ):
@@ -1794,52 +1877,93 @@ class TestModalPolling:
     misses each case allows.
     """
 
-    async def test_open_answers_at_once_when_the_modal_is_present(self, mock_page):
+    async def test_ready_waits_for_the_modal_to_stop_changing(self, mock_page):
+        """The first read is never acted on: it can be a shell still filling.
+
+        Measured live: the modal mounted around a live region alone and its
+        controls arrived later, so a read that changes restarts the count.
+        """
         actions = _actions(mock_page)
-
-        with (
-            patch.object(
-                actions, "_modal_index", new_callable=AsyncMock, return_value=0
-            ) as mock_index,
-            _no_poll_sleep() as mock_sleep,
-        ):
-            assert await actions._dialog_is_open(timeout=60000) is True
-
-        mock_index.assert_awaited_once()
-        mock_sleep.assert_not_awaited()
-
-    async def test_open_waits_through_misses_until_the_modal_appears(self, mock_page):
-        actions = _actions(mock_page)
+        filling = _InviteDialog(
+            index=0, buttons=1, textareas=0, email_input=False, text="Connect"
+        )
+        full = _InviteDialog(
+            index=0, buttons=2, textareas=0, email_input=False, text="Connect note"
+        )
 
         with (
             patch.object(
                 actions,
-                "_modal_index",
+                "_dialog_snapshot",
                 new_callable=AsyncMock,
-                side_effect=[-1, -1, 0],
-            ) as mock_index,
+                side_effect=[None, filling, full, full, full],
+            ) as mock_snapshot,
             _no_poll_sleep() as mock_sleep,
         ):
-            assert await actions._dialog_is_open(timeout=60000) is True
+            assert await actions._ready_dialog(timeout=60000) == full
 
-        assert mock_index.await_count == 3
-        assert mock_sleep.await_args_list == [((0.25,), {})] * 2
+        assert mock_snapshot.await_count == 5
+        assert mock_sleep.await_args_list == [((0.25,), {})] * 4
 
-    async def test_open_gives_up_at_the_deadline(self, mock_page):
+    async def test_ready_gives_up_on_a_modal_that_never_settles(self, mock_page):
+        actions = _actions(mock_page)
+        reads = [
+            _InviteDialog(
+                index=0, buttons=2, textareas=0, email_input=False, text=str(n)
+            )
+            for n in range(3)
+        ]
+        loop = MagicMock()
+        loop.time = MagicMock(side_effect=[0.0, 0.0, 0.0, 99.0])
+
+        with (
+            patch.object(
+                actions, "_dialog_snapshot", new_callable=AsyncMock, side_effect=reads
+            ),
+            patch(
+                "linkedin_mcp_server.scraping.connection_actions.asyncio"
+                ".get_running_loop",
+                return_value=loop,
+            ),
+            _no_poll_sleep(),
+        ):
+            assert await actions._ready_dialog(timeout=1000) is None
+
+    async def test_ready_gives_up_at_the_deadline(self, mock_page):
         """A zero budget is one read; a loop that ignored the deadline would
         reach the sleep, which here refuses."""
         actions = _actions(mock_page)
 
         with (
             patch.object(
-                actions, "_modal_index", new_callable=AsyncMock, return_value=-1
-            ) as mock_index,
+                actions, "_dialog_snapshot", new_callable=AsyncMock, return_value=None
+            ) as mock_snapshot,
             _no_poll_sleep() as mock_sleep,
         ):
             mock_sleep.side_effect = AssertionError("polled past the deadline")
-            assert await actions._dialog_is_open(timeout=0) is False
+            assert await actions._ready_dialog(timeout=0) is None
 
-        mock_index.assert_awaited_once()
+        mock_snapshot.assert_awaited_once()
+
+    async def test_snapshot_reads_the_script_answer(self, mock_page):
+        actions = _actions(mock_page)
+        mock_page.evaluate = AsyncMock(
+            return_value={
+                "index": 1,
+                "buttons": 2,
+                "textareas": 0,
+                "emailInput": True,
+                "text": "x",
+            }
+        )
+
+        assert await actions._dialog_snapshot() == _InviteDialog(
+            index=1, buttons=2, textareas=0, email_input=True, text="x"
+        )
+        mock_page.evaluate.assert_awaited_once_with(_INVITE_DIALOG_SNAPSHOT_JS)
+
+        mock_page.evaluate = AsyncMock(return_value=None)
+        assert await actions._dialog_snapshot() is None
 
     async def test_closed_waits_through_a_lingering_modal(self, mock_page):
         actions = _actions(mock_page)
