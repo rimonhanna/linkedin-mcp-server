@@ -70,6 +70,14 @@ def _public_profile_url(loaded_url: str) -> str | None:
     return person_profile_url(slug, "/")
 
 
+def _is_linkedin_page(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and (
+        host == "linkedin.com" or host.endswith(".linkedin.com")
+    )
+
+
 def _js_literal(value: str, quote: str) -> str:
     """Quote one locale-table label for the program below.
 
@@ -449,8 +457,8 @@ class PersonScraper:
 
         Scrapes "More profiles for you", "Explore premium profiles", and
         "People you may know" sidebar sections. Follows each "Show all" link to
-        collect the full list; skips any section whose "Show all" URL contains or
-        redirects to /premium.
+        collect the full list; skips any section whose "Show all" URL is not on
+        LinkedIn, or contains or redirects to /premium.
 
         Returns:
             Dict with url and sidebar_profiles mapping section key to list of
@@ -478,6 +486,14 @@ class PersonScraper:
         first_show_all = True
         for section_key, show_all_url in show_all_urls.items():
             if "/premium" in show_all_url:
+                continue
+            # The href is read from the page, so it is checked before the
+            # browser goes there, not only after it lands.
+            if not _is_linkedin_page(show_all_url):
+                logger.debug(
+                    "Show all for section %s is not a LinkedIn URL, skipping",
+                    section_key,
+                )
                 continue
 
             if not first_show_all:
