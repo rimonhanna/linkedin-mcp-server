@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from linkedin_mcp_server.scraping.message_sender import _line_breaks_lost
+from linkedin_mcp_server.scraping import message_sender
+from linkedin_mcp_server.scraping.message_sender import (
+    MessageSender,
+    _line_breaks_lost,
+)
 from test_send_message_confirmation_dom import (
     ID_TRANSITION_SEND_JS,
     NOOP_SEND_JS,
@@ -158,6 +162,47 @@ class TestFocusAndRelease:
         )
         await dom_page.keyboard.press("x")
         assert await dom_page.evaluate("document.body.dataset.shift") == "false"
+
+
+class TestKeystrokesGoneOut:
+    @staticmethod
+    def _write_returns(monkeypatch, outcome):
+        async def fake(self, message, *, target, owner):
+            return outcome
+
+        monkeypatch.setattr(MessageSender, "_write_verified_message", fake)
+
+    async def test_an_invalid_write_after_keystrokes_is_not_retry_safe(
+        self, dom_page, monkeypatch
+    ):
+        # Focus hopped to Send inside a gap, Shift+Enter clicked it, focus came
+        # back and typing went on: the settle step then reads the state invalid.
+        self._write_returns(monkeypatch, "invalid_after_keys")
+
+        result = await send(dom_page, compose_page(NOOP_SEND_JS), message=MULTILINE)
+
+        assert result["status"] == "compose_interact_failed"
+        assert result["retry_safe"] is False
+
+    async def test_an_invalid_write_without_keystrokes_stays_retry_safe(
+        self, dom_page, monkeypatch
+    ):
+        self._write_returns(monkeypatch, "invalid")
+
+        result = await send(dom_page, compose_page(NOOP_SEND_JS), message=MULTILINE)
+
+        assert result["retry_safe"] is True
+
+    async def test_a_route_change_after_keystrokes_is_not_retry_safe(
+        self, dom_page, monkeypatch
+    ):
+        self._write_returns(monkeypatch, "focus_lost")
+        monkeypatch.setattr(message_sender, "_route_is_safe", lambda url, target: False)
+
+        result = await send(dom_page, compose_page(NOOP_SEND_JS), message=MULTILINE)
+
+        assert result["status"] == "recipient_resolution_failed"
+        assert result["retry_safe"] is False
 
 
 class TestParagraphBubbles:

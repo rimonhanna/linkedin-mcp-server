@@ -1180,6 +1180,17 @@ _MESSAGE_COMPOSER_FOCUS_CHECK_JS = (
     }"""
 )
 
+# The pinned editor as a handle, so a line break can be pressed on that
+# element itself and never on whatever holds focus.
+_MESSAGE_COMPOSER_EDITOR_JS = (
+    "(owner, arg) => {"
+    + _MESSAGE_COMPOSER_PINNED_JS
+    + r"""
+        const pinned = validatePinned(arg, false);
+        return pinned ? pinned.editor : null;
+    }"""
+)
+
 # Run after the keyboard has typed, also when typing stopped partway: whatever
 # the editor holds was typed by this call, because it was empty before.
 _MESSAGE_COMPOSER_SETTLE_WRITE_JS = (
@@ -1720,8 +1731,11 @@ class MessageSender:
     ) -> str:
         """Type the message into the pinned local editor with real key input.
 
-        Each line break is a real Shift+Enter, the one chord the composer takes
-        as a line break. A bare Enter is never pressed: it sends the message.
+        Each line break is a real Shift+Enter pressed on the pinned editor
+        element, the one chord the composer takes as a line break. A bare
+        Enter is never pressed: it sends the message. A state the settle step
+        cannot verify after a keystroke went out is ``invalid_after_keys``, since
+        nothing then proves that no submission happened.
         """
         argument = {**self._message_target_argument(target), "message": message}
         prepared = await owner.evaluate(_MESSAGE_COMPOSER_PREPARE_WRITE_JS, argument)
@@ -1729,6 +1743,8 @@ class MessageSender:
             return "occupied" if prepared == "occupied" else "invalid"
         keyboard = self._page.keyboard
         outcome = "typed"
+        keys_sent = False
+        editor_handle = None
 
         async def focused() -> bool:
             return (
@@ -1741,11 +1757,17 @@ class MessageSender:
                     if not await focused():
                         outcome = "focus_lost"
                         break
-                    await keyboard.press("Shift+Enter")
+                    if editor_handle is None:
+                        editor_handle = await owner.evaluate_handle(
+                            _MESSAGE_COMPOSER_EDITOR_JS, argument
+                        )
+                    keys_sent = True
+                    await editor_handle.press("Shift+Enter")
                 if line:
                     if not await focused():
                         outcome = "focus_lost"
                         break
+                    keys_sent = True
                     await keyboard.insert_text(line)
         except BaseException as error:
             # Record what was typed so cleanup can remove it.
@@ -1760,10 +1782,18 @@ class MessageSender:
                 logger.debug("Typing stopped partway", exc_info=True)
                 return "keys_interrupted"
             raise
+        finally:
+            if editor_handle is not None:
+                try:
+                    await editor_handle.dispose()
+                except Exception:
+                    logger.debug("Could not release the editor handle", exc_info=True)
         result = await owner.evaluate(_MESSAGE_COMPOSER_SETTLE_WRITE_JS, argument)
         if outcome == "focus_lost":
             return "focus_lost"
-        return result if result in {"written", "flattened"} else "invalid"
+        if result in {"written", "flattened"}:
+            return result
+        return "invalid_after_keys" if keys_sent else "invalid"
 
     async def _wait_for_verified_submit(
         self,
@@ -2233,11 +2263,22 @@ class MessageSender:
                     target=target,
                     owner=owner,
                 )
+                # After any keystroke nothing proves that none of them acted,
+                # so every outcome but a clean write (and the editor's own
+                # flattening, which the settle step verified) is not retry
+                # safe.
+                after_keys = (
+                    {"retry_safe": False}
+                    if write_result
+                    in {"focus_lost", "keys_interrupted", "invalid_after_keys"}
+                    else {}
+                )
                 if not _route_is_safe(self._page.url, target):
                     return respond(
                         self._page.url,
                         "recipient_resolution_failed",
                         "The messaging URL changed during text entry.",
+                        **after_keys,
                     )
                 if write_result == "occupied":
                     return respond(
@@ -2253,7 +2294,7 @@ class MessageSender:
                         self._page.url,
                         "compose_interact_failed",
                         "Focus left the message composer or typing was "
-                        "interrupted, so the message was not sent and the "
+                        "interrupted, so the full message was not sent and the "
                         "draft was cleared. Some keystrokes may have reached "
                         "another part of the page; check the conversation "
                         "before retrying.",
@@ -2272,6 +2313,7 @@ class MessageSender:
                         self._page.url,
                         "compose_interact_failed",
                         "The verified message editor could not accept the message.",
+                        **after_keys,
                     )
 
                 if not await self._wait_for_verified_submit(
