@@ -640,17 +640,19 @@ _MESSAGE_CONFIRMATION_READY_JS = (
     "(arg) => {"
     + _MESSAGE_COMPOSER_INSPECT_JS
     + r"""
+        // The smallest visible element holding exactly the message, or null.
         const exactVisibleUnit = node => {
-            if (!visible(node)) return false;
+            if (!visible(node)) return null;
             const elements = [node, ...node.querySelectorAll('*')].filter(visible);
             const matches = elements.filter(
                 element => (element.innerText || '').replace(/\s+/g, ' ').trim() === arg.expected.replace(/\s+/g, ' ').trim()
             );
-            return matches.filter(
+            const smallest = matches.filter(
                 element => !matches.some(
                     other => other !== element && element.contains(other)
                 )
-            ).length === 1;
+            );
+            return smallest.length === 1 ? smallest[0] : null;
         };
         const itemSelector = '[data-view-name="message-list-item"]';
         const profileIdentifier = anchor => {
@@ -815,7 +817,9 @@ _MESSAGE_CONFIRMATION_READY_JS = (
             });
             return acknowledged.length === 1 &&
                 acknowledged[0] === items[items.length - 1] &&
-                !sentByRecipient(scope, acknowledged[0]);
+                !sentByRecipient(scope, acknowledged[0])
+                ? exactVisibleUnit(acknowledged[0])
+                : null;
         };
         const confirmed = (() => {
             if (!arg.owner?.isConnected) return serverAcknowledged();
@@ -852,13 +856,16 @@ _MESSAGE_CONFIRMATION_READY_JS = (
                 exactVisibleUnit(node)
             );
             if (candidates.length === 1 && admittedTransition(markers[0], scope)) {
-                return true;
+                return exactVisibleUnit(candidates[0]);
             }
             return serverAcknowledged();
         })();
         // Resolves on any truthy value, so a miss stays null. The path is
         // the one this invocation just accepted.
-        return confirmed ? {path: window.location.pathname} : null;
+        // The text keeps its line breaks, for the flattening check.
+        return confirmed
+            ? {path: window.location.pathname, text: confirmed.innerText || ''}
+            : null;
     }"""
 )
 
@@ -1141,7 +1148,7 @@ _MESSAGE_COMPOSER_PINNED_JS = r"""
     };
 """
 
-_MESSAGE_COMPOSER_WRITE_JS = (
+_MESSAGE_COMPOSER_PREPARE_WRITE_JS = (
     "(owner, arg) => {"
     + _MESSAGE_COMPOSER_PINNED_JS
     + r"""
@@ -1157,49 +1164,38 @@ _MESSAGE_COMPOSER_WRITE_JS = (
         if ((editor.innerText || '').replace(/\s+/g, ' ').trim()) {
             return 'occupied';
         }
-        if (
-            typeof document.queryCommandSupported !== 'function' ||
-            !document.queryCommandSupported('insertText') ||
-            typeof document.execCommand !== 'function'
-        ) {
-            return 'unsupported';
-        }
-        if (
-            arg.message.includes('\n') &&
-            !document.queryCommandSupported('insertLineBreak')
-        ) {
-            return 'line_breaks_unsupported';
-        }
-        // Each line is typed on its own and joined by insertLineBreak, the
-        // editing command behind Shift+Enter. A paragraph break (plain Enter)
-        // is never issued, because the composer may treat it as a send.
-        // Track what this call has typed so far so that a write stopped
-        // partway leaves text cleanup can prove is the tool's own.
-        let inserted = true;
-        let typed = '';
         pinned.writtenText = '';
-        arg.message.split('\n').forEach((line, index) => {
-            if (inserted && index > 0) {
-                inserted = document.execCommand('insertLineBreak', false) === true;
-                if (inserted) typed += ' ';
-            }
-            if (inserted && line) {
-                inserted = document.execCommand('insertText', false, line) === true;
-                if (inserted) typed += line;
-            }
-            pinned.writtenText = typed.replace(/\s+/g, ' ').trim();
-        });
-        if (((editor.innerText || editor.textContent || '').replace(/\s+/g, ' ').trim()) === arg.message.replace(/\s+/g, ' ').trim()) {
+        return 'ready';
+    }"""
+)
+
+# Run after the keyboard has typed, also when typing stopped partway: whatever
+# the editor holds was typed by this call, because it was empty before.
+_MESSAGE_COMPOSER_SETTLE_WRITE_JS = (
+    "(owner, arg) => {"
+    + _MESSAGE_COMPOSER_PINNED_JS
+    + r"""
+        // Recorded before any validation: a write that stopped partway must
+        // still leave text that cleanup can prove is this call's own, which
+        // is only text that is a prefix of the message.
+        let pinned = owner?.__linkedinMcpComposer;
+        if (!pinned) return 'invalid';
+        const {editor} = pinned;
+        const typed = (editor.innerText || editor.textContent || '').replace(/\s+/g, ' ').trim();
+        if (arg.message.replace(/\s+/g, '').startsWith(typed.replace(/\s+/g, ''))) {
+            pinned.writtenText = typed;
+        }
+        pinned = validatePinned(arg, false);
+        if (!pinned) return 'invalid';
+        if (typed === arg.message.replace(/\s+/g, ' ').trim()) {
             pinned.ownedMessage = arg.message;
         }
-        if (!inserted) return 'unsupported';
         if (!hasLineBreaks(editor, arg.message)) return 'flattened';
         pinned = validatePinned(arg, false);
         if (
             !pinned ||
             document.activeElement !== editor ||
-            pinned.ownedMessage !== arg.message ||
-            ((editor.innerText || editor.textContent || '').replace(/\s+/g, ' ').trim()) !== arg.message.replace(/\s+/g, ' ').trim()
+            pinned.ownedMessage !== arg.message
         ) {
             return 'invalid';
         }
@@ -1375,6 +1371,21 @@ class _SendConfirmation:
     """
 
     thread_id: str | None
+    text: str | None = None
+
+
+def _line_breaks_lost(message: str, delivered: str | None) -> bool:
+    """True when the delivered text equals the message except for its line breaks."""
+    if delivered is None:
+        return False
+
+    def lines(text: str) -> list[str]:
+        text = contracts.normalize_message_line_breaks(text)
+        return [line.strip() for line in text.split("\n")]
+
+    return lines(message) != lines(delivered) and " ".join(message.split()) == " ".join(
+        delivered.split()
+    )
 
 
 def _confirmation_from_snapshot(
@@ -1390,22 +1401,25 @@ def _confirmation_from_snapshot(
     """
     if (
         not isinstance(snapshot, dict)
-        or set(snapshot) != {"path"}
+        or not {"path"} <= set(snapshot) <= {"path", "text"}
         or not isinstance(snapshot["path"], str)
     ):
         return None
     path = snapshot["path"]
+    text = snapshot.get("text")
+    text = text if isinstance(text, str) else None
     if isinstance(target, _ThreadMessageTarget):
         match = _THREAD_ROUTE_RE.fullmatch(path)
         if match is None or unquote(match.group(1)) != target.thread_id:
             return None
-        return _SendConfirmation(thread_id=target.thread_id)
+        return _SendConfirmation(thread_id=target.thread_id, text=text)
     if path in {"/messaging/compose/", "/messaging/thread/new/"}:
-        return _SendConfirmation(thread_id=None)
+        return _SendConfirmation(thread_id=None, text=text)
     if _MESSAGE_THREAD_PATH_RE.fullmatch(path) is None:
         return None
     return _SendConfirmation(
-        thread_id=path.removeprefix("/messaging/thread/").removesuffix("/")
+        thread_id=path.removeprefix("/messaging/thread/").removesuffix("/"),
+        text=text,
     )
 
 
@@ -1691,23 +1705,38 @@ class MessageSender:
         target: _MessageTarget,
         owner: Any,
     ) -> str:
-        """Insert text synchronously into the pinned local editor."""
-        result = await owner.evaluate(
-            _MESSAGE_COMPOSER_WRITE_JS,
-            {**self._message_target_argument(target), "message": message},
-        )
-        return (
-            result
-            if result
-            in {
-                "written",
-                "occupied",
-                "unsupported",
-                "line_breaks_unsupported",
-                "flattened",
-            }
-            else "invalid"
-        )
+        """Type the message into the pinned local editor with real key input.
+
+        Each line break is a real Shift+Enter, the one chord the composer takes
+        as a line break. A bare Enter is never pressed: it sends the message.
+        """
+        argument = {**self._message_target_argument(target), "message": message}
+        prepared = await owner.evaluate(_MESSAGE_COMPOSER_PREPARE_WRITE_JS, argument)
+        if prepared != "ready":
+            return "occupied" if prepared == "occupied" else "invalid"
+        keyboard = self._page.keyboard
+        try:
+            for index, line in enumerate(message.split("\n")):
+                if index > 0:
+                    await keyboard.down("Shift")
+                    try:
+                        await keyboard.press("Enter")
+                    finally:
+                        await keyboard.up("Shift")
+                if line:
+                    await keyboard.insert_text(line)
+        except BaseException:
+            # Record what was typed so cleanup can remove it.
+            with contracts.before_the_reply_deadline(
+                _MESSAGE_CLEANUP_TIMEOUT_SECONDS, shield=True
+            ):
+                try:
+                    await owner.evaluate(_MESSAGE_COMPOSER_SETTLE_WRITE_JS, argument)
+                except Exception:
+                    logger.debug("Could not record a partial write", exc_info=True)
+            raise
+        result = await owner.evaluate(_MESSAGE_COMPOSER_SETTLE_WRITE_JS, argument)
+        return result if result in {"written", "flattened"} else "invalid"
 
     async def _wait_for_verified_submit(
         self,
@@ -2190,13 +2219,6 @@ class MessageSender:
                         "The composer already holds a draft that would be sent along "
                         "with the message. The draft was left untouched.",
                     )
-                if write_result == "line_breaks_unsupported":
-                    return respond(
-                        self._page.url,
-                        "compose_interact_failed",
-                        "The editor cannot type line breaks, so nothing was typed. "
-                        "Retry with a single-line message.",
-                    )
                 if write_result == "flattened":
                     return respond(
                         self._page.url,
@@ -2311,6 +2333,17 @@ class MessageSender:
                             if isinstance(target, _ProfileMessageTarget)
                             else {}
                         )
+                        if _line_breaks_lost(message, confirmed.text):
+                            return respond(
+                                self._page.url,
+                                "sent_flattened",
+                                "Message submitted and confirmed, but LinkedIn "
+                                "delivered it with its line breaks lost. It is "
+                                "already sent; do not send it again.",
+                                sent=True,
+                                retry_safe=False,
+                                **thread,
+                            )
                         return respond(
                             self._page.url,
                             "sent",

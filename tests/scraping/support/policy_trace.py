@@ -228,6 +228,18 @@ class _Keyboard:
         self.page.recorder.record("keyboard.press", key=key)
         self.page._take("keyboard.press", default=None)
 
+    async def down(self, key: str) -> None:
+        self.page.recorder.record("keyboard.down", key=key)
+        self.page._take("keyboard.down", default=None)
+
+    async def up(self, key: str) -> None:
+        self.page.recorder.record("keyboard.up", key=key)
+        self.page._take("keyboard.up", default=None)
+
+    async def insert_text(self, text: str) -> None:
+        self.page.recorder.record("keyboard.insert_text", text=text)
+        self.page._take("keyboard.insert_text", default=None)
+
     async def type(self, text: str, *, delay: int | None = None) -> None:
         self.page.recorder.record("keyboard.type", text=text, delay_ms=delay)
         self.page._take("keyboard.type", default=None)
@@ -698,7 +710,8 @@ def semantic_program_id(program: str) -> str:
         ("return inspect(target).status === 'valid'", "message_composer_ready"),
         ("submitUsable", "message_composer_state"),
         ("__linkedinMcpComposer =", "message_composer_owner"),
-        ("document.execCommand('insertText'", "message_composer_write"),
+        ("pinned.writtenText = typed", "message_composer_settle"),
+        ("return 'ready'", "message_composer_write"),
         ("return pinned.button.disabled", "message_submit_ready"),
         ("inputType: 'deleteContentBackward'", "message_composer_cleanup"),
         ("pinned.button.click()", "message_submit"),

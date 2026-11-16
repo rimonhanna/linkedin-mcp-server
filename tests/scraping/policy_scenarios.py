@@ -65,8 +65,11 @@ _COMMON_ALLOWED = {
     "handle.dispose",
     "handle.evaluate",
     "handle.json_value",
+    "keyboard.down",
+    "keyboard.insert_text",
     "keyboard.press",
     "keyboard.type",
+    "keyboard.up",
     "listener.add",
     "listener.emit",
     "listener.remove",
@@ -683,7 +686,12 @@ def _script_message_surface(
 
 def _script_message_owner(page: ScriptedPage, *, write: str = "written") -> None:
     page.script("evaluate_handle:message_composer_owner", True)
-    page.script("handle-1.evaluate:message_composer_write", write)
+    page.script(
+        "handle-1.evaluate:message_composer_write",
+        "occupied" if write == "occupied" else "ready",
+    )
+    if write != "occupied":
+        page.script("handle-1.evaluate:message_composer_settle", write)
     page.script("handle-1.evaluate:message_composer_dispose", None)
 
 

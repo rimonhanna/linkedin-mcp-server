@@ -403,6 +403,7 @@ def compose_page(
         }}
         const unit = document.createElement('span');
         unit.className = 'message-unit';
+        unit.style.whiteSpace = 'pre-wrap';
         unit.textContent = text;
         entry.appendChild(unit);
         return entry;
