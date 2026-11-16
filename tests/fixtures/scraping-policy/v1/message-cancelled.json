@@ -244,7 +244,39 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_composer_write",
-      "program_digest": "8aac82aa6ba5",
+      "program_digest": "6f1cd273c6c0",
+      "section": "message"
+    },
+    {
+      "arg": {
+        "message": "New text",
+        "profilePath": "/in/ada-lovelace/",
+        "profileUrn": "ACoAA-policy"
+      },
+      "call": "send_message",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "message_composer_focus",
+      "program_digest": "da4c5de01e5d",
+      "section": "message"
+    },
+    {
+      "call": "send_message",
+      "kind": "keyboard.insert_text",
+      "section": "message",
+      "text": "New text"
+    },
+    {
+      "arg": {
+        "message": "New text",
+        "profilePath": "/in/ada-lovelace/",
+        "profileUrn": "ACoAA-policy"
+      },
+      "call": "send_message",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "message_composer_settle",
+      "program_digest": "374994b80f66",
       "section": "message"
     },
     {
@@ -301,7 +333,7 @@
       "call": "send_message",
       "kind": "wait_for_function",
       "operation": "message_confirmation_ready",
-      "program_digest": "72b7bc5b1cf5",
+      "program_digest": "c548f8d3b1ff",
       "section": "message",
       "timeout_ms": null
     },

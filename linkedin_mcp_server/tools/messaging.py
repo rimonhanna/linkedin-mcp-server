@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 # a dry run's included, keeps the run's trace. (``invalid_message`` is answered
 # before the browser and ``outcome_unknown`` by the frontend proxy, so neither
 # reaches the retention call.)
-_SEND_SUCCEEDED = frozenset({"sent", "confirmation_required"})
+_SEND_SUCCEEDED = frozenset({"sent", "sent_flattened", "confirmation_required"})
 
 
 def register_messaging_tools(
@@ -287,7 +287,7 @@ def register_messaging_tools(
         contradiction fails closed. No Voyager or other private API is used. This
         is a write operation when confirm_send is True.
 
-        ``thread_id`` is present only on ``sent``: the conversation the
+        ``thread_id`` is present only on ``sent`` and ``sent_flattened``: the conversation the
         confirmed message was observed in, or null when the page stayed on
         the compose route. ``retry_safe`` stays the authority for whether a
         retry is safe.
@@ -308,7 +308,7 @@ def register_messaging_tools(
 
         Returns:
             Dict with url, status, message, recipient_selected, sent, and
-            retry_safe. ``thread_id`` is present only on ``sent``. ``sent``
+            retry_safe. ``thread_id`` is present only on ``sent`` and ``sent_flattened``. ``sent``
             is true only after the thread shows the submitted
             text under a new server message ID (or its DOM node gains a
             different event ID); this does not claim delivery or read status.
@@ -320,7 +320,10 @@ def register_messaging_tools(
             ``outcome_unknown`` is that same warning from the transport rather
             than the page: the browser process went away with the call in
             flight, so ``sent`` is absent instead of false and only LinkedIn
-            itself can say whether the message left.
+            itself can say whether the message left. A ``status`` of
+            ``sent_flattened`` means the message was delivered (``sent`` is
+            true, ``retry_safe`` is false) but LinkedIn dropped its line
+            breaks; do not send it again.
         """
         try:
             # Answered before a session is acquired. Caller-owned message
@@ -460,8 +463,9 @@ def register_messaging_tools(
             thread_id and participant. ``participant`` is the name shown in the
             thread's title, or null where it could not be read; it is reported,
             never used to decide anything. ``sent`` and ``retry_safe`` mean what
-            they mean for send_message: calling again while ``retry_safe`` is
-            false can deliver the message twice. A ``status`` of
+            they mean for send_message, including the ``sent_flattened`` status:
+            calling again while ``retry_safe`` is false can deliver the
+            message twice. A ``status`` of
             ``outcome_unknown`` means the browser went away mid-call and only
             LinkedIn can say whether the message left.
         """

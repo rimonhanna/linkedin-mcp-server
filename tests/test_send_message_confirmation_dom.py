@@ -403,6 +403,7 @@ def compose_page(
         }}
         const unit = document.createElement('span');
         unit.className = 'message-unit';
+        unit.style.whiteSpace = 'pre-wrap';
         unit.textContent = text;
         entry.appendChild(unit);
         return entry;
@@ -973,7 +974,9 @@ class TestComposerRecipientDom:
         result = await send(dom_page, html)
 
         assert result["status"] == "compose_interact_failed"
-        assert result["retry_safe"] is True
+        # Keystrokes went out before the page changed, so nothing proves no
+        # submission happened.
+        assert result["retry_safe"] is False
         assert await dom_page.evaluate("document.body.dataset.clicked") is None
         assert (await dom_page.locator("#composer").inner_text()).strip() == ""
 
@@ -1023,7 +1026,9 @@ class TestComposerRecipientDom:
         result = await send(dom_page, html)
 
         assert result["status"] == "compose_interact_failed"
-        assert result["retry_safe"] is True
+        # Keystrokes went out before the page changed, so nothing proves no
+        # submission happened.
+        assert result["retry_safe"] is False
         assert await dom_page.evaluate("document.body.dataset.clicked") is None
         assert (await dom_page.locator("#composer").inner_text()).strip() == ""
 
@@ -1043,7 +1048,9 @@ class TestComposerRecipientDom:
         result = await send(dom_page, html)
 
         assert result["status"] == "compose_interact_failed"
-        assert result["retry_safe"] is True
+        # Keystrokes went out before the page changed, so nothing proves no
+        # submission happened.
+        assert result["retry_safe"] is False
         assert await dom_page.evaluate("document.body.dataset.clicked") is None
         assert await dom_page.locator("#composer").inner_text() == (
             MESSAGE + " user edit"

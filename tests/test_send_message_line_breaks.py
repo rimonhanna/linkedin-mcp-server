@@ -72,10 +72,9 @@ class TestMultilineSendInBrowser:
         ).split(",")
         assert input_types.count("insertLineBreak") == 3
         assert "insertParagraph" not in input_types
-        assert not await dom_page.evaluate("document.body.dataset.keys")
         assert await dom_page.evaluate("document.body.dataset.clicked") == "1"
 
-    async def test_confirmation_matches_multiline_text_rendered_without_newlines(
+    async def test_confirmation_matches_multiline_text_with_its_newlines(
         self, dom_page
     ):
         result = await send(
@@ -87,7 +86,7 @@ class TestMultilineSendInBrowser:
         entries = dom_page.locator("#thread .msg")
         assert await entries.last.get_attribute("data-event-urn") == "server-opaque-id"
         text = await entries.last.locator(".message-unit").inner_text()
-        assert text.split() == MULTILINE.split()
+        assert text == MULTILINE
 
     async def test_crlf_message_is_typed_and_confirmed(self, dom_page):
         result = await send(

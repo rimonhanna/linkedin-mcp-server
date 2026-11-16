@@ -1884,6 +1884,7 @@ _SEND_TRACE_KEPT = {
     "send_unavailable": True,
     "send_unconfirmed": True,
     "sent": False,
+    "sent_flattened": False,
 }
 
 
