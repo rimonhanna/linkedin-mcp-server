@@ -52,7 +52,7 @@ async def test_partial_write_is_cleaned_up_so_a_retry_is_not_occupied(dom_page):
     )
 
     assert result["status"] == "compose_interact_failed"
-    assert result["retry_safe"] is True
+    assert result["retry_safe"] is False
     assert await dom_page.evaluate("document.body.dataset.clicked") is None
     assert (await composer_text(dom_page)).strip() == ""
 

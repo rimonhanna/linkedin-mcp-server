@@ -178,6 +178,18 @@
       "section": "message"
     },
     {
+      "arg": {
+        "message": "New text",
+        "threadKey": "2-policy-thread=="
+      },
+      "call": "reply_to_conversation",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "message_composer_focus",
+      "program_digest": "da4c5de01e5d",
+      "section": "message"
+    },
+    {
       "call": "reply_to_conversation",
       "kind": "keyboard.insert_text",
       "section": "message",

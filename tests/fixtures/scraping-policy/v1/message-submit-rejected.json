@@ -248,6 +248,19 @@
       "section": "message"
     },
     {
+      "arg": {
+        "message": "New text",
+        "profilePath": "/in/ada-lovelace/",
+        "profileUrn": "ACoAA-policy"
+      },
+      "call": "send_message",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "message_composer_focus",
+      "program_digest": "da4c5de01e5d",
+      "section": "message"
+    },
+    {
       "call": "send_message",
       "kind": "keyboard.insert_text",
       "section": "message",

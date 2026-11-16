@@ -691,6 +691,7 @@ def _script_message_owner(page: ScriptedPage, *, write: str = "written") -> None
         "occupied" if write == "occupied" else "ready",
     )
     if write != "occupied":
+        page.script("handle-1.evaluate:message_composer_focus", True)
         page.script("handle-1.evaluate:message_composer_settle", write)
     page.script("handle-1.evaluate:message_composer_dispose", None)
 

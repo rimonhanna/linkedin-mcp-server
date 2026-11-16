@@ -1169,6 +1169,17 @@ _MESSAGE_COMPOSER_PREPARE_WRITE_JS = (
     }"""
 )
 
+# Asked before every keystroke: each one goes to whatever holds focus then,
+# and Shift+Enter on a focused button clicks it.
+_MESSAGE_COMPOSER_FOCUS_CHECK_JS = (
+    "(owner, arg) => {"
+    + _MESSAGE_COMPOSER_PINNED_JS
+    + r"""
+        const pinned = validatePinned(arg, false);
+        return !!pinned && document.activeElement === pinned.editor;
+    }"""
+)
+
 # Run after the keyboard has typed, also when typing stopped partway: whatever
 # the editor holds was typed by this call, because it was empty before.
 _MESSAGE_COMPOSER_SETTLE_WRITE_JS = (
@@ -1381,11 +1392,13 @@ def _line_breaks_lost(message: str, delivered: str | None) -> bool:
 
     def lines(text: str) -> list[str]:
         text = contracts.normalize_message_line_breaks(text)
-        return [line.strip() for line in text.split("\n")]
+        return [line.strip() for line in text.split("\n") if line.strip()]
 
-    return lines(message) != lines(delivered) and " ".join(message.split()) == " ".join(
-        delivered.split()
-    )
+    # A blank line between <p> elements is extra, not lost; only fewer
+    # non-empty lines than the message means breaks were dropped.
+    return len(lines(delivered)) < len(lines(message)) and " ".join(
+        message.split()
+    ) == " ".join(delivered.split())
 
 
 def _confirmation_from_snapshot(
@@ -1715,17 +1728,26 @@ class MessageSender:
         if prepared != "ready":
             return "occupied" if prepared == "occupied" else "invalid"
         keyboard = self._page.keyboard
+        outcome = "typed"
+
+        async def focused() -> bool:
+            return (
+                await owner.evaluate(_MESSAGE_COMPOSER_FOCUS_CHECK_JS, argument)
+            ) is True
+
         try:
             for index, line in enumerate(message.split("\n")):
                 if index > 0:
-                    await keyboard.down("Shift")
-                    try:
-                        await keyboard.press("Enter")
-                    finally:
-                        await keyboard.up("Shift")
+                    if not await focused():
+                        outcome = "focus_lost"
+                        break
+                    await keyboard.press("Shift+Enter")
                 if line:
+                    if not await focused():
+                        outcome = "focus_lost"
+                        break
                     await keyboard.insert_text(line)
-        except BaseException:
+        except BaseException as error:
             # Record what was typed so cleanup can remove it.
             with contracts.before_the_reply_deadline(
                 _MESSAGE_CLEANUP_TIMEOUT_SECONDS, shield=True
@@ -1734,8 +1756,13 @@ class MessageSender:
                     await owner.evaluate(_MESSAGE_COMPOSER_SETTLE_WRITE_JS, argument)
                 except Exception:
                     logger.debug("Could not record a partial write", exc_info=True)
+            if isinstance(error, Exception):
+                logger.debug("Typing stopped partway", exc_info=True)
+                return "keys_interrupted"
             raise
         result = await owner.evaluate(_MESSAGE_COMPOSER_SETTLE_WRITE_JS, argument)
+        if outcome == "focus_lost":
+            return "focus_lost"
         return result if result in {"written", "flattened"} else "invalid"
 
     async def _wait_for_verified_submit(
@@ -2219,6 +2246,19 @@ class MessageSender:
                         "The composer already holds a draft that would be sent along "
                         "with the message. The draft was left untouched.",
                     )
+                if write_result in {"focus_lost", "keys_interrupted"}:
+                    # Keystrokes went to a page that may no longer have been
+                    # the composer, so nothing proves none of them acted.
+                    return respond(
+                        self._page.url,
+                        "compose_interact_failed",
+                        "Focus left the message composer or typing was "
+                        "interrupted, so the message was not sent and the "
+                        "draft was cleared. Some keystrokes may have reached "
+                        "another part of the page; check the conversation "
+                        "before retrying.",
+                        retry_safe=False,
+                    )
                 if write_result == "flattened":
                     return respond(
                         self._page.url,
@@ -2374,8 +2414,9 @@ class MessageSender:
                     await self._dispose_message_owner(owner)
         except Exception:
             if not may_have_submitted:
-                # Nothing can have been submitted yet, so the error itself is
-                # the useful answer and the caller can retry on it.
+                # No submit was attempted and typing is guarded by a focus
+                # check before every keystroke, so the error itself is the
+                # useful answer and the caller can retry on it.
                 raise
             logger.debug(
                 "Message send failed after a possible submission", exc_info=True
