@@ -1212,7 +1212,15 @@ _MESSAGE_COMPOSER_SETTLE_WRITE_JS = (
         if (typed === arg.message.replace(/\s+/g, ' ').trim()) {
             pinned.ownedMessage = arg.message;
         }
-        if (!hasLineBreaks(editor, arg.message)) return 'flattened';
+        // Flattened only when the whole message is in the editor (compared
+        // without whitespace, which a flattening editor may drop); a fragment
+        // with fewer breaks may be the tail of a partial send.
+        if (
+            typed.replace(/\s+/g, '') === arg.message.replace(/\s+/g, '') &&
+            !hasLineBreaks(editor, arg.message)
+        ) {
+            return 'flattened';
+        }
         pinned = validatePinned(arg, false);
         if (
             !pinned ||

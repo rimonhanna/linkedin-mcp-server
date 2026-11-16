@@ -204,7 +204,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "message_composer_settle",
-      "program_digest": "786db6322612",
+      "program_digest": "374994b80f66",
       "section": "message"
     },
     {

@@ -205,6 +205,33 @@ class TestKeystrokesGoneOut:
         assert result["retry_safe"] is False
 
 
+# The first line vanishes as if it had been sent on its own, so the editor
+# ends up holding only the tail, with fewer breaks than the message.
+SENT_FRAGMENT_JS = """
+  let cleared = false;
+  document.getElementById('composer').addEventListener('input', event => {
+    if (cleared || event.inputType !== 'insertText') return;
+    cleared = true;
+    event.target.textContent = '';
+    event.target.focus();
+  });
+"""
+
+
+class TestPartialSend:
+    async def test_a_tail_with_fewer_breaks_is_not_called_flattened(self, dom_page):
+        result = await send(
+            dom_page,
+            compose_page(NOOP_SEND_JS + SENT_FRAGMENT_JS),
+            message="Hello there\nSecond line\nThird line",
+        )
+
+        assert result["status"] == "compose_interact_failed"
+        assert result["retry_safe"] is False
+        assert "turned the line breaks" not in result["message"]
+        assert await dom_page.evaluate("document.body.dataset.clicked") is None
+
+
 class TestParagraphBubbles:
     async def test_paragraph_elements_with_blank_gaps_are_plain_sent(self, dom_page):
         result = await send(
