@@ -10,13 +10,13 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import asyncio
 import json
-import logging
-
-import anyio
-import anyio.lowlevel
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
 from linkedin_mcp_server.pacing import note_throttle_signal
+from linkedin_mcp_server.scraping.api_capture import (
+    ApiResponseCapture,
+    CapturedResponse,
+)
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
     is_campaign_manager_read,
 )
@@ -28,8 +28,6 @@ from linkedin_mcp_server.scraping.campaign_manager_payload import (
     restli_date_range,
     restli_list,
 )
-
-logger = logging.getLogger(__name__)
 
 _NOISE = frozenset(
     f"campaignManager{name}"
@@ -83,15 +81,7 @@ LEVEL_PIVOTS = {
 }
 
 
-@dataclass(frozen=True, slots=True)
-class CmResponse:
-    call: CmCall
-    status: int
-    payload: Any
-
-    @property
-    def ok(self) -> bool:
-        return 200 <= self.status < 300
+CmResponse = CapturedResponse[CmCall]
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,38 +148,27 @@ def _is_read(method: str, headers: dict[str, str]) -> bool:
     return method == "GET" or (method == "POST" and override.casefold() == "get")
 
 
-class CampaignManagerCapture:
+class CampaignManagerCapture(ApiResponseCapture[CmCall]):
     """Collect Campaign Manager API responses emitted by one page."""
 
+    label = "Campaign Manager"
+
     def __init__(self, page: Any):
-        self._page = page
-        self.responses: list[CmResponse] = []
+        super().__init__(page)
         self.writes: list[CmWriteResponse] = []
-        self.seen_resources: set[str] = set()
         self._templates: dict[tuple[str, ...], _AnalyticsTemplate] = {}
         self._service_worker_seen = False
-        self._event = asyncio.Event()
         self._write_event = asyncio.Event()
-        self._pending: list[asyncio.Task[None]] = []
-        # Event emitters remove listeners by the registered callable identity.
-        self._response_listener = self._on_response
-        self._request_listener = self._on_request
 
-    async def __aenter__(self) -> CampaignManagerCapture:
-        self._page.on("response", self._response_listener)
-        self._page.on("request", self._request_listener)
-        return self
+    def _note_throttle(self, signal: str, **kwargs: bool) -> None:
+        # Resolved in this module, where callers patch the signal.
+        note_throttle_signal(signal, **kwargs)
+
+    def _extra_listeners(self) -> tuple[tuple[str, Callable[..., None]], ...]:
+        return (("request", self._on_request),)
 
     async def __aexit__(self, exc_type: object, *_exc: object) -> None:
-        for event, listener in (
-            ("response", self._response_listener),
-            ("request", self._request_listener),
-        ):
-            try:
-                self._page.remove_listener(event, listener)
-            except Exception:
-                pass
-        await self._drain_pending()
+        await super().__aexit__(exc_type, *_exc)
         if self._service_worker_seen and exc_type is None:
             # The write guard's route cannot see what a service worker serves.
             raise LinkedInScraperException(
@@ -197,9 +176,9 @@ class CampaignManagerCapture:
                 "tool's write protection cannot see, so nothing was reported."
             )
 
-    def _on_response(self, response: Any) -> None:
+    def _parse(self, response: Any) -> CmCall | None:
         if not urlparse(response.url).path.startswith(CM_API_PREFIX):
-            return
+            return None
         if getattr(response, "from_service_worker", False) is True:
             self._service_worker_seen = True
         request = response.request
@@ -207,41 +186,28 @@ class CampaignManagerCapture:
             response.url, request.method, request.headers or {}, request.post_data
         )
         if call is None or call.resource in _NOISE:
-            return
-        self.seen_resources.add(call.resource)
-        status = getattr(response, "status", 0)
-        if status == 429:
-            note_throttle_signal("http_429")
+            return None
+        return call
+
+    async def _refine(self, response: Any, call: CmCall) -> CmCall | None:
+        """The call as a read, or None once a write is recorded in ``writes``."""
+        request = response.request
         method = request.method.upper()
-        first: CmCall = call
-
-        async def read() -> None:
-            call = first
-            headers = request.headers or {}
-            if method != "GET":
-                # A provisional header set can lack the override; the full set
-                # says whether the body is a tunneled query.
-                try:
-                    headers = await request.all_headers()
-                except Exception:
-                    pass
-                call = (
-                    parse_cm_call(response.url, method, headers, request.post_data)
-                    or call
-                )
-            if is_campaign_manager_read(method, headers, call.resource):
-                if status == 429:
-                    return
-                try:
-                    payload = await response.json()
-                except Exception:
-                    payload = None
-                self.responses.append(CmResponse(call, status, payload))
-                self._event.set()
-                return
-            await self._record_write(response, call, method, headers)
-
-        self._pending.append(asyncio.create_task(read()))
+        headers = request.headers or {}
+        if method != "GET":
+            # A provisional header set can lack the override; the full set
+            # says whether the body is a tunneled query.
+            try:
+                headers = await request.all_headers()
+            except Exception:
+                pass
+            call = (
+                parse_cm_call(response.url, method, headers, request.post_data) or call
+            )
+        if is_campaign_manager_read(method, headers, call.resource):
+            return call
+        await self._record_write(response, call, method, headers)
+        return None
 
     async def _record_write(
         self, response: Any, call: CmCall, method: str, headers: dict[str, str]
@@ -322,46 +288,7 @@ class CampaignManagerCapture:
                 key, _AnalyticsTemplate(url, method, headers, body)
             )
 
-        self._pending.append(asyncio.create_task(read()))
-
-    def matching(
-        self, predicate: Callable[[CmResponse], bool], after: int = 0
-    ) -> list[CmResponse]:
-        return [item for item in self.responses[after:] if predicate(item)]
-
-    async def wait_for(
-        self,
-        predicate: Callable[[CmResponse], bool],
-        *,
-        after: int = 0,
-        timeout: float = 12.0,
-        throttle: bool = True,
-    ) -> CmResponse:
-        """Wait for the first captured response, from ``after`` on, that matches.
-
-        ``throttle=False`` is for a wait whose miss has another explanation
-        (an optional request the page may not make): no throttle evidence.
-        """
-        self._event.clear()
-        try:
-            async with asyncio.timeout(timeout):
-                while True:
-                    found = self.matching(predicate, after)
-                    if found:
-                        return found[0]
-                    await self._event.wait()
-                    self._event.clear()
-        except TimeoutError as exc:
-            seen = ", ".join(sorted(self.seen_resources)) or "none"
-            logger.warning("No matching Campaign Manager response; seen: %s", seen)
-            if throttle:
-                # A half signal: one missing reply is also what a slow proxy
-                # looks like; two within ten minutes make a throttle.
-                note_throttle_signal("payload_timeout", half=True)
-            raise LinkedInScraperException(
-                "Campaign Manager did not return the expected data in time "
-                f"(responses seen: {seen})."
-            ) from exc
+        self._spawn(read())
 
     @property
     def write_count(self) -> int:
@@ -390,12 +317,6 @@ class CampaignManagerCapture:
                     self._write_event.clear()
         except TimeoutError:
             return None
-
-    async def settle(self, timeout: float = 1.0) -> None:
-        """Let response reads already emitted by the browser finish parsing."""
-        active = [task for task in self._pending if not task.done()]
-        if active:
-            await asyncio.wait(active, timeout=timeout)
 
     def analytics_template(
         self, *, q: str, pivot: str | None
@@ -492,24 +413,6 @@ class CampaignManagerCapture:
             {"url": url, "method": method, "headers": headers, "body": body},
         )
         return result if isinstance(result, dict) else {}
-
-    async def _drain_pending(self) -> None:
-        if not self._pending:
-            return
-        try:
-            await asyncio.wait(self._pending, timeout=2.0)
-        finally:
-            for task in self._pending:
-                if not task.done():
-                    task.cancel()
-            with anyio.CancelScope(shield=True):
-                try:
-                    await asyncio.wait(self._pending, timeout=1.0)
-                finally:
-                    for task in self._pending:
-                        if task.done() and not task.cancelled():
-                            task.exception()
-        await anyio.lowlevel.checkpoint()
 
 
 def _first_values(query: str) -> dict[str, str]:

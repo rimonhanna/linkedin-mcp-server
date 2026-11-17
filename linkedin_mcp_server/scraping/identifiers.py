@@ -50,6 +50,7 @@ from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 
 __all__ = [
     "CAMPAIGN_MANAGER_ACCOUNTS_URL",
+    "SALES_ACCOUNT_LISTS_URL",
     "campaign_manager_date_range",
     "campaign_manager_url",
     "company_page_url",
@@ -65,10 +66,14 @@ __all__ = [
     "normalize_person_identifier",
     "normalize_post_urn",
     "normalize_profile_urn",
+    "normalize_sales_company_id",
+    "normalize_sales_list_id",
     "normalize_targeting_urn",
     "normalize_thread_id",
     "normalize_website",
     "person_profile_url",
+    "sales_account_list_url",
+    "sales_company_url",
 ]
 
 # linkedin.com and every host under it. There is no canonical host to normalize
@@ -605,6 +610,68 @@ def normalize_campaign_group_id(value: str) -> str:
 def campaign_manager_url(account_id: str, suffix: str = "") -> str:
     """Campaign Manager URL for an already-normalized ad account id."""
     return f"{CAMPAIGN_MANAGER_ACCOUNTS_URL}/{quote(account_id, safe='')}{suffix}"
+
+
+SALES_ACCOUNT_LISTS_URL = "https://www.linkedin.com/sales/lists/company"
+_SALES_COMPANY_URNS = ("urn:li:fs_salesCompany:", "urn:li:organization:")
+_SALES_LIST_ROUTES = (["sales", "accounts", "dashboard"], ["sales", "lists", "company"])
+
+
+def normalize_sales_company_id(value: str) -> str:
+    """The numeric id of a Sales Navigator company, from the id, a URN or its URL."""
+    value = value.strip()
+    for prefix in _SALES_COMPANY_URNS:
+        reference = value.removeprefix(prefix)
+        if reference != value and _NUMERIC_ID.fullmatch(reference):
+            return reference
+    if _NUMERIC_ID.fullmatch(value):
+        return value
+    if not value.startswith("urn:"):
+        segments = _linkedin_segments(value, want="company_id")
+        if (
+            segments is not None
+            and len(segments) >= 3
+            and [part.lower() for part in segments[:2]] == ["sales", "company"]
+            and _NUMERIC_ID.fullmatch(segments[2])
+        ):
+            return segments[2]
+    raise InvalidReferenceError(
+        "company_id is not a LinkedIn company id. Pass the numeric id exactly as a "
+        "previous result returned it."
+    )
+
+
+def normalize_sales_list_id(value: str) -> str:
+    """The numeric id of a Sales Navigator account list, from the id or its URL."""
+    value = value.strip()
+    if _NUMERIC_ID.fullmatch(value):
+        return value
+    segments = _linkedin_segments(value, want="list_id")
+    if (
+        segments is not None
+        and [part.lower() for part in segments] in _SALES_LIST_ROUTES
+    ):
+        query = urlparse(value).query if "?" in value else ""
+        ids = parse_qs(re.split(r"#", query, maxsplit=1)[0]).get("listId", [])
+        if len(ids) == 1 and _NUMERIC_ID.fullmatch(ids[0]):
+            return ids[0]
+    raise InvalidReferenceError(
+        "list_id is not a LinkedIn list id. Pass the numeric id exactly as a "
+        "previous result returned it."
+    )
+
+
+def sales_company_url(company_id: str) -> str:
+    """Sales Navigator company page for an already-normalized company id."""
+    return f"https://www.linkedin.com/sales/company/{quote(company_id, safe='')}"
+
+
+def sales_account_list_url(list_id: str) -> str:
+    """Sales Navigator account list page for an already-normalized list id."""
+    return (
+        "https://www.linkedin.com/sales/accounts/dashboard"
+        f"?listGroup=CUSTOM_LISTS&listId={quote(list_id, safe='')}"
+    )
 
 
 def campaign_manager_date_range(

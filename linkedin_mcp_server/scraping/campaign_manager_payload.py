@@ -12,9 +12,21 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Any, Literal, NotRequired, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
+
+from linkedin_mcp_server.scraping.restli import (
+    as_dicts as _dicts,
+    as_int as _int,
+    as_mapping as _mapping,
+    as_str as _str,
+    iso_from_ms as _iso_from_ms,
+    normalized_elements as normalized_elements,
+    normalized_record as normalized_record,
+    plain_elements as plain_elements,
+    restli_list as restli_list,
+)
 
 CM_API_PREFIX = "/campaign-manager-api/"
 
@@ -192,24 +204,6 @@ class DateWindow(TypedDict):
     source: Literal["page", "requested"]
 
 
-def _mapping(value: Any) -> dict[str, Any] | None:
-    return value if isinstance(value, dict) else None
-
-
-def _dicts(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, dict)]
-
-
-def _str(value: Any) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
-def _int(value: Any) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
-
-
 def _number(value: Any) -> int | float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -232,17 +226,6 @@ def _id_from(value: Any, urn_prefix: str) -> int | None:
         if tail.isdigit():
             return int(tail)
     return None
-
-
-def _iso_from_ms(value: Any) -> str | None:
-    millis = _int(value)
-    if millis is None:
-        return None
-    try:
-        moment = datetime.fromtimestamp(millis / 1000, UTC)
-    except (OverflowError, OSError, ValueError):
-        return None
-    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _money(value: Any) -> Money | None:
@@ -330,75 +313,6 @@ def format_restli_date_range(start: date, end: date) -> str:
         f"(start:(day:{start.day},month:{start.month},year:{start.year}),"
         f"end:(day:{end.day},month:{end.month},year:{end.year}))"
     )
-
-
-def restli_list(value: str) -> list[str]:
-    """Split ``List(a,b)`` on top-level commas; anything else gives ``[]``."""
-    if not isinstance(value, str):
-        return []
-    if not (value.startswith("List(") and value.endswith(")")):
-        return []
-    inner = value[len("List(") : -1]
-    items: list[str] = []
-    depth = 0
-    current: list[str] = []
-    for char in inner:
-        if char == "(":
-            depth += 1
-        elif char == ")":
-            depth -= 1
-        if char == "," and depth == 0:
-            items.append("".join(current))
-            current = []
-        else:
-            current.append(char)
-    items.append("".join(current))
-    return [item for item in items if item]
-
-
-def plain_elements(payload: Any) -> list[dict[str, Any]] | None:
-    """``elements`` of a plain Rest.li collection; ``[]`` is a valid empty page."""
-    record = _mapping(payload)
-    if record is None:
-        return None
-    elements = record.get("elements")
-    if not isinstance(elements, list) or not all(
-        isinstance(item, dict) for item in elements
-    ):
-        return None
-    return [item for item in elements if isinstance(item, dict)]
-
-
-def normalized_record(payload: Any) -> dict[str, Any] | None:
-    record = _mapping(payload)
-    if record is None:
-        return None
-    return _mapping(record.get("data"))
-
-
-def normalized_elements(payload: Any) -> list[dict[str, Any]] | None:
-    """Entities of a normalized collection, resolving URN refs against ``included``."""
-    record = _mapping(payload)
-    data = _mapping(record.get("data")) if record is not None else None
-    if record is None or data is None:
-        return None
-    elements = data.get("elements")
-    if not isinstance(elements, list):
-        return None
-    included: dict[str, dict[str, Any]] = {}
-    for entity in _dicts(record.get("included")):
-        urn = entity.get("entityUrn")
-        if isinstance(urn, str):
-            included[urn] = entity
-    resolved: list[dict[str, Any]] = []
-    for element in elements:
-        if isinstance(element, dict):
-            resolved.append(element)
-        elif isinstance(element, str) and element in included:
-            resolved.append(included[element])
-        else:
-            return None
-    return resolved
 
 
 def build_ad_account(element: Any) -> AdAccount | None:
