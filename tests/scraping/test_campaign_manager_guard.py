@@ -106,37 +106,3 @@ async def test_registration_failure_latches_refusal():
     with pytest.raises(LinkedInScraperException, match="close_session"):
         async with guard.without_campaign_manager_writes(page):
             pytest.fail("a read must not run unguarded")
-
-
-async def test_allow_during_active_read_raises():
-    page = await _registered()
-    async with guard.without_campaign_manager_writes(page):
-        with pytest.raises(LinkedInScraperException, match="read is active"):
-            guard.allow_explicit_campaign_write(page)
-        with pytest.raises(LinkedInScraperException, match="read is active"):
-            async with guard.explicit_campaign_write(page):
-                pass
-
-
-async def test_allow_releases_latch_after_read():
-    page = await _registered()
-    async with guard.without_campaign_manager_writes(page):
-        pass
-    guard.allow_explicit_campaign_write(page)
-    assert await _outcome(page, "POST", API + "campaigns") == "fallback"
-
-
-async def test_explicit_write_scope_relatches_and_reads_stay_protected():
-    page = await _registered()
-    async with guard.without_campaign_manager_writes(page):
-        pass
-    async with guard.explicit_campaign_write(page):
-        assert await _outcome(page, "POST", API + "campaigns") == "fallback"
-    assert await _outcome(page, "POST", API + "campaigns") == "abort"
-
-
-async def test_explicit_write_scope_on_unlatched_page_stays_open():
-    page = await _registered()
-    async with guard.explicit_campaign_write(page):
-        pass
-    assert await _outcome(page, "POST", API + "campaigns") == "fallback"

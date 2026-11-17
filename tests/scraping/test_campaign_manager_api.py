@@ -292,3 +292,54 @@ async def test_wait_timeout_names_resources_and_half_signals(mock_page):
             with pytest.raises(LinkedInScraperException):
                 await capture.wait_for(lambda r: False, timeout=0.05, throttle=False)
     signal.assert_called_once_with("payload_timeout", half=True)
+
+
+async def test_untunneled_post_template_is_not_kept_and_not_replayed(mock_page):
+    mock_page.evaluate = AsyncMock()
+    write = _response(
+        f"campaignManagerAdAnalytics?{REPORTING_FIELDS}",
+        method="POST",
+        body=_statistics_body(CURRENT),
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    )
+    write.request.all_headers = AsyncMock(
+        return_value={"content-type": "application/x-www-form-urlencoded"}
+    )
+    template = api_module._AnalyticsTemplate(
+        url=CM + f"campaignManagerAdAnalytics?{REPORTING_FIELDS}",
+        method="POST",
+        headers={"content-type": "application/x-www-form-urlencoded"},
+        body={"q": "statistics", "dateRange": CURRENT},
+    )
+    async with CampaignManagerCapture(mock_page) as capture:
+        _emit(mock_page, write)
+        await capture.settle()
+        assert capture.analytics_template(q="statistics", pivot="CAMPAIGN") is None
+        with pytest.raises(LinkedInScraperException, match="not a read"):
+            await capture.replay_analytics(template, date_range=None, pivot=None)
+    mock_page.evaluate.assert_not_awaited()
+
+
+async def test_template_prefers_the_account_wide_query(mock_page):
+    scoped = _statistics_body(CURRENT).replace(
+        "accountIds=List(100000001)", "campaignIds=List(100000301)"
+    )
+    async with CampaignManagerCapture(mock_page) as capture:
+        _emit(
+            mock_page,
+            _analytics(_statistics_body(PREVIOUS)),
+            _analytics(scoped),
+        )
+        await capture.settle()
+        template = capture.analytics_template(q="statistics", pivot="CAMPAIGN")
+    assert template is not None
+    assert template.body["accountIds"] == "List(100000001)"
+
+
+async def test_a_service_worker_response_fails_the_read_closed(mock_page):
+    response = _response("campaignManagerReportingAccounts?q=findAll", {})
+    response.from_service_worker = True
+    with pytest.raises(LinkedInScraperException, match="service worker"):
+        async with CampaignManagerCapture(mock_page) as capture:
+            _emit(mock_page, response)
+            await capture.wait_for(lambda r: True, timeout=1)

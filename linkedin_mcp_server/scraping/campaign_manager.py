@@ -24,9 +24,11 @@ from linkedin_mcp_server.core.exceptions import (
 from linkedin_mcp_server.scraping.campaign_manager_api import (
     DEMOGRAPHIC_PIVOTS,
     LEVEL_PIVOTS,
+    SCOPE_ID_PARAMS,
     CampaignManagerCapture,
     CmResponse,
     analytics_call_matches,
+    period_order,
     template_call,
 )
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
@@ -58,6 +60,7 @@ from linkedin_mcp_server.scraping.campaign_manager_payload import (
 )
 from linkedin_mcp_server.scraping.identifiers import (
     CAMPAIGN_MANAGER_ACCOUNTS_URL,
+    campaign_manager_date_range,
     campaign_manager_url,
     normalize_ad_account_id,
     normalize_campaign_id,
@@ -90,13 +93,13 @@ _LEVEL_TABS = {
     "campaign": "/campaigns",
     "creative": "/creatives",
 }
-_ID_PARAMS = {
-    "campaignGroupIds": "campaign_group",
-    "campaignIds": "campaign",
-    "creativeIds": "creative",
+_REPORTING_LISTS = {
+    "campaignManagerReportingCampaignGroups": "campaign_group",
+    "campaignManagerReportingCampaigns": "campaign",
+    "campaignManagerReportingCreatives": "creative",
 }
-# Our bound on a requested period, not LinkedIn's.
-_MAX_RANGE_DAYS = 366
+# What LinkedIn answers for an entity the member cannot open or that is gone.
+_REFUSED_STATUSES = frozenset({403, 404})
 
 
 def _error(error_type: str, message: str) -> dict[str, str]:
@@ -157,6 +160,34 @@ def _merged_elements(
     return merge_by_id(elements), total
 
 
+def _refusal(
+    account_id: str, campaign_id: str | None = None
+) -> Callable[[CmResponse], str | None]:
+    """The input field a refused response names, so a wrong id fails at once."""
+
+    def refused(response: CmResponse) -> str | None:
+        if response.status not in _REFUSED_STATUSES:
+            return None
+        call = response.call
+        if (
+            campaign_id is not None
+            and call.resource == "campaignManagerCampaigns"
+            and call.entity_id == campaign_id
+        ):
+            return "campaign_id"
+        if (
+            call.resource in _REPORTING_LISTS and _for_account(response, account_id)
+        ) or _account_wide(call, account_id):
+            return "ad_account_id"
+        return None
+
+    return refused
+
+
+def _account_wide(call: CmCall, account_id: str) -> bool:
+    return restli_list(call.params.get("accountIds", "")) == [account_id]
+
+
 def _unverified(what: str) -> LinkedInScraperException:
     return LinkedInScraperException(
         f"Campaign Manager returned {what} in a shape this tool does not "
@@ -190,13 +221,16 @@ class CampaignManagerReader:
         *,
         tab_path: str | None,
         ready: Callable[[CmResponse], bool],
+        refused: Callable[[CmResponse], str | None] | None = None,
+        throttle: bool = True,
     ) -> CmResponse | None:
         """Load ``url`` and wait for its data; None if it stayed on setup.
 
         A dormant account's list page redirects to campaign setup on a full
         load (detected by URL path, in any UI language). One in-app route hop
         to ``tab_path`` reaches the list; a hop that still yields nothing
-        returns None rather than raising.
+        returns None rather than raising. A response ``refused`` names ends the
+        wait as a wrong id, not as a slow page.
         """
         await self._navigator._navigate_to_page(url)
         await self._session.check_rate_limit()
@@ -209,14 +243,29 @@ class CampaignManagerReader:
             redirected = True
             logger.debug("Campaign Manager redirected to setup; routing in-app")
             await self._route_to(tab_path)
+
+        def done(response: CmResponse) -> bool:
+            return ready(response) or (
+                refused is not None and refused(response) is not None
+            )
+
         try:
             response = await capture.wait_for(
-                ready, timeout=_READY_TIMEOUT, throttle=not redirected
+                done, timeout=_READY_TIMEOUT, throttle=throttle and not redirected
             )
         except LinkedInScraperException:
             if not redirected:
                 raise
             response = None
+        if response is not None and refused is not None:
+            field = refused(response)
+            if field is not None:
+                raise InvalidReferenceError(
+                    f"Campaign Manager refused that {field} (HTTP "
+                    f"{response.status}). Check the {field}: pass an id exactly "
+                    "as list_ad_accounts or list_campaigns returned it, for an "
+                    "account this member can open."
+                )
         await capture.settle()
         return response
 
@@ -345,7 +394,11 @@ class CampaignManagerReader:
 
         async with self._reading() as capture:
             listed = await self._open(
-                capture, url, tab_path=urlparse(url).path, ready=is_campaigns
+                capture,
+                url,
+                tab_path=urlparse(url).path,
+                ready=is_campaigns,
+                refused=_refusal(account),
             )
             if not capture.matching(is_groups):
                 await self._optional(capture, is_groups)
@@ -439,9 +492,17 @@ class CampaignManagerReader:
             ]
 
         async with self._reading() as capture:
-            found = await self._open(capture, url, tab_path=None, ready=is_campaign)
+            found = await self._open(
+                capture,
+                url,
+                tab_path=None,
+                ready=is_campaign,
+                refused=_refusal(account, campaign_ref),
+            )
             assert found is not None
             record = normalized_record(found.payload) or {}
+            if not isinstance(record.get("accountId"), int):
+                raise _unverified("the campaign")
             if record.get("accountId") != int(account):
                 raise InvalidReferenceError(
                     "That campaign does not belong to that ad account. Pass the "
@@ -521,7 +582,7 @@ class CampaignManagerReader:
     ) -> dict[str, Any]:
         """Performance per campaign group, campaign or creative, plus demographics."""
         account = normalize_ad_account_id(account_id)
-        requested = _requested_range(start_date, end_date)
+        requested = campaign_manager_date_range(start_date, end_date)
         pivot = LEVEL_PIVOTS.get(level)
         if pivot is None:
             raise InvalidReferenceError(
@@ -553,7 +614,11 @@ class CampaignManagerReader:
                 )
 
             found = await self._open(
-                capture, url, tab_path=urlparse(url).path, ready=is_level
+                capture,
+                url,
+                tab_path=urlparse(url).path,
+                ready=is_level,
+                refused=_refusal(account),
             )
             if found is None:
                 return {
@@ -561,9 +626,21 @@ class CampaignManagerReader:
                     "sections": {},
                     "section_errors": {"analytics": _redirect_error("reporting table")},
                 }
-            payload, window = await _level_payload(
-                capture, capture.matching(is_level), requested, pivot, echoes
+            payload, window, level_error = await _level_payload(
+                capture, capture.matching(is_level), requested, pivot, account
             )
+            if payload is None:
+                assert level_error is not None
+                return {
+                    "url": url,
+                    "sections": {},
+                    "section_errors": {
+                        "analytics": level_error,
+                        **{f"demographics_{facet}": level_error for facet in wanted},
+                    },
+                }
+            if level_error is not None:
+                section_errors["analytics"] = level_error
             if wanted:
                 demographics_url = campaign_manager_url(account, "/demographics")
 
@@ -576,20 +653,29 @@ class CampaignManagerReader:
                         and echoes(response.call)
                     )
 
-                opened = await self._open(
-                    capture,
-                    demographics_url,
-                    tab_path=urlparse(demographics_url).path,
-                    ready=is_demographic,
-                )
+                failure: dict[str, str] | None = None
+                try:
+                    # Optional page: a miss is no throttle evidence.
+                    opened = await self._open(
+                        capture,
+                        demographics_url,
+                        tab_path=urlparse(demographics_url).path,
+                        ready=is_demographic,
+                        throttle=False,
+                    )
+                except LinkedInScraperException as exc:
+                    failure = _error("unavailable", str(exc))
+                else:
+                    if opened is None:
+                        failure = _redirect_error("demographics")
                 for facet in wanted:
                     name = f"demographics_{facet}"
-                    if opened is None:
-                        section_errors[name] = _redirect_error("demographics")
+                    if failure is not None:
+                        section_errors[name] = failure
                         continue
                     try:
                         rows = await _demographic_rows(
-                            capture, facet, window, echoes, is_demographic
+                            capture, facet, window, account, is_demographic
                         )
                     except LinkedInScraperException as exc:
                         section_errors[name] = _error("unavailable", str(exc))
@@ -629,54 +715,42 @@ class CampaignManagerReader:
         return result
 
 
-def _requested_range(
-    start_date: date | None, end_date: date | None
-) -> tuple[date, date] | None:
-    if start_date is None and end_date is None:
-        return None
-    if start_date is None or end_date is None:
-        raise InvalidReferenceError("Pass both start_date and end_date, or neither.")
-    if start_date > end_date:
-        raise InvalidReferenceError("start_date must not be after end_date.")
-    if end_date > date.today():
-        raise InvalidReferenceError("end_date must not be in the future.")
-    if (end_date - start_date).days + 1 > _MAX_RANGE_DAYS:
-        raise InvalidReferenceError(
-            f"The date range may span at most {_MAX_RANGE_DAYS} days."
-        )
-    return start_date, end_date
-
-
-def _known_ids(capture: CampaignManagerCapture, account_id: str) -> dict[str, set[str]]:
-    """Ids of this account's entities, from the reporting lists the page loaded."""
-    resources = {
-        "campaignManagerReportingCampaignGroups": "campaign_group",
-        "campaignManagerReportingCampaigns": "campaign",
-        "campaignManagerReportingCreatives": "creative",
+def _reporting_lists(
+    capture: CampaignManagerCapture, account_id: str
+) -> dict[str, tuple[set[str], int | None]]:
+    """Per kind, ids the page's reporting lists showed and the largest total."""
+    lists: dict[str, tuple[set[str], int | None]] = {
+        kind: (set(), None) for kind in _REPORTING_LISTS.values()
     }
-    known: dict[str, set[str]] = {kind: set() for kind in resources.values()}
     for response in capture.matching(
-        lambda r: r.ok and r.call.resource in resources and _for_account(r, account_id)
+        lambda r: (
+            r.ok and r.call.resource in _REPORTING_LISTS and _for_account(r, account_id)
+        )
     ):
+        kind = _REPORTING_LISTS[response.call.resource]
+        ids, total = lists[kind]
         for element in plain_elements(response.payload) or []:
             if isinstance(element.get("id"), int):
-                known[resources[response.call.resource]].add(str(element["id"]))
-    return known
+                ids.add(str(element["id"]))
+        reported = _total(response.payload)
+        if reported is not None and (total is None or reported > total):
+            lists[kind] = (ids, reported)
+    return lists
 
 
 def _echoes_account(
     capture: CampaignManagerCapture, call: CmCall, account_id: str
 ) -> bool:
     """Whether an analytics query is scoped to this account and nothing else."""
-    accounts = call.params.get("accountIds")
-    if accounts is not None:
-        return restli_list(accounts) == [account_id]
-    scoped = [key for key in _ID_PARAMS if key in call.params]
+    if call.params.get("accountIds") is not None:
+        return _account_wide(call, account_id)
+    scoped = [key for key in SCOPE_ID_PARAMS if key in call.params]
     if not scoped:
         return False
-    known = _known_ids(capture, account_id)
+    lists = _reporting_lists(capture, account_id)
     return all(
-        (ids := restli_list(call.params[key])) and set(ids) <= known[_ID_PARAMS[key]]
+        (ids := restli_list(call.params[key]))
+        and set(ids) <= lists[SCOPE_ID_PARAMS[key]][0]
         for key in scoped
     )
 
@@ -685,38 +759,93 @@ def _range_of(call: CmCall) -> tuple[date, date] | None:
     return restli_date_range(call.params.get("dateRange", ""))
 
 
+def _merged_level(
+    capture: CampaignManagerCapture, responses: list[CmResponse], account_id: str
+) -> tuple[Any, dict[str, str] | None]:
+    """One period's reporting replies as one payload, and a coverage error.
+
+    An account-wide reply holds every entity. Otherwise the page asked for
+    the ids on screen in chunks, so the rows merge by entity URN and the ids
+    asked for are checked against the reporting list's total.
+    """
+    for response in responses:
+        if _account_wide(response.call, account_id):
+            return response.payload, None
+    rows: dict[str, dict[str, Any]] = {}
+    scoped: dict[str, set[str]] = {}
+    for response in responses:
+        elements = plain_elements(response.payload)
+        if elements is None:
+            raise _unverified("the analytics")
+        for element in elements:
+            values = element.get("pivotValues")
+            first = values[0] if isinstance(values, list) and values else None
+            urn = first.get("id") if isinstance(first, dict) else None
+            if not isinstance(urn, str):
+                raise _unverified("the analytics")
+            rows.setdefault(urn, element)
+        for key, kind in SCOPE_ID_PARAMS.items():
+            if key in response.call.params:
+                scoped.setdefault(kind, set()).update(
+                    restli_list(response.call.params[key])
+                )
+    lists = _reporting_lists(capture, account_id)
+    error = None
+    for kind, ids in scoped.items():
+        known, total = lists[kind]
+        expected = total if total is not None else len(known)
+        if len(ids) < expected:
+            name = f"{kind.replace('_', ' ')}s"
+            error = _error(
+                "page_limit",
+                f"Campaign Manager reported {expected} {name} and its reporting "
+                f"table asked for analytics of {len(ids)}; the rest were not read.",
+            )
+    return {"elements": list(rows.values())}, error
+
+
 async def _level_payload(
     capture: CampaignManagerCapture,
     passive: list[CmResponse],
     requested: tuple[date, date] | None,
     pivot: str,
-    echoes: Callable[[CmCall], bool],
-) -> tuple[Any, tuple[date, date]]:
-    """The reporting table's reply for the period wanted, replaying if needed."""
+    account_id: str,
+) -> tuple[Any, tuple[date, date], dict[str, str] | None]:
+    """The reporting table's rows for the period wanted, replaying if needed.
+
+    The payload is None, with the error, when the period cannot be read.
+    """
     if requested is None:
-        # The UI also fetches the previous period to compare; the latest is shown.
-        latest = max(passive, key=lambda r: _range_of(r.call) or (date.min, date.min))
+        latest = max(passive, key=lambda r: period_order(r.call.params))
         window = _range_of(latest.call)
         assert window is not None
-        return latest.payload, window
-    for response in passive:
-        if _range_of(response.call) == requested:
-            return response.payload, requested
+    else:
+        window = requested
+    same = [response for response in passive if _range_of(response.call) == window]
+    if same:
+        payload, error = _merged_level(capture, same, account_id)
+        return payload, window, error
     template = capture.analytics_template(q="statistics", pivot=pivot)
-    if template is None or not echoes(template_call(template)):
-        raise LinkedInScraperException(
-            "Campaign Manager did not expose its reporting query, so the "
-            "requested period could not be read."
+    # An id-scoped query covers only the ids on screen: a replay would be a subset.
+    if template is None or not _account_wide(template_call(template), account_id):
+        return (
+            None,
+            window,
+            _error(
+                "unavailable",
+                "Campaign Manager did not expose an account-wide reporting "
+                "query, so the requested period could not be read.",
+            ),
         )
-    payload = await capture.replay_analytics(template, date_range=requested, pivot=None)
-    return payload, requested
+    payload = await capture.replay_analytics(template, date_range=window, pivot=None)
+    return payload, window, None
 
 
 async def _demographic_rows(
     capture: CampaignManagerCapture,
     facet: str,
     window: tuple[date, date],
-    echoes: Callable[[CmCall], bool],
+    account_id: str,
     is_demographic: Callable[[CmResponse], bool],
 ) -> list[AnalyticsRow]:
     payload: Any = None
@@ -729,9 +858,9 @@ async def _demographic_rows(
             break
     else:
         template = capture.analytics_template(q="analytics", pivot=None)
-        if template is None or not echoes(template_call(template)):
+        if template is None or not _account_wide(template_call(template), account_id):
             raise LinkedInScraperException(
-                "Campaign Manager did not expose its demographics query."
+                "Campaign Manager did not expose an account-wide demographics query."
             )
         payload = await capture.replay_analytics(
             template, date_range=window, pivot=facet

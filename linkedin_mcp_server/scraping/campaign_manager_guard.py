@@ -3,7 +3,9 @@
 An account without an active campaign is redirected to the campaign setup page,
 and the app then POSTs to its own billing configuration unprompted. A read tool
 must not let that through, so every Campaign Manager API request that is not a
-read is aborted while a read has latched the page.
+read is aborted while a read has latched the page. ``page.route`` does not see
+requests a service worker handles; measured 2026-11 that www.linkedin.com
+registers no service worker, so every Campaign Manager request reaches the route.
 """
 
 from __future__ import annotations
@@ -25,7 +27,6 @@ _REGISTRATION_TIMEOUT_SECONDS = 15.0
 
 class _PageGuard:
     def __init__(self) -> None:
-        self.depth = 0
         # Nothing is blocked until a Campaign Manager read latches it.
         self.read_mode = False
         self.registered: set[str] = set()
@@ -108,47 +109,7 @@ async def register_campaign_manager_routes(page: Any) -> None:
 async def without_campaign_manager_writes(page: Any) -> AsyncIterator[None]:
     """Latch write protection for a Campaign Manager read."""
     state = _guard_for(page)
-    state.depth += 1
+    # Stays latched for late requests: the app can write after the read returns.
     state.read_mode = True
-    try:
-        await state.install(page)
-        yield
-    finally:
-        state.depth -= 1
-        # Stay latched for late requests (the app can write after the read
-        # returns). Only an explicit write releases it; no route update needed.
-
-
-def allow_explicit_campaign_write(page: Any) -> None:
-    """Release the latch so the app's own writes pass, for a verified write.
-
-    Used by write tools that save through the Campaign Manager UI. Raises while
-    a read is active. The page stays released until the next read latches it.
-    """
-    state = _GUARDS.get(page)
-    if state is None:
-        return
-    if state.depth:
-        raise LinkedInScraperException(
-            "Cannot write while a Campaign Manager read is active."
-        )
-    state.read_mode = False
-
-
-@asynccontextmanager
-async def explicit_campaign_write(page: Any) -> AsyncIterator[None]:
-    """Scope in which the app's non-GET requests pass, then protection returns.
-
-    Prefer this to ``allow_explicit_campaign_write`` so a write tool cannot
-    leave the page unprotected for a later read. A page that was never latched
-    stays unlatched on exit. A read starting inside the scope latches normally.
-    """
-    state = _guard_for(page)
-    was_latched = state.read_mode
     await state.install(page)
-    allow_explicit_campaign_write(page)
-    try:
-        yield
-    finally:
-        if was_latched:
-            state.read_mode = True
+    yield

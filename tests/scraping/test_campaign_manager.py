@@ -17,6 +17,7 @@ from linkedin_mcp_server.core.exceptions import (
     LinkedInScraperException,
 )
 from linkedin_mcp_server.scraping import campaign_manager as reader_module
+from linkedin_mcp_server.scraping import campaign_manager_api as api_module
 from linkedin_mcp_server.scraping import campaign_manager_guard as guard_module
 from linkedin_mcp_server.scraping.campaign_manager import CampaignManagerReader
 from linkedin_mcp_server.scraping.navigation import PageNavigator
@@ -142,6 +143,7 @@ class _Browser:
         self.navigated: list[str] = []
         self.replayed: list[dict[str, Any]] = []
         self.after_navigate: list[Any] = []
+        self.guarded: list[str] = []
 
     async def navigate(self, url: str) -> None:
         self.navigated.append(url)
@@ -153,8 +155,22 @@ class _Browser:
         )
         _emit(self.page, self.loads.get(url, []))
         for request in self.after_navigate:
+            await self._through_guard(request)
             for callback in list(self.page.listeners.get("request", [])):
                 callback(request)
+
+    async def _through_guard(self, request: Any) -> None:
+        (handler,) = [
+            call.args[1]
+            for call in self.page.route.await_args_list
+            if call.args[0] == "**/campaign-manager-api/**"
+        ]
+        route = SimpleNamespace(
+            request=request,
+            abort=AsyncMock(side_effect=lambda: self.guarded.append("abort")),
+            fallback=AsyncMock(side_effect=lambda: self.guarded.append("fallback")),
+        )
+        await handler(route)
 
     async def evaluate(self, script: str, arg: Any = None) -> Any:
         if "linkedin-mcp:cm-route" in script:
@@ -401,19 +417,23 @@ async def test_setup_redirect_without_payload_returns_honest_partial(mock_page):
     assert result["ad_accounts"][0]["id"] == int(ACCOUNT)
 
 
-async def test_aborted_app_write_does_not_stall_the_read(mock_page):
-    # The guard aborts billingConfiguration?action=findOrCreate: the page then
-    # sees a request and no response, which nothing waits for.
+async def test_guard_aborts_the_app_billing_write_and_the_read_completes(mock_page):
+    # The page then sees a request and no response, which nothing waits for.
     browser = _Browser(mock_page)
     url = _url("/campaigns")
-    write = _response(
-        f"campaignManagerAccounts/{ACCOUNT}/billingConfiguration?action=findOrCreate",
+    write = SimpleNamespace(
         method="POST",
-        body="{}",
+        url=CM
+        + f"campaignManagerAccounts/{ACCOUNT}/billingConfiguration"
+        + "?action=findOrCreate",
+        headers={"content-type": "application/json"},
+        post_data="{}",
+        all_headers=AsyncMock(return_value={"content-type": "application/json"}),
     )
     browser.loads[url] = [_groups(GROUP), *_campaign_elements()]
-    browser.after_navigate.append(write.request)
+    browser.after_navigate.append(write)
     result = await _run(mock_page, browser, lambda r: r.list_campaigns(ACCOUNT))
+    assert browser.guarded == ["abort"]
     assert result["campaigns"][0]["id"] == int(CAMPAIGN)
 
 
@@ -689,3 +709,136 @@ async def test_analytics_input_checks_happen_before_the_browser(
             mock_page, browser, lambda r: r.get_campaign_analytics(ACCOUNT, **kwargs)
         )
     assert browser.navigated == []
+
+
+# --- review fixes -------------------------------------------------------------
+
+
+def _scoped_statistics(group_ids: list[int], rows: list[dict[str, Any]]):
+    ids = ",".join(str(gid) for gid in group_ids)
+    return _analytics(
+        f"q=statistics&pivots=List(CAMPAIGN_GROUP)&timeGranularity=ALL"
+        f"&dateRange={CURRENT}&campaignGroupIds=List({ids})",
+        rows,
+    )
+
+
+def _group_list(ids: list[int], total: int) -> SimpleNamespace:
+    response = _groups(*ids)
+    response.json.return_value["paging"]["total"] = total
+    return response
+
+
+def _group_row(gid: int, impressions: int) -> dict[str, Any]:
+    return _row(f"urn:li:sponsoredCampaignGroup:{gid}", impressions)
+
+
+@pytest.mark.parametrize("total, error", [(2, None), (3, "page_limit")])
+async def test_analytics_merges_id_scoped_chunks_and_flags_short_coverage(
+    mock_page, total, error
+):
+    browser = _Browser(mock_page)
+    url = _url("/campaign-groups")
+    browser.loads[url] = [
+        _group_list([GROUP, GROUP + 1], total),
+        _scoped_statistics([GROUP], [_group_row(GROUP, 5)]),
+        _scoped_statistics([GROUP + 1], [_group_row(GROUP + 1, 6)]),
+    ]
+
+    result = await _run(
+        mock_page,
+        browser,
+        lambda r: r.get_campaign_analytics(ACCOUNT, level="campaign_group"),
+    )
+
+    rows = result["analytics"]["rows"]
+    assert [row["entity"]["id"] for row in rows] == [GROUP, GROUP + 1]
+    errors = result.get("section_errors", {})
+    assert errors.get("analytics", {}).get("error_type") == error
+
+
+async def test_analytics_refuses_to_replay_an_id_scoped_query(mock_page):
+    browser = _Browser(mock_page)
+    url = _url("/campaign-groups")
+    browser.loads[url] = [
+        _group_list([GROUP], 1),
+        _scoped_statistics([GROUP], [_group_row(GROUP, 5)]),
+    ]
+
+    result = await _run(
+        mock_page,
+        browser,
+        lambda r: r.get_campaign_analytics(
+            ACCOUNT,
+            level="campaign_group",
+            start_date=date(2026, 8, 1),
+            end_date=date(2026, 8, 31),
+        ),
+    )
+
+    assert browser.replayed == []
+    assert "analytics" not in result
+    assert result["section_errors"]["analytics"]["error_type"] == "unavailable"
+
+
+async def test_demographics_page_that_never_loads_keeps_the_level_rows(mock_page):
+    browser = _Browser(mock_page)
+    url = _url("/campaigns")
+    browser.loads[url] = _level_wave([_row(f"urn:li:sponsoredCampaign:{CAMPAIGN}", 9)])
+    facets = ["MEMBER_JOB_FUNCTION", "MEMBER_SENIORITY"]
+
+    with patch.object(api_module, "note_throttle_signal") as signal:
+        result = await _run(
+            mock_page,
+            browser,
+            lambda r: r.get_campaign_analytics(ACCOUNT, demographics=facets),
+        )
+
+    signal.assert_not_called()
+    assert result["analytics"]["rows"][0]["impressions"] == 9
+    for facet in facets:
+        error = result["section_errors"][f"demographics_{facet}"]
+        assert error["error_type"] == "unavailable"
+
+
+@pytest.mark.parametrize("status", [403, 404])
+async def test_get_campaign_refused_id_fails_at_once_without_a_throttle(
+    mock_page, status
+):
+    browser = _Browser(mock_page)
+    url = _url(f"/campaigns/{CAMPAIGN}/details")
+    browser.loads[url] = [
+        _response(f"campaignManagerCampaigns/{CAMPAIGN}", None, status=status)
+    ]
+
+    with patch.object(api_module, "note_throttle_signal") as signal:
+        with pytest.raises(InvalidReferenceError, match="Check the campaign_id"):
+            await _run(mock_page, browser, lambda r: r.get_campaign(ACCOUNT, CAMPAIGN))
+    signal.assert_not_called()
+
+
+async def test_list_campaigns_refused_account_fails_at_once(mock_page):
+    browser = _Browser(mock_page)
+    url = _url("/campaigns")
+    browser.loads[url] = [
+        _response(
+            "campaignManagerReportingCampaigns?q=accountAndCampaignGroups"
+            f"&accountId={ACCOUNT}",
+            None,
+            status=403,
+        )
+    ]
+    with patch.object(api_module, "note_throttle_signal") as signal:
+        with pytest.raises(InvalidReferenceError, match="Check the ad_account_id"):
+            await _run(mock_page, browser, lambda r: r.list_campaigns(ACCOUNT))
+    signal.assert_not_called()
+
+
+async def test_get_campaign_without_account_id_is_unverified(mock_page):
+    browser = _Browser(mock_page)
+    url = _url(f"/campaigns/{CAMPAIGN}/details")
+    record = _campaign_record()
+    del record.json.return_value["data"]["accountId"]
+    browser.loads[url] = [record]
+    with pytest.raises(LinkedInScraperException, match="the campaign in a shape"):
+        await _run(mock_page, browser, lambda r: r.get_campaign(ACCOUNT, CAMPAIGN))

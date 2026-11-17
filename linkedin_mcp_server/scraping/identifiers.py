@@ -43,18 +43,19 @@ Three rules earn their place by being easy to get wrong:
 from __future__ import annotations
 
 import re
+from datetime import date
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 
 __all__ = [
     "CAMPAIGN_MANAGER_ACCOUNTS_URL",
+    "campaign_manager_date_range",
     "campaign_manager_url",
     "company_page_url",
     "job_view_url",
     "messaging_thread_url",
     "normalize_ad_account_id",
-    "normalize_campaign_group_id",
     "normalize_campaign_id",
     "normalize_company_identifier",
     "normalize_job_id",
@@ -152,10 +153,11 @@ _THREAD_ROUTE = ("messaging", "thread")
 _NUMERIC_ID = re.compile(r"^[0-9]+$")
 
 CAMPAIGN_MANAGER_ACCOUNTS_URL = "https://www.linkedin.com/campaignmanager/accounts"
+# Our bound on a requested analytics period, not LinkedIn's.
+_MAX_RANGE_DAYS = 366
 
 _AD_ACCOUNT_URN = "urn:li:sponsoredAccount:"
 _CAMPAIGN_URN = "urn:li:sponsoredCampaign:"
-_CAMPAIGN_GROUP_URN = "urn:li:sponsoredCampaignGroup:"
 
 _PROFILE_URN_PREFIX = "urn:li:fsd_profile:"
 _PROFILE_URN_ID = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -532,19 +534,19 @@ def normalize_profile_urn(value: str) -> str:
 
 
 def _campaign_manager_id(
-    value: str, *, field: str, urn_prefix: str, url_path: tuple[str | None, ...] | None
+    value: str, *, field: str, urn_prefix: str, url_path: tuple[str | None, ...]
 ) -> str:
     """A Campaign Manager numeric id, from the id, its URN or a Campaign Manager URL.
 
     ``url_path`` is the path template of the URL form, with ``None`` marking a
-    numeric segment; the last one is the id. ``None`` for the whole template means the id has no
-    URL form. Every id is strictly numeric: nothing here is ever a slug.
+    numeric segment; the last one is the id. Every id is strictly numeric:
+    nothing here is ever a slug.
     """
     value = value.strip()
     reference = value.removeprefix(urn_prefix)
     if _NUMERIC_ID.fullmatch(reference):
         return reference
-    if url_path is not None and not value.startswith("urn:"):
+    if not value.startswith("urn:"):
         segments = _linkedin_segments(value, want=field)
         if segments is not None and len(segments) >= len(url_path):
             head = segments[: len(url_path)]
@@ -579,16 +581,25 @@ def normalize_campaign_id(value: str) -> str:
     )
 
 
-def normalize_campaign_group_id(value: str) -> str:
-    """The numeric id of a campaign group, from the id or its URN."""
-    return _campaign_manager_id(
-        value,
-        field="campaign_group_id",
-        urn_prefix=_CAMPAIGN_GROUP_URN,
-        url_path=None,
-    )
-
-
 def campaign_manager_url(account_id: str, suffix: str = "") -> str:
     """Campaign Manager URL for an already-normalized ad account id."""
     return f"{CAMPAIGN_MANAGER_ACCOUNTS_URL}/{quote(account_id, safe='')}{suffix}"
+
+
+def campaign_manager_date_range(
+    start_date: date | None, end_date: date | None
+) -> tuple[date, date] | None:
+    """A requested analytics period, or ``None`` when neither date is given."""
+    if start_date is None and end_date is None:
+        return None
+    if start_date is None or end_date is None:
+        raise InvalidReferenceError("Pass both start_date and end_date, or neither.")
+    if start_date > end_date:
+        raise InvalidReferenceError("start_date must not be after end_date.")
+    if end_date > date.today():
+        raise InvalidReferenceError("end_date must not be in the future.")
+    if (end_date - start_date).days + 1 > _MAX_RANGE_DAYS:
+        raise InvalidReferenceError(
+            f"The date range may span at most {_MAX_RANGE_DAYS} days."
+        )
+    return start_date, end_date

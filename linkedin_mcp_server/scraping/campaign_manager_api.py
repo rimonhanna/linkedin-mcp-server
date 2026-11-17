@@ -17,6 +17,7 @@ import anyio.lowlevel
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
 from linkedin_mcp_server.pacing import note_throttle_signal
 from linkedin_mcp_server.scraping.campaign_manager_payload import (
+    CM_API_PREFIX,
     CmCall,
     format_restli_date_range,
     parse_cm_call,
@@ -51,6 +52,12 @@ _FORWARDED_HEADERS = frozenset(
         "x-restli-protocol-version",
     }
 )
+# Ids that scope an analytics query to part of an account, by entity kind.
+SCOPE_ID_PARAMS = {
+    "campaignGroupIds": "campaign_group",
+    "campaignIds": "campaign",
+    "creativeIds": "creative",
+}
 # Rest.li structure characters stay literal, as the app sends them.
 _RESTLI_SAFE = "(),:"
 
@@ -113,9 +120,20 @@ def analytics_call_matches(call: CmCall, *, q: str, pivot: str | None) -> bool:
     return pivot is None or params.get("pivot") == pivot
 
 
-def _latest_range(params: dict[str, str]) -> tuple[date, date]:
+def period_order(params: dict[str, str]) -> tuple[date, date]:
+    """Sort key putting the latest ``dateRange`` last; the UI shows the latest.
+
+    The UI also asks for the previous period to compare.
+    """
     window = restli_date_range(params.get("dateRange", ""))
     return (window[1], window[0]) if window else (date.min, date.min)
+
+
+def _is_read(method: str, headers: dict[str, str]) -> bool:
+    """GET, or POST tunneling a GET; ``headers`` keys are casefolded."""
+    method = method.upper()
+    override = headers.get("x-http-method-override", "")
+    return method == "GET" or (method == "POST" and override.casefold() == "get")
 
 
 class CampaignManagerCapture:
@@ -126,6 +144,7 @@ class CampaignManagerCapture:
         self.responses: list[CmResponse] = []
         self.seen_resources: set[str] = set()
         self._templates: dict[tuple[str, ...], _AnalyticsTemplate] = {}
+        self._service_worker_seen = False
         self._event = asyncio.Event()
         self._pending: list[asyncio.Task[None]] = []
         # Event emitters remove listeners by the registered callable identity.
@@ -137,7 +156,7 @@ class CampaignManagerCapture:
         self._page.on("request", self._request_listener)
         return self
 
-    async def __aexit__(self, *_exc: object) -> None:
+    async def __aexit__(self, exc_type: object, *_exc: object) -> None:
         for event, listener in (
             ("response", self._response_listener),
             ("request", self._request_listener),
@@ -147,8 +166,18 @@ class CampaignManagerCapture:
             except Exception:
                 pass
         await self._drain_pending()
+        if self._service_worker_seen and exc_type is None:
+            # The write guard's route cannot see what a service worker serves.
+            raise LinkedInScraperException(
+                "Campaign Manager answered through a service worker, which this "
+                "tool's write protection cannot see, so nothing was reported."
+            )
 
     def _on_response(self, response: Any) -> None:
+        if not urlparse(response.url).path.startswith(CM_API_PREFIX):
+            return
+        if getattr(response, "from_service_worker", False) is True:
+            self._service_worker_seen = True
         request = response.request
         call = parse_cm_call(
             response.url, request.method, request.headers or {}, request.post_data
@@ -200,6 +229,14 @@ class CampaignManagerCapture:
                 raw_headers = await request.all_headers()
             except Exception:
                 return
+            headers = {
+                key.casefold(): value
+                for key, value in raw_headers.items()
+                if key.casefold() in _FORWARDED_HEADERS
+            }
+            # A replay must stay a read, so only a read is kept to replay.
+            if not _is_read(method, headers):
+                return
             call = parse_cm_call(url, method, raw_headers, request.post_data)
             if call is None or call.finder not in _ANALYTICS_FINDERS:
                 return
@@ -209,11 +246,6 @@ class CampaignManagerCapture:
                     return
             else:
                 body = _first_values(urlparse(url).query)
-            headers = {
-                key.casefold(): value
-                for key, value in raw_headers.items()
-                if key.casefold() in _FORWARDED_HEADERS
-            }
             key = (
                 method,
                 body.get("q", ""),
@@ -221,6 +253,9 @@ class CampaignManagerCapture:
                 body.get("timeGranularity", ""),
                 call.params.get("fields", ""),
                 body.get("dateRange", ""),
+                # An account-wide query and an id-scoped chunk are distinct.
+                body.get("accountIds", ""),
+                *(body.get(param, "") for param in SCOPE_ID_PARAMS),
             )
             # One template per distinct query keeps the set bounded by the page.
             self._templates.setdefault(
@@ -277,11 +312,11 @@ class CampaignManagerCapture:
     def analytics_template(
         self, *, q: str, pivot: str | None
     ) -> _AnalyticsTemplate | None:
-        """The page's own analytics request for ``pivot``; the latest period wins.
+        """The page's own analytics request for ``pivot``.
 
-        The UI also asks for the previous period to compare, so the latest
-        ``dateRange`` is the one the page shows. ``pivot=None`` accepts any
-        demographics pivot, since a replay replaces it.
+        An account-wide (``accountIds``) query wins over an id-scoped one, which
+        may cover only the ids on screen; then the latest period wins.
+        ``pivot=None`` accepts any demographics pivot, since a replay replaces it.
         """
         candidates = [
             template
@@ -290,7 +325,13 @@ class CampaignManagerCapture:
         ]
         if not candidates:
             return None
-        return max(candidates, key=lambda template: _latest_range(template.body))
+        return max(
+            candidates,
+            key=lambda template: (
+                "accountIds" in template.body,
+                period_order(template.body),
+            ),
+        )
 
     async def replay_analytics(
         self,
@@ -313,6 +354,10 @@ class CampaignManagerCapture:
             raise LinkedInScraperException(
                 "Refused to replay a request that is not Campaign Manager analytics."
             )
+        if not _is_read(template.method, template.headers):
+            raise LinkedInScraperException(
+                "Refused to replay a Campaign Manager request that is not a read."
+            )
         body = dict(template.body)
         if date_range is not None:
             body["dateRange"] = format_restli_date_range(*date_range)
@@ -323,7 +368,7 @@ class CampaignManagerCapture:
                 )
             body["pivot"] = pivot
         encoded = urlencode(body, safe=_RESTLI_SAFE)
-        if template.method == "GET":
+        if template.method.upper() == "GET":
             parsed = urlparse(template.url)
             url = parsed._replace(query=encoded).geturl()
             result = await self._fetch(url, "GET", template.headers, None)

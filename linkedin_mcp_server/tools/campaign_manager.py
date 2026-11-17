@@ -13,13 +13,11 @@ from typing import Any, Literal
 from fastmcp import Context, FastMCP
 
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
-from linkedin_mcp_server.core.exceptions import (
-    AuthenticationError,
-    InvalidReferenceError,
-)
+from linkedin_mcp_server.core.exceptions import AuthenticationError
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.scraping.identifiers import (
+    campaign_manager_date_range,
     normalize_ad_account_id,
     normalize_campaign_id,
 )
@@ -273,12 +271,7 @@ def register_campaign_manager_tools(
         """
         try:
             ad_account_id = normalize_ad_account_id(ad_account_id)
-            if (start_date is None) != (end_date is None):
-                raise InvalidReferenceError(
-                    "Give start_date and end_date together, or neither."
-                )
-            if start_date and end_date and start_date > end_date:
-                raise InvalidReferenceError("start_date must not be after end_date.")
+            campaign_manager_date_range(start_date, end_date)
             extractor = extractor or await get_ready_extractor(
                 ctx, tool_name="get_campaign_analytics"
             )
