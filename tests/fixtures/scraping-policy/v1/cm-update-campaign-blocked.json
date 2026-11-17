@@ -137,7 +137,14 @@
       "call": "update_campaign",
       "kind": "evaluate",
       "operation": "cm_editor",
-      "program_digest": "5f367be55a01",
+      "program_digest": "e7117f971603",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "kind": "evaluate",
+      "operation": "cm_footer",
+      "program_digest": "e4333f693237",
       "section": "update_campaign__blocked"
     },
     {
@@ -156,7 +163,7 @@
       "call": "update_campaign",
       "kind": "evaluate",
       "operation": "cm_editor",
-      "program_digest": "5f367be55a01",
+      "program_digest": "e7117f971603",
       "section": "update_campaign__blocked"
     },
     {
@@ -166,11 +173,28 @@
       "text": "12.5"
     },
     {
+      "arg": {
+        "id": "bid-and-budget__daily-budget",
+        "text": "12.5"
+      },
+      "call": "update_campaign",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "399a88314b21",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "key": "Tab",
+      "kind": "keyboard.press",
+      "section": "update_campaign__blocked"
+    },
+    {
       "arg": "bid-and-budget__daily-budget",
       "call": "update_campaign",
       "kind": "evaluate",
       "operation": "cm_editor",
-      "program_digest": "16ef7a28c1ee",
+      "program_digest": "bd42c7d6f512",
       "section": "update_campaign__blocked"
     },
     {
@@ -179,6 +203,14 @@
       "method": "POST",
       "section": "update_campaign__blocked",
       "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerCampaigns/100000301"
+    },
+    {
+      "arg": "bid-and-budget__daily-budget",
+      "call": "update_campaign",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "2f523cdd6eed",
+      "section": "update_campaign__blocked"
     },
     {
       "call": "update_campaign",

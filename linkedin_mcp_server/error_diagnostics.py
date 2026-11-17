@@ -108,6 +108,8 @@ def build_issue_diagnostics(
         }
         if log.pages:
             payload["page_structure"] = list(log.pages)
+        if log.writes:
+            payload["write_windows"] = list(log.writes)
     payload["issue_search_skipped"] = _inside_running_event_loop()
     if payload["issue_search_skipped"]:
         payload["existing_issues"] = []
@@ -192,6 +194,7 @@ def _render_issue_template(payload: dict[str, Any]) -> str:
                 "",
                 *_render_api_responses(payload.get("api_responses")),
                 *_render_page_structure(payload.get("page_structure")),
+                *_render_write_windows(payload.get("write_windows")),
                 "## Advisory open issues",
                 *advisory_lines,
                 "",
@@ -257,6 +260,22 @@ def _render_page_structure(pages: list[dict[str, Any]] | None) -> list[str]:
         "many elements matched and how many were visible. No text or values.",
         "```json",
         *(json.dumps(page, sort_keys=True) for page in pages),
+        "```",
+        "",
+    ]
+
+
+def _render_write_windows(windows: list[dict[str, Any]] | None) -> list[str]:
+    if not windows:
+        return []
+    return [
+        "## Write window when a change did not save (structure only)",
+        "One line per stopped change, oldest first: how the editor saves, the "
+        "field and what the wait ended on, the app's requests the window let "
+        "through and refused (method, resource, Rest.li method and the patch's "
+        "field names), and the input's state as flags. No values.",
+        "```json",
+        *(json.dumps(window, sort_keys=True) for window in windows),
         "```",
         "",
     ]

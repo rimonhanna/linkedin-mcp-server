@@ -67,6 +67,7 @@ from linkedin_mcp_server.scraping.campaign_manager_results import (
 from linkedin_mcp_server.scraping.campaign_manager_write import (
     ANCHORS,
     CampaignWriteFlow,
+    record_write_window,
 )
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
@@ -111,8 +112,10 @@ _STEP_ANCHORS = {
 }
 
 # One text input by id, optionally inside ``scope``; focusing selects its
-# whole value so one inserted text replaces it.
-_INPUT_JS = """({ id, scope, focus }) => {
+# whole value so one inserted text replaces it. The app re-renders a budget
+# input on focus (its formatted amount becomes the raw number), which moves the
+# caret after the old value, so the selection is made once that render landed.
+_INPUT_JS = """async ({ id, scope, focus }) => {
     /* linkedin-mcp:cm-editor */
     const inputs = [...document.querySelectorAll('input')].filter((el) => el.id === id);
     if (inputs.length !== 1) return { state: inputs.length ? 'ambiguous' : 'missing' };
@@ -122,15 +125,39 @@ _INPUT_JS = """({ id, scope, focus }) => {
     if (input.getClientRects().length === 0) return { state: 'hidden' };
     if (!focus) return { state: 'ready' };
     input.focus();
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    if (document.activeElement !== input) return { state: 'unfocused' };
     input.select();
-    return { state: document.activeElement === input ? 'ready' : 'unfocused' };
+    const whole = input.selectionStart === 0 && input.selectionEnd === input.value.length;
+    return { state: whole ? 'ready' : 'unselected' };
 }"""
+# Whether the focused input holds exactly ``text``; answers no value.
+_TYPED_JS = """({ id, text }) => {
+    /* linkedin-mcp:cm-editor */
+    const input = document.activeElement;
+    if (!input || input.id !== id) return { state: 'unfocused' };
+    return { state: input.value === text ? 'typed' : 'mismatch' };
+}"""
+# Run after Tab: blurs the input only if Tab left it focused.
 _BLUR_JS = """(id) => {
     /* linkedin-mcp:cm-editor */
     const input = document.activeElement;
-    if (!input || input.id !== id) return { blurred: false };
-    input.blur();
-    return { blurred: true };
+    if (input && input.id === id) input.blur();
+    const left = document.activeElement;
+    return { blurred: !left || left.id !== id };
+}"""
+# The input's state for the failure notes: counts and flags, never its value.
+_INPUT_STATE_JS = """(id) => {
+    /* linkedin-mcp:cm-editor */
+    const inputs = [...document.querySelectorAll('input')].filter((el) => el.id === id);
+    const input = inputs[0];
+    return {
+        count: inputs.length,
+        attached: Boolean(input && input.isConnected),
+        focused: Boolean(input && document.activeElement === input),
+        empty: !input || input.value === '',
+        disabled: Boolean(input && input.disabled),
+    };
 }"""
 _SWITCH_JS = """({ checked, click }) => {
     /* linkedin-mcp:cm-editor */
@@ -244,10 +271,13 @@ async def _poll(page: Any, script: str, arg: Mapping[str, Any]) -> Any:
 
 
 async def set_text(page: Any, input_id: str, scope: str | None, text: str) -> bool:
-    """Replace an input's value with ``text`` in one insertion, then blur it.
+    """Replace an input's value with ``text`` in one insertion, then Tab away.
 
     Focus selects the whole value, so the app sees one input event carrying
-    the final text and never an intermediate value it could autosave.
+    the final text and never an intermediate value it could save. The value is
+    checked before the input loses focus: the app commits a budget only on the
+    ``change`` that leaving the input fires, so an input holding anything but
+    ``text`` is left focused and uncommitted, and the caller leaves the page.
     """
     focused = await page.evaluate(
         _INPUT_JS, {"id": input_id, "scope": scope, "focus": True}
@@ -256,6 +286,11 @@ async def set_text(page: Any, input_id: str, scope: str | None, text: str) -> bo
         logger.debug("Input %s not focused: %s", input_id, focused)
         return False
     await page.keyboard.insert_text(text)
+    typed = await page.evaluate(_TYPED_JS, {"id": input_id, "text": text})
+    if _state(typed) != "typed":
+        logger.debug("Input %s not typed: %s", input_id, typed)
+        return False
+    await page.keyboard.press("Tab")
     blurred = await page.evaluate(_BLUR_JS, input_id)
     return isinstance(blurred, dict) and blurred.get("blurred") is True
 
@@ -450,9 +485,25 @@ def _stopped(outcome: CmWriteResponse | str, window: WriteWindow) -> Refusal:
             "The change was sent but LinkedIn's answer did not arrive. Check the "
             "ad set before retrying.",
         )
+    if outcome == "dialog":
+        # The app's own code: Save and exit on an ad set targeting an EU
+        # country always asks for a political-ad declaration first.
+        return (
+            "control_unavailable",
+            "Campaign Manager asked a question in a dialog before saving (for "
+            "an ad set that targets EU countries it asks whether its ads are "
+            "political). The tool does not answer it, so the dialog was closed "
+            "and nothing was sent. Make this change in Campaign Manager.",
+        )
+    if window.refused:
+        return (
+            "control_unavailable",
+            "Campaign Manager did not send the save of this change; the other "
+            "changes it tried were stopped (see refused), so nothing was sent.",
+        )
     return (
         "control_unavailable",
-        "Campaign Manager did not save the change; nothing was sent.",
+        "Campaign Manager did not send a save for the change, so nothing was sent.",
     )
 
 
@@ -529,8 +580,9 @@ class CampaignManagerEditor:
     ) -> dict[str, Any]:
         """Change an ad set's budget amount or schedule dates.
 
-        The budget and schedule types never switch. A draft saves each field
-        as it is edited; a launched ad set saves once, by its Save and exit.
+        The budget and schedule types never switch. A draft in the editor
+        that autosaves saves each field as it is edited; any other ad set,
+        a draft in the classic editor included, saves once, by Save and exit.
         """
         account = normalize_ad_account_id(account_id)
         campaign = normalize_campaign_id(campaign_id)
@@ -675,6 +727,10 @@ class CampaignManagerEditor:
                 path_fields=path,
             )
 
+        # A draft autosaves each field, except in the classic editor, which
+        # saves a draft like a launched ad set: once, by Save and exit.
+        autosaves = draft and not await self._flow.saves_by_footer(page)
+        saves = "autosave" if autosaves else "save_and_exit"
         saved = 0
         stop: Refusal | None = None
         async with self._flow.apply(page, admit) as window:
@@ -684,32 +740,45 @@ class CampaignManagerEditor:
                     stop = (
                         "control_unavailable",
                         f"The {_FIELDS[step]} control did not behave as expected, "
-                        "so the edit stopped there.",
+                        "so the edit stopped there and nothing of it was sent.",
                     )
+                    await self._note_stop(page, window, plan, saves, step, "control")
                     break
-                if draft:
+                if autosaves:
                     outcome = await self._await_save(
                         capture, window, is_save, writes=writes, refused=refused
                     )
                     if not (isinstance(outcome, CmWriteResponse) and outcome.ok):
                         stop = _stopped(outcome, window)
+                        await self._note_stop(page, window, plan, saves, step, outcome)
                         break
                     saved += 1
-            if stop is None and not draft:
+            if stop is None and not autosaves:
                 writes, refused = capture.write_count, len(window.refused)
-                if await self._flow.save_and_exit(page, draft=False):
+                if await self._flow.save_and_exit(page, draft=draft):
                     outcome = await self._await_save(
-                        capture, window, is_save, writes=writes, refused=refused
+                        capture,
+                        window,
+                        is_save,
+                        writes=writes,
+                        refused=refused,
+                        dialog_grace=_DIALOG_GRACE,
                     )
                     if isinstance(outcome, CmWriteResponse) and outcome.ok:
                         saved += 1
                     else:
                         stop = _stopped(outcome, window)
+                        await self._note_stop(
+                            page, window, plan, saves, "footer", outcome
+                        )
                 else:
                     stop = (
                         "control_unavailable",
                         "Save and exit was not found in the layout this tool "
                         "knows, so nothing was saved.",
+                    )
+                    await self._note_stop(
+                        page, window, plan, saves, "footer", "control"
                     )
         if stop is not None:
             await self._flow.leave(page, url)
@@ -760,6 +829,33 @@ class CampaignManagerEditor:
             planned=planned,
             applied=applied,
             refused=window.refused,
+        )
+
+    async def _note_stop(
+        self,
+        page: Any,
+        window: WriteWindow,
+        plan: CampaignEditPlan,
+        saves: str,
+        step: str,
+        outcome: CmWriteResponse | str,
+    ) -> None:
+        """Record a stopped change's window and budget inputs for the notes."""
+        inputs = {
+            _FIELDS[name]: await page.evaluate(_INPUT_STATE_JS, _BUDGET_INPUTS[name])
+            for name in plan.order
+            if name in _BUDGET_INPUTS
+        }
+        record_write_window(
+            window,
+            saves=saves,
+            step=_FIELDS.get(step, step),
+            outcome=(
+                f"http {outcome.status}"
+                if isinstance(outcome, CmWriteResponse)
+                else outcome
+            ),
+            inputs=inputs,
         )
 
     # set_campaign_status -----------------------------------------------------

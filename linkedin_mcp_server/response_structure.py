@@ -187,6 +187,10 @@ class ResponseLog:
     pages: deque[dict[str, Any]] = field(
         default_factory=lambda: deque(maxlen=MAX_PAGES)
     )
+    #: What a write window let through and refused when a change did not save.
+    writes: deque[dict[str, Any]] = field(
+        default_factory=lambda: deque(maxlen=MAX_PAGES)
+    )
 
     def add(self, record: dict[str, Any]) -> None:
         self._kept.append((self.seen, record))
@@ -195,6 +199,9 @@ class ResponseLog:
 
     def add_page(self, summary: dict[str, Any]) -> None:
         self.pages.append(summary)
+
+    def add_write(self, summary: dict[str, Any]) -> None:
+        self.writes.append(summary)
 
     def want(self, resources: Iterable[str]) -> None:
         self.wanted.update(resources)

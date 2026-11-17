@@ -218,7 +218,7 @@
       "call": "create_campaign_draft",
       "kind": "evaluate",
       "operation": "cm_editor",
-      "program_digest": "5f367be55a01",
+      "program_digest": "e7117f971603",
       "section": "create_campaign_draft__created"
     },
     {
@@ -228,11 +228,28 @@
       "text": "Example draft"
     },
     {
+      "arg": {
+        "id": "campaign-name",
+        "text": "Example draft"
+      },
+      "call": "create_campaign_draft",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "399a88314b21",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "key": "Tab",
+      "kind": "keyboard.press",
+      "section": "create_campaign_draft__created"
+    },
+    {
       "arg": "campaign-name",
       "call": "create_campaign_draft",
       "kind": "evaluate",
       "operation": "cm_editor",
-      "program_digest": "16ef7a28c1ee",
+      "program_digest": "bd42c7d6f512",
       "section": "create_campaign_draft__created"
     },
     {

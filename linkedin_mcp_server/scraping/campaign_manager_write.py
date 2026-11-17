@@ -14,7 +14,7 @@ container attribute and position.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -26,7 +26,7 @@ import re
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
-from linkedin_mcp_server.response_structure import current_log
+from linkedin_mcp_server.response_structure import current_log, is_field_name
 from linkedin_mcp_server.scraping.campaign_manager import _SETUP_PATH, _refusal
 from linkedin_mcp_server.scraping.campaign_manager_api import (
     CampaignManagerCapture,
@@ -143,6 +143,14 @@ _FOOTER_JS = """(expected) => {
     target.click();
     return { count: candidates.length, clicked: true };
 }"""
+# The classic editor's footer. That editor never autosaves, also not a draft:
+# its fields reach LinkedIn only by the footer's Save and exit. Only the newer
+# editor (``icc`` in the app's code, its own footer) autosaves a draft's fields
+# (read from the app's bundle, 2026-11-17).
+_CLASSIC_FOOTER_JS = """() => {
+    /* linkedin-mcp:cm-footer */
+    return document.querySelectorAll('[data-js-wizard-container-footer-actions]').length;
+}"""
 
 
 def _not_found(message: str) -> Refusal:
@@ -151,6 +159,66 @@ def _not_found(message: str) -> Refusal:
         f"{message} Nothing was changed. Pass the ad_account_id and campaign_id "
         "exactly as list_campaigns returned them.",
     )
+
+
+def _request_shape(request: CmWriteRequest) -> dict[str, Any]:
+    """A write request's structure: field names and flags, never a value."""
+    shape: dict[str, Any] = {
+        "method": request.method,
+        "resource": request.call.resource,
+        "restli_method": request.restli_method,
+        "entity_id": request.call.entity_id is not None,
+    }
+    body = request.body if isinstance(request.body, dict) else None
+    patch = body.get("patch") if body is not None else None
+    if isinstance(patch, dict):
+        shape["patch_keys"] = sorted(key for key in patch if is_field_name(key))
+        updates = patch.get("$set")
+        if isinstance(updates, dict):
+            shape["set_keys"] = sorted(key for key in updates if is_field_name(key))
+    elif body is not None:
+        shape["body_keys"] = sorted(key for key in body if is_field_name(key))
+    return shape
+
+
+def record_write_window(
+    window: WriteWindow,
+    *,
+    saves: str,
+    step: str,
+    outcome: str,
+    inputs: Mapping[str, Any] | None = None,
+) -> None:
+    """Note what a stopped change's window let through and refused, value-free.
+
+    ``saves`` is how the editor saves (``autosave`` or ``save_and_exit``),
+    ``outcome`` what the wait ended on, ``inputs`` each planned input's
+    state by field: only its counts and flags are kept.
+    """
+    log = current_log()
+    if log is None:
+        return
+    summary: dict[str, Any] = {
+        "saves": saves,
+        "step": step,
+        "outcome": outcome,
+        "admitted": [_request_shape(request) for request in window.admitted],
+        "refused": [
+            {**_request_shape(request), "reason": reason}
+            for request, reason in window.refused
+        ],
+    }
+    if inputs:
+        summary["inputs"] = {
+            field: {
+                key: value
+                for key, value in state.items()
+                if isinstance(value, bool | int) and is_field_name(key)
+            }
+            for field, state in inputs.items()
+            if isinstance(state, dict)
+        }
+    log.add_write(summary)
 
 
 class WriteLedger:
@@ -383,6 +451,10 @@ class CampaignWriteFlow:
         if not clicked:
             logger.debug("Save and exit not clicked: %s", result)
         return clicked
+
+    async def saves_by_footer(self, page: Any) -> bool:
+        """Whether the page is the classic editor, which saves only by its footer."""
+        return await page.evaluate(_CLASSIC_FOOTER_JS) == 1
 
     async def wait_saved(
         self,

@@ -2123,7 +2123,12 @@ async def _cm_update_campaign_scenario(outcome: str) -> dict[str, Any]:
             await _cm_app_sends(page, *sent)
             return {"blurred": True}
 
-        editor += [ready, blur]
+        editor += [ready, {"state": "typed"}, blur]
+        if outcome != "draft":
+            # The refused save's notes record the input's flags.
+            editor.append({"count": 1, "attached": True, "focused": False})
+        # The editor that autosaves a draft has no classic footer.
+        page.script("evaluate:cm_footer", 0)
     page.script("goto", *goto)
     page.script("evaluate:cm_editor", *editor)
     arguments = {
@@ -2230,6 +2235,7 @@ async def _cm_create_draft_scenario() -> dict[str, Any]:
         {"state": "ready", "available": ["WEBSITE_VISIT"]},
         objective,
         {"state": "ready"},
+        {"state": "typed"},
         blur,
     )
     return await _cm_write_run(

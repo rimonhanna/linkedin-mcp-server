@@ -130,6 +130,8 @@ class _App:
         self.typed: list[str] = []
         self.sent: list[tuple[str, str]] = []
         self.focused: str | None = None
+        # The classic editor saves a draft only by its footer.
+        self.classic = False
         page.url = DETAILS
         page.main_frame = SimpleNamespace(url=page.url)
         page.evaluate = AsyncMock(side_effect=self.evaluate)
@@ -139,7 +141,10 @@ class _App:
         )
         self.programs = {
             editor_module._INPUT_JS: "input",
+            editor_module._TYPED_JS: "typed",
             editor_module._BLUR_JS: "blur",
+            editor_module._INPUT_STATE_JS: "input_state",
+            write_module._CLASSIC_FOOTER_JS: "classic",
             editor_module._SWITCH_JS: "switch",
             editor_module._DIALOG_JS: "dialog",
             editor_module._OBJECTIVE_JS: "objective",
@@ -220,6 +225,12 @@ class _App:
             if arg["focus"] and state == "ready":
                 self.focused = arg["id"]
             return {"state": state}
+        if name == "typed":
+            return {"state": "typed" if self.typed[-1] == arg["text"] else "mismatch"}
+        if name == "input_state":
+            return {"count": 1, "attached": True, "focused": False, "empty": False}
+        if name == "classic":
+            return 1 if self.classic else 0
         if name == "blur":
             body = self.on_blur(arg, self.typed[-1]) if self.on_blur else None
             if body is not None:
