@@ -67,6 +67,7 @@ def is_campaign_manager_read(
 @dataclass(frozen=True, slots=True)
 class CmWriteRequest:
     call: CmCall
+    url: str
     method: str
     restli_method: str | None
     # The JSON-decoded body; None when absent or not JSON.
@@ -117,12 +118,14 @@ class _PageGuard:
         if is_campaign_manager_read(method, headers, call.resource if call else None):
             await route.fallback()
             return
-        if admission is None or call is None:
+        # The window can close, or another open, while the headers are read.
+        if admission is None or call is None or self.admission is not admission:
             await route.abort()
             return
         admit, window = admission
         write = CmWriteRequest(
             call=call,
+            url=request.url,
             method=method,
             restli_method=headers.get("x-restli-method"),
             body=_json_body(request),

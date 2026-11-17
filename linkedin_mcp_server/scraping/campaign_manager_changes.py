@@ -14,14 +14,19 @@ decorated ``targetingCriteria``.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 from linkedin_mcp_server.core.exceptions import InvalidReferenceError
-from linkedin_mcp_server.scraping.campaign_manager_payload import CmCall
+from linkedin_mcp_server.scraping.campaign_manager_payload import (
+    CM_API_PREFIX,
+    CmCall,
+)
 from linkedin_mcp_server.scraping.identifiers import normalize_targeting_urn
 
 Refusal = tuple[str, str]
@@ -29,6 +34,8 @@ Refusal = tuple[str, str]
 
 TargetingKey = tuple[str, str, str]
 """``(section, facetUrn, segmentUrn)``; sections name the UI blocks."""
+
+_Block = frozenset[tuple[str, str]]
 
 DAY_MS = 86_400_000
 EDITABLE_STATUSES = frozenset({"DRAFT", "ACTIVE", "PAUSED"})
@@ -58,6 +65,9 @@ class WriteRequest(Protocol):
 
     @property
     def call(self) -> CmCall: ...
+
+    @property
+    def url(self) -> str: ...
 
     @property
     def method(self) -> str: ...
@@ -641,6 +651,90 @@ class _Comparer:
         return _plain(value)
 
 
+def _blocks(keys: Iterable[TargetingKey]) -> tuple[dict[str, _Block], list[_Block]]:
+    """The single-block sections and the OR blocks in order, without indexes."""
+    sections: dict[str, set[tuple[str, str]]] = {}
+    ors: dict[int, set[tuple[str, str]]] = {}
+    for section, facet, urn in keys:
+        if section.startswith("include_or:"):
+            ors.setdefault(int(section.split(":")[1]), set()).add((facet, urn))
+        else:
+            sections.setdefault(section, set()).add((facet, urn))
+    return (
+        {section: frozenset(values) for section, values in sections.items()},
+        [frozenset(ors[index]) for index in sorted(ors)],
+    )
+
+
+def _or_pairs(
+    original: Iterable[TargetingKey], target: Iterable[TargetingKey]
+) -> list[tuple[_Block, _Block]] | None:
+    """Each OR block's ``(original, target)`` content, a new block with an empty original.
+
+    Adds are routed as ``plan_targeting`` routes them, so the pairing needs no
+    block index, which renumbering changes. None when ``target`` is not such a
+    plan of ``original``.
+    """
+    _, before = _blocks(original)
+    _, after = _blocks(target)
+    held = frozenset().union(*before)
+    wanted = frozenset().union(*after)
+    routed = [set(block & wanted) for block in before]
+    new: dict[str, set[tuple[str, str]]] = {}
+    for facet, urn in wanted - held:
+        index = next(
+            (i for i, block in enumerate(before) if any(f == facet for f, _ in block)),
+            None,
+        )
+        (routed[index] if index is not None else new.setdefault(facet, set())).add(
+            (facet, urn)
+        )
+    pairs = [(block, frozenset(values)) for block, values in zip(before, routed)]
+    pairs += [(frozenset(), frozenset(values)) for values in new.values()]
+    if Counter(values for _, values in pairs if values) != Counter(after):
+        return None
+    return pairs
+
+
+def _between(sent: _Block, original: _Block, target: _Block) -> bool:
+    return original & target <= sent <= original | target
+
+
+def _assigned(blocks: Sequence[_Block], pairs: Sequence[tuple[_Block, _Block]]) -> bool:
+    """Whether each sent block is a state of its own pair, keeping every kept value.
+
+    A sent block holding values of two pairs fits neither, so merged blocks
+    (a wider OR) are refused; a pair with a kept value must be matched.
+    """
+    if not blocks:
+        return all(not original & target for original, target in pairs)
+    return any(
+        _between(blocks[0], original, target)
+        and _assigned(blocks[1:], [*pairs[:i], *pairs[i + 1 :]])
+        for i, (original, target) in enumerate(pairs)
+    )
+
+
+def _targeting_on_path(
+    sent: Collection[TargetingKey],
+    original: Collection[TargetingKey],
+    target: Collection[TargetingKey],
+) -> bool:
+    sent_sections, sent_ors = _blocks(sent)
+    original_sections, _ = _blocks(original)
+    target_sections, _ = _blocks(target)
+    empty: _Block = frozenset()
+    for section in {*sent_sections, *original_sections, *target_sections}:
+        if not _between(
+            sent_sections.get(section, empty),
+            original_sections.get(section, empty),
+            target_sections.get(section, empty),
+        ):
+            return False
+    pairs = _or_pairs(original, target)
+    return pairs is not None and _assigned(sent_ors, pairs)
+
+
 def _on_path(field: str, sent: Any, original: Any, target: Any) -> bool:
     """Whether ``sent`` lies between the original and the target value."""
     if field == "runSchedule":
@@ -653,7 +747,7 @@ def _on_path(field: str, sent: Any, original: Any, target: Any) -> bool:
     if field == "targetingCriteria":
         if original is None:
             return False
-        return original & target <= sent <= original | target
+        return _targeting_on_path(sent, original, target)
     return sent in (original, target)
 
 
@@ -678,6 +772,23 @@ def _refuse_target(
         return f"{resource} write for another entity"
     if restli is not None and _restli(req) != restli:
         return f"{resource} {_restli(req) or 'request'} is not the planned {restli}"
+    return None
+
+
+def _refuse_create(
+    req: WriteRequest, resource: str, restli: str | None = "create"
+) -> str | None:
+    """``_refuse_target`` for a create: the bare collection path, no action."""
+    refusal = _refuse_target(req, resource, None, restli)
+    if refusal is not None:
+        return refusal
+    path = urlparse(req.url).path
+    if not path.startswith(CM_API_PREFIX) or path[len(CM_API_PREFIX) :] != resource:
+        return f"{resource} write to a sub-path, not a create"
+    if "action" in req.call.params:
+        return f"{resource} action request, not a create"
+    if _restli(req) not in ("", "create"):
+        return f"{resource} {_restli(req)} is not a create"
     return None
 
 
@@ -797,7 +908,7 @@ def admit_campaign_create(*, account_id: str, group_id: str, objective: str) -> 
 
     def admit(req: WriteRequest) -> str | None:
         nonlocal created
-        refusal = _refuse_target(req, "campaignManagerCampaigns", None, "create")
+        refusal = _refuse_create(req, "campaignManagerCampaigns")
         if refusal is not None:
             return refusal
         if created:
@@ -821,7 +932,7 @@ def admit_creative_create(
     req: WriteRequest, *, campaign_id: str, reference: str
 ) -> str | None:
     """Admit the app's creative for ``reference`` on ``campaign_id`` only."""
-    refusal = _refuse_target(req, "campaignManagerCreatives", None, "create")
+    refusal = _refuse_create(req, "campaignManagerCreatives")
     if refusal is not None:
         return refusal
     body = _mapping(req.body) or {}
@@ -848,7 +959,7 @@ def admit_list_upload(*, account_id: str, name: str) -> Admit:
             "campaignManagerDmpSegments",
         }:
             return f"not a planned write ({req.method} {resource})"
-        refusal = _refuse_target(req, resource, None, None)
+        refusal = _refuse_create(req, resource, None)
         if refusal is not None:
             return refusal
         if resource in seen:
@@ -890,7 +1001,7 @@ def admit_saved_audience(
 
     def admit(req: WriteRequest) -> str | None:
         nonlocal created
-        refusal = _refuse_target(req, "campaignManagerTargetingCriteria", None, None)
+        refusal = _refuse_create(req, "campaignManagerTargetingCriteria", None)
         if refusal is not None:
             return refusal
         if created:

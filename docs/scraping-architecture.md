@@ -27,7 +27,7 @@ a page-owning collaborator.
 | `campaign_manager_payload` | `AdAccount`, `AnalyticsEntity`, `AnalyticsRow`, `CM_API_PREFIX`, `Campaign`, `CampaignGroup`, `CmCall`, `Creative`, `DateWindow`, `Money`, `RunSchedule`, `Targeting`, `TargetingFacet`, `TargetingInclude`, `TargetingSegment`, `build_ad_account()`, `build_analytics_rows()`, `build_boost_account()`, `build_campaign()`, `build_campaign_group()`, `build_creative()`, `build_targeting()`, `format_restli_date_range()`, `merge_by_id()`, `normalized_elements()`, `normalized_record()`, `parse_cm_call()`, `plain_elements()`, `render_accounts()`, `render_analytics()`, `render_campaign()`, `render_campaigns()`, `restli_date_range()`, `restli_list()` | `browser-free` |
 | `campaign_manager_results` | `STATUSES`, `SUCCEEDED`, `campaign_action_result()`, `retry_safe_from()` | `browser-free` |
 | `campaign_manager_targeting` | `CampaignTargetingEditor`, `TargetingAdd` | `page-owning` |
-| `campaign_manager_write` | `CampaignWriteFlow` | `page-owning` |
+| `campaign_manager_write` | `CampaignWriteFlow`, `WriteLedger`, `tracking_writes()` | `page-owning` |
 | `capture` | `CONTENT_SEARCH_COUNT_JS`, `CONTENT_SEARCH_MAX_SCROLLS`, `CONTENT_SEARCH_SCROLL_BUDGET`, `CaptureMode`, `CapturePlan`, `OverlayRootNotFoundError`, `SectionCapture`, `capture_plan_for_url()` | `page-owning` |
 | `company` | `CompanyScraper` | `browser-free` |
 | `company_parse` | `ParsedJobs`, `has_about_labels()`, `parse_about()`, `parse_job_search()`, `parse_search_results()` | `browser-free` |
@@ -76,7 +76,7 @@ a page-owning collaborator.
 - `campaign_manager_payload` -> _(none)_
 - `campaign_manager_results` -> `campaign_manager_changes`
 - `campaign_manager_targeting` -> `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
-- `campaign_manager_write` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_guard`, `campaign_manager_payload`, `identifiers`, `navigation`, `session`
+- `campaign_manager_write` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `identifiers`, `navigation`, `session`
 - `capture` -> `content`, `contracts`, `link_metadata`, `navigation`, `session`, `text`
 - `company` -> `capture`, `contracts`, `facets`, `fields`, `identifiers`, `link_metadata`, `search_pages`, `search_parse`, `search_urls`, `session`
 - `company_parse` -> `search_parse`

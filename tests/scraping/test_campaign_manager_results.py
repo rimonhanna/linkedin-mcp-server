@@ -21,6 +21,7 @@ class Req:
     method: str = "POST"
     restli_method: str | None = None
     body: object = None
+    url: str = ""
 
 
 @dataclass

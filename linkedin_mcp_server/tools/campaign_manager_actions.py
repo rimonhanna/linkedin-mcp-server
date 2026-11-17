@@ -7,6 +7,7 @@ API names as in the read tools: an API campaign group is the UI "Campaign", an
 API campaign the UI "Ad set" and an API creative the UI "Ad".
 """
 
+import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -49,6 +50,7 @@ from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
 )
 from linkedin_mcp_server.scraping.campaign_manager_targeting import TargetingAdd
+from linkedin_mcp_server.scraping.campaign_manager_write import tracking_writes
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
     normalize_ad_account_id,
@@ -87,9 +89,26 @@ async def _apply(
 
     await ctx.report_progress(progress=0, total=100, message=message)
 
-    result = await call(extractor)
-    # retry_safe is False exactly when one of the app's writes left the
-    # browser, so a write that may have landed is counted.
+    # The one place an error after an admitted write is turned into an
+    # outcome, whichever flow raised it. Exactly one of the three exits
+    # records: a returned result with retry_safe False (an escaped error
+    # included), or a cancellation (the tool timeout) after an admitted
+    # write, which is recorded and then re-raised. record_action follows the
+    # await with no await between, so a cancellation cannot fall between them.
+    with tracking_writes() as ledger:
+        try:
+            result = await call(extractor)
+        except asyncio.CancelledError:
+            if confirm_send and ledger.admitted:
+                record_action(JobStore(), CAMPAIGN_WRITES, datetime.now().astimezone())
+            raise
+        except Exception as exc:
+            if not ledger.admitted:
+                raise
+            logger.warning("%s failed after a write was sent", tool, exc_info=True)
+            result = ledger.unverified(tool, exc)
+    # retry_safe is False whenever one of the app's writes may have landed,
+    # so such a write is counted.
     if confirm_send and result.get("retry_safe") is False:
         record_action(JobStore(), CAMPAIGN_WRITES, datetime.now().astimezone())
     retain_trace_for_failed_action(
@@ -156,7 +175,7 @@ def register_campaign_manager_action_tools(
         Returns:
             Dict with url, status, message, retry_safe and, when known,
             target, planned, applied and refused. retry_safe is True only when
-            nothing was sent to LinkedIn; when False, re-read the ad set before
+            LinkedIn did not apply anything; when False, re-read the ad set before
             calling again.
         """
         try:
@@ -235,7 +254,7 @@ def register_campaign_manager_action_tools(
         Returns:
             Dict with url, status, message, retry_safe and, when known,
             target, planned, applied and refused. retry_safe is True only when
-            nothing was sent to LinkedIn.
+            LinkedIn did not apply anything.
         """
         try:
             ad_account_id = normalize_ad_account_id(ad_account_id)
@@ -300,7 +319,7 @@ def register_campaign_manager_action_tools(
         Returns:
             Dict with url, status, message, retry_safe and, when known,
             target, planned, applied and refused. retry_safe is True only when
-            nothing was sent to LinkedIn. partially_applied means only part of
+            LinkedIn did not apply anything. partially_applied means only part of
             the change was saved; re-read the ad set before calling again.
         """
         try:
@@ -384,7 +403,7 @@ def register_campaign_manager_action_tools(
         Returns:
             Dict with url, status, message, retry_safe and, when known,
             target, planned, applied, created_id and refused. retry_safe is
-            True only when nothing was sent to LinkedIn.
+            True only when LinkedIn did not apply anything.
         """
         try:
             ad_account_id = normalize_ad_account_id(ad_account_id)
@@ -454,7 +473,7 @@ def register_campaign_manager_action_tools(
         Returns:
             Dict with url, status, message, retry_safe and, when known,
             target, planned, applied, created_id and refused. retry_safe is
-            True only when nothing was sent to LinkedIn.
+            True only when LinkedIn did not apply anything.
         """
         try:
             ad_account_id = normalize_ad_account_id(ad_account_id)
@@ -519,7 +538,7 @@ def register_campaign_manager_action_tools(
         Returns:
             Dict with url, status, message, retry_safe and, when known,
             target, planned, created_id and refused. retry_safe is True only
-            when nothing was sent to LinkedIn. A new audience is BUILDING
+            when LinkedIn did not apply anything. A new audience is BUILDING
             until LinkedIn has matched it; list_audiences shows its status.
         """
         try:
@@ -590,7 +609,7 @@ def register_campaign_manager_action_tools(
         Returns:
             Dict with url, status, message, retry_safe and, when known,
             target, planned, created_id and refused. retry_safe is True only
-            when nothing was sent to LinkedIn.
+            when LinkedIn did not apply anything.
         """
         try:
             ad_account_id = normalize_ad_account_id(ad_account_id)

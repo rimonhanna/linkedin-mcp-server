@@ -200,3 +200,26 @@ async def test_a_second_window_on_the_page_is_refused():
         # The refused inner window leaves the outer one open.
         url = API + "campaignManagerCampaigns/100000001"
         assert await _outcome(page, "POST", url) == "fallback"
+
+
+async def test_request_whose_window_closes_while_headers_are_read_is_aborted():
+    page = await _registered()
+    url = API + "campaignManagerCampaigns/100000001"
+    released = asyncio.Event()
+    route = FakeRoute("POST", url, PATCH, PATCH_BODY)
+    read_headers = route.request.all_headers
+
+    async def slow_headers() -> dict[str, str]:
+        await released.wait()
+        return await read_headers()
+
+    route.request.all_headers = slow_headers
+    async with guard.explicit_campaign_write(page, admit=lambda _: None) as closed:
+        handling = asyncio.create_task(page.routes[0][1](route))
+        await asyncio.sleep(0)
+    async with guard.explicit_campaign_write(page, admit=lambda _: None) as reopened:
+        released.set()
+        await handling
+    assert route.outcome == "abort"
+    assert closed.admitted == [] and closed.refused == []
+    assert reopened.admitted == [] and reopened.refused == []

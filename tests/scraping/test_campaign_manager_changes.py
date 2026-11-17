@@ -102,6 +102,7 @@ def _record(**overrides: Any) -> dict:
 @dataclass(frozen=True)
 class Req:
     call: CmCall
+    url: str
     method: str
     restli_method: str | None
     body: Any
@@ -114,8 +115,16 @@ def _req(
     entity_id: str | None = CAMPAIGN,
     restli: str | None = "partial_update",
     method: str = "POST",
+    path: str | None = None,
+    params: dict[str, str] | None = None,
 ) -> Req:
-    return Req(CmCall(resource, entity_id, None, {}), method, restli, body)
+    if path is None:
+        path = resource if entity_id is None else f"{resource}/{entity_id}"
+    url = f"https://www.linkedin.com/campaign-manager-api/{path}"
+    if params:
+        url += "?" + "&".join(f"{key}={value}" for key, value in params.items())
+    call = CmCall(resource, entity_id, None, params or {})
+    return Req(call, url, method, restli, body)
 
 
 def _patch(**patch: Any) -> Req:
@@ -627,6 +636,47 @@ def test_patch_schedule_on_path_and_nested_form():
     assert _admit(nested_start_delete, record, allowed=end_only)
 
 
+def test_patch_targeting_path_does_not_follow_renumbered_blocks():
+    skills, titles = "urn:li:skill:1", "urn:li:title:2"
+    industry = "urn:li:industry:3"
+
+    def criteria(*blocks: dict) -> dict:
+        return {"include": {"and": [{"or": block} for block in blocks]}}
+
+    record = {
+        "status": "DRAFT",
+        "targetingCriteria": criteria({SKILLS: [skills]}, {TITLES: [titles]}),
+    }
+    plan = plan_targeting(
+        record["targetingCriteria"],
+        add=[(industry, INDUSTRIES, False)],
+        remove=[skills],
+    )
+    assert isinstance(plan, TargetingPlan)
+    allowed = {"targetingCriteria": plan.target}
+    path = ("targetingCriteria",)
+
+    def sent(*blocks: dict) -> Req:
+        return _patch(**{"$set": {"targetingCriteria": criteria(*blocks)}})
+
+    # The kept titles block is gone.
+    dropped = sent({SKILLS: [skills]})
+    assert _admit(dropped, record, allowed=allowed, path_fields=path)
+    # Two blocks merged into one OR widen the audience.
+    merged = sent({SKILLS: [skills], TITLES: [titles]})
+    assert _admit(merged, record, allowed=allowed, path_fields=path)
+    # The remove saved, the add not yet; then the new block alone.
+    removed = sent({TITLES: [titles]})
+    assert _admit(removed, record, allowed=allowed, path_fields=path) is None
+    added = sent({SKILLS: [skills]}, {TITLES: [titles]}, {INDUSTRIES: [industry]})
+    assert _admit(added, record, allowed=allowed, path_fields=path) is None
+    done = sent({TITLES: [titles]}, {INDUSTRIES: [industry]})
+    assert _admit(done, record, allowed=allowed) is None
+    # The new facet ORed into the kept block is not its own block.
+    joined = sent({TITLES: [titles], INDUSTRIES: [industry]})
+    assert _admit(joined, record, allowed=allowed, path_fields=path)
+
+
 def test_patch_targeting_on_path_subset_and_off_path_urn():
     record = _record()
     plan = plan_targeting(
@@ -680,7 +730,7 @@ def test_status_admission():
     )
 
 
-def _create(**body: Any) -> Req:
+def _create(path: str | None = None, params=None, **body: Any) -> Req:
     base = {
         "status": "DRAFT",
         "accountId": int(ACCOUNT),
@@ -689,7 +739,7 @@ def _create(**body: Any) -> Req:
         "name": "",
     }
     base.update(body)
-    return _req(base, entity_id=None, restli="create")
+    return _req(base, entity_id=None, restli="create", path=path, params=params)
 
 
 def test_campaign_create_admission():
@@ -703,6 +753,41 @@ def test_campaign_create_admission():
     assert fresh()(_create(campaignGroupId=100000009))
     assert fresh()(_create(objectiveType="LEAD_GENERATION"))
     assert fresh()(_create()) is None
+
+
+def test_create_admissions_refuse_sub_paths_actions_and_other_methods():
+    def fresh():
+        return admit_campaign_create(
+            account_id=ACCOUNT, group_id=GROUP, objective="WEBSITE_VISIT"
+        )
+
+    sub_path = _create(path="campaignManagerCampaigns/draft")
+    assert "sub-path" in _reason(fresh()(sub_path))
+    action = _create(params={"action": "duplicate"})
+    assert "action" in _reason(fresh()(action))
+    signed_url = {
+        "owner": f"urn:li:sponsoredAccount:{ACCOUNT}",
+        "uploadType": "MATCHED_AUDIENCE",
+        "requestType": "UPLOAD",
+    }
+
+    def upload(**kwargs: Any) -> Req:
+        return _req(
+            signed_url,
+            resource="campaignManagerAmbrySignedUrl",
+            entity_id=None,
+            **kwargs,
+        )
+
+    def lists():
+        return admit_list_upload(account_id=ACCOUNT, name="Example list")
+
+    assert lists()(upload(restli=None)) is None
+    assert lists()(upload(restli="create")) is None
+    assert "not a create" in _reason(lists()(upload(restli="batch_create")))
+    sub = upload(restli=None, path="campaignManagerAmbrySignedUrl/x")
+    assert "sub-path" in _reason(lists()(sub))
+    assert "action" in _reason(lists()(upload(restli=None, params={"action": "x"})))
 
 
 def test_campaign_create_admits_only_one_create():

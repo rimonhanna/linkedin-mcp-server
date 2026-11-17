@@ -14,8 +14,9 @@ container attribute and position.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from typing import Any
 from urllib.parse import urlparse
 
@@ -37,6 +38,9 @@ from linkedin_mcp_server.scraping.campaign_manager_guard import (
     without_campaign_manager_writes,
 )
 from linkedin_mcp_server.scraping.campaign_manager_payload import normalized_record
+from linkedin_mcp_server.scraping.campaign_manager_results import (
+    campaign_action_result,
+)
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
     normalize_ad_account_id,
@@ -84,6 +88,53 @@ def _not_found(message: str) -> Refusal:
         f"{message} Nothing was changed. Pass the ad_account_id and campaign_id "
         "exactly as list_campaigns returned them.",
     )
+
+
+class WriteLedger:
+    """Every write window one tool call opened, for the tool's error path.
+
+    A flow catches only its own stop types, so a Playwright timeout, a closed
+    page or a cancellation after a write left the browser escapes it. The tool
+    layer reads this ledger then: with a write admitted the outcome is
+    ``save_unverified`` and counted, never an error the agent retries.
+    """
+
+    def __init__(self) -> None:
+        self.windows: list[WriteWindow] = []
+        self.url = ""
+
+    @property
+    def admitted(self) -> bool:
+        return any(window.admitted for window in self.windows)
+
+    def unverified(self, tool: str, error: BaseException) -> dict[str, Any]:
+        """The result for ``error`` raised after a write was admitted."""
+        return campaign_action_result(
+            tool,
+            self.url,
+            "save_unverified",
+            "A change was sent to LinkedIn, then the tool stopped on an "
+            f"unexpected error ({type(error).__name__}), so whether LinkedIn "
+            "kept it is unknown. Check Campaign Manager before calling again.",
+            retry_safe=False,
+            refused=[pair for window in self.windows for pair in window.refused],
+        )
+
+
+_ledger: ContextVar[WriteLedger | None] = ContextVar(
+    "campaign_write_ledger", default=None
+)
+
+
+@contextmanager
+def tracking_writes() -> Iterator[WriteLedger]:
+    """Collect the write windows opened in this context into one ledger."""
+    ledger = WriteLedger()
+    token = _ledger.set(ledger)
+    try:
+        yield ledger
+    finally:
+        _ledger.reset(token)
 
 
 class _RoutePin:
@@ -195,7 +246,9 @@ class CampaignWriteFlow:
         Once the main frame moves to a path that is neither the one at entry
         nor one ``expected_path`` accepts, every further write is refused and
         ``moved_to`` names the path, so a click that took the app somewhere
-        unplanned cannot save anything there.
+        unplanned cannot save anything there. The window joins the current
+        ``tracking_writes`` ledger, so an error after an admitted write is
+        reported as unverified by the tool layer whichever flow raised it.
         """
         pin = _RoutePin(page, expected_path)
         self._pin = pin
@@ -208,6 +261,10 @@ class CampaignWriteFlow:
         page.on("framenavigated", pin.listener)
         try:
             async with explicit_campaign_write(page, admit=pinned) as window:
+                ledger = _ledger.get()
+                if ledger is not None:
+                    ledger.windows.append(window)
+                    ledger.url = page.url
                 yield window
         finally:
             try:
