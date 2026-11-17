@@ -268,7 +268,13 @@ def register_campaign_manager_tools(
             (impressions, clicks, costInLocalCurrency, and the cost-per
             figures only when LinkedIn supplies them), plus the date window
             used and whether it came from the page or from the request.
-            An empty period is valid and returns no rows.
+            An empty period is valid and returns no rows. Campaign Manager's
+            table often asks only for the entities its status filter shows;
+            then the rows cover those, section_errors.analytics (and any
+            partial demographics_<pivot>) has error_type page_limit saying
+            how many were left out, and uncovered lists each one left out
+            ({kind, id, name, status}). Drafts never run, so they are never
+            counted as left out. Partial figures are not the account's totals.
         """
         try:
             ad_account_id = normalize_ad_account_id(ad_account_id)

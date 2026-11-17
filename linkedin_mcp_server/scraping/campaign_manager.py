@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from datetime import date
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 from urllib.parse import urlparse
 
 import logging
@@ -29,6 +29,7 @@ from linkedin_mcp_server.scraping.campaign_manager_api import (
     CmResponse,
     analytics_call_matches,
     period_order,
+    template_call,
 )
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
     without_campaign_manager_writes,
@@ -100,6 +101,8 @@ _REPORTING_LISTS = {
     "campaignManagerReportingCampaigns": "campaign",
     "campaignManagerReportingCreatives": "creative",
 }
+# A draft never served, so analytics need not cover it.
+_NEVER_DELIVERED = "DRAFT"
 # What LinkedIn answers for an entity the member cannot open or that is gone.
 _REFUSED_STATUSES = frozenset({403, 404})
 
@@ -622,6 +625,8 @@ class CampaignManagerReader:
         url = campaign_manager_url(account, _LEVEL_TABS[level])
         section_errors: dict[str, dict[str, str]] = {}
         demographic_rows: dict[str, list[AnalyticsRow]] = {}
+        partial_demographics: set[str] = set()
+        uncovered: dict[tuple[str, int], dict[str, Any]] = {}
 
         async with self._reading() as capture:
 
@@ -694,7 +699,7 @@ class CampaignManagerReader:
                     "sections": {},
                     "section_errors": {"analytics": _redirect_error("reporting table")},
                 }
-            payload, window, level_error = await _level_payload(
+            payload, window, level_error, gaps = await _level_payload(
                 capture, capture.matching(is_level), requested, pivot, account
             )
             if payload is None:
@@ -709,6 +714,8 @@ class CampaignManagerReader:
                 }
             if level_error is not None:
                 section_errors["analytics"] = level_error
+            for entity in _uncovered(gaps):
+                uncovered.setdefault((entity["kind"], entity["id"]), entity)
             if wanted:
                 demographics_url = campaign_manager_url(account, "/demographics")
 
@@ -750,13 +757,19 @@ class CampaignManagerReader:
                         section_errors[name] = failure
                         continue
                     try:
-                        rows = await _demographic_rows(
+                        rows, facet_gaps = await _demographic_rows(
                             capture, facet, window, account, is_demographic
                         )
                     except LinkedInScraperException as exc:
                         section_errors[name] = _error("unavailable", str(exc))
                         continue
                     demographic_rows[facet] = rows
+                    facet_error = _gap_error(facet_gaps, "demographics")
+                    if facet_error is not None:
+                        section_errors[name] = facet_error
+                        partial_demographics.add(facet)
+                    for entity in _uncovered(facet_gaps):
+                        uncovered.setdefault((entity["kind"], entity["id"]), entity)
 
         rows = build_analytics_rows(payload, pivot)
         if rows is None:
@@ -778,14 +791,20 @@ class CampaignManagerReader:
         if demographic_rows:
             analytics["demographics"] = demographic_rows
             for facet, items in demographic_rows.items():
-                sections[f"demographics_{facet}"] = render_analytics(
-                    items, date_window, currency
-                )
+                text = render_analytics(items, date_window, currency)
+                if facet in partial_demographics:
+                    text = (
+                        "partial, not the ad account's total: see section_errors\n"
+                        + text
+                    )
+                sections[f"demographics_{facet}"] = text
         result: dict[str, Any] = {
             "url": url,
             "sections": sections,
             "analytics": analytics,
         }
+        if uncovered:
+            result["uncovered"] = list(uncovered.values())
         if section_errors:
             result["section_errors"] = section_errors
         return result
@@ -829,10 +848,10 @@ def _unmatched_detail(capture: CampaignManagerCapture, pivot: str) -> str | None
 
 def _reporting_lists(
     capture: CampaignManagerCapture, account_id: str
-) -> dict[str, tuple[set[str], int | None]]:
-    """Per kind, ids the page's reporting lists showed and the largest total."""
-    lists: dict[str, tuple[set[str], int | None]] = {
-        kind: (set(), None) for kind in _REPORTING_LISTS.values()
+) -> dict[str, tuple[dict[str, dict[str, Any]], int | None]]:
+    """Per kind, the entities the page's reporting lists showed by id, and the largest total."""
+    lists: dict[str, tuple[dict[str, dict[str, Any]], int | None]] = {
+        kind: ({}, None) for kind in _REPORTING_LISTS.values()
     }
     for response in capture.matching(
         lambda r: (
@@ -840,14 +859,27 @@ def _reporting_lists(
         )
     ):
         kind = _REPORTING_LISTS[response.call.resource]
-        ids, total = lists[kind]
+        listed, total = lists[kind]
         for element in envelope_elements(response.payload) or []:
             if isinstance(element.get("id"), int):
-                ids.add(str(element["id"]))
+                listed.setdefault(str(element["id"]), _listed(kind, element))
         reported = envelope_total(response.payload)
         if reported is not None and (total is None or reported > total):
-            lists[kind] = (ids, reported)
+            lists[kind] = (listed, reported)
     return lists
+
+
+def _listed(kind: str, element: dict[str, Any]) -> dict[str, Any]:
+    entity: dict[str, Any] = {"kind": kind, "id": element["id"]}
+    if isinstance(element.get("name"), str):
+        entity["name"] = element["name"]
+    status = element.get("status")
+    if not isinstance(status, str):
+        v2 = element.get("statusV2")
+        status = v2.get("status") if isinstance(v2, dict) else None
+    if isinstance(status, str):
+        entity["status"] = status
+    return entity
 
 
 def _echoes_account(
@@ -862,31 +894,91 @@ def _echoes_account(
     lists = _reporting_lists(capture, account_id)
     return all(
         (ids := restli_list(call.params[key]))
-        and set(ids) <= lists[SCOPE_ID_PARAMS[key]][0]
+        and set(ids) <= lists[SCOPE_ID_PARAMS[key]][0].keys()
         for key in scoped
     )
 
 
-def _covers_account(
-    capture: CampaignManagerCapture, call: CmCall, account_id: str
-) -> bool:
-    """Whether a query reads the whole account, so a replay is no subset.
+def _scoped_ids(call: CmCall) -> dict[str, set[str]]:
+    return {
+        kind: set(restli_list(call.params[key]))
+        for key, kind in SCOPE_ID_PARAMS.items()
+        if key in call.params
+    }
 
-    Account-wide, or ids holding every entity the reporting lists counted.
+
+class _Gap(NamedTuple):
+    """Entities that can have delivery which a query's ids leave out."""
+
+    kind: str
+    required: int
+    missing: list[dict[str, Any]]
+    unlisted: int
+
+
+def _gaps(
+    capture: CampaignManagerCapture, scoped: dict[str, set[str]], account_id: str
+) -> list[_Gap]:
+    """Per scoped kind, what the ids asked for leave out; empty when nothing is.
+
+    A draft never ran, so only the other statuses must be covered. Entities the
+    reporting list counted but did not show have no id or status to check.
     """
+    lists = _reporting_lists(capture, account_id)
+    gaps = []
+    for kind, ids in scoped.items():
+        listed, total = lists[kind]
+        unlisted = max(0, (total or 0) - len(listed))
+        required = [
+            entity
+            for entity in listed.values()
+            if entity.get("status") != _NEVER_DELIVERED
+        ]
+        missing = [entity for entity in required if str(entity["id"]) not in ids]
+        if missing or unlisted:
+            gaps.append(_Gap(kind, len(required) + unlisted, missing, unlisted))
+    return gaps
+
+
+def _full(capture: CampaignManagerCapture, call: CmCall, account_id: str) -> bool:
+    """Whether a query reads every entity that can have delivery, so a replay is no subset."""
     if call.params.get("accountIds") is not None:
         return _account_wide(call, account_id)
-    scoped = [key for key in SCOPE_ID_PARAMS if key in call.params]
-    if not scoped:
-        return False
-    lists = _reporting_lists(capture, account_id)
-    for key in scoped:
-        known, total = lists[SCOPE_ID_PARAMS[key]]
-        if total is None or len(known) < total:
-            return False
-        if not known <= set(restli_list(call.params[key])):
-            return False
-    return True
+    scoped = _scoped_ids(call)
+    return bool(scoped) and not _gaps(capture, scoped, account_id)
+
+
+def _gap_error(gaps: list[_Gap], what: str) -> dict[str, str] | None:
+    """The page_limit naming what the reporting table's ids left out."""
+    if not gaps:
+        return None
+    parts = []
+    for gap in gaps:
+        name = f"{gap.kind.replace('_', ' ')}s"
+        left = len(gap.missing) + gap.unlisted
+        part = (
+            f"{left} of its {gap.required} {name} that can have delivery "
+            f"{'was' if left == 1 else 'were'} not covered"
+        )
+        if gap.missing:
+            part += ": " + ", ".join(str(entity["id"]) for entity in gap.missing)
+        if gap.unlisted:
+            part += (
+                f" ({gap.unlisted} not shown in Campaign Manager's list, so their "
+                "ids are unknown)"
+            )
+        parts.append(part)
+    return _error(
+        "page_limit",
+        f"Campaign Manager's reporting table asked LinkedIn for {what} of only "
+        f"part of this ad account: {'; '.join(parts)}. Drafts never run, so "
+        "they are left out. The missing ones are listed in uncovered, so these "
+        "figures are not the ad account's totals.",
+    )
+
+
+def _uncovered(gaps: list[_Gap]) -> list[dict[str, Any]]:
+    return [entity for gap in gaps for entity in gap.missing]
 
 
 def _range_of(call: CmCall) -> tuple[date, date] | None:
@@ -895,18 +987,18 @@ def _range_of(call: CmCall) -> tuple[date, date] | None:
 
 def _merged_level(
     capture: CampaignManagerCapture, responses: list[CmResponse], account_id: str
-) -> tuple[Any, dict[str, str] | None]:
-    """One period's reporting replies as one payload, and a coverage error.
+) -> tuple[Any, list[_Gap]]:
+    """One period's reporting replies as one payload, and what they leave out.
 
     An account-wide reply holds every entity. Otherwise the page asked for
-    the ids on screen in chunks, so the rows merge by their pivot URNs (one
-    element per entity and objective type) and the ids asked for are checked
-    against the reporting list's total. Replies projecting different metrics
+    the ids its status filter shows, in chunks, so the rows merge by their
+    pivot URNs (one element per entity and objective type) and the ids asked
+    for are checked against the reporting list. Replies projecting different metrics
     for one row add up to the union of those metrics.
     """
     for response in responses:
         if _account_wide(response.call, account_id):
-            return response.payload, None
+            return response.payload, []
     rows: dict[tuple[str, ...], dict[str, Any]] = {}
     scoped: dict[str, set[str]] = {}
     for response in responses:
@@ -932,19 +1024,7 @@ def _merged_level(
                 scoped.setdefault(kind, set()).update(
                     restli_list(response.call.params[key])
                 )
-    lists = _reporting_lists(capture, account_id)
-    error = None
-    for kind, ids in scoped.items():
-        known, total = lists[kind]
-        expected = total if total is not None else len(known)
-        if len(ids) < expected:
-            name = f"{kind.replace('_', ' ')}s"
-            error = _error(
-                "page_limit",
-                f"Campaign Manager reported {expected} {name} and its reporting "
-                f"table asked for analytics of {len(ids)}; the rest were not read.",
-            )
-    return {"elements": list(rows.values())}, error
+    return {"elements": list(rows.values())}, _gaps(capture, scoped, account_id)
 
 
 async def _level_payload(
@@ -953,10 +1033,11 @@ async def _level_payload(
     requested: tuple[date, date] | None,
     pivot: str,
     account_id: str,
-) -> tuple[Any, tuple[date, date], dict[str, str] | None]:
+) -> tuple[Any, tuple[date, date], dict[str, str] | None, list[_Gap]]:
     """The reporting table's rows for the period wanted, replaying if needed.
 
     The payload is None, with the error, when the period cannot be read.
+    A query whose ids leave entities out is still read, with its gaps.
     """
     if requested is None:
         latest = max(passive, key=lambda r: period_order(r.call.params))
@@ -966,26 +1047,41 @@ async def _level_payload(
         window = requested
     same = [response for response in passive if _range_of(response.call) == window]
     if same:
-        payload, error = _merged_level(capture, same, account_id)
-        return payload, window, error
-    # An id-scoped query short of the account's ids would replay a subset.
-    template = capture.analytics_template(
-        q="statistics",
-        pivot=pivot,
-        accept=lambda call: _covers_account(capture, call, account_id),
-    )
+        payload, gaps = _merged_level(capture, same, account_id)
+        return payload, window, _gap_error(gaps, "analytics"), gaps
+    template, gaps = _template(capture, "statistics", pivot, account_id)
     if template is None:
         return (
             None,
             window,
             _error(
                 "unavailable",
-                "Campaign Manager did not expose a reporting query for the whole "
-                "ad account, so the requested period could not be read.",
+                "Campaign Manager did not expose a reporting query for this ad "
+                "account, so the requested period could not be read.",
             ),
+            [],
         )
     payload = await capture.replay_analytics(template, date_range=window, pivot=None)
-    return payload, window, None
+    return payload, window, _gap_error(gaps, "analytics"), gaps
+
+
+def _template(
+    capture: CampaignManagerCapture, q: str, pivot: str | None, account_id: str
+) -> tuple[Any, list[_Gap]]:
+    """The page's query to replay, one covering the account first, and its gaps."""
+    template = capture.analytics_template(
+        q=q, pivot=pivot, accept=lambda call: _full(capture, call, account_id)
+    )
+    if template is not None:
+        return template, []
+    template = capture.analytics_template(
+        q=q,
+        pivot=pivot,
+        accept=lambda call: _echoes_account(capture, call, account_id),
+    )
+    if template is None:
+        return None, []
+    return template, _gaps(capture, _scoped_ids(template_call(template)), account_id)
 
 
 async def _demographic_rows(
@@ -994,25 +1090,25 @@ async def _demographic_rows(
     window: tuple[date, date],
     account_id: str,
     is_demographic: Callable[[CmResponse], bool],
-) -> list[AnalyticsRow]:
-    def whole(call: CmCall) -> bool:
-        return _covers_account(capture, call, account_id)
-
-    payload: Any = None
-    for response in capture.matching(is_demographic):
-        if (
-            response.call.params.get("pivot") == facet
-            and _range_of(response.call) == window
-            and whole(response.call)
-        ):
-            payload = response.payload
-            break
+) -> tuple[list[AnalyticsRow], list[_Gap]]:
+    """One facet's rows for the window, and what the query's ids left out."""
+    seen = [
+        response
+        for response in capture.matching(is_demographic)
+        if response.call.params.get("pivot") == facet
+        and _range_of(response.call) == window
+    ]
+    full = [r for r in seen if _full(capture, r.call, account_id)]
+    if full or seen:
+        response = (full or seen)[0]
+        payload = response.payload
+        gaps = [] if full else _gaps(capture, _scoped_ids(response.call), account_id)
     else:
-        template = capture.analytics_template(q="analytics", pivot=None, accept=whole)
+        template, gaps = _template(capture, "analytics", None, account_id)
         if template is None:
             raise LinkedInScraperException(
-                "Campaign Manager did not expose a demographics query for the "
-                "whole ad account."
+                "Campaign Manager did not expose a demographics query for this "
+                "ad account."
             )
         payload = await capture.replay_analytics(
             template, date_range=window, pivot=facet
@@ -1022,4 +1118,4 @@ async def _demographic_rows(
         raise LinkedInScraperException(
             f"Campaign Manager returned {facet} demographics in an unrecognised shape."
         )
-    return rows
+    return rows, gaps

@@ -291,7 +291,10 @@ async def test_campaign_ids_short_of_the_account_report_a_page_limit(mock_page):
     assert result["analytics"]["rows"] == []
     error = result["section_errors"]["analytics"]
     assert error["error_type"] == "page_limit"
-    assert "reported 3 campaigns" in error["error_message"]
+    assert (
+        f"1 of its 3 campaigns that can have delivery was not covered: {FIRST + 2}"
+        in error["error_message"]
+    )
 
 
 async def test_an_id_list_covering_the_account_is_replayed_for_a_period(mock_page):
@@ -423,7 +426,9 @@ def _demographic(scope: str, rows: list[dict[str, Any]]) -> SimpleNamespace:
 
 
 @pytest.mark.parametrize("total, read", [(2, True), (3, False)])
-async def test_demographics_need_ids_covering_the_account(mock_page, total, read):
+async def test_demographics_short_of_the_account_are_marked_partial(
+    mock_page, total, read
+):
     ids = [FIRST, FIRST + 1]
     browser = _Browser(mock_page)
     browser.loads[_url("/campaigns")] = [
@@ -456,10 +461,15 @@ async def test_demographics_need_ids_covering_the_account(mock_page, total, read
     )
 
     assert browser.replayed == []
-    demographics = result["analytics"].get("demographics", {})
+    demographics = result["analytics"]["demographics"]
+    assert demographics["MEMBER_JOB_FUNCTION"][0]["costInLocalCurrency"] == 4.0
+    errors = result.get("section_errors", {})
+    text = result["sections"]["demographics_MEMBER_JOB_FUNCTION"]
     if read:
-        assert demographics["MEMBER_JOB_FUNCTION"][0]["costInLocalCurrency"] == 4.0
+        assert errors == {}
+        assert not text.startswith("partial")
     else:
-        assert "MEMBER_JOB_FUNCTION" not in demographics
-        error = result["section_errors"]["demographics_MEMBER_JOB_FUNCTION"]
-        assert "whole ad account" in error["error_message"]
+        error = errors["demographics_MEMBER_JOB_FUNCTION"]
+        assert error["error_type"] == "page_limit"
+        assert "not the ad account's totals" in error["error_message"]
+        assert text.startswith("partial, not the ad account's total")

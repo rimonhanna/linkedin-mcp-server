@@ -757,7 +757,7 @@ async def test_analytics_merges_id_scoped_chunks_and_flags_short_coverage(
     assert errors.get("analytics", {}).get("error_type") == error
 
 
-async def test_analytics_refuses_to_replay_an_id_scoped_query(mock_page):
+async def test_analytics_replays_an_id_scoped_query_and_names_the_gap(mock_page):
     browser = _Browser(mock_page)
     url = _url("/campaign-groups")
     # The ids asked for are one of the account's two groups: a replay is a subset.
@@ -765,6 +765,7 @@ async def test_analytics_refuses_to_replay_an_id_scoped_query(mock_page):
         _group_list([GROUP], 2),
         _scoped_statistics([GROUP], [_group_row(GROUP, 5)]),
     ]
+    browser.replies = [{"status": 200, "payload": {"elements": [_group_row(GROUP, 7)]}}]
 
     result = await _run(
         mock_page,
@@ -777,9 +778,11 @@ async def test_analytics_refuses_to_replay_an_id_scoped_query(mock_page):
         ),
     )
 
-    assert browser.replayed == []
-    assert "analytics" not in result
-    assert result["section_errors"]["analytics"]["error_type"] == "unavailable"
+    assert len(browser.replayed) == 1
+    assert result["analytics"]["rows"][0]["impressions"] == 7
+    error = result["section_errors"]["analytics"]
+    assert error["error_type"] == "page_limit"
+    assert "1 not shown in Campaign Manager's list" in error["error_message"]
 
 
 async def test_demographics_page_that_never_loads_keeps_the_level_rows(mock_page):
