@@ -63,6 +63,11 @@ PUBLIC_SIGNATURES = {
     "list_audiences": "(self, account_id: 'str') -> 'dict[str, Any]'",
     "create_company_list_audience": "(self, account_id: 'str', name: 'str', companies: 'Sequence[Mapping[str, Any]]', *, confirm_send: 'bool') -> 'dict[str, Any]'",
     "create_saved_audience": "(self, account_id: 'str', campaign_id: 'str', name: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
+    "search_sales_navigator_accounts": "(self, *, keywords: 'str | None' = None, industry: 'Sequence[str] | None' = None, hq_location: 'Sequence[str] | None' = None, size: 'Sequence[str] | None' = None, headcount_growth_min: 'int | None' = None, headcount_growth_max: 'int | None' = None, page: 'int' = 1) -> 'dict[str, Any]'",
+    "search_sales_navigator_leads": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'",
+    "get_sales_navigator_account": "(self, company_id: 'str') -> 'dict[str, Any]'",
+    "list_sales_navigator_account_lists": "(self) -> 'dict[str, Any]'",
+    "get_sales_navigator_account_list": "(self, list_id: 'str') -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
     "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
 }
@@ -103,6 +108,11 @@ DELEGATES = {
     "list_audiences": ("_audiences", "list_audiences"),
     "create_company_list_audience": ("_audiences", "create_company_list_audience"),
     "create_saved_audience": ("_audiences", "create_saved_audience"),
+    "search_sales_navigator_accounts": ("_sales_navigator", "search_accounts"),
+    "search_sales_navigator_leads": ("_sales_navigator", "search_leads"),
+    "get_sales_navigator_account": ("_sales_navigator", "get_account"),
+    "list_sales_navigator_account_lists": ("_sales_navigator", "list_account_lists"),
+    "get_sales_navigator_account_list": ("_sales_navigator", "get_account_list"),
 }
 
 DELEGATE_CALLS = {
@@ -141,6 +151,11 @@ DELEGATE_CALLS = {
     "list_audiences": "self._audiences.list_audiences(account_id)",
     "create_company_list_audience": "self._audiences.create_company_list_audience(account_id, name, companies, confirm_send=confirm_send)",
     "create_saved_audience": "self._audiences.create_saved_audience(account_id, campaign_id, name, confirm_send=confirm_send)",
+    "search_sales_navigator_accounts": "self._sales_navigator.search_accounts(keywords=keywords, industry=industry, hq_location=hq_location, size=size, headcount_growth_min=headcount_growth_min, headcount_growth_max=headcount_growth_max, page=page)",
+    "search_sales_navigator_leads": "self._sales_navigator.search_leads(keywords=keywords, title=title, seniority=seniority, current_company=current_company, location=location, industry=industry, page=page)",
+    "get_sales_navigator_account": "self._sales_navigator.get_account(company_id)",
+    "list_sales_navigator_account_lists": "self._sales_navigator.list_account_lists()",
+    "get_sales_navigator_account_list": "self._sales_navigator.get_account_list(list_id)",
 }
 
 FACADE_STATE = {
@@ -159,6 +174,7 @@ FACADE_STATE = {
     "_message_sender",
     "_person",
     "_posts",
+    "_sales_navigator",
 }
 
 PERMANENT_ALIASES = {

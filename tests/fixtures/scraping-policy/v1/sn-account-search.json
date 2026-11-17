@@ -1,0 +1,222 @@
+{
+  "call": {
+    "arguments": {
+      "hq_location": [
+        "100000099"
+      ],
+      "industry": [
+        "4"
+      ],
+      "keywords": "cloud ai, saas: b2b",
+      "page": 2,
+      "size": [
+        "B"
+      ]
+    },
+    "method": "search_sales_navigator_accounts"
+  },
+  "events": [
+    {
+      "call": "search_sales_navigator_accounts",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "callback_id": "callback-3",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/search/company?query=(spellCorrectionEnabled%3Atrue,keywords%3Acloud%2520ai%252C%2520saas%253A%2520b2b,filters%3AList((type%3AINDUSTRY,values%3AList((id%3A4,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED))),(type%3ACOMPANY_HEADCOUNT,values%3AList((id%3AB,selectionType%3AINCLUDED)))))&page=2",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/search/company?query=(spellCorrectionEnabled%3Atrue,keywords%3Acloud%2520ai%252C%2520saas%253A%2520b2b,filters%3AList((type%3AINDUSTRY,values%3AList((id%3A4,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED))),(type%3ACOMPANY_HEADCOUNT,values%3AList((id%3AB,selectionType%3AINCLUDED)))))&page=2",
+      "requested_url": "https://www.linkedin.com/sales/search/company?query=(spellCorrectionEnabled%3Atrue,keywords%3Acloud%2520ai%252C%2520saas%253A%2520b2b,filters%3AList((type%3AINDUSTRY,values%3AList((id%3A4,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED))),(type%3ACOMPANY_HEADCOUNT,values%3AList((id%3AB,selectionType%3AINCLUDED)))))&page=2",
+      "section": "account_search",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "kind": "wait_for_load_state",
+      "section": "account_search",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "description": "goto https://www.linkedin.com/sales/search/company?query=(spellCorrectionEnabled%3Atrue,keywords%3Acloud%2520ai%252C%2520saas%253A%2520b2b,filters%3AList((type%3AINDUSTRY,values%3AList((id%3A4,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED))),(type%3ACOMPANY_HEADCOUNT,values%3AList((id%3AB,selectionType%3AINCLUDED)))))&page=2",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/search/company?query=(spellCorrectionEnabled%3Atrue,keywords%3Acloud%2520ai%252C%2520saas%253A%2520b2b,filters%3AList((type%3AINDUSTRY,values%3AList((id%3A4,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED))),(type%3ACOMPANY_HEADCOUNT,values%3AList((id%3AB,selectionType%3AINCLUDED)))))&page=2",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "callback_id": "callback-3",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "kind": "boundary.rate_limit",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "account_search"
+    },
+    {
+      "call": "search_sales_navigator_accounts",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "account_search"
+    }
+  ],
+  "result": {
+    "accounts": [
+      {
+        "employeeCountRange": "11-50",
+        "id": "100000001",
+        "industry": "Example industry",
+        "name": "Example Company",
+        "salesNavigatorUrl": "https://www.linkedin.com/sales/company/100000001"
+      }
+    ],
+    "paging": {
+      "capped": false,
+      "count": 25,
+      "more": false,
+      "page": 2,
+      "resultCap": 1000,
+      "start": 25,
+      "total": 30
+    },
+    "section_names": [
+      "accounts"
+    ],
+    "sections": {
+      "accounts": "Example Company (id 100000001): Example industry, 11-50"
+    },
+    "url": "https://www.linkedin.com/sales/search/company?query=(spellCorrectionEnabled%3Atrue,keywords%3Acloud%2520ai%252C%2520saas%253A%2520b2b,filters%3AList((type%3AINDUSTRY,values%3AList((id%3A4,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED))),(type%3ACOMPANY_HEADCOUNT,values%3AList((id%3AB,selectionType%3AINCLUDED)))))&page=2"
+  },
+  "scenario": "search_sales_navigator_accounts__page_two_filters_echoed",
+  "schema_version": 1
+}

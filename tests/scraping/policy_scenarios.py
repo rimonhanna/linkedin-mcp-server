@@ -19,6 +19,7 @@ from patchright.async_api import Page
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.callbacks import ProgressCallback
+from linkedin_mcp_server.core.exceptions import LinkedInScraperException
 from linkedin_mcp_server.pacing import JobStore
 from linkedin_mcp_server.scraping import campaign_manager_editor as cm_editor_module
 from linkedin_mcp_server.scraping import (
@@ -34,6 +35,14 @@ from linkedin_mcp_server.scraping import navigation as navigation_module
 from linkedin_mcp_server.scraping import person as person_module
 from linkedin_mcp_server.scraping import session as session_module
 from linkedin_mcp_server.scraping.messaging_api import MessagingApiCapture
+from linkedin_mcp_server.scraping.sales_navigator_payload import (
+    COMPANY_HEADCOUNT,
+    INDUSTRY,
+    REGION,
+    SENIORITY_LEVEL,
+    SearchFilter,
+    build_search_query,
+)
 from linkedin_mcp_server.scraping import LinkedInExtractor
 from linkedin_mcp_server.scraping.fields import COMPANY_SECTIONS, PERSON_SECTIONS
 from linkedin_mcp_server.server import create_mcp_server
@@ -1602,6 +1611,296 @@ async def _cm_analytics_scenario() -> dict[str, Any]:
     )
 
 
+_SN_API = "https://www.linkedin.com/sales-api/"
+_SN_COMPANY = "100000001"
+_SN_LIST = "100000301"
+_SN_GEO = "100000099"
+
+
+def _sn_response(
+    path: str, payload: Any = None, *, method: str = "GET", status: int = 200
+) -> ScriptedCmResponse:
+    request = ScriptedCmRequest(_SN_API + path, method=method)
+    return ScriptedCmResponse(request, payload, status=status)
+
+
+def _sn_boot() -> list[ScriptedCmResponse]:
+    return [
+        _sn_response("salesApiAccess"),
+        _sn_response("salesApiEntitlements"),
+        _sn_response("salesApiWebAppBoot?action=recordBoot", method="POST"),
+    ]
+
+
+def _sn_search(
+    resource: str, query: str, start: int, elements: list[Any], total: int
+) -> ScriptedCmResponse:
+    return _sn_response(
+        f"{resource}?q=searchQuery&query={query}&start={start}&count=25"
+        "&decorationId=example",
+        {
+            "metadata": {},
+            "elements": elements,
+            "paging": {"start": start, "count": 25, "total": total},
+        },
+    )
+
+
+def _sn_lead(member: str, name: str, **extra: Any) -> dict[str, Any]:
+    return {
+        "entityUrn": f"urn:li:fs_salesProfile:({member},NAME_SEARCH,abc)",
+        "objectUrn": "urn:li:member:100000011",
+        "fullName": name,
+        "geoRegion": "Example region",
+        "seniorityV2s": [{"id": 310, "displayName": "CXO"}],
+        "currentPositions": [
+            {
+                "title": "Example title",
+                "companyName": "Example Company",
+                "companyUrn": f"urn:li:fs_salesCompany:{_SN_COMPANY}",
+                "current": True,
+            }
+        ],
+        **extra,
+    }
+
+
+def _sn_list_entry(list_id: int, name: str, count: int) -> dict[str, Any]:
+    return {
+        "id": list_id,
+        "name": name,
+        "listType": "ACCOUNT",
+        "entityCount": count,
+    }
+
+
+async def _sales_navigator_run(
+    name: str, page: ScriptedPage, method: str, arguments: dict[str, Any], call: Any
+) -> dict[str, Any]:
+    recorder = page.recorder
+    clock = FakeClock(recorder)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context(method, name):
+            try:
+                result = await call(extractor)
+            except LinkedInScraperException as exc:
+                page.assert_clean()
+                return recorder.trace(
+                    {"method": method, "arguments": arguments},
+                    {"raised": type(exc).__name__, "message": str(exc)},
+                )
+    page.assert_clean()
+    return recorder.trace(
+        {"method": method, "arguments": arguments},
+        _complete_mapping_result(result, section_names=list(result["sections"])),
+    )
+
+
+def _sn_page(name: str) -> ScriptedPage:
+    return _page(TraceRecorder(name, _COMMON_ALLOWED))
+
+
+async def _sn_account_search_scenario() -> dict[str, Any]:
+    page = _sn_page("search_sales_navigator_accounts__page_two_filters_echoed")
+    keywords = "cloud ai, saas: b2b"
+    filters = [
+        SearchFilter(INDUSTRY, ids=("4",)),
+        SearchFilter(REGION, ids=(_SN_GEO,)),
+        SearchFilter(COMPANY_HEADCOUNT, ids=("B",)),
+    ]
+    query = build_search_query(keywords, filters)
+    card = {
+        "entityUrn": f"urn:li:fs_salesCompany:{_SN_COMPANY}",
+        "companyName": "Example Company",
+        "industry": "Example industry",
+        "employeeCountRange": "11-50",
+    }
+    page.script(
+        "goto",
+        lambda: _cm_emit(
+            page,
+            [
+                *_sn_boot(),
+                # The page's first, unpaged call: page 2 must start at 25.
+                _sn_search("salesApiAccountSearch", query, 0, [], 30),
+                _sn_search("salesApiAccountSearch", query, 25, [card], 30),
+            ],
+        ),
+    )
+    arguments = {
+        "keywords": keywords,
+        "industry": ["4"],
+        "hq_location": [_SN_GEO],
+        "size": ["B"],
+        "page": 2,
+    }
+    return await _sales_navigator_run(
+        "account_search",
+        page,
+        "search_sales_navigator_accounts",
+        arguments,
+        lambda extractor: extractor.search_sales_navigator_accounts(**arguments),
+    )
+
+
+async def _sn_lead_search_scenario() -> dict[str, Any]:
+    page = _sn_page("search_sales_navigator_leads__one_withheld")
+    query = build_search_query(
+        None,
+        [
+            SearchFilter(SENIORITY_LEVEL, ids=("310",)),
+            SearchFilter(REGION, ids=(_SN_GEO,)),
+        ],
+    )
+    leads = [
+        _sn_lead("ACwAAA0001", "Example Person"),
+        _sn_lead("ACwAAA0002", "Withheld Person", blockThirdPartyDataSharing=True),
+    ]
+    page.script(
+        "goto",
+        lambda: _cm_emit(
+            page,
+            [*_sn_boot(), _sn_search("salesApiLeadSearch", query, 0, leads, 2)],
+        ),
+    )
+    arguments = {"seniority": ["cxo"], "location": [f"urn:li:geo:{_SN_GEO}"]}
+    trace = await _sales_navigator_run(
+        "lead_search",
+        page,
+        "search_sales_navigator_leads",
+        arguments,
+        lambda extractor: extractor.search_sales_navigator_leads(**arguments),
+    )
+    # The withheld lead is counted, never carried into the result.
+    assert "Withheld" not in json.dumps(trace["result"]), trace["result"]
+    return trace
+
+
+async def _sn_account_scenario() -> dict[str, Any]:
+    page = _sn_page("get_sales_navigator_account__both_decorations")
+    record = f"salesApiCompanies/{_SN_COMPANY}?decoration=example"
+    page.script(
+        "goto",
+        lambda: _cm_emit(
+            page,
+            [
+                *_sn_boot(),
+                _sn_response(
+                    record,
+                    {
+                        "entityUrn": f"urn:li:fs_salesCompany:{_SN_COMPANY}",
+                        "name": "Example Company",
+                        "website": "https://example.com",
+                        "employees": [{"fullName": "Example Person"}],
+                    },
+                ),
+                _sn_response(
+                    record, {"employeeCount": 42, "employeeDisplayCount": "42"}
+                ),
+            ],
+        ),
+    )
+    trace = await _sales_navigator_run(
+        "account",
+        page,
+        "get_sales_navigator_account",
+        {"company_id": _SN_COMPANY},
+        lambda extractor: extractor.get_sales_navigator_account(_SN_COMPANY),
+    )
+    assert "employees" not in trace["result"]["account"], trace["result"]
+    return trace
+
+
+async def _sn_account_lists_scenario() -> dict[str, Any]:
+    page = _sn_page("list_sales_navigator_account_lists__one_page")
+    page.script(
+        "goto",
+        lambda: _cm_emit(
+            page,
+            [
+                *_sn_boot(),
+                _sn_response(
+                    "salesApiLists?q=listType&listType=ACCOUNT&start=0&count=25",
+                    {
+                        "elements": [
+                            _sn_list_entry(100000301, "Example list", 26),
+                            _sn_list_entry(100000302, "Example other list", 3),
+                        ],
+                        "paging": {"start": 0, "count": 25, "total": 2},
+                    },
+                ),
+            ],
+        ),
+    )
+    return await _sales_navigator_run(
+        "account_lists",
+        page,
+        "list_sales_navigator_account_lists",
+        {},
+        lambda extractor: extractor.list_sales_navigator_account_lists(),
+    )
+
+
+async def _sn_account_list_scenario() -> dict[str, Any]:
+    page = _sn_page("get_sales_navigator_account_list__two_pages")
+
+    def table(start: int, count: int) -> ScriptedCmResponse:
+        return _sn_response(
+            f"salesApiDashboardAccountTable?q=list&listId={_SN_LIST}"
+            f"&accountDashboardListType=CUSTOM_LISTS&start={start}&count=25"
+            "&columns=List(UNIFIED_RECOMMENDED_LEAD)",
+            {
+                "elements": [
+                    {
+                        "companyInfo": {
+                            "entityUrn": "urn:li:fs_salesCompany:"
+                            f"{100000500 + start + index}",
+                            "name": "Example Company",
+                        },
+                        "recommendedLead": {"fullName": "Example Person"},
+                    }
+                    for index in range(count)
+                ],
+                "paging": {"start": start, "count": 25, "total": 26},
+            },
+        )
+
+    metadata = _sn_response(
+        f"salesApiLists/{_SN_LIST}?decoration=example",
+        {"id": int(_SN_LIST), "name": "Example list", "entityCount": 26},
+    )
+    page.script(
+        "goto",
+        lambda: _cm_emit(page, [*_sn_boot(), table(0, 25), metadata]),
+        lambda: _cm_emit(page, [table(25, 1)]),
+    )
+    trace = await _sales_navigator_run(
+        "account_list",
+        page,
+        "get_sales_navigator_account_list",
+        {"list_id": _SN_LIST},
+        lambda extractor: extractor.get_sales_navigator_account_list(_SN_LIST),
+    )
+    navigations = [e for e in trace["events"] if e["kind"] == "navigate"]
+    # Every page of the list is its own page load.
+    assert len(navigations) == 2, navigations
+    assert "recommendedLead" not in json.dumps(trace["result"]), trace["result"]
+    return trace
+
+
+async def _sn_no_seat_scenario() -> dict[str, Any]:
+    page = _sn_page("list_sales_navigator_account_lists__no_seat")
+    page.goto_landings.append("https://www.linkedin.com/premium/products/?from=x")
+    return await _sales_navigator_run(
+        "no_seat",
+        page,
+        "list_sales_navigator_account_lists",
+        {},
+        lambda extractor: extractor.list_sales_navigator_account_lists(),
+    )
+
+
 async def _facade_contract_trace() -> dict[str, Any]:
     global _TOOL_SCHEMAS
 
@@ -1669,6 +1968,11 @@ TOOL_FACADE_METHODS = {
     "list_audiences",
     "create_company_list_audience",
     "create_saved_audience",
+    "search_sales_navigator_accounts",
+    "search_sales_navigator_leads",
+    "get_sales_navigator_account",
+    "list_sales_navigator_account_lists",
+    "get_sales_navigator_account_list",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
 
@@ -2579,6 +2883,12 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "cm-list-audiences.json": await _cm_list_audiences_scenario(),
         "cm-audience-upload.json": await _cm_audience_upload_scenario(),
         "cm-saved-audience.json": await _cm_saved_audience_scenario(),
+        "sn-account-search.json": await _sn_account_search_scenario(),
+        "sn-lead-search.json": await _sn_lead_search_scenario(),
+        "sn-account.json": await _sn_account_scenario(),
+        "sn-account-lists.json": await _sn_account_lists_scenario(),
+        "sn-account-list.json": await _sn_account_list_scenario(),
+        "sn-no-seat.json": await _sn_no_seat_scenario(),
     }
     return traces
 

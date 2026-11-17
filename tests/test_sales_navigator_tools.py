@@ -9,6 +9,7 @@ from fastmcp.exceptions import ToolError, ValidationError
 from fastmcp.tools import FunctionTool
 
 from linkedin_mcp_server.core.exceptions import AuthenticationError
+from linkedin_mcp_server.scraping.sales_navigator_payload import SENIORITY_IDS
 from linkedin_mcp_server.tools.sales_navigator import (
     register_sales_navigator_tools,
 )
@@ -62,6 +63,26 @@ class TestRegistration:
         tool = await mcp.get_tool("get_sales_navigator_account_list")
         assert tool is not None
         assert "reads the whole list" in (tool.description or "")
+
+    async def test_lists_tool_says_it_reads_every_list(self):
+        mcp = FastMCP("test")
+        register_sales_navigator_tools(mcp)
+        tool = await mcp.get_tool("list_sales_navigator_account_lists")
+        assert tool is not None
+        assert "reads every list" in (tool.description or "")
+        assert "first 25" not in (tool.description or "")
+
+    async def test_seniority_values_are_the_payload_levels(self):
+        """The tool offers exactly the levels the reader can map to ids."""
+        mcp = FastMCP("test")
+        register_sales_navigator_tools(mcp)
+        tool = await mcp.get_tool("search_sales_navigator_leads")
+        assert tool is not None
+        seniority = tool.parameters["properties"]["seniority"]
+        enum = seniority["anyOf"][0]["items"]["enum"]
+        assert enum == list(SENIORITY_IDS)
+        for level in SENIORITY_IDS:
+            assert level in seniority["description"]
 
     @pytest.mark.parametrize(
         "name", ("search_sales_navigator_accounts", "search_sales_navigator_leads")

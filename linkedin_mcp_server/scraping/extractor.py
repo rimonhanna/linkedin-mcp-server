@@ -39,6 +39,7 @@ from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.person import PersonScraper
 from linkedin_mcp_server.scraping.posts import PostSearch
 from linkedin_mcp_server.scraping.profile_page import ProfilePageReader
+from linkedin_mcp_server.scraping.sales_navigator import SalesNavigatorReader
 from linkedin_mcp_server.scraping.session import ScrapingSession
 from linkedin_mcp_server.scraping.text import (
     strip_conversation_chrome as strip_conversation_chrome,
@@ -88,6 +89,7 @@ class LinkedInExtractor:
         self._campaign_targeting = CampaignTargetingEditor(session, navigator)
         self._campaign_content = CampaignContentEditor(session, navigator)
         self._audiences = CampaignAudiences(session, navigator)
+        self._sales_navigator = SalesNavigatorReader(session, navigator, facets)
 
     async def get_page_text(self) -> str:
         """Extract innerText from the main content area of the current page."""
@@ -485,3 +487,59 @@ class LinkedInExtractor:
         return await self._audiences.create_saved_audience(
             account_id, campaign_id, name, confirm_send=confirm_send
         )
+
+    async def search_sales_navigator_accounts(
+        self,
+        *,
+        keywords: str | None = None,
+        industry: Sequence[str] | None = None,
+        hq_location: Sequence[str] | None = None,
+        size: Sequence[str] | None = None,
+        headcount_growth_min: int | None = None,
+        headcount_growth_max: int | None = None,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """One page of Sales Navigator account search results."""
+        return await self._sales_navigator.search_accounts(
+            keywords=keywords,
+            industry=industry,
+            hq_location=hq_location,
+            size=size,
+            headcount_growth_min=headcount_growth_min,
+            headcount_growth_max=headcount_growth_max,
+            page=page,
+        )
+
+    async def search_sales_navigator_leads(
+        self,
+        *,
+        keywords: str | None = None,
+        title: Sequence[str] | None = None,
+        seniority: Sequence[str] | None = None,
+        current_company: Sequence[str] | None = None,
+        location: Sequence[str] | None = None,
+        industry: Sequence[str] | None = None,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """One page of Sales Navigator lead search results."""
+        return await self._sales_navigator.search_leads(
+            keywords=keywords,
+            title=title,
+            seniority=seniority,
+            current_company=current_company,
+            location=location,
+            industry=industry,
+            page=page,
+        )
+
+    async def get_sales_navigator_account(self, company_id: str) -> dict[str, Any]:
+        """One account's firmographics from its Sales Navigator page."""
+        return await self._sales_navigator.get_account(company_id)
+
+    async def list_sales_navigator_account_lists(self) -> dict[str, Any]:
+        """Every Sales Navigator account list of the member."""
+        return await self._sales_navigator.list_account_lists()
+
+    async def get_sales_navigator_account_list(self, list_id: str) -> dict[str, Any]:
+        """One Sales Navigator account list and every account in it."""
+        return await self._sales_navigator.get_account_list(list_id)

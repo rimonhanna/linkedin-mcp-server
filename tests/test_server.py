@@ -1045,3 +1045,22 @@ class TestWhatTheToolsPromise:
                 claiming.add(name)
 
         assert claiming == writes
+
+    async def test_sales_navigator_reads_claim_read_only(self):
+        """They only load pages and read the responses the page receives."""
+        mcp = create_mcp_server()
+        reads = {
+            "search_sales_navigator_accounts",
+            "search_sales_navigator_leads",
+            "get_sales_navigator_account",
+            "list_sales_navigator_account_lists",
+            "get_sales_navigator_account_list",
+        }
+        claiming = set()
+        for name in reads:
+            tool = await mcp.get_tool(name)
+            assert tool is not None, f"{name} is not registered any more"
+            if tool.annotations and tool.annotations.readOnlyHint:
+                claiming.add(name)
+
+        assert claiming == reads

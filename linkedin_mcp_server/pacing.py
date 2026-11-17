@@ -129,15 +129,25 @@ MESSAGES_MAX = 50  # MESSAGES_MAX, per 24 h
 CAMPAIGN_WRITES_MAX = 30  # CAMPAIGN_WRITES_MAX, per 24 h
 
 # Kinds a navigation is filed under, by URL. Only ``profile`` and ``search``
-# carry a cap; the rest, Campaign Manager included, are counted so the ledger
-# says what the account did.
-PROFILE, COMPANY, SEARCH, MESSAGING, FEED, CAMPAIGN_MANAGER, OTHER = (
+# carry a cap; the rest, Campaign Manager and Sales Navigator pages included,
+# are counted so the ledger says what the account did.
+(
+    PROFILE,
+    COMPANY,
+    SEARCH,
+    MESSAGING,
+    FEED,
+    CAMPAIGN_MANAGER,
+    SALES_NAVIGATOR,
+    OTHER,
+) = (
     "profile",
     "company",
     "search",
     "messaging",
     "feed",
     "campaign_manager",
+    "sales_navigator",
     "other",
 )
 # Kinds counted at the write, not at a URL: an invite submitted, a message sent.
@@ -287,6 +297,14 @@ def navigation_kind(url: str) -> str:
         return FEED
     if path.startswith("/campaignmanager/"):
         return CAMPAIGN_MANAGER
+    # A Sales Navigator search is the same activity as a classic one and
+    # spends the same cap; a lead page is a profile view.
+    if path.startswith("/sales/search/"):
+        return SEARCH
+    if path.startswith("/sales/lead/"):
+        return PROFILE
+    if path.startswith("/sales/"):
+        return SALES_NAVIGATOR
     return OTHER
 
 

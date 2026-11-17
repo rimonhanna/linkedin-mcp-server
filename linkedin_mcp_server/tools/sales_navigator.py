@@ -22,6 +22,7 @@ from linkedin_mcp_server.scraping.identifiers import (
     normalize_sales_company_id,
     normalize_sales_list_id,
 )
+from linkedin_mcp_server.scraping.sales_navigator_payload import SENIORITY_IDS
 from linkedin_mcp_server.scraping.search_urls import (
     company_size_letters,
     industry_ids,
@@ -30,18 +31,8 @@ from linkedin_mcp_server.tools.person import StrList
 
 logger = logging.getLogger(__name__)
 
-Seniority = Literal[
-    "in_training",
-    "entry_level",
-    "senior",
-    "strategic",
-    "entry_level_manager",
-    "experienced_manager",
-    "director",
-    "vice_president",
-    "cxo",
-    "owner_partner",
-]
+# One source of truth: the levels the payload module maps to LinkedIn's ids.
+Seniority = Literal[*SENIORITY_IDS]  # ty: ignore[invalid-type-form]
 
 
 def register_sales_navigator_tools(
@@ -326,9 +317,12 @@ def register_sales_navigator_tools(
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
-        List the signed-in member's Sales Navigator account lists. Read-only.
-        Needs a Sales Navigator seat. Returns the first 25 lists; section_errors
-        reports a longer set.
+        List every Sales Navigator account list of the signed-in member.
+        Read-only. Needs a Sales Navigator seat. This reads every list, not
+        only the first page: it loads one page of 25 lists at a time until all
+        are read, and every page counts against the pacing budget.
+        section_errors.account_lists is set when a page did not load, so the
+        result is partial.
 
         Args:
             ctx: FastMCP context for progress reporting
@@ -380,7 +374,8 @@ def register_sales_navigator_tools(
         first page: it loads one page of 25 accounts at a time until the list
         is covered, and every page counts against the pacing budget, so a long
         list takes several navigations. Display-text fields are in the
-        member's UI language.
+        member's UI language. The accounts can be passed, by name, as the
+        companies of create_company_list_audience.
 
         Args:
             list_id: Numeric list id, as list_sales_navigator_account_lists

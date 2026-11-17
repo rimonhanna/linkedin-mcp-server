@@ -1,0 +1,424 @@
+{
+  "call": {
+    "arguments": {
+      "list_id": "100000301"
+    },
+    "method": "get_sales_navigator_account_list"
+  },
+  "events": [
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-3",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+      "requested_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+      "section": "account_list",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "kind": "wait_for_load_state",
+      "section": "account_list",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "description": "goto https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-3",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "kind": "boundary.rate_limit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-4",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-5",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301&page=2",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301&page=2",
+      "requested_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301&page=2",
+      "section": "account_list",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "kind": "wait_for_load_state",
+      "section": "account_list",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "description": "goto https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301&page=2",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301&page=2",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "kind": "boundary.rate_limit",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-4",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "account_list"
+    },
+    {
+      "call": "get_sales_navigator_account_list",
+      "callback_id": "callback-5",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "account_list"
+    }
+  ],
+  "result": {
+    "account_list": {
+      "entityCount": 26,
+      "id": "100000301",
+      "name": "Example list"
+    },
+    "accounts": [
+      {
+        "id": "100000500",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000501",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000502",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000503",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000504",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000505",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000506",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000507",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000508",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000509",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000510",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000511",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000512",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000513",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000514",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000515",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000516",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000517",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000518",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000519",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000520",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000521",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000522",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000523",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000524",
+        "name": "Example Company"
+      },
+      {
+        "id": "100000525",
+        "name": "Example Company"
+      }
+    ],
+    "section_names": [
+      "account_list",
+      "accounts"
+    ],
+    "sections": {
+      "account_list": "Example list (id 100000301): entityCount 26",
+      "accounts": "Example Company (id 100000500)\nExample Company (id 100000501)\nExample Company (id 100000502)\nExample Company (id 100000503)\nExample Company (id 100000504)\nExample Company (id 100000505)\nExample Company (id 100000506)\nExample Company (id 100000507)\nExample Company (id 100000508)\nExample Company (id 100000509)\nExample Company (id 100000510)\nExample Company (id 100000511)\nExample Company (id 100000512)\nExample Company (id 100000513)\nExample Company (id 100000514)\nExample Company (id 100000515)\nExample Company (id 100000516)\nExample Company (id 100000517)\nExample Company (id 100000518)\nExample Company (id 100000519)\nExample Company (id 100000520)\nExample Company (id 100000521)\nExample Company (id 100000522)\nExample Company (id 100000523)\nExample Company (id 100000524)\nExample Company (id 100000525)"
+    },
+    "url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301"
+  },
+  "scenario": "get_sales_navigator_account_list__two_pages",
+  "schema_version": 1
+}

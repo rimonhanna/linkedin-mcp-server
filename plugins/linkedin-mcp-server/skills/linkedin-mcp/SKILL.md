@@ -84,6 +84,10 @@ instances, clear profiles, or replace the user's browser session.
   `get_campaign`, `get_campaign_analytics`, `search_targeting_entities` and
   `list_audiences`. An API campaign group is the UI's "Campaign", an API
   campaign its "Ad set" and a creative its "Ad".
+- Sales Navigator (read-only, needs a Sales Navigator seat):
+  `search_sales_navigator_accounts`, `search_sales_navigator_leads`,
+  `get_sales_navigator_account`, `list_sales_navigator_account_lists` and
+  `get_sales_navigator_account_list`.
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
   InMail included, by its thread ID) and `connect_with_person`, and the
   Campaign Manager writes (`update_campaign`, `set_campaign_status`,

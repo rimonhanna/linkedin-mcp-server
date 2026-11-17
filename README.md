@@ -79,6 +79,11 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `add_post_to_campaign` | Add a company page post to a draft or paused campaign (UI "Ad set") as a creative (UI "Ad"). `confirm_send` |
 | `create_company_list_audience` | Upload a list of companies (name, and optionally website and LinkedIn page) as a matched audience. Confirming accepts LinkedIn's Ads Agreement for the upload. `confirm_send` |
 | `create_saved_audience` | Save a campaign's (UI "Ad set") targeting as a named saved audience (1 to 25 characters). `confirm_send` |
+| `search_sales_navigator_accounts` | Search Sales Navigator accounts (companies) by keywords, industry, headquarters location, headcount and headcount growth; one page of 25 per call (`page` 1 to 40). Needs a Sales Navigator seat. Read-only |
+| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company, location and industry; one page of 25 per call. Leads who opted out of third-party data sharing are left out and counted in `withheld`. Needs a Sales Navigator seat. Read-only |
+| `get_sales_navigator_account` | One company's Sales Navigator account page: description, industry, website, headquarters, revenue range, headcount and headcount growth. Needs a Sales Navigator seat. Read-only |
+| `list_sales_navigator_account_lists` | Every Sales Navigator account list of the member, with its size. Needs a Sales Navigator seat. Read-only |
+| `get_sales_navigator_account_list` | One Sales Navigator account list and every company in it. Needs a Sales Navigator seat. Read-only |
 | `start_enrichment_job` | Queue a resumable bulk profile-enrichment job from a list of usernames or profile URLs |
 | `run_enrichment_bunch` | Visit the next few profiles in a job, paced with randomized delays, a rolling 24h action budget and working hours; returns when to call it again. A bunch that loses its browser relaunches it and retries once; a profile that never loaded is left pending and is not charged |
 | `get_enrichment_status` | Progress and collected results for an enrichment job, or list all jobs |
@@ -216,6 +221,36 @@ offers the audience for the word you pass.
 Campaign Manager writes are counted against `CAMPAIGN_WRITES_MAX` (30 per
 rolling 24 h) when one left the browser, a dry run never is, and they are
 refused outside working hours like invitations and messages.
+
+### Sales Navigator
+
+The Sales Navigator tools need a Sales Navigator seat on the signed-in
+account. Without one, LinkedIn shows another page and the tool says so.
+
+They only read. Each call opens a Sales Navigator page in your browser and
+takes its data from the responses that page loads; it sends no request of its
+own. No tool opens a lead's page, so nobody sees a profile view from you.
+
+Each search page counts against `SEARCH_PAGES_MAX`, the same cap as classic
+people and company search. Other Sales Navigator pages are counted but have no
+cap of their own. A location or company passed by name costs extra page loads
+to look up; pass numeric ids to avoid them.
+
+A Sales Navigator search shows at most 1,000 results (40 pages of 25). When a
+search reports more, split it into narrower searches that each stay under
+1,000, for example by region (`hq_location` or `location`) or by company size
+(`size`), and page through each one. The searches check that Sales Navigator
+applied every filter you passed; a filter it ignored is an error, not
+unfiltered results.
+
+Leads who asked LinkedIn not to share their data with third-party tools are
+left out of lead search results. The result only counts them, under
+`withheld`, so the numbers still add up.
+
+`list_sales_navigator_account_lists` and `get_sales_navigator_account_list`
+read every list and every company in a list, one page of 25 at a time, and
+each page counts as a page load. The companies of a list can be passed, by
+name, to `create_company_list_audience` to target them in Campaign Manager.
 
 
 
@@ -919,7 +954,7 @@ off.
 |----------|---------|---------|
 | `DAILY_ACTIONS_MAX` | `150` | Ceiling on any enrichment job's `daily_cap` |
 | `PROFILE_LOADS_MAX` | `150` | Profile page loads per rolling 24 h; may be raised or lowered |
-| `SEARCH_PAGES_MAX` | `100` | Search result pages per rolling 24 h; may be raised or lowered |
+| `SEARCH_PAGES_MAX` | `100` | Search result pages per rolling 24 h, Sales Navigator search pages included; may be raised or lowered |
 | `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / per calendar week (resets Monday 00:00 local time); both may be raised or lowered |
 | `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may be raised or lowered |
 | `CAMPAIGN_WRITES_MAX` | `30` | Campaign Manager writes per rolling 24 h; may be raised or lowered |
