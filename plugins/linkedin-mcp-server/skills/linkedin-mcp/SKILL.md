@@ -72,6 +72,9 @@ instances, clear profiles, or replace the user's browser session.
 - Jobs: `search_jobs`, `get_saved_jobs`, and `get_job_details`.
 - Content: `get_feed` and `search_posts`.
 - Messages: `get_inbox`, `get_conversation`, and `search_conversations`.
+- Campaign Manager (read-only): `list_ad_accounts`, `list_campaigns`,
+  `get_campaign` and `get_campaign_analytics`. An API campaign group is the
+  UI's "Campaign", an API campaign its "Ad set" and a creative its "Ad".
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
   InMail included, by its thread ID) and `connect_with_person`, subject to the
   explicit authorization rules above.

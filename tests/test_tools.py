@@ -90,6 +90,10 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
     mock.search_companies = AsyncMock(return_value=scrape_result)
     mock.search_posts = AsyncMock(return_value=scrape_result)
     mock.get_company_employees = AsyncMock(return_value=scrape_result)
+    mock.list_ad_accounts = AsyncMock(return_value=scrape_result)
+    mock.list_campaigns = AsyncMock(return_value=scrape_result)
+    mock.get_campaign = AsyncMock(return_value=scrape_result)
+    mock.get_campaign_analytics = AsyncMock(return_value=scrape_result)
     mock.extract_page = AsyncMock(
         return_value=ExtractedSection(text="some text", references=[])
     )
@@ -215,11 +219,38 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
             {"keywords": "python", "content_type": "articles"},
             "Invalid content_type",
         ),
+        (
+            "campaign_manager",
+            "list_campaigns",
+            {"ad_account_id": "/feed/"},
+            "ad_account_id is not a LinkedIn id",
+        ),
+        (
+            "campaign_manager",
+            "get_campaign",
+            {"ad_account_id": "urn:li:sponsoredCampaign:100000001", "campaign_id": "1"},
+            "ad_account_id is not a LinkedIn id",
+        ),
+        (
+            "campaign_manager",
+            "get_campaign",
+            {"ad_account_id": "100000001", "campaign_id": "/feed/"},
+            "campaign_id is not a LinkedIn id",
+        ),
+        (
+            "campaign_manager",
+            "get_campaign_analytics",
+            {"ad_account_id": "abc"},
+            "ad_account_id is not a LinkedIn id",
+        ),
     ],
 )
 async def test_invalid_reference_is_rejected_before_extractor(
     module_name, tool_name, arguments, error_match
 ):
+    from linkedin_mcp_server.tools.campaign_manager import (
+        register_campaign_manager_tools,
+    )
     from linkedin_mcp_server.tools.company import register_company_tools
     from linkedin_mcp_server.tools.job import register_job_tools
     from linkedin_mcp_server.tools.messaging import register_messaging_tools
@@ -227,6 +258,7 @@ async def test_invalid_reference_is_rejected_before_extractor(
     from linkedin_mcp_server.tools.post import register_post_tools
 
     register_by_module = {
+        "campaign_manager": register_campaign_manager_tools,
         "company": register_company_tools,
         "job": register_job_tools,
         "messaging": register_messaging_tools,
@@ -2802,6 +2834,10 @@ class TestToolTimeouts:
             "send_message",
             "get_feed",
             "search_posts",
+            "list_ad_accounts",
+            "list_campaigns",
+            "get_campaign",
+            "get_campaign_analytics",
             "start_enrichment_job",
             "run_enrichment_bunch",
             "get_enrichment_status",
@@ -2841,6 +2877,10 @@ class TestToolTimeouts:
             "send_message",
             "get_feed",
             "search_posts",
+            "list_ad_accounts",
+            "list_campaigns",
+            "get_campaign",
+            "get_campaign_analytics",
             "start_enrichment_job",
             "run_enrichment_bunch",
             "get_enrichment_status",

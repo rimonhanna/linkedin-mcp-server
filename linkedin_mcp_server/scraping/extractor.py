@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from patchright.async_api import Page
 
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
+from linkedin_mcp_server.scraping.campaign_manager import CampaignManagerReader
 from linkedin_mcp_server.scraping.capture import SectionCapture
 from linkedin_mcp_server.scraping.company import CompanyScraper
 from linkedin_mcp_server.scraping.connection_actions import ConnectionActions
@@ -71,6 +74,7 @@ class LinkedInExtractor:
         self._conversations = ConversationReader(
             session, navigator, content, profile_page
         )
+        self._campaigns = CampaignManagerReader(session, navigator)
 
     async def get_page_text(self) -> str:
         """Extract innerText from the main content area of the current page."""
@@ -328,4 +332,34 @@ class LinkedInExtractor:
             thread_id,
             message,
             confirm_send=confirm_send,
+        )
+
+    async def list_ad_accounts(self) -> dict[str, Any]:
+        """List the Campaign Manager ad accounts the member can open."""
+        return await self._campaigns.list_ad_accounts()
+
+    async def list_campaigns(self, account_id: str) -> dict[str, Any]:
+        """List an ad account's campaign groups and campaigns."""
+        return await self._campaigns.list_campaigns(account_id)
+
+    async def get_campaign(self, account_id: str, campaign_id: str) -> dict[str, Any]:
+        """Read one campaign with its group, targeting and creatives."""
+        return await self._campaigns.get_campaign(account_id, campaign_id)
+
+    async def get_campaign_analytics(
+        self,
+        account_id: str,
+        *,
+        level: str = "campaign",
+        start_date: date | None = None,
+        end_date: date | None = None,
+        demographics: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        """Read an ad account's performance analytics at one entity level."""
+        return await self._campaigns.get_campaign_analytics(
+            account_id,
+            level=level,
+            start_date=start_date,
+            end_date=end_date,
+            demographics=demographics,
         )

@@ -1,0 +1,214 @@
+{
+  "call": {
+    "arguments": {
+      "account_id": "100000001",
+      "end_date": "2026-08-31",
+      "level": "campaign",
+      "start_date": "2026-08-01"
+    },
+    "method": "get_campaign_analytics"
+  },
+  "events": [
+    {
+      "call": "get_campaign_analytics",
+      "callback_id": "callback-1",
+      "kind": "route.add",
+      "pattern": "**/campaign-manager-api/**",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "callback_id": "callback-2",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "callback_id": "callback-3",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+      "section": "analytics",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "kind": "wait_for_load_state",
+      "section": "analytics",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "get_campaign_analytics",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "kind": "boundary.rate_limit",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "analytics"
+    },
+    {
+      "arg": {
+        "body": "q=statistics&pivots=List(CAMPAIGN)&timeGranularity=ALL&dateRange=(start:(day:1,month:8,year:2026),end:(day:31,month:8,year:2026))&accountIds=List(100000001)",
+        "headers": {
+          "content-type": "application/x-www-form-urlencoded",
+          "csrf-token": "policy-token",
+          "x-http-method-override": "GET"
+        },
+        "method": "POST",
+        "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerAdAnalytics?fields=baseMetrics:(costInLocalCurrency,impressions,clicks),pivotValues"
+      },
+      "call": "get_campaign_analytics",
+      "kind": "evaluate",
+      "operation": "cm_analytics_replay",
+      "program_digest": "4f88a17d3625",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "callback_id": "callback-2",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "analytics"
+    },
+    {
+      "call": "get_campaign_analytics",
+      "callback_id": "callback-3",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "analytics"
+    }
+  ],
+  "result": {
+    "analytics": {
+      "currencyCode": "EUR",
+      "level": "campaign",
+      "rows": [
+        {
+          "clicks": 2,
+          "costInLocalCurrency": 1.5,
+          "entity": {
+            "id": 100000301,
+            "kind": "campaign",
+            "urn": "urn:li:sponsoredCampaign:100000301"
+          },
+          "impressions": 7
+        }
+      ],
+      "window": {
+        "end": "2026-08-31",
+        "source": "requested",
+        "start": "2026-08-01"
+      }
+    },
+    "section_names": [
+      "analytics"
+    ],
+    "sections": {
+      "analytics": "window 2026-08-01 to 2026-08-31 (requested)\ncampaign urn:li:sponsoredCampaign:100000301 (id 100000301): impressions 7, clicks 2, costInLocalCurrency 1.5 EUR"
+    },
+    "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns"
+  },
+  "scenario": "get_campaign_analytics__replayed_period",
+  "schema_version": 1
+}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
 from contextlib import ExitStack, asynccontextmanager, contextmanager
+from datetime import date
 from difflib import unified_diff
 from pathlib import Path
 from typing import Any, cast
@@ -35,6 +36,8 @@ from linkedin_mcp_server.server import create_mcp_server
 
 from .support.policy_trace import (
     FakeClock,
+    ScriptedCmRequest,
+    ScriptedCmResponse,
     ScriptedPage,
     ScriptedResponse,
     TraceRecorder,
@@ -1262,6 +1265,339 @@ async def _conversation_scenario(method: str) -> dict[str, Any]:
     )
 
 
+_CM_API = "https://www.linkedin.com/campaign-manager-api/"
+_CM_ACCOUNT = "100000001"
+_CM_CAMPAIGN = "100000301"
+_CM_GROUP = 100000201
+_CM_ACCOUNT_URL = f"https://www.linkedin.com/campaignmanager/accounts/{_CM_ACCOUNT}"
+_CM_TUNNEL = {
+    "x-http-method-override": "GET",
+    "content-type": "application/x-www-form-urlencoded",
+}
+_CM_CURRENT = "(start:(day:1,month:10,year:2026),end:(day:31,month:10,year:2026))"
+_CM_PREVIOUS = "(start:(day:1,month:9,year:2026),end:(day:30,month:9,year:2026))"
+
+
+def _cm_response(
+    path: str, payload: Any, *, body: str | None = None
+) -> ScriptedCmResponse:
+    request = ScriptedCmRequest(
+        _CM_API + path,
+        method="GET" if body is None else "POST",
+        headers={} if body is None else dict(_CM_TUNNEL),
+        post_data=body,
+    )
+    return ScriptedCmResponse(request, payload)
+
+
+def _cm_emit(page: ScriptedPage, responses: list[ScriptedCmResponse]) -> None:
+    for response in responses:
+        page.emit("request", response.request)
+        page.emit("response", response)
+
+
+def _cm_account_record() -> ScriptedCmResponse:
+    return _cm_response(
+        f"campaignManagerAccounts/{_CM_ACCOUNT}",
+        {
+            "data": {
+                "id": int(_CM_ACCOUNT),
+                "name": "Example account",
+                "status": "ACTIVE",
+                "type": "BUSINESS",
+                "currencyCode": "EUR",
+            },
+            "included": [],
+        },
+    )
+
+
+def _cm_groups() -> ScriptedCmResponse:
+    return _cm_response(
+        f"campaignManagerReportingCampaignGroups?q=accountId&accountId={_CM_ACCOUNT}",
+        {
+            "elements": [
+                {"id": _CM_GROUP, "name": "Example group", "status": "ACTIVE"}
+            ],
+            "paging": {"total": 1},
+        },
+    )
+
+
+def _cm_campaigns() -> ScriptedCmResponse:
+    return _cm_response(
+        "campaignManagerReportingCampaigns?q=accountAndCampaignGroups"
+        f"&accountId={_CM_ACCOUNT}",
+        {
+            "elements": [
+                {
+                    "id": int(_CM_CAMPAIGN),
+                    "name": "Example ad set",
+                    "status": "DRAFT",
+                    "campaignGroupId": _CM_GROUP,
+                    "dailyBudget": {"amount": "10.00", "currencyCode": "EUR"},
+                }
+            ],
+            "paging": {"total": 1},
+        },
+    )
+
+
+async def _campaign_manager_run(
+    name: str, page: ScriptedPage, method: str, arguments: dict[str, Any], call: Any
+) -> dict[str, Any]:
+    recorder = page.recorder
+    clock = FakeClock(recorder)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context(method, name):
+            result = await call(extractor)
+    page.assert_clean(retained_cm_guard=True)
+    return recorder.trace(
+        {"method": method, "arguments": arguments},
+        _complete_mapping_result(result, section_names=list(result["sections"])),
+    )
+
+
+def _cm_page(name: str) -> ScriptedPage:
+    return _page(TraceRecorder(name, _COMMON_ALLOWED | {"route.abort"}))
+
+
+async def _cm_ad_accounts_scenario() -> dict[str, Any]:
+    page = _cm_page("list_ad_accounts__with_boost_account")
+    listed = _cm_response(
+        "campaignManagerReportingAccounts?q=findAll",
+        {
+            "elements": [
+                {
+                    "id": int(_CM_ACCOUNT),
+                    "name": "Example account",
+                    "status": "ACTIVE",
+                    "type": "BUSINESS",
+                    "currencyCode": "EUR",
+                }
+            ],
+            "paging": {"total": 1},
+        },
+    )
+    boost = _cm_response(
+        "campaignManagerAccounts?q=memberBoostAccounts",
+        {
+            "data": {
+                "elements": [
+                    {
+                        "id": 100000009,
+                        "name": "Example boost account",
+                        "type": "PERSONAL",
+                        "status": "ACTIVE",
+                        "reference": "urn:li:member:100000010",
+                    }
+                ]
+            },
+            "included": [],
+        },
+    )
+    page.script("goto", lambda: _cm_emit(page, [listed, boost]))
+    return await _campaign_manager_run(
+        "ad_accounts",
+        page,
+        "list_ad_accounts",
+        {},
+        lambda extractor: extractor.list_ad_accounts(),
+    )
+
+
+async def _cm_campaigns_scenario(*, setup_redirect: bool) -> dict[str, Any]:
+    suffix = "setup_redirect" if setup_redirect else "baseline"
+    page = _cm_page(f"list_campaigns__{suffix}")
+    if setup_redirect:
+        # A dormant account lands on campaign setup, where the app then
+        # creates a billing configuration on its own: the guard must abort it.
+        page.goto_landings.append(f"{_CM_ACCOUNT_URL}/campaigns/new/setup")
+        billing = ScriptedCmRequest(
+            f"{_CM_API}campaignManagerAccounts/{_CM_ACCOUNT}"
+            "/billingConfiguration?action=findOrCreate",
+            method="POST",
+            headers={"content-type": "application/json"},
+            post_data="{}",
+        )
+
+        def setup_wave() -> Any:
+            _cm_emit(page, [_cm_account_record(), _cm_groups()])
+            return page.route_request(billing)
+
+        def routed() -> bool:
+            _cm_emit(page, [_cm_campaigns()])
+            return True
+
+        page.script("goto", setup_wave)
+        page.script("evaluate:cm_route", routed)
+    else:
+        page.script(
+            "goto",
+            lambda: _cm_emit(
+                page, [_cm_account_record(), _cm_groups(), _cm_campaigns()]
+            ),
+        )
+    trace = await _campaign_manager_run(
+        "campaigns",
+        page,
+        "list_campaigns",
+        {"account_id": _CM_ACCOUNT},
+        lambda extractor: extractor.list_campaigns(_CM_ACCOUNT),
+    )
+    if setup_redirect:
+        steps = [
+            event.get("operation", event["kind"])
+            for event in trace["events"]
+            if event["kind"] in {"navigate", "route.abort", "route.fallback"}
+            or event.get("operation") == "cm_route"
+        ]
+        # One page load, the app's write refused, then exactly one in-app hop.
+        assert steps == ["navigate", "route.abort", "cm_route"], steps
+    return trace
+
+
+async def _cm_campaign_scenario() -> dict[str, Any]:
+    page = _cm_page("get_campaign__details")
+    record = _cm_response(
+        f"campaignManagerCampaigns/{_CM_CAMPAIGN}",
+        {
+            "data": {
+                "id": int(_CM_CAMPAIGN),
+                "accountId": int(_CM_ACCOUNT),
+                "campaignGroupId": _CM_GROUP,
+                "name": "Example ad set",
+                "status": "DRAFT",
+                "targetingCriteria": {
+                    "include": {
+                        "and": [
+                            {
+                                "or": [
+                                    {
+                                        "facet": {
+                                            "urn": "urn:li:adTargetingFacet:locations",
+                                            "name": "Locations",
+                                        },
+                                        "segments": [
+                                            {"urn": "urn:li:geo:100", "name": "Example"}
+                                        ],
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "exclude": {"or": []},
+                },
+            },
+            "included": [],
+        },
+    )
+    group = _cm_response(
+        f"campaignManagerCampaignGroups/{_CM_GROUP}",
+        {"id": _CM_GROUP, "accountId": int(_CM_ACCOUNT), "name": "Example group"},
+    )
+    creative = "urn:li:sponsoredCreative:100000401"
+    creatives = _cm_response(
+        f"campaignManagerCreatives?q=campaignIds&campaignIds=List({_CM_CAMPAIGN})",
+        {
+            "data": {"elements": [creative]},
+            "included": [
+                {
+                    "entityUrn": creative,
+                    "campaign": f"urn:li:sponsoredCampaign:{_CM_CAMPAIGN}",
+                    "status": "ACTIVE",
+                }
+            ],
+        },
+    )
+    page.script("goto", lambda: _cm_emit(page, [record, group, creatives]))
+    return await _campaign_manager_run(
+        "campaign",
+        page,
+        "get_campaign",
+        {"account_id": _CM_ACCOUNT, "campaign_id": _CM_CAMPAIGN},
+        lambda extractor: extractor.get_campaign(_CM_ACCOUNT, _CM_CAMPAIGN),
+    )
+
+
+async def _cm_analytics_scenario() -> dict[str, Any]:
+    page = _cm_page("get_campaign_analytics__replayed_period")
+
+    def statistics(date_range: str, impressions: int) -> ScriptedCmResponse:
+        return _cm_response(
+            "campaignManagerAdAnalytics?fields=baseMetrics:"
+            "(costInLocalCurrency,impressions,clicks),pivotValues",
+            {
+                "elements": [
+                    {
+                        "pivotValues": [
+                            {
+                                "id": f"urn:li:sponsoredCampaign:{_CM_CAMPAIGN}",
+                                "displayText": "Example ad set",
+                            }
+                        ],
+                        "baseMetrics": {"impressions": impressions, "clicks": 1},
+                    }
+                ],
+                "paging": {},
+            },
+            body=(
+                "q=statistics&pivots=List(CAMPAIGN)&timeGranularity=ALL"
+                f"&dateRange={date_range}&accountIds=List({_CM_ACCOUNT})"
+            ),
+        )
+
+    page.script(
+        "goto",
+        lambda: _cm_emit(
+            page,
+            [
+                _cm_account_record(),
+                statistics(_CM_PREVIOUS, 3),
+                statistics(_CM_CURRENT, 5),
+            ],
+        ),
+    )
+    page.script(
+        "evaluate:cm_analytics_replay",
+        {
+            "status": 200,
+            "payload": {
+                "elements": [
+                    {
+                        "pivotValues": [
+                            {"id": f"urn:li:sponsoredCampaign:{_CM_CAMPAIGN}"}
+                        ],
+                        "baseMetrics": {
+                            "impressions": 7,
+                            "clicks": 2,
+                            "costInLocalCurrency": 1.5,
+                        },
+                    }
+                ]
+            },
+        },
+    )
+    return await _campaign_manager_run(
+        "analytics",
+        page,
+        "get_campaign_analytics",
+        {
+            "account_id": _CM_ACCOUNT,
+            "level": "campaign",
+            "start_date": "2026-08-01",
+            "end_date": "2026-08-31",
+        },
+        lambda extractor: extractor.get_campaign_analytics(
+            _CM_ACCOUNT,
+            level="campaign",
+            start_date=date(2026, 8, 1),
+            end_date=date(2026, 8, 31),
+        ),
+    )
+
+
 async def _facade_contract_trace() -> dict[str, Any]:
     global _TOOL_SCHEMAS
 
@@ -1299,12 +1635,16 @@ TOOL_FACADE_METHODS = {
     "connect_with_person",
     "extract_feed",
     "extract_page",
+    "get_campaign",
+    "get_campaign_analytics",
     "get_company_employees",
     "get_conversation",
     "get_inbox",
     "get_my_profile",
     "get_saved_jobs",
     "get_sidebar_profiles",
+    "list_ad_accounts",
+    "list_campaigns",
     "scrape_company",
     "scrape_job",
     "scrape_person",
@@ -1398,6 +1738,13 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "search-conversations.json": await _conversation_scenario(
             "search_conversations"
         ),
+        "cm-ad-accounts.json": await _cm_ad_accounts_scenario(),
+        "cm-campaigns.json": await _cm_campaigns_scenario(setup_redirect=False),
+        "cm-campaigns-setup-redirect.json": await _cm_campaigns_scenario(
+            setup_redirect=True
+        ),
+        "cm-campaign.json": await _cm_campaign_scenario(),
+        "cm-analytics.json": await _cm_analytics_scenario(),
     }
     return traces
 

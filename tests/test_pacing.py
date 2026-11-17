@@ -685,6 +685,10 @@ class TestNavigationKind:
             ("https://www.linkedin.com/search/results/people/?keywords=x", "search"),
             ("https://www.linkedin.com/messaging/compose/?x=1", "messaging"),
             ("https://www.linkedin.com/feed/", "feed"),
+            (
+                "https://www.linkedin.com/campaignmanager/accounts/1/campaigns",
+                "campaign_manager",
+            ),
             ("https://www.linkedin.com/jobs/view/123/", "other"),
             ("https://www.linkedin.com/preload/custom-invite/?vanityName=u", "other"),
         ],

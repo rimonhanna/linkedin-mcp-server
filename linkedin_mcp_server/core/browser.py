@@ -42,6 +42,9 @@ from linkedin_mcp_server.process_tree import (
     new_browser_process_marker,
     remember_detached_process_groups,
 )
+from linkedin_mcp_server.scraping.campaign_manager_guard import (
+    register_campaign_manager_routes,
+)
 from linkedin_mcp_server.scraping.messaging_read_state import (
     register_read_state_routes,
 )
@@ -637,6 +640,16 @@ class BrowserManager:
                 logger.warning(
                     "Read-state routes did not register at launch; messaging "
                     "reads will refuse until they do",
+                    exc_info=True,
+                )
+            try:
+                await register_campaign_manager_routes(self._page)
+            except Exception:
+                # Not fatal: a Campaign Manager read refuses on its own (the
+                # guard keeps the failure and never reads unguarded).
+                logger.warning(
+                    "Campaign Manager routes did not register at launch; "
+                    "Campaign Manager reads will refuse until they do",
                     exc_info=True,
                 )
 

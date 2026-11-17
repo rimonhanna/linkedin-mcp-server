@@ -28,6 +28,14 @@
         "coroutine": true,
         "signature": "(self, url: 'str', section_name: 'str', max_scrolls: 'int | None' = None) -> 'ExtractedSection'"
       },
+      "get_campaign": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str', campaign_id: 'str') -> 'dict[str, Any]'"
+      },
+      "get_campaign_analytics": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str', *, level: 'str' = 'campaign', start_date: 'date | None' = None, end_date: 'date | None' = None, demographics: 'Sequence[str] | None' = None) -> 'dict[str, Any]'"
+      },
       "get_company_employees": {
         "coroutine": true,
         "signature": "(self, company_name: 'str', keywords: 'str | None' = None) -> 'dict[str, Any]'"
@@ -55,6 +63,14 @@
       "get_sidebar_profiles": {
         "coroutine": true,
         "signature": "(self, username: 'str') -> 'dict[str, Any]'"
+      },
+      "list_ad_accounts": {
+        "coroutine": true,
+        "signature": "(self) -> 'dict[str, Any]'"
+      },
+      "list_campaigns": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str') -> 'dict[str, Any]'"
       },
       "reply_to_conversation": {
         "coroutine": true,
@@ -105,12 +121,16 @@
       "connect_with_person",
       "extract_feed",
       "extract_page",
+      "get_campaign",
+      "get_campaign_analytics",
       "get_company_employees",
       "get_conversation",
       "get_inbox",
       "get_my_profile",
       "get_saved_jobs",
       "get_sidebar_profiles",
+      "list_ad_accounts",
+      "list_campaigns",
       "reply_to_conversation",
       "scrape_company",
       "scrape_job",
@@ -235,6 +255,107 @@
           },
           "required": [
             "company"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "get_campaign": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id. An urn:li:sponsoredAccount\nURN or a Campaign Manager account URL is accepted too.",
+              "type": "string"
+            },
+            "campaign_id": {
+              "description": "Numeric campaign id, as list_campaigns returned it. An\nurn:li:sponsoredCampaign URN or a Campaign Manager campaign\nURL is accepted too.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ad_account_id",
+            "campaign_id"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "get_campaign_analytics": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id. An urn:li:sponsoredAccount\nURN or a Campaign Manager account URL is accepted too.",
+              "type": "string"
+            },
+            "demographics": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "MEMBER_JOB_FUNCTION",
+                      "MEMBER_SENIORITY",
+                      "MEMBER_INDUSTRY",
+                      "MEMBER_COMPANY_SIZE",
+                      "MEMBER_COUNTRY_V2"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional audience breakdowns by member attribute.\nMEMBER_JOB_FUNCTION is verified against live responses.\nMEMBER_SENIORITY, MEMBER_INDUSTRY, MEMBER_COMPANY_SIZE and\nMEMBER_COUNTRY_V2 are unverified; a breakdown LinkedIn\nrejects is reported in section_errors and does not fail the\ncall."
+            },
+            "end_date": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Last day of the period (YYYY-MM-DD), not before\nstart_date."
+            },
+            "level": {
+              "default": "campaign",
+              "description": "Entity level to report on: campaign_group (UI \"Campaigns\"),\ncampaign (UI \"Ad sets\", the default) or creative (UI \"Ads\").",
+              "enum": [
+                "campaign_group",
+                "campaign",
+                "creative"
+              ],
+              "type": "string"
+            },
+            "start_date": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "First day of the period (YYYY-MM-DD). Give it together\nwith end_date. Omit both to get whatever date range Campaign\nManager shows by default."
+            }
+          },
+          "required": [
+            "ad_account_id"
           ],
           "type": "object"
         },
@@ -609,6 +730,36 @@
           },
           "required": [
             "linkedin_username"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "list_ad_accounts": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "list_campaigns": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id, as list_ad_accounts returned\nit. An urn:li:sponsoredAccount URN or a Campaign Manager\naccount URL is accepted too and is reduced to the id.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ad_account_id"
           ],
           "type": "object"
         },

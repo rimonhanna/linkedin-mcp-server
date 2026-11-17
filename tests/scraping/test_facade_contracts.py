@@ -43,6 +43,8 @@ from .support.policy_trace import ScriptedPage, TraceRecorder
 
 TOOL_DELEGATES = {
     "connect_with_person": "connect_with_person",
+    "get_campaign": "get_campaign",
+    "get_campaign_analytics": "get_campaign_analytics",
     "get_company_employees": "get_company_employees",
     "get_company_posts": "extract_page",
     "get_company_profile": "scrape_company",
@@ -54,6 +56,8 @@ TOOL_DELEGATES = {
     "get_person_profile": "scrape_person",
     "get_saved_jobs": "get_saved_jobs",
     "get_sidebar_profiles": "get_sidebar_profiles",
+    "list_ad_accounts": "list_ad_accounts",
+    "list_campaigns": "list_campaigns",
     "search_companies": "search_companies",
     "search_conversations": "search_conversations",
     "search_jobs": "search_jobs",
@@ -102,6 +106,7 @@ async def test_constructor_export_and_dependency_use_the_same_facade(monkeypatch
     constructed = await dependencies.get_ready_extractor(None, tool_name="policy-test")
 
     expected_state = {
+        "_campaigns",
         "_capture",
         "_company",
         "_connection",
@@ -134,9 +139,9 @@ async def test_registered_tools_and_extractor_delegates_are_counted_separately()
     tools = await create_mcp_server().list_tools()
     tool_names = {tool.name for tool in tools}
 
-    assert len(tool_names) == 28
+    assert len(tool_names) == 32
     assert tool_names == {*TOOL_DELEGATES, *ENRICHMENT_TOOL_DELEGATES, "close_session"}
-    assert len(TOOL_DELEGATES) == 20
+    assert len(TOOL_DELEGATES) == 24
     assert len(ENRICHMENT_TOOL_DELEGATES) == 7
     assert TOOL_DELEGATES.keys().isdisjoint(ENRICHMENT_TOOL_DELEGATES)
     assert set(TOOL_DELEGATES.values()) == TOOL_FACADE_METHODS
@@ -506,7 +511,7 @@ def test_facade_methods_are_exactly_the_frozen_coroutine_surface():
     }
 
     assert actual == expected
-    assert len(TOOL_FACADE_METHODS) == 20
+    assert len(TOOL_FACADE_METHODS) == 24
     assert len(COMPATIBILITY_METHODS) == 2
 
 

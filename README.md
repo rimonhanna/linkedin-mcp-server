@@ -66,6 +66,10 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `get_job_details` | Get detailed information about a specific job posting, plus `apply` (`{type, url?}`: `applied`, `closed`, `easy_apply`, `external` or `unknown`, read from the loaded posting without clicking; `url` is the employer's application link for external postings, never opened by the server) |
 | `get_feed` | Get recent posts from the authenticated user's home feed |
 | `search_posts` | Search posts/content globally by keyword (the "Posts" tab) with an optional recency filter (past-24h/past-week/past-month) and content-type filter (documents/images/videos/live_videos/job_posts), scrolling until `max_posts` results (1-50, default 10); author `/in/` references make it usable as a prospect list. Breaking change: `max_pages` was removed and replaced by `max_posts` (default 10) |
+| `list_ad_accounts` | List the Campaign Manager ad accounts the member can open, including the personal boost account that boosted posts run in (marked `boost: true`). Read-only |
+| `list_campaigns` | List an ad account's campaign groups (UI "Campaigns") and campaigns (UI "Ad sets") with status, objective and budgets. Read-only |
+| `get_campaign` | Get one campaign (UI "Ad set") with its targeting, run schedule, campaign group and creatives (UI "Ads"). Read-only |
+| `get_campaign_analytics` | Performance per campaign group, campaign or creative (`level`) for the period Campaign Manager shows, or for `start_date`/`end_date`, with optional `demographics` breakdowns. Read-only |
 | `start_enrichment_job` | Queue a resumable bulk profile-enrichment job from a list of usernames or profile URLs |
 | `run_enrichment_bunch` | Visit the next few profiles in a job, paced with randomized delays, a rolling 24h action budget and working hours; returns when to call it again. A bunch that loses its browser relaunches it and retries once; a profile that never loaded is left pending and is not charged |
 | `get_enrichment_status` | Progress and collected results for an enrichment job, or list all jobs |
@@ -142,6 +146,29 @@ explicit compose target. A POST already observed while protected stays blocked
 even if its route callback runs after that transition. GETs always fall through.
 An interrupted registration is completed once without duplicate handlers; an
 unsuccessful registration fails closed on that page.
+
+### Campaign Manager
+
+The Campaign Manager tools are named after LinkedIn's API entities, not its UI
+labels, which changed in 2026: an API campaign group is a "Campaign" in the UI,
+an API campaign is an "Ad set" and an API creative is an "Ad". Every entity in
+a result carries `kind` and `uiLabel`, so both names are at hand.
+
+The tools only read. They take their data from the responses Campaign Manager
+itself loads in your browser. The one request of their own is a repeat of
+Campaign Manager's own analytics query with another date range or demographic
+pivot, when you ask for one the page did not load; nothing else in it changes.
+While a Campaign Manager read is active, the app's own writes are blocked: on
+an ad account without an active campaign, Campaign Manager opens its campaign
+setup page and creates a billing configuration by itself, and that request is
+aborted. From that setup page the tools change the app's route once, in place,
+to reach the list (charged as a page load); when that still shows no list, the
+result says so under `section_errors` (`account_setup_redirect`).
+
+Only the `MEMBER_JOB_FUNCTION` demographic was seen answering. The others
+(`MEMBER_SENIORITY`, `MEMBER_INDUSTRY`, `MEMBER_COMPANY_SIZE`,
+`MEMBER_COUNTRY_V2`) are unverified; one LinkedIn refuses is reported under
+`section_errors` and does not fail the call.
 
 
 

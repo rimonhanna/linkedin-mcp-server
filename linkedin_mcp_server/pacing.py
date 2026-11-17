@@ -128,13 +128,15 @@ INVITES_WEEKLY_MAX = 160  # INVITES_WEEKLY_MAX, per calendar week (resets Monday
 MESSAGES_MAX = 50  # MESSAGES_MAX, per 24 h
 
 # Kinds a navigation is filed under, by URL. Only ``profile`` and ``search``
-# carry a cap; the rest are counted so the ledger says what the account did.
-PROFILE, COMPANY, SEARCH, MESSAGING, FEED, OTHER = (
+# carry a cap; the rest, Campaign Manager included, are counted so the ledger
+# says what the account did.
+PROFILE, COMPANY, SEARCH, MESSAGING, FEED, CAMPAIGN_MANAGER, OTHER = (
     "profile",
     "company",
     "search",
     "messaging",
     "feed",
+    "campaign_manager",
     "other",
 )
 # Kinds counted at the write, not at a URL: an invite submitted, a message sent.
@@ -270,6 +272,8 @@ def navigation_kind(url: str) -> str:
         return MESSAGING
     if path.startswith("/feed/"):
         return FEED
+    if path.startswith("/campaignmanager/"):
+        return CAMPAIGN_MANAGER
     return OTHER
 
 
