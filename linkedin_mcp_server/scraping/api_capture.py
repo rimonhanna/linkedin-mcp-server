@@ -14,6 +14,11 @@ import anyio.lowlevel
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
 from linkedin_mcp_server.pacing import note_throttle_signal
+from linkedin_mcp_server.response_structure import (
+    ResponseLog,
+    response_record,
+    track,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,7 @@ class ApiResponseCapture(Generic[_C]):
         self.seen_resources: set[str] = set()
         self._event = asyncio.Event()
         self._pending: list[asyncio.Task[None]] = []
+        self.structure = ResponseLog(self.label)
         # Event emitters remove listeners by the registered callable identity.
         self._listeners: tuple[tuple[str, Callable[..., None]], ...] = (
             ("response", self._on_response),
@@ -61,6 +67,7 @@ class ApiResponseCapture(Generic[_C]):
         )
 
     async def __aenter__(self) -> Self:
+        track(self.structure)
         for event, listener in self._listeners:
             self._page.on(event, listener)
         return self
@@ -105,13 +112,22 @@ class ApiResponseCapture(Generic[_C]):
         async def read() -> None:
             call = await self._refine(response, first)
             if call is None or status == 429:
+                self.structure.add(
+                    response_record(call or first, response, body="not read")
+                )
                 return
             payload = None
+            body = "not read"
             if self._wants_body(call):
                 try:
                     payload = await response.json()
+                    body = "json"
                 except Exception:
                     payload = None
+                    body = "not json"
+            self.structure.add(
+                response_record(call, response, body=body, payload=payload)
+            )
             self.responses.append(CapturedResponse(call, status, payload))
             self._event.set()
 

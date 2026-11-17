@@ -19,6 +19,7 @@ from linkedin_mcp_server.common_utils import (
 )
 from linkedin_mcp_server.core.proxy_errors import redact_proxy_credentials
 from linkedin_mcp_server.debug_trace import get_trace_dir, mark_trace_for_retention
+from linkedin_mcp_server.response_structure import current_log
 from linkedin_mcp_server.session_state import (
     auth_root_dir,
     get_runtime_id,
@@ -97,6 +98,13 @@ def build_issue_diagnostics(
             current_runtime_id=current_runtime_id,
         ),
     }
+    log = current_log()
+    if log is not None:
+        payload["api_responses"] = {
+            "label": log.label,
+            "seen": log.seen,
+            "records": list(log.records),
+        }
     payload["issue_search_skipped"] = _inside_running_event_loop()
     if payload["issue_search_skipped"]:
         payload["existing_issues"] = []
@@ -179,6 +187,7 @@ def _render_issue_template(payload: dict[str, Any]) -> str:
                 f"- Error: {payload['error_type']}: {payload['error_message']}",
                 f"- Suggested title (local only): {payload['suggested_issue_title']}",
                 "",
+                *_render_api_responses(payload.get("api_responses")),
                 "## Advisory open issues",
                 *advisory_lines,
                 "",
@@ -207,6 +216,23 @@ def _render_issue_template(payload: dict[str, Any]) -> str:
         )
         + "\n"
     )
+
+
+def _render_api_responses(responses: dict[str, Any] | None) -> list[str]:
+    if responses is None:
+        return []
+    records = responses["records"]
+    return [
+        f"## Captured {responses['label']} API responses (structure only)",
+        "One line per response, oldest first. Values are removed: scalars are "
+        "their type, lists their length and first element; keys are API field "
+        "names, and keys that look like ids are counted, not kept.",
+        f"- Shown: {len(records)} of {responses['seen']} seen",
+        "```json",
+        *(json.dumps(record, sort_keys=True) for record in records),
+        "```",
+        "",
+    ]
 
 
 def _public_issue_diagnostics(
