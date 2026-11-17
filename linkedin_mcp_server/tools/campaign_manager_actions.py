@@ -23,8 +23,10 @@ from linkedin_mcp_server.config.schema import (
 from linkedin_mcp_server.core.exceptions import (
     AuthenticationError,
     InvalidReferenceError,
+    LinkedInScraperException,
 )
 from linkedin_mcp_server.debug_trace import retain_trace_for_failed_action
+from linkedin_mcp_server.error_diagnostics import build_issue_diagnostics
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.pacing import (
@@ -114,6 +116,17 @@ async def _apply(
     retain_trace_for_failed_action(
         tool, result.get("status"), succeeded=SUCCEEDED[tool]
     )
+    # A returned control_unavailable gets the same notes an error does, with
+    # the API responses and page structure the capture recorded.
+    if result.get("status") == "control_unavailable":
+        notes = build_issue_diagnostics(
+            LinkedInScraperException(str(result.get("message"))), context=tool
+        )
+        logger.warning(
+            "%s: control unavailable; notes at %s",
+            tool,
+            notes.get("issue_template_path"),
+        )
 
     await ctx.report_progress(progress=100, total=100, message="Complete")
 

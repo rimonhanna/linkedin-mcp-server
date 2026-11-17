@@ -63,7 +63,10 @@ from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
     retry_safe_from,
 )
-from linkedin_mcp_server.scraping.campaign_manager_write import CampaignWriteFlow
+from linkedin_mcp_server.scraping.campaign_manager_write import (
+    ANCHORS,
+    CampaignWriteFlow,
+)
 from linkedin_mcp_server.scraping.identifiers import campaign_manager_url
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.session import ScrapingSession
@@ -667,6 +670,7 @@ class CampaignTargetingEditor:
             if isinstance(record, tuple):
                 raise InvalidReferenceError(record[1])
             module = _TargetingPage(page, capture)
+            await self._flow.wait_for_anchor(page, ANCHORS["targeting_first_or"])
             async with without_campaign_manager_writes(page):
                 try:
                     await module.open_block(_block_attr("include_or:0"))
@@ -735,6 +739,7 @@ class CampaignTargetingEditor:
                     "not_editable", "The ad set's targeting could not be read."
                 )
             module = _TargetingPage(page, capture)
+            await self._flow.wait_for_anchor(page, ANCHORS["targeting_edit"])
             try:
                 async with without_campaign_manager_writes(page):
                     plan = await self._resolve(

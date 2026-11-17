@@ -52,7 +52,10 @@ from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
     retry_safe_from,
 )
-from linkedin_mcp_server.scraping.campaign_manager_write import CampaignWriteFlow
+from linkedin_mcp_server.scraping.campaign_manager_write import (
+    ANCHORS,
+    CampaignWriteFlow,
+)
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
     normalize_ad_account_id,
@@ -418,6 +421,7 @@ class CampaignContentEditor:
                     "library. Nothing was changed.",
                     planned,
                 )
+            await self._flow.wait_for_anchor(page, ANCHORS["library_filter"])
             pill = await self._organic_pill(page)
             if pill is None:
                 return (
@@ -470,6 +474,7 @@ class CampaignContentEditor:
                     "planned.reasons says why. Nothing was changed.",
                     {**planned, "reasons": list(entry["nonSponsorableReasons"])},
                 )
+            await self._flow.wait_for_anchor(page, ANCHORS["library_rows"])
             rows = await self._rendered_rows(page, len(entries))
             if rows is None:
                 return (

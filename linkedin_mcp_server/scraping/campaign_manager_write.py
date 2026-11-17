@@ -21,8 +21,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 import logging
+import re
+
+from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+from linkedin_mcp_server.response_structure import current_log
 from linkedin_mcp_server.scraping.campaign_manager import _SETUP_PATH, _refusal
 from linkedin_mcp_server.scraping.campaign_manager_api import (
     CampaignManagerCapture,
@@ -56,6 +60,62 @@ logger = logging.getLogger(__name__)
 
 _READY_TIMEOUT = 12.0
 _SAVE_TIMEOUT = 20.0
+# The editor renders after the record arrives (the app shell shows a loader
+# until then).
+_ANCHOR_TIMEOUT = 15.0
+_DIGITS = re.compile(r"\d+")
+
+# Every editor anchor the write tools use, observed 2026-11-17. A control
+# that never renders records which of these the page had.
+ANCHORS = {
+    "budget_block": "[data-live-test-bid-and-budget]",
+    "daily_budget": "[data-live-test-bid-and-budget] #bid-and-budget__daily-budget",
+    "total_budget": "[data-live-test-bid-and-budget] #bid-and-budget__total-budget",
+    "start_date": 'input[data-datepicker-input][name="start"]',
+    "end_date": 'input[data-datepicker-input][name="end"]',
+    "name_input": "#campaign-name",
+    "status_switch": ".campaign-header-status__toggle-container input[role=switch]",
+    "objective": 'input[type=radio][name="objective-selection"]',
+    "footer": "[data-js-wizard-container-footer-actions]",
+    "targeting_edit": "[data-js-targeting-module__edit-facet-block-btn]",
+    "targeting_first_or": (
+        '[data-js-targeting-module__edit-facet-block-btn="includedOrs0"]'
+    ),
+    "targeting_or_blocks": "[data-live-test-facet-block-included-ors]",
+    "facet_search": "#facet-browser__search-input",
+    "location_search": 'input[id^="targeting-entities-typeahead__search-input-"]',
+    "save_audience": "#targeting-module-save-audience-button",
+    "create_menu": "#ma-header-actions-create-trigger",
+    "library_filter": "#sponsored-content-library__pill-filter-ORGANIC",
+    "library_rows": 'input[type=checkbox][id^="select-row-"][id$="-checkbox"]',
+}
+# The app shell's loader, by role and element only.
+_LOADER = '[role=progressbar], progress, [aria-busy="true"]'
+
+# Read only: an anchor rendered off screen is scrolled to, never focused,
+# clicked or typed into, so a dry run waiting here cannot trigger an autosave.
+_ANCHOR_JS = """(selector) => {
+    /* linkedin-mcp:cm-anchor */
+    const shown = [...document.querySelectorAll(selector)]
+        .filter((el) => el.getClientRects().length > 0);
+    if (shown.length === 0) return false;
+    const box = shown[0].getBoundingClientRect();
+    if (box.bottom < 0 || box.top > window.innerHeight) {
+        shown[0].scrollIntoView({ block: 'center' });
+    }
+    return true;
+}"""
+# Counts and visibility per anchor; no text, no values.
+_STRUCTURE_JS = """({ anchors, loader }) => {
+    /* linkedin-mcp:cm-anchor */
+    const visible = (el) => el.getClientRects().length > 0;
+    const out = {};
+    for (const [name, selector] of Object.entries(anchors)) {
+        const found = [...document.querySelectorAll(selector)];
+        out[name] = { count: found.length, visible: found.filter(visible).length };
+    }
+    return { anchors: out, loading: [...document.querySelectorAll(loader)].some(visible) };
+}"""
 # Save and exit is the footer button right before Next: after Previous on a
 # draft, alone on a launched campaign (observed 2026-11).
 _FOOTER_CANDIDATES = {True: 2, False: 1}
@@ -165,6 +225,8 @@ class CampaignWriteFlow:
         self._session = session
         self._navigator = navigator
         self._pin: _RoutePin | None = None
+        # The page path an anchor wait last timed out on.
+        self._timed_out_on: str | None = None
 
     @asynccontextmanager
     async def capturing(self) -> AsyncIterator[CampaignManagerCapture]:
@@ -222,6 +284,7 @@ class CampaignWriteFlow:
                 wanted=("campaignManagerCampaigns",),
             )
             await capture.settle()
+        self._timed_out_on = None
         field = refused(response)
         if field is not None:
             return _not_found(
@@ -236,6 +299,35 @@ class CampaignWriteFlow:
         if record["accountId"] != int(account):
             return _not_found("That ad set does not belong to that ad account.")
         return record
+
+    async def wait_for_anchor(self, page: Any, selector: str) -> bool:
+        """Whether ``selector`` is attached and visible within ``_ANCHOR_TIMEOUT``.
+
+        Once a wait on a page (a path, until the next ``read_campaign``) has
+        timed out, later waits there only check once, so a page that never
+        renders costs the timeout once. A timeout records the page's anchor
+        structure for the failure notes.
+        """
+        path = urlparse(page.url).path
+        timeout = 1 if path == self._timed_out_on else _ANCHOR_TIMEOUT * 1000
+        try:
+            await page.wait_for_function(_ANCHOR_JS, arg=selector, timeout=timeout)
+        except PlaywrightTimeoutError:
+            self._timed_out_on = path
+            await self.record_page_structure(page)
+            return False
+        return True
+
+    async def record_page_structure(self, page: Any) -> None:
+        """Note which known anchors the page has, for the failure notes."""
+        log = current_log()
+        summary = await page.evaluate(
+            _STRUCTURE_JS, {"anchors": ANCHORS, "loader": _LOADER}
+        )
+        if log is None or not isinstance(summary, dict):
+            logger.debug("Page structure not recorded: %s", summary)
+            return
+        log.add_page({"path": _DIGITS.sub("N", urlparse(page.url).path), **summary})
 
     @asynccontextmanager
     async def apply(

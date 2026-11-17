@@ -128,6 +128,15 @@
       "section": "create_campaign_draft__created"
     },
     {
+      "arg": "input[type=radio][name=\"objective-selection\"]",
+      "call": "create_campaign_draft",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "create_campaign_draft__created",
+      "timeout_ms": 15000.0
+    },
+    {
       "arg": {
         "click": false,
         "value": "WEBSITE_VISIT"
@@ -190,6 +199,15 @@
       "event": "response",
       "kind": "listener.emit",
       "section": "create_campaign_draft__created"
+    },
+    {
+      "arg": "#campaign-name",
+      "call": "create_campaign_draft",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "create_campaign_draft__created",
+      "timeout_ms": 15000.0
     },
     {
       "arg": {

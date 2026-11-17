@@ -825,6 +825,7 @@ def semantic_program_id(program: str) -> str:
         ("performance.timeOrigin", "document_origin"),
         # First, so a generic marker below that a Campaign Manager program
         # comes to contain (``rows.push({``, a dialog query) never claims it.
+        ("linkedin-mcp:cm-anchor", "cm_anchor"),
         ("linkedin-mcp:cm-footer", "cm_footer"),
         ("linkedin-mcp:cm-calendar", "cm_calendar"),
         ("linkedin-mcp:cm-editor", "cm_editor"),

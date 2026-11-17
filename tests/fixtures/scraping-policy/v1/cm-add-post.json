@@ -144,10 +144,28 @@
     {
       "arg": "#sponsored-content-library__pill-filter-ORGANIC",
       "call": "add_post_to_campaign",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "add_post_to_campaign__added",
+      "timeout_ms": 15000.0
+    },
+    {
+      "arg": "#sponsored-content-library__pill-filter-ORGANIC",
+      "call": "add_post_to_campaign",
       "kind": "evaluate",
       "operation": "cm_content_pill",
       "program_digest": "a3da00c513ab",
       "section": "add_post_to_campaign__added"
+    },
+    {
+      "arg": "input[type=checkbox][id^=\"select-row-\"][id$=\"-checkbox\"]",
+      "call": "add_post_to_campaign",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "add_post_to_campaign__added",
+      "timeout_ms": 15000.0
     },
     {
       "call": "add_post_to_campaign",

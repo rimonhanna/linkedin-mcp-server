@@ -64,7 +64,10 @@ from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
     retry_safe_from,
 )
-from linkedin_mcp_server.scraping.campaign_manager_write import CampaignWriteFlow
+from linkedin_mcp_server.scraping.campaign_manager_write import (
+    ANCHORS,
+    CampaignWriteFlow,
+)
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
     normalize_ad_account_id,
@@ -100,6 +103,12 @@ _FIELDS = {
     "end": "endDate",
 }
 _NUMERIC = re.compile(r"\d{1,20}")
+_STEP_ANCHORS = {
+    "daily": ANCHORS["daily_budget"],
+    "lifetime": ANCHORS["total_budget"],
+    "start": ANCHORS["start_date"],
+    "end": ANCHORS["end_date"],
+}
 
 # One text input by id, optionally inside ``scope``; focusing selects its
 # whole value so one inserted text replaces it.
@@ -590,6 +599,7 @@ class CampaignManagerEditor:
     ) -> Refusal | None:
         """Every control the plan needs is there, unique and enabled; no edit."""
         for step in plan.order:
+            await self._flow.wait_for_anchor(page, _STEP_ANCHORS[step])
             if step in _BUDGET_INPUTS:
                 state = _state(
                     await page.evaluate(
@@ -809,6 +819,7 @@ class CampaignManagerEditor:
                     target=target,
                 )
             checked = current == "ACTIVE"
+            await self._flow.wait_for_anchor(page, ANCHORS["status_switch"])
             state = await toggle_status(page, checked=checked, click=False)
             if state != "ready":
                 return campaign_action_result(
@@ -951,6 +962,7 @@ class CampaignManagerEditor:
                     target=target,
                     planned=planned,
                 )
+            await self._flow.wait_for_anchor(page, ANCHORS["objective"])
             tiles = await _poll(
                 page, _OBJECTIVE_JS, {"value": objective, "click": False}
             )
@@ -1217,6 +1229,7 @@ class CampaignManagerEditor:
         draft["record"] = envelope_record(found.payload) or {}
         if draft["record"].get("name") == name:
             return None
+        await self._flow.wait_for_anchor(page, ANCHORS["name_input"])
         writes, refused = capture.write_count, len(window.refused)
         if not await set_text(page, _NAME_INPUT, None, name):
             return (

@@ -33,6 +33,8 @@ MAX_DEPTH = 4
 MAX_KEYS = 25
 #: Skeleton nodes per record: bounds the work and the size together.
 MAX_NODES = 150
+#: Page structure summaries kept per capture.
+MAX_PAGES = 5
 _MAX_HEADER = 80
 
 # Field names: letters first, optionally behind Rest.li's ``$`` or ``*``.
@@ -181,11 +183,18 @@ class ResponseLog:
     _kept: deque[tuple[int, dict[str, Any]]] = field(
         default_factory=lambda: deque(maxlen=MAX_KEPT)
     )
+    #: Which known page anchors matched when a control did not render.
+    pages: deque[dict[str, Any]] = field(
+        default_factory=lambda: deque(maxlen=MAX_PAGES)
+    )
 
     def add(self, record: dict[str, Any]) -> None:
         self._kept.append((self.seen, record))
         self.records.append(record)
         self.seen += 1
+
+    def add_page(self, summary: dict[str, Any]) -> None:
+        self.pages.append(summary)
 
     def want(self, resources: Iterable[str]) -> None:
         self.wanted.update(resources)

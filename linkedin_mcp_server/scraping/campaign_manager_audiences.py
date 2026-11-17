@@ -73,7 +73,10 @@ from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
     retry_safe_from,
 )
-from linkedin_mcp_server.scraping.campaign_manager_write import CampaignWriteFlow
+from linkedin_mcp_server.scraping.campaign_manager_write import (
+    ANCHORS,
+    CampaignWriteFlow,
+)
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
     normalize_ad_account_id,
@@ -499,6 +502,7 @@ class CampaignAudiences:
                     target=target,
                     planned=planned,
                 )
+            await self._flow.wait_for_anchor(page, ANCHORS["create_menu"])
             async with without_campaign_manager_writes(page):
                 dialog = await _open_upload_dialog(page)
                 terms = await _upload_terms_url(dialog) if dialog else None
@@ -657,6 +661,7 @@ class CampaignAudiences:
                     target=target,
                 )
             planned = {"name": name, "targeting": _targeting(keys)}
+            await self._flow.wait_for_anchor(page, ANCHORS["save_audience"])
             async with without_campaign_manager_writes(page):
                 dialog = await _open_save_dialog(page)
                 if dialog is False:

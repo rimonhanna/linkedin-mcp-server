@@ -120,6 +120,15 @@
       "section": "update_campaign__blocked"
     },
     {
+      "arg": "[data-live-test-bid-and-budget] #bid-and-budget__daily-budget",
+      "call": "update_campaign",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "update_campaign__blocked",
+      "timeout_ms": 15000.0
+    },
+    {
       "arg": {
         "focus": false,
         "id": "bid-and-budget__daily-budget",

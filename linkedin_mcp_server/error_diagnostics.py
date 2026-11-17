@@ -106,6 +106,8 @@ def build_issue_diagnostics(
             "wanted": sorted(log.wanted),
             "records": log.shown(),
         }
+        if log.pages:
+            payload["page_structure"] = list(log.pages)
     payload["issue_search_skipped"] = _inside_running_event_loop()
     if payload["issue_search_skipped"]:
         payload["existing_issues"] = []
@@ -189,6 +191,7 @@ def _render_issue_template(payload: dict[str, Any]) -> str:
                 f"- Suggested title (local only): {payload['suggested_issue_title']}",
                 "",
                 *_render_api_responses(payload.get("api_responses")),
+                *_render_page_structure(payload.get("page_structure")),
                 "## Advisory open issues",
                 *advisory_lines,
                 "",
@@ -239,6 +242,21 @@ def _render_api_responses(responses: dict[str, Any] | None) -> list[str]:
         ),
         "```json",
         *(json.dumps(record, sort_keys=True) for record in records),
+        "```",
+        "",
+    ]
+
+
+def _render_page_structure(pages: list[dict[str, Any]] | None) -> list[str]:
+    if not pages:
+        return []
+    return [
+        "## Page structure when a control was not found (structure only)",
+        "One line per check, oldest first: the page path with digits masked, "
+        "whether a loader was still visible, and for each known anchor how "
+        "many elements matched and how many were visible. No text or values.",
+        "```json",
+        *(json.dumps(page, sort_keys=True) for page in pages),
         "```",
         "",
     ]

@@ -120,6 +120,15 @@
       "section": "create_saved_audience__saved"
     },
     {
+      "arg": "#targeting-module-save-audience-button",
+      "call": "create_saved_audience",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "create_saved_audience__saved",
+      "timeout_ms": 15000.0
+    },
+    {
       "call": "create_saved_audience",
       "kind": "locator.create",
       "locator": "cm_save_button",

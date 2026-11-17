@@ -125,6 +125,15 @@
       "section": "create_company_list_audience__uploaded"
     },
     {
+      "arg": "#ma-header-actions-create-trigger",
+      "call": "create_company_list_audience",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": 15000.0
+    },
+    {
       "call": "create_company_list_audience",
       "kind": "locator.create",
       "locator": "cm_create_trigger",
