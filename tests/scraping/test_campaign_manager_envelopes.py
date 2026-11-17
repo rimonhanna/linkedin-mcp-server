@@ -316,7 +316,7 @@ async def test_analytics_after_a_route_hop_names_the_unread_query(mock_page):
 
     message = str(raised.value)
     assert "none was the query this tool reads" in message
-    assert "single pivot CAMPAIGN" in message
+    assert "by CAMPAIGN (alone or with objective type)" in message
     assert "setup page" not in message
 
 

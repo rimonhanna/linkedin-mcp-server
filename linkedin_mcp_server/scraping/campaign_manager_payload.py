@@ -69,6 +69,30 @@ _BASE_METRICS = (
 _OBJECTIVE_METRICS = ("keyResults", "costPerKeyResult")
 _CONVERSION_METRICS = ("externalWebsiteConversions", "costPerConversion")
 _LEAD_METRICS = ("oneClickLeads",)
+_METRIC_GROUPS = (
+    ("baseMetrics", _BASE_METRICS),
+    ("objectiveMetrics", _OBJECTIVE_METRICS),
+    ("conversionMetrics", _CONVERSION_METRICS),
+    ("leadMetrics", _LEAD_METRICS),
+)
+BASE_METRICS = frozenset(_BASE_METRICS)
+# Counts and costs add up across rows of one entity; a ratio does not, so it
+# is recomputed from the summed numerator and denominator.
+_ADDITIVE_METRICS = (
+    "impressions",
+    "clicks",
+    "costInLocalCurrency",
+    "keyResults",
+    "externalWebsiteConversions",
+    "oneClickLeads",
+)
+_RATIO_METRICS = {
+    "clickThroughRate": ("clicks", "impressions", 1),
+    "costPerClick": ("costInLocalCurrency", "clicks", 1),
+    "costPerThousandImpressions": ("costInLocalCurrency", "impressions", 1000),
+    "costPerKeyResult": ("costInLocalCurrency", "keyResults", 1),
+    "costPerConversion": ("costInLocalCurrency", "externalWebsiteConversions", 1),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,18 +585,28 @@ def _pivot_kind(pivot: str) -> tuple[str, str]:
 
 
 def build_analytics_rows(payload: Any, pivot: str) -> list[AnalyticsRow] | None:
-    """Rows of a ``campaignManagerAdAnalytics`` reply, or ``None`` on a URN mismatch."""
+    """Rows of a ``campaignManagerAdAnalytics`` reply, or ``None`` on a URN mismatch.
+
+    A reply pivoted by ``pivot`` and a second pivot (objective type) holds
+    several elements per entity; they are summed into one row per entity.
+    """
     elements = envelope_elements(payload)
     if elements is None:
         return None
     kind, prefix = _pivot_kind(pivot)
-    rows: list[AnalyticsRow] = []
+    parts: dict[str, list[dict[str, Any]]] = {}
     for element in elements:
         values = element.get("pivotValues")
-        first = _mapping(values[0]) if isinstance(values, list) and values else None
-        urn = _str(first.get("id")) if first is not None else None
-        if first is None or urn is None or not urn.startswith(prefix):
+        matches = [
+            (record, urn)
+            for record in map(_mapping, values if isinstance(values, list) else [])
+            if record is not None
+            and (urn := _str(record.get("id"))) is not None
+            and urn.startswith(prefix)
+        ]
+        if len(matches) != 1:
             return None
+        ((first, urn),) = matches
         tail = urn[len(prefix) :]
         entity: dict[str, Any] = {
             "kind": kind,
@@ -583,19 +617,28 @@ def build_analytics_rows(payload: Any, pivot: str) -> list[AnalyticsRow] | None:
         if name is not None:
             entity["name"] = name
         row: dict[str, Any] = {"entity": entity}
-        for group, keys in (
-            ("baseMetrics", _BASE_METRICS),
-            ("objectiveMetrics", _OBJECTIVE_METRICS),
-            ("conversionMetrics", _CONVERSION_METRICS),
-            ("leadMetrics", _LEAD_METRICS),
-        ):
+        for group, keys in _METRIC_GROUPS:
             metrics = _mapping(element.get(group)) or {}
             for key in keys:
                 number = _number(metrics.get(key))
                 if number is not None:
                     row[key] = number
-        rows.append(cast("AnalyticsRow", row))
-    return rows
+        parts.setdefault(urn, []).append(row)
+    return [cast("AnalyticsRow", _summed(rows)) for rows in parts.values()]
+
+
+def _summed(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """One entity's rows as one; a metric missing from any row stays absent."""
+    if len(rows) == 1:
+        return rows[0]
+    total: dict[str, Any] = {"entity": rows[0]["entity"]}
+    for key in _ADDITIVE_METRICS:
+        if all(key in row for row in rows):
+            total[key] = sum(row[key] for row in rows)
+    for key, (numerator, denominator, scale) in _RATIO_METRICS.items():
+        if numerator in total and total.get(denominator):
+            total[key] = total[numerator] / total[denominator] * scale
+    return total
 
 
 def _is_empty(value: Any) -> bool:

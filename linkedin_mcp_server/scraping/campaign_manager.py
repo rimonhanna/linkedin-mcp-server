@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from datetime import date
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import logging
@@ -29,7 +29,6 @@ from linkedin_mcp_server.scraping.campaign_manager_api import (
     CmResponse,
     analytics_call_matches,
     period_order,
-    template_call,
 )
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
     without_campaign_manager_writes,
@@ -85,6 +84,8 @@ _ROUTE_SCRIPT = """(path) => {
 # The boost manager loads the member's personal boost account, which the
 # account list's own finder leaves out.
 _BOOST_ACCOUNTS_PATH = "/campaignmanager/boost/boostaccounts/"
+# A boost account's ``type``; its reporting is not on the accounts pages.
+_BOOST_ACCOUNT_TYPE = "PERSONAL"
 _READY_TIMEOUT = 12.0
 # For a response the page may not send; a miss is no throttle evidence.
 _OPTIONAL_WAIT = 5.0
@@ -636,12 +637,22 @@ class CampaignManagerReader:
                     and echoes(response.call)
                 )
 
+            def is_boost(response: CmResponse) -> bool:
+                record = envelope_record(response.payload)
+                return (
+                    _resource(response, "campaignManagerAccounts")
+                    and response.call.entity_id == account
+                    and record is not None
+                    and same_id(record.get("id"), account)
+                    and record.get("type") == _BOOST_ACCOUNT_TYPE
+                )
+
             try:
                 found = await self._open(
                     capture,
                     url,
                     tab_path=urlparse(url).path,
-                    ready=is_level,
+                    ready=lambda r: is_level(r) or is_boost(r),
                     refused=_refusal(account),
                     wanted=("campaignManagerAdAnalytics",),
                 )
@@ -651,6 +662,29 @@ class CampaignManagerReader:
                 if type(exc) is not LinkedInScraperException or unmatched is None:
                     raise
                 raise unmatched from exc
+            boost = (
+                found is not None and is_boost(found) and not capture.matching(is_level)
+            )
+            if boost:
+                # The accounts pages never load a boost account's reporting.
+                url = f"{_LINKEDIN}{_BOOST_ACCOUNTS_PATH}"
+                await self._route_to(_BOOST_ACCOUNTS_PATH)
+                found = await self._optional(
+                    capture,
+                    is_level,
+                    timeout=_READY_TIMEOUT,
+                    wanted=("campaignManagerAdAnalytics",),
+                )
+                await capture.settle()
+                if found is None:
+                    detail = _unmatched_detail(capture, pivot)
+                    raise LinkedInScraperException(
+                        "This ad account is a personal boost account, the one "
+                        "LinkedIn keeps for boosted posts. Campaign Manager's boost "
+                        "manager did not load its reporting analytics"
+                        + (f" ({detail})" if detail else "")
+                        + ", so nothing was reported."
+                    )
             if found is None:
                 unmatched = _unmatched_analytics(capture, pivot)
                 if unmatched is not None:
@@ -688,21 +722,28 @@ class CampaignManagerReader:
                     )
 
                 failure: dict[str, str] | None = None
-                try:
-                    # Optional page: a miss is no throttle evidence.
-                    opened = await self._open(
-                        capture,
-                        demographics_url,
-                        tab_path=urlparse(demographics_url).path,
-                        ready=is_demographic,
-                        throttle=False,
-                        wanted=("campaignManagerAdAnalytics",),
+                if boost:
+                    failure = _error(
+                        "unavailable",
+                        "Campaign Manager has no demographics page for a personal "
+                        "boost account, so its demographics were not read.",
                     )
-                except LinkedInScraperException as exc:
-                    failure = _error("unavailable", str(exc))
                 else:
-                    if opened is None:
-                        failure = _redirect_error("demographics")
+                    try:
+                        # Optional page: a miss is no throttle evidence.
+                        opened = await self._open(
+                            capture,
+                            demographics_url,
+                            tab_path=urlparse(demographics_url).path,
+                            ready=is_demographic,
+                            throttle=False,
+                            wanted=("campaignManagerAdAnalytics",),
+                        )
+                    except LinkedInScraperException as exc:
+                        failure = _error("unavailable", str(exc))
+                    else:
+                        if opened is None:
+                            failure = _redirect_error("demographics")
                 for facet in wanted:
                     name = f"demographics_{facet}"
                     if failure is not None:
@@ -758,6 +799,16 @@ def _unmatched_analytics(
     None when the page sent no ``q=statistics`` query at all, which is what a
     setup page that never shows the table looks like.
     """
+    detail = _unmatched_detail(capture, pivot)
+    if detail is None:
+        return None
+    return LinkedInScraperException(
+        f"Campaign Manager loaded analytics for this ad account's reporting "
+        f"table, but {detail}, so nothing was reported."
+    )
+
+
+def _unmatched_detail(capture: CampaignManagerCapture, pivot: str) -> str | None:
     seen = capture.matching(
         lambda r: (
             r.call.resource == "campaignManagerAdAnalytics"
@@ -768,15 +819,11 @@ def _unmatched_analytics(
         return None
     if all(not r.ok for r in seen):
         statuses = ", ".join(sorted({str(r.status) for r in seen}))
-        detail = f"LinkedIn refused every one (HTTP {statuses})"
-    else:
-        detail = (
-            "none was the query this tool reads: the single pivot "
-            f"{pivot}, the whole period with metrics, for this ad account alone"
-        )
-    return LinkedInScraperException(
-        f"Campaign Manager loaded analytics for this ad account's reporting "
-        f"table, but {detail}, so nothing was reported."
+        return f"LinkedIn refused every one (HTTP {statuses})"
+    return (
+        "none was the query this tool reads: by "
+        f"{pivot} (alone or with objective type), the whole period with "
+        "metrics, for this ad account or ids within it"
     )
 
 
@@ -820,6 +867,28 @@ def _echoes_account(
     )
 
 
+def _covers_account(
+    capture: CampaignManagerCapture, call: CmCall, account_id: str
+) -> bool:
+    """Whether a query reads the whole account, so a replay is no subset.
+
+    Account-wide, or ids holding every entity the reporting lists counted.
+    """
+    if call.params.get("accountIds") is not None:
+        return _account_wide(call, account_id)
+    scoped = [key for key in SCOPE_ID_PARAMS if key in call.params]
+    if not scoped:
+        return False
+    lists = _reporting_lists(capture, account_id)
+    for key in scoped:
+        known, total = lists[SCOPE_ID_PARAMS[key]]
+        if total is None or len(known) < total:
+            return False
+        if not known <= set(restli_list(call.params[key])):
+            return False
+    return True
+
+
 def _range_of(call: CmCall) -> tuple[date, date] | None:
     return restli_date_range(call.params.get("dateRange", ""))
 
@@ -830,13 +899,15 @@ def _merged_level(
     """One period's reporting replies as one payload, and a coverage error.
 
     An account-wide reply holds every entity. Otherwise the page asked for
-    the ids on screen in chunks, so the rows merge by entity URN and the ids
-    asked for are checked against the reporting list's total.
+    the ids on screen in chunks, so the rows merge by their pivot URNs (one
+    element per entity and objective type) and the ids asked for are checked
+    against the reporting list's total. Replies projecting different metrics
+    for one row add up to the union of those metrics.
     """
     for response in responses:
         if _account_wide(response.call, account_id):
             return response.payload, None
-    rows: dict[str, dict[str, Any]] = {}
+    rows: dict[tuple[str, ...], dict[str, Any]] = {}
     scoped: dict[str, set[str]] = {}
     for response in responses:
         elements = envelope_elements(response.payload)
@@ -844,11 +915,18 @@ def _merged_level(
             raise _unverified("the analytics")
         for element in elements:
             values = element.get("pivotValues")
-            first = values[0] if isinstance(values, list) and values else None
-            urn = first.get("id") if isinstance(first, dict) else None
-            if not isinstance(urn, str):
+            urns = tuple(
+                value.get("id") if isinstance(value, dict) else None
+                for value in (values if isinstance(values, list) else [])
+            )
+            if not urns or not all(isinstance(urn, str) for urn in urns):
                 raise _unverified("the analytics")
-            rows.setdefault(urn, element)
+            row = rows.setdefault(cast("tuple[str, ...]", urns), {})
+            for name, value in element.items():
+                if isinstance(value, dict) and isinstance(row.get(name), dict):
+                    row[name] = {**value, **row[name]}
+                else:
+                    row.setdefault(name, value)
         for key, kind in SCOPE_ID_PARAMS.items():
             if key in response.call.params:
                 scoped.setdefault(kind, set()).update(
@@ -890,16 +968,20 @@ async def _level_payload(
     if same:
         payload, error = _merged_level(capture, same, account_id)
         return payload, window, error
-    template = capture.analytics_template(q="statistics", pivot=pivot)
-    # An id-scoped query covers only the ids on screen: a replay would be a subset.
-    if template is None or not _account_wide(template_call(template), account_id):
+    # An id-scoped query short of the account's ids would replay a subset.
+    template = capture.analytics_template(
+        q="statistics",
+        pivot=pivot,
+        accept=lambda call: _covers_account(capture, call, account_id),
+    )
+    if template is None:
         return (
             None,
             window,
             _error(
                 "unavailable",
-                "Campaign Manager did not expose an account-wide reporting "
-                "query, so the requested period could not be read.",
+                "Campaign Manager did not expose a reporting query for the whole "
+                "ad account, so the requested period could not be read.",
             ),
         )
     payload = await capture.replay_analytics(template, date_range=window, pivot=None)
@@ -913,19 +995,24 @@ async def _demographic_rows(
     account_id: str,
     is_demographic: Callable[[CmResponse], bool],
 ) -> list[AnalyticsRow]:
+    def whole(call: CmCall) -> bool:
+        return _covers_account(capture, call, account_id)
+
     payload: Any = None
     for response in capture.matching(is_demographic):
         if (
             response.call.params.get("pivot") == facet
             and _range_of(response.call) == window
+            and whole(response.call)
         ):
             payload = response.payload
             break
     else:
-        template = capture.analytics_template(q="analytics", pivot=None)
-        if template is None or not _account_wide(template_call(template), account_id):
+        template = capture.analytics_template(q="analytics", pivot=None, accept=whole)
+        if template is None:
             raise LinkedInScraperException(
-                "Campaign Manager did not expose an account-wide demographics query."
+                "Campaign Manager did not expose a demographics query for the "
+                "whole ad account."
             )
         payload = await capture.replay_analytics(
             template, date_range=window, pivot=facet

@@ -760,8 +760,9 @@ async def test_analytics_merges_id_scoped_chunks_and_flags_short_coverage(
 async def test_analytics_refuses_to_replay_an_id_scoped_query(mock_page):
     browser = _Browser(mock_page)
     url = _url("/campaign-groups")
+    # The ids asked for are one of the account's two groups: a replay is a subset.
     browser.loads[url] = [
-        _group_list([GROUP], 1),
+        _group_list([GROUP], 2),
         _scoped_statistics([GROUP], [_group_row(GROUP, 5)]),
     ]
 

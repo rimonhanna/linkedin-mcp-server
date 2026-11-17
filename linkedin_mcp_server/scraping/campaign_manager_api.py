@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import asyncio
 import json
+import re
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
 from linkedin_mcp_server.pacing import note_throttle_signal
@@ -21,6 +22,7 @@ from linkedin_mcp_server.scraping.campaign_manager_guard import (
     is_campaign_manager_read,
 )
 from linkedin_mcp_server.scraping.campaign_manager_payload import (
+    BASE_METRICS,
     CM_API_PREFIX,
     CmCall,
     format_restli_date_range,
@@ -79,6 +81,9 @@ LEVEL_PIVOTS = {
     "campaign": "CAMPAIGN",
     "creative": "CREATIVE",
 }
+# A second pivot the reporting table adds to a level query; its rows sum per entity.
+_SECOND_PIVOTS = frozenset({"OBJECTIVE_TYPE"})
+_FIELD_NAME = re.compile(r"[A-Za-z]+")
 
 
 CmResponse = CapturedResponse[CmCall]
@@ -114,9 +119,11 @@ class _AnalyticsTemplate:
 def analytics_call_matches(call: CmCall, *, q: str, pivot: str | None) -> bool:
     """Whether an analytics call is the one a reader wants for ``pivot``.
 
-    ``q=statistics`` must be the reporting table's single-pivot, whole-period
-    projection; ``q=analytics`` is the demographics finder, any pivot when
-    ``pivot`` is None.
+    ``q=statistics`` must be a whole-period query pivoted by ``pivot``, alone
+    or with objective type, projecting at least one base metric (a sparkline
+    projects only key results); metrics it leaves out are absent, not zero;
+    ``q=analytics`` is the demographics finder, any pivot when ``pivot`` is None.
+    Scope (account or ids) is the caller's check.
     """
     params = call.params
     if call.resource != _ANALYTICS_RESOURCE or call.finder != q:
@@ -124,10 +131,15 @@ def analytics_call_matches(call: CmCall, *, q: str, pivot: str | None) -> bool:
     if restli_date_range(params.get("dateRange", "")) is None:
         return False
     if q == "statistics":
+        pivots = restli_list(params.get("pivots", ""))
         return (
-            restli_list(params.get("pivots", "")) == [pivot]
+            pivot in pivots
+            and len(set(pivots)) == len(pivots)
+            and set(pivots) - {pivot} <= _SECOND_PIVOTS
             and params.get("timeGranularity") == "ALL"
-            and "impressions" in params.get("fields", "")
+            and not BASE_METRICS.isdisjoint(
+                _FIELD_NAME.findall(params.get("fields", ""))
+            )
         )
     return pivot is None or params.get("pivot") == pivot
 
@@ -319,18 +331,23 @@ class CampaignManagerCapture(ApiResponseCapture[CmCall]):
             return None
 
     def analytics_template(
-        self, *, q: str, pivot: str | None
+        self,
+        *,
+        q: str,
+        pivot: str | None,
+        accept: Callable[[CmCall], bool] = lambda _call: True,
     ) -> _AnalyticsTemplate | None:
-        """The page's own analytics request for ``pivot``.
+        """The page's own analytics request for ``pivot`` that ``accept`` takes.
 
-        An account-wide (``accountIds``) query wins over an id-scoped one, which
-        may cover only the ids on screen; then the latest period wins.
-        ``pivot=None`` accepts any demographics pivot, since a replay replaces it.
+        An account-wide (``accountIds``) query wins over an id-scoped one; then
+        the latest period wins. ``pivot=None`` accepts any demographics pivot,
+        since a replay replaces it.
         """
         candidates = [
             template
             for template in self._templates.values()
-            if analytics_call_matches(template_call(template), q=q, pivot=pivot)
+            if analytics_call_matches(call := template_call(template), q=q, pivot=pivot)
+            and accept(call)
         ]
         if not candidates:
             return None
