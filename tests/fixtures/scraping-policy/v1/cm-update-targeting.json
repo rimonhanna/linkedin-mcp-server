@@ -1,0 +1,564 @@
+{
+  "call": {
+    "arguments": {
+      "account_id": "100000001",
+      "add": [
+        {
+          "query": "engineer",
+          "urn": "urn:li:title:300"
+        }
+      ],
+      "campaign_id": "100000301",
+      "confirm_send": true,
+      "remove": [
+        "urn:li:title:200"
+      ]
+    },
+    "method": "update_campaign_targeting"
+  },
+  "events": [
+    {
+      "call": "update_campaign_targeting",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "callback_id": "callback-3",
+      "kind": "route.add",
+      "pattern": "**/campaign-manager-api/**",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "section": "update_campaign_targeting__draft",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "wait_for_load_state",
+      "section": "update_campaign_targeting__draft",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "update_campaign_targeting",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "boundary.rate_limit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": "includedOrs0",
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "4079f229b22e",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": 0,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "63122b9bba21",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.6,
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": false,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_typeahead_rows",
+      "program_digest": "8e3999f47175",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "delay_ms": null,
+      "kind": "keyboard.type",
+      "section": "update_campaign_targeting__draft",
+      "text": "engineer"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_typeahead_rows",
+      "program_digest": "ece81920a8d3",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": false,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_typeahead_rows",
+      "program_digest": "8e3999f47175",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "key": "Backspace",
+      "kind": "keyboard.press",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": 0,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "63122b9bba21",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": 0,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "63122b9bba21",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": 0,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "63122b9bba21",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": 0,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "63122b9bba21",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": {
+        "expected": 2,
+        "index": 0,
+        "pill": 1
+      },
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "e4782fe2a5e4",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "route.fallback",
+      "method": "POST",
+      "section": "update_campaign_targeting__draft",
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerCampaigns/100000301"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": 0,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "63122b9bba21",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.6,
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": 0,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "63122b9bba21",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": 0,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "63122b9bba21",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": false,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_typeahead_rows",
+      "program_digest": "8e3999f47175",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "delay_ms": null,
+      "kind": "keyboard.type",
+      "section": "update_campaign_targeting__draft",
+      "text": "engineer"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_typeahead_rows",
+      "program_digest": "ece81920a8d3",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": {
+        "expected": 2,
+        "row": 0
+      },
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_typeahead_rows",
+      "program_digest": "0cf3bb6d2b5d",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "route.fallback",
+      "method": "POST",
+      "section": "update_campaign_targeting__draft",
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerCampaigns/100000301"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": 0,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "63122b9bba21",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "arg": false,
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_typeahead_rows",
+      "program_digest": "8e3999f47175",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "key": "Backspace",
+      "kind": "keyboard.press",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.6,
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "section": "update_campaign_targeting__draft",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "wait_for_load_state",
+      "section": "update_campaign_targeting__draft",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "update_campaign_targeting",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "boundary.rate_limit",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "update_campaign_targeting__draft"
+    }
+  ],
+  "result": {
+    "applied": {
+      "add": [
+        {
+          "exclude": false,
+          "facetUrn": "urn:li:adTargetingFacet:titles",
+          "urn": "urn:li:title:300"
+        }
+      ],
+      "remove": [
+        {
+          "exclude": false,
+          "facetUrn": "urn:li:adTargetingFacet:titles",
+          "urn": "urn:li:title:200"
+        }
+      ]
+    },
+    "message": "The ad set's targeting was changed.",
+    "planned": {
+      "add": [
+        {
+          "exclude": false,
+          "facetUrn": "urn:li:adTargetingFacet:titles",
+          "name": "Example title 300",
+          "urn": "urn:li:title:300"
+        }
+      ],
+      "remove": [
+        {
+          "exclude": false,
+          "facetUrn": "urn:li:adTargetingFacet:titles",
+          "name": "Example title 200",
+          "urn": "urn:li:title:200"
+        }
+      ]
+    },
+    "retry_safe": false,
+    "status": "updated",
+    "target": {
+      "accountId": 100000001,
+      "id": 100000301,
+      "kind": "campaign",
+      "name": "Example ad set",
+      "status": "DRAFT",
+      "uiLabel": "Ad set"
+    },
+    "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details"
+  },
+  "scenario": "update_campaign_targeting__draft",
+  "schema_version": 1
+}

@@ -19,6 +19,8 @@ TOOLS = (
     "list_campaigns",
     "get_campaign",
     "get_campaign_analytics",
+    "search_targeting_entities",
+    "list_audiences",
 )
 RESULT = {"url": "https://www.linkedin.com/campaignmanager/accounts", "sections": {}}
 
@@ -129,6 +131,26 @@ class TestDelegation:
             demographics=["MEMBER_JOB_FUNCTION"],
         )
 
+    async def test_search_targeting_entities_normalizes_ids(self, mock_context):
+        extractor = _extractor()
+        fn = await _fn("search_targeting_entities")
+        await fn(
+            "urn:li:sponsoredAccount:100000001",
+            "urn:li:sponsoredCampaign:200000002",
+            "engineer",
+            mock_context,
+            extractor=extractor,
+        )
+        extractor.search_targeting_entities.assert_awaited_once_with(
+            "100000001", "200000002", "engineer"
+        )
+
+    async def test_list_audiences_normalizes_an_account_urn(self, mock_context):
+        extractor = _extractor()
+        fn = await _fn("list_audiences")
+        await fn("urn:li:sponsoredAccount:100000001", mock_context, extractor=extractor)
+        extractor.list_audiences.assert_awaited_once_with("100000001")
+
 
 class TestRefusedBeforeTheBrowser:
     @pytest.mark.parametrize(
@@ -162,6 +184,19 @@ class TestRefusedBeforeTheBrowser:
                 "get_campaign_analytics",
                 {"ad_account_id": "100000001", "level": "account"},
             ),
+            ("list_audiences", {"ad_account_id": "not-an-id"}),
+            (
+                "search_targeting_entities",
+                {"ad_account_id": "100000001", "campaign_id": "x", "query": "a"},
+            ),
+            (
+                "search_targeting_entities",
+                {"ad_account_id": "1", "campaign_id": "2", "query": "   "},
+            ),
+            (
+                "search_targeting_entities",
+                {"ad_account_id": "1", "campaign_id": "2", "query": "a" * 101},
+            ),
         ],
     )
     async def test_bad_input_never_starts_the_browser(self, ready, name, args):
@@ -180,6 +215,11 @@ class TestAuthError:
             ("list_campaigns", {"ad_account_id": "100000001"}),
             ("get_campaign", {"ad_account_id": "1", "campaign_id": "2"}),
             ("get_campaign_analytics", {"ad_account_id": "100000001"}),
+            (
+                "search_targeting_entities",
+                {"ad_account_id": "1", "campaign_id": "2", "query": "engineer"},
+            ),
+            ("list_audiences", {"ad_account_id": "100000001"}),
         ],
     )
     async def test_auth_error_triggers_relogin(self, name, args):

@@ -8,9 +8,10 @@ the UI "Ad". Tools are named by API entity so a UI rename cannot change them.
 
 import logging
 from datetime import date
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
+from pydantic import StringConstraints
 
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
 from linkedin_mcp_server.core.exceptions import AuthenticationError
@@ -300,3 +301,125 @@ def register_campaign_manager_tools(
                 raise_tool_error(relogin_exc, "get_campaign_analytics")
         except Exception as e:
             raise_tool_error(e, "get_campaign_analytics")  # NoReturn
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="Search Targeting Entities",
+        annotations={"readOnlyHint": True, "openWorldHint": True},
+        tags={"campaign_manager", "scraping"},
+        exclude_args=["extractor"],
+    )
+    async def search_targeting_entities(
+        ad_account_id: str,
+        campaign_id: str,
+        query: Annotated[
+            str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+        ],
+        ctx: Context,
+        extractor: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        Terminology: API campaign group = "Campaign" in Campaign Manager's UI,
+        API campaign = "Ad set", API creative = "Ad".
+
+        Search the targeting values (job titles, skills, companies, ...)
+        Campaign Manager offers for a query on an API campaign (UI "Ad
+        set"). Read-only: the search box is typed into, nothing is selected.
+
+        Args:
+            ad_account_id: Numeric ad account id, its URN or account URL.
+            campaign_id: Numeric campaign id, its URN or campaign URL.
+            query: Search text, 1 to 100 characters. Pass the same text as
+                the query of update_campaign_targeting's add.
+            ctx: FastMCP context for progress reporting
+
+        Returns:
+            Dict with url, sections (one line per value) and
+            targeting_entities: urn, name, facetUrn, description, targetable
+            and addable (whether the ad set's first OR block accepts it).
+        """
+        try:
+            ad_account_id = normalize_ad_account_id(ad_account_id)
+            campaign_id = normalize_campaign_id(campaign_id)
+            extractor = extractor or await get_ready_extractor(
+                ctx, tool_name="search_targeting_entities"
+            )
+            logger.info(
+                "Searching targeting values for campaign %s in ad account %s",
+                campaign_id,
+                ad_account_id,
+            )
+
+            await ctx.report_progress(
+                progress=0, total=100, message="Searching targeting values"
+            )
+
+            result = await extractor.search_targeting_entities(
+                ad_account_id, campaign_id, query
+            )
+
+            await ctx.report_progress(progress=100, total=100, message="Complete")
+
+            return result
+
+        except AuthenticationError as e:
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "search_targeting_entities")
+        except Exception as e:
+            raise_tool_error(e, "search_targeting_entities")  # NoReturn
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="List Audiences",
+        annotations={"readOnlyHint": True, "openWorldHint": True},
+        tags={"campaign_manager", "scraping"},
+        exclude_args=["extractor"],
+    )
+    async def list_audiences(
+        ad_account_id: str,
+        ctx: Context,
+        extractor: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        Terminology: API campaign group = "Campaign" in Campaign Manager's UI,
+        API campaign = "Ad set", API creative = "Ad".
+
+        List an ad account's matched audiences (uploaded lists, retargeting)
+        and saved audiences. Read-only.
+
+        Args:
+            ad_account_id: Numeric ad account id, its URN or account URL.
+            ctx: FastMCP context for progress reporting
+
+        Returns:
+            Dict with url, sections, matched_audiences (id, segmentUrn, name,
+            listType, source, status, audienceCount) and saved_audiences (id,
+            name, description, audienceCount). section_errors is present when
+            a list could not be read or has more entries than were loaded.
+        """
+        try:
+            ad_account_id = normalize_ad_account_id(ad_account_id)
+            extractor = extractor or await get_ready_extractor(
+                ctx, tool_name="list_audiences"
+            )
+            logger.info("Listing audiences for ad account %s", ad_account_id)
+
+            await ctx.report_progress(
+                progress=0, total=100, message="Loading audiences"
+            )
+
+            result = await extractor.list_audiences(ad_account_id)
+
+            await ctx.report_progress(progress=100, total=100, message="Complete")
+
+            return result
+
+        except AuthenticationError as e:
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "list_audiences")
+        except Exception as e:
+            raise_tool_error(e, "list_audiences")  # NoReturn

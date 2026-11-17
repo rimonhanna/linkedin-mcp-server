@@ -22,6 +22,7 @@ from linkedin_mcp_server.limits import env_float
 from linkedin_mcp_server.pacing import (
     ACCOUNT_BUDGET_JOB,
     ACCOUNT_COOLDOWN_FILE,
+    CAMPAIGN_WRITES,
     COOLDOWN_STEPS_SECONDS,
     HOURLY_WINDOW_SECONDS,
     INVITES,
@@ -754,7 +755,14 @@ class TestPerKindCaps:
     """Each kind refuses at N+1 and says when the oldest unit frees up."""
 
     @pytest.mark.parametrize(
-        ("kind", "cap"), [(PROFILE, 150), (SEARCH, 100), (INVITES, 20), (MESSAGES, 50)]
+        ("kind", "cap"),
+        [
+            (PROFILE, 150),
+            (SEARCH, 100),
+            (INVITES, 20),
+            (MESSAGES, 50),
+            (CAMPAIGN_WRITES, 30),
+        ],
     )
     def test_the_daily_cap_refuses_one_past_it(self, kind, cap):
         budget = _budget()
@@ -832,6 +840,7 @@ class TestPerKindCaps:
             (EnvironmentKeys.SEARCH_PAGES_MAX, SEARCH),
             (EnvironmentKeys.INVITES_MAX, INVITES),
             (EnvironmentKeys.MESSAGES_MAX, MESSAGES),
+            (EnvironmentKeys.CAMPAIGN_WRITES_MAX, CAMPAIGN_WRITES),
         ],
     )
     def test_the_environment_lowers_a_cap(self, monkeypatch, key, kind):
@@ -848,6 +857,7 @@ class TestPerKindCaps:
             (EnvironmentKeys.PROFILE_LOADS_MAX, PROFILE, 150),
             (EnvironmentKeys.SEARCH_PAGES_MAX, SEARCH, 100),
             (EnvironmentKeys.MESSAGES_MAX, MESSAGES, 50),
+            (EnvironmentKeys.CAMPAIGN_WRITES_MAX, CAMPAIGN_WRITES, 30),
         ],
     )
     def test_the_environment_can_raise_a_cap(self, monkeypatch, key, kind, default):
@@ -904,7 +914,7 @@ class TestAdmitAndRecordWrite:
 class TestWorkingHours:
     """Writes wait for the schedule; reads run on half their cap outside it."""
 
-    @pytest.mark.parametrize("kind", [INVITES, MESSAGES, WITHDRAWALS])
+    @pytest.mark.parametrize("kind", [INVITES, MESSAGES, WITHDRAWALS, CAMPAIGN_WRITES])
     def test_a_write_outside_the_schedule_is_refused_until_it_reopens(self, kind):
         with pytest.raises(ActionLimitError) as excinfo:
             refuse_if_limited(_budget(BH()), kind, WED_8PM)

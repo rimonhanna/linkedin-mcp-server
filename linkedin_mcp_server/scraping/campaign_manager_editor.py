@@ -29,7 +29,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 from linkedin_mcp_server.core.exceptions import (
-    InvalidReferenceError,
     LinkedInScraperException,
 )
 from linkedin_mcp_server.scraping.campaign_manager import _SETUP_PATH
@@ -68,6 +67,7 @@ from linkedin_mcp_server.scraping.campaign_manager_write import CampaignWriteFlo
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
     normalize_ad_account_id,
+    normalize_campaign_group_id,
     normalize_campaign_id,
 )
 from linkedin_mcp_server.scraping.navigation import PageNavigator
@@ -98,7 +98,6 @@ _FIELDS = {
     "start": "startDate",
     "end": "endDate",
 }
-_GROUP_URN = "urn:li:sponsoredCampaignGroup:"
 _NUMERIC = re.compile(r"\d{1,20}")
 
 # One text input by id, optionally inside ``scope``; focusing selects its
@@ -226,7 +225,8 @@ async def _poll(page: Any, script: str, arg: Mapping[str, Any]) -> Any:
     result: Any = None
     for attempt in range(_POLL_ATTEMPTS):
         result = await page.evaluate(script, dict(arg))
-        if _ok(result):
+        # The calendar answers ``ok``, the objective tiles a ``state``.
+        if _ok(result) or _state(result) == "ready":
             return result
         if attempt + 1 < _POLL_ATTEMPTS:
             await asyncio.sleep(_POLL_INTERVAL)
@@ -302,16 +302,6 @@ async def pick_date(page: Any, name: str, origin: date, target: date) -> bool:
 async def toggle_status(page: Any, *, checked: bool, click: bool) -> str | None:
     """The header switch's state; ``click`` toggles it only when it is ``checked``."""
     return _state(await page.evaluate(_SWITCH_JS, {"checked": checked, "click": click}))
-
-
-def _group_id(value: str) -> str:
-    reference = value.strip().removeprefix(_GROUP_URN)
-    if not _NUMERIC.fullmatch(reference):
-        raise InvalidReferenceError(
-            "campaign_group_id is not a LinkedIn id. Pass the numeric id exactly "
-            "as list_campaigns returned it."
-        )
-    return reference
 
 
 def _amount(money: Any) -> Decimal | None:
@@ -934,7 +924,7 @@ class CampaignManagerEditor:
         (``no_campaign_group``). The draft is never launched.
         """
         account = normalize_ad_account_id(account_id)
-        group = _group_id(campaign_group_id)
+        group = normalize_campaign_group_id(campaign_group_id)
         url = campaign_manager_url(
             account, f"/campaigns/new/setup?campaignGroupId={group}"
         )

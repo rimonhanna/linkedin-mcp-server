@@ -429,8 +429,9 @@ def plan_targeting(
 ) -> TargetingPlan | Refusal:
     """The targeting change, from ``(urn, facetUrn, exclude)`` adds and URN removes.
 
-    An add goes to the OR block that already holds its facet, else the first
-    one; locations go to their own include or exclude block.
+    An include add goes to the OR block that already holds its facet; a facet
+    no block holds gets a new AND block after the existing ones, one per
+    facet. Locations go to their own include or exclude block.
     """
     original = targeting_keys(record_tc)
     if original is None:
@@ -453,6 +454,13 @@ def plan_targeting(
         removes.append(found[0])
     removed = {key[2] for key in removes}
     adds: list[TargetingKey] = []
+    blocks = {
+        int(key[0].split(":")[1])
+        for key in original
+        if key[0].startswith("include_or:")
+    }
+    next_block = max(blocks) + 1 if blocks else 0
+    new_blocks: dict[str, str] = {}
     for urn, facet, exclude in add:
         if urn in removed:
             return ("invalid_change", f"{urn} is both added and removed.")
@@ -475,13 +483,18 @@ def plan_targeting(
         elif exclude:
             section = "exclude_facets"
         else:
-            section = next(
+            existing = next(
                 (
                     key[0]
                     for key in original
                     if key[0].startswith("include_or:") and key[1] == facet
                 ),
-                "include_or:0",
+                None,
+            )
+            # Joining another facet's OR block would widen the audience, so a
+            # new facet gets its own AND block, shared by its values.
+            section = existing or new_blocks.setdefault(
+                facet, f"include_or:{next_block + len(new_blocks)}"
             )
         key = (section, facet, urn)
         if key not in adds:
@@ -863,24 +876,36 @@ def admit_list_upload(*, account_id: str, name: str) -> Admit:
 
 
 def admit_saved_audience(
-    req: WriteRequest,
     *,
     account_id: str,
     name: str,
     target_keys: Collection[TargetingKey],
-) -> str | None:
-    """Admit the saved audience create only with the ad set's own targeting."""
-    refusal = _refuse_target(req, "campaignManagerTargetingCriteria", None, None)
-    if refusal is not None:
-        return refusal
-    body = _mapping(req.body) or {}
-    if body.get("account") != _ACCOUNT_URN + account_id:
-        return "saved audience for another ad account"
-    if body.get("name") != name or body.get("ownership") != "ACCOUNT":
-        return "saved audience is not the planned one"
-    keys = targeting_keys(
-        {"include": body.get("include"), "exclude": body.get("exclude")}
-    )
-    if keys is None or frozenset(keys) != frozenset(target_keys):
-        return "saved audience targeting differs from the ad set's"
-    return None
+) -> Admit:
+    """An admission for one saved audience create with the ad set's own targeting.
+
+    Stateful like ``admit_campaign_create``: a second create would be a second
+    audience, so only the first matching create passes.
+    """
+    created = False
+
+    def admit(req: WriteRequest) -> str | None:
+        nonlocal created
+        refusal = _refuse_target(req, "campaignManagerTargetingCriteria", None, None)
+        if refusal is not None:
+            return refusal
+        if created:
+            return "second saved audience create"
+        body = _mapping(req.body) or {}
+        if body.get("account") != _ACCOUNT_URN + account_id:
+            return "saved audience for another ad account"
+        if body.get("name") != name or body.get("ownership") != "ACCOUNT":
+            return "saved audience is not the planned one"
+        keys = targeting_keys(
+            {"include": body.get("include"), "exclude": body.get("exclude")}
+        )
+        if keys is None or frozenset(keys) != frozenset(target_keys):
+            return "saved audience targeting differs from the ad set's"
+        created = True
+        return None
+
+    return admit

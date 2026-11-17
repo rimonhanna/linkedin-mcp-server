@@ -1,0 +1,632 @@
+{
+  "call": {
+    "arguments": {
+      "account_id": "100000001",
+      "companies": [
+        {
+          "name": "Example company",
+          "website": "https://example.com"
+        }
+      ],
+      "confirm_send": true,
+      "name": "Example list"
+    },
+    "method": "create_company_list_audience"
+  },
+  "events": [
+    {
+      "call": "create_company_list_audience",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "callback_id": "callback-3",
+      "kind": "route.add",
+      "pattern": "**/campaign-manager-api/**",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "create_company_list_audience",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "wait_for_load_state",
+      "section": "create_company_list_audience__uploaded",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "create_company_list_audience",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "boundary.rate_limit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_create_trigger",
+      "parent": null,
+      "section": "create_company_list_audience__uploaded",
+      "selector": "#ma-header-actions-create-trigger"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.count",
+      "locator": "cm_create_trigger",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.click",
+      "locator": "cm_create_trigger",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": null
+    },
+    {
+      "attribute": "aria-controls",
+      "call": "create_company_list_audience",
+      "kind": "locator.get_attribute",
+      "locator": "cm_create_trigger",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_menu_items",
+      "parent": null,
+      "section": "create_company_list_audience__uploaded",
+      "selector": "[id=\"hue-menu-1\"] [role=menuitem]"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.derive",
+      "locator": "cm_menu_item_first",
+      "operation": "first",
+      "parent": "cm_menu_items",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.wait_for",
+      "locator": "cm_menu_item_first",
+      "section": "create_company_list_audience__uploaded",
+      "state": "visible",
+      "timeout_ms": 5000.0
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.count",
+      "locator": "cm_menu_items",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.derive",
+      "locator": "cm_menu_item_matched",
+      "operation": "nth:1",
+      "parent": "cm_menu_items",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.click",
+      "locator": "cm_menu_item_matched",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_upload_dialog",
+      "parent": null,
+      "section": "create_company_list_audience__uploaded",
+      "selector": "[role=dialog][aria-labelledby=create-matched-audience-modal-title]"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.derive",
+      "locator": "cm_upload_dialog_first",
+      "operation": "first",
+      "parent": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.wait_for",
+      "locator": "cm_upload_dialog_first",
+      "section": "create_company_list_audience__uploaded",
+      "state": "visible",
+      "timeout_ms": 5000.0
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.count",
+      "locator": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_list_name",
+      "parent": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded",
+      "selector": "#create-ma-list-name-input"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.count",
+      "locator": "cm_list_name",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_company_option",
+      "parent": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded",
+      "selector": "select#create-ma-list-modal-type-select option[value=\"COMPANY\"]"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.count",
+      "locator": "cm_company_option",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_list_file",
+      "parent": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded",
+      "selector": "input#create-ma-list-file-input[type=file]"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.count",
+      "locator": "cm_list_file",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_terms_link",
+      "parent": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded",
+      "selector": "a[data-test-create-ma-list-panel__legal-terms-link]"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.count",
+      "locator": "cm_terms_link",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_terms_link",
+      "parent": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded",
+      "selector": "a[data-test-create-ma-list-panel__legal-terms-link]"
+    },
+    {
+      "attribute": "href",
+      "call": "create_company_list_audience",
+      "kind": "locator.get_attribute",
+      "locator": "cm_terms_link",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_list_name",
+      "parent": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded",
+      "selector": "#create-ma-list-name-input"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.focus",
+      "locator": "cm_list_name",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.select_text",
+      "locator": "cm_list_name",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "keyboard.insert_text",
+      "section": "create_company_list_audience__uploaded",
+      "text": "Example list"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.input_value",
+      "locator": "cm_list_name",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_list_type",
+      "parent": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded",
+      "selector": "select#create-ma-list-modal-type-select"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.select_option",
+      "locator": "cm_list_type",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": null,
+      "value": "COMPANY"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_list_file",
+      "parent": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded",
+      "selector": "input#create-ma-list-file-input[type=file]"
+    },
+    {
+      "call": "create_company_list_audience",
+      "file_name": "example-list.csv",
+      "kind": "locator.set_input_files",
+      "locator": "cm_list_file",
+      "mime_type": "text/csv",
+      "section": "create_company_list_audience__uploaded",
+      "size": 170,
+      "timeout_ms": null
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_upload_buttons",
+      "parent": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded",
+      "selector": "button"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.derive",
+      "locator": "cm_upload_submit",
+      "operation": "last",
+      "parent": "cm_upload_buttons",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.is_visible",
+      "locator": "cm_upload_submit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.is_enabled",
+      "locator": "cm_upload_submit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.input_value",
+      "locator": "cm_list_type",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_company_list_audience",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.create",
+      "locator": "cm_upload_buttons",
+      "parent": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded",
+      "selector": "button"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.derive",
+      "locator": "cm_upload_submit",
+      "operation": "last",
+      "parent": "cm_upload_buttons",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.count",
+      "locator": "cm_upload_dialog",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.is_enabled",
+      "locator": "cm_upload_submit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "locator.click",
+      "locator": "cm_upload_submit",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "route.fallback",
+      "method": "POST",
+      "section": "create_company_list_audience__uploaded",
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerAmbrySignedUrl"
+    },
+    {
+      "call": "create_company_list_audience",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "route.fallback",
+      "method": "POST",
+      "section": "create_company_list_audience__uploaded",
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerDmpSegments"
+    },
+    {
+      "call": "create_company_list_audience",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "create_company_list_audience",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "wait_for_load_state",
+      "section": "create_company_list_audience__uploaded",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "create_company_list_audience",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "kind": "boundary.rate_limit",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "create_company_list_audience__uploaded"
+    },
+    {
+      "call": "create_company_list_audience",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "create_company_list_audience__uploaded"
+    }
+  ],
+  "result": {
+    "applied": {
+      "id": 100000502,
+      "kind": "matched_audience",
+      "listType": "COMPANY",
+      "name": "Example list",
+      "segmentUrn": "urn:li:adSegment:100000502",
+      "source": "BULK",
+      "status": "BUILDING"
+    },
+    "created_id": "100000502",
+    "message": "Uploaded the company list audience 'Example list' (id 100000502); LinkedIn matches it to companies over the next hours. The LinkedIn Ads Agreement (https://www.linkedin.com/legal/sas-terms) was accepted for this ad account.",
+    "planned": {
+      "acceptsAdsAgreement": true,
+      "companies": 1,
+      "fileName": "example-list.csv",
+      "listType": "COMPANY",
+      "name": "Example list",
+      "termsUrl": "https://www.linkedin.com/legal/sas-terms"
+    },
+    "retry_safe": false,
+    "status": "audience_created",
+    "target": {
+      "id": 100000001,
+      "kind": "ad_account",
+      "uiLabel": "Ad account"
+    },
+    "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched"
+  },
+  "scenario": "create_company_list_audience__uploaded",
+  "schema_version": 1
+}

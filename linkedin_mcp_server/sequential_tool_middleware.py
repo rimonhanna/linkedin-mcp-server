@@ -83,7 +83,8 @@ class SequentialToolExecutionMiddleware(Middleware):
     )
 
     # Tools that leave a trace on another member's side -- an invitation, a
-    # message -- and so get the longer gap band. Named like the sets above:
+    # message -- or change the user's ad account, and so get the longer gap
+    # band. Named like the sets above:
     # the ``destructiveHint`` annotation would say the same, but reading it
     # needs the FastMCP context, which a direct call does not carry. The
     # enrichment tools are not here; they write to local disk only.
@@ -93,6 +94,13 @@ class SequentialToolExecutionMiddleware(Middleware):
             "send_message",
             "reply_to_conversation",
             "withdraw_invitations",
+            "update_campaign",
+            "set_campaign_status",
+            "update_campaign_targeting",
+            "create_campaign_draft",
+            "add_post_to_campaign",
+            "create_company_list_audience",
+            "create_saved_audience",
         }
     )
 

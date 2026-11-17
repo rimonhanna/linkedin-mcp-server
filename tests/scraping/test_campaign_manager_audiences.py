@@ -12,7 +12,7 @@ import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -424,9 +424,10 @@ async def test_upload_hands_the_built_csv_to_the_form(mock_page):
         await _audiences(mock_page).create_company_list_audience(
             ACCOUNT, "Example list", COMPANIES, confirm_send=False
         )
-        fill: Any = audiences._fill_upload_form
+        fill = cast("AsyncMock", audiences._fill_upload_form)
 
     call = fill.await_args
+    assert call is not None
     _page, _dialog_arg, name, file_name, data = call.args
     assert (name, file_name) == ("Example list", "example-list.csv")
     lines = data.decode("utf-8").split("\r\n")
@@ -738,7 +739,7 @@ async def test_saved_audience_admits_one_create_only(mock_page):
 
     assert calls.admitted == [True, False]
     assert result["status"] == "audience_created"
-    assert [r["reason"] for r in result["refused"]] == ["second audience create"]
+    assert [r["reason"] for r in result["refused"]] == ["second saved audience create"]
 
 
 async def test_saved_audience_found_under_another_name_is_unverified(mock_page):

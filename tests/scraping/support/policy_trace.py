@@ -178,13 +178,18 @@ class ScriptedLocator:
     async def _operation(self, name: str, **values: Any) -> Any:
         operation = f"locator.{name}"
         self.page.recorder.record(operation, locator=self.semantic_id, **values)
-        return self.page._take(f"{self.semantic_id}.{name}", default=_MISSING)
+        outcome = self.page._take(f"{self.semantic_id}.{name}", default=_MISSING)
+        # A click that makes the app send a request, through the routes.
+        return await outcome if inspect.isawaitable(outcome) else outcome
 
     async def count(self) -> int:
         return int(await self._operation("count"))
 
     async def is_visible(self) -> bool:
         return bool(await self._operation("is_visible"))
+
+    async def is_enabled(self) -> bool:
+        return bool(await self._operation("is_enabled"))
 
     async def inner_text(self) -> str:
         return str(await self._operation("inner_text"))
@@ -205,6 +210,36 @@ class ScriptedLocator:
 
     async def focus(self) -> None:
         await self._operation("focus")
+
+    async def select_text(self, *, timeout: int | None = None) -> None:
+        await self._operation("select_text", timeout_ms=timeout)
+
+    async def input_value(self, *, timeout: int | None = None) -> str:
+        return str(await self._operation("input_value", timeout_ms=timeout))
+
+    async def get_attribute(self, name: str, *, timeout: int | None = None) -> Any:
+        return await self._operation(
+            "get_attribute", attribute=name, timeout_ms=timeout
+        )
+
+    async def select_option(
+        self, value: str | None = None, *, timeout: int | None = None
+    ) -> list[str]:
+        return list(
+            await self._operation("select_option", value=value, timeout_ms=timeout)
+        )
+
+    async def set_input_files(
+        self, files: dict[str, Any], *, timeout: int | None = None
+    ) -> None:
+        # The file's name, type and size only: its bytes are the caller's data.
+        await self._operation(
+            "set_input_files",
+            file_name=files["name"],
+            mime_type=files["mimeType"],
+            size=len(files["buffer"]),
+            timeout_ms=timeout,
+        )
 
 
 class _Mouse:
@@ -238,7 +273,9 @@ class _Keyboard:
 
     async def insert_text(self, text: str) -> None:
         self.page.recorder.record("keyboard.insert_text", text=text)
-        self.page._take("keyboard.insert_text", default=None)
+        outcome = self.page._take("keyboard.insert_text", default=None)
+        if inspect.isawaitable(outcome):
+            await outcome
 
     async def type(self, text: str, *, delay: int | None = None) -> None:
         self.page.recorder.record("keyboard.type", text=text, delay_ms=delay)
@@ -549,7 +586,9 @@ class ScriptedPage:
         self.recorder.record("evaluate", **values)
         if operation == "document_origin":
             return self.time_origin
-        return self._take(f"evaluate:{operation}")
+        outcome = self._take(f"evaluate:{operation}")
+        # A program that makes the app send a request answers after it.
+        return await outcome if inspect.isawaitable(outcome) else outcome
 
     async def evaluate_handle(
         self, expression: str, *, arg: Any = _MISSING
@@ -585,14 +624,21 @@ class ScriptedPage:
         for callback in callbacks:
             callback(value)
 
-    async def route_request(self, request: ScriptedCmRequest) -> None:
-        """Pass a request the app makes through every route matching it."""
+    async def route_request(self, request: ScriptedCmRequest) -> bool:
+        """Pass a request the app makes through every route matching it.
+
+        True when every route let it go on, so it reaches LinkedIn.
+        """
+        passed = True
         for pattern, handlers in self.routes.items():
             if pattern == "**/campaign-manager-api/**" and (
                 "/campaign-manager-api/" in request.url
             ):
                 for handler in tuple(handlers):
-                    await handler(ScriptedRoute(self.recorder, request))
+                    route = ScriptedRoute(self.recorder, request)
+                    await handler(route)
+                    passed = passed and route.passed
+        return passed
 
     def assert_clean(
         self, *, retained_read_guard: bool = False, retained_cm_guard: bool = False
@@ -694,14 +740,25 @@ class ScriptedCmRequest:
 class ScriptedCmResponse:
     """A Campaign Manager API response with its request and JSON body."""
 
-    def __init__(self, request: ScriptedCmRequest, payload: Any, *, status: int = 200):
+    def __init__(
+        self,
+        request: ScriptedCmRequest,
+        payload: Any,
+        *,
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ):
         self.url = request.url
         self.request = request
         self.status = status
         self._payload = payload
+        self._headers = headers or {}
 
     async def json(self) -> Any:
         return self._payload
+
+    async def all_headers(self) -> dict[str, str]:
+        return dict(self._headers)
 
 
 class ScriptedRoute:
@@ -710,6 +767,7 @@ class ScriptedRoute:
     def __init__(self, recorder: TraceRecorder, request: ScriptedCmRequest):
         self.recorder = recorder
         self.request = request
+        self.passed = False
 
     async def abort(self) -> None:
         self.recorder.record(
@@ -717,6 +775,7 @@ class ScriptedRoute:
         )
 
     async def fallback(self) -> None:
+        self.passed = True
         self.recorder.record(
             "route.fallback", method=self.request.method, url=self.request.url
         )
@@ -764,6 +823,16 @@ def semantic_program_id(program: str) -> str:
     compact = " ".join(program.split())
     checks = (
         ("performance.timeOrigin", "document_origin"),
+        # First, so a generic marker below that a Campaign Manager program
+        # comes to contain (``rows.push({``, a dialog query) never claims it.
+        ("linkedin-mcp:cm-footer", "cm_footer"),
+        ("linkedin-mcp:cm-calendar", "cm_calendar"),
+        ("linkedin-mcp:cm-editor", "cm_editor"),
+        ("linkedin-mcp:cm-pill", "cm_pill"),
+        ("linkedin-mcp:cm-typeahead-rows", "cm_typeahead_rows"),
+        ("linkedin-mcp:cm-content-rows", "cm_content_rows"),
+        ("linkedin-mcp:cm-content-click", "cm_content_click"),
+        ("linkedin-mcp:cm-content-pill", "cm_content_pill"),
         ("MAX_HEADING_CONTAINERS", "root_content"),
         ("SIDEBAR_SECTIONS", "sidebar_profiles"),
         ("showAllUrls", "sidebar_profiles"),

@@ -1,0 +1,308 @@
+{
+  "call": {
+    "arguments": {
+      "account_id": "100000001",
+      "campaign_id": "100000301",
+      "confirm_send": true,
+      "status": "PAUSED"
+    },
+    "method": "set_campaign_status"
+  },
+  "events": [
+    {
+      "call": "set_campaign_status",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "callback_id": "callback-3",
+      "kind": "route.add",
+      "pattern": "**/campaign-manager-api/**",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/summary",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/summary",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/summary",
+      "section": "set_campaign_status__pause",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "set_campaign_status",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "kind": "wait_for_load_state",
+      "section": "set_campaign_status__pause",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "set_campaign_status",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/summary",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/summary",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "kind": "boundary.rate_limit",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "arg": {
+        "checked": true,
+        "click": false
+      },
+      "call": "set_campaign_status",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "2f580cb60027",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "arg": {
+        "checked": true,
+        "click": true
+      },
+      "call": "set_campaign_status",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "2f580cb60027",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "kind": "route.fallback",
+      "method": "POST",
+      "section": "set_campaign_status__pause",
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerCampaigns/100000301"
+    },
+    {
+      "call": "set_campaign_status",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/summary",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/summary",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/summary",
+      "section": "set_campaign_status__pause",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "set_campaign_status",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "kind": "wait_for_load_state",
+      "section": "set_campaign_status__pause",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "set_campaign_status",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/summary",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/summary",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "kind": "boundary.rate_limit",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "set_campaign_status__pause"
+    },
+    {
+      "call": "set_campaign_status",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "set_campaign_status__pause"
+    }
+  ],
+  "result": {
+    "applied": {
+      "status": "PAUSED"
+    },
+    "message": "The ad set was paused.",
+    "planned": {
+      "status": {
+        "from": "ACTIVE",
+        "to": "PAUSED"
+      }
+    },
+    "retry_safe": false,
+    "status": "paused",
+    "target": {
+      "accountId": 100000001,
+      "id": 100000301,
+      "kind": "campaign",
+      "name": "Example ad set",
+      "status": "PAUSED",
+      "uiLabel": "Ad set"
+    },
+    "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/summary"
+  },
+  "scenario": "set_campaign_status__pause",
+  "schema_version": 1
+}

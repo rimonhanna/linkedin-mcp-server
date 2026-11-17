@@ -32,13 +32,19 @@ class TestTypeahead:
                     "urn": "urn:li:title:100",
                     "facetUrn": "urn:li:adTargetingFacet:titles",
                     "name": "Example title",
-                    "subLine": "Example line",
+                    "description": "Example line",
                     "targetable": True,
                 },
                 {
                     "urn": "urn:li:title:101",
                     "facetUrn": "urn:li:adTargetingFacet:titles",
                     "name": "Other title",
+                },
+                {
+                    "urn": "urn:li:title:102",
+                    "facetUrn": "urn:li:adTargetingFacet:titles",
+                    "name": "Older title",
+                    "subLine": "Fallback line",
                 },
             ]
         }
@@ -55,6 +61,13 @@ class TestTypeahead:
                 "urn": "urn:li:title:101",
                 "name": "Other title",
                 "facetUrn": "urn:li:adTargetingFacet:titles",
+                "targetable": False,
+            },
+            {
+                "urn": "urn:li:title:102",
+                "name": "Older title",
+                "facetUrn": "urn:li:adTargetingFacet:titles",
+                "description": "Fallback line",
                 "targetable": False,
             },
         ]

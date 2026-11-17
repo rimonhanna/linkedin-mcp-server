@@ -61,7 +61,6 @@ from linkedin_mcp_server.scraping.campaign_manager_entities_payload import (
     saved_audiences,
 )
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
-    CmWriteRequest,
     WriteWindow,
     without_campaign_manager_writes,
 )
@@ -322,23 +321,6 @@ async def _submit(dialog: Any, button: Any) -> bool:
         return False
     await button.click()
     return True
-
-
-def _one_create(
-    admit: Callable[[CmWriteRequest], str | None],
-) -> Callable[[CmWriteRequest], str | None]:
-    """Admit at most one request ``admit`` accepts: a second is a second audience."""
-    admitted: list[CmWriteRequest] = []
-
-    def once(request: CmWriteRequest) -> str | None:
-        reason = admit(request)
-        if reason is None and admitted:
-            return "second audience create"
-        if reason is None:
-            admitted.append(request)
-        return reason
-
-    return once
 
 
 class CampaignAudiences:
@@ -724,12 +706,10 @@ class CampaignAudiences:
                         planned=planned,
                     )
 
-            def admit(request: CmWriteRequest) -> str | None:
-                return admit_saved_audience(
-                    request, account_id=account, name=name, target_keys=keys
-                )
-
-            async with self._flow.apply(page, _one_create(admit)) as window:
+            admit = admit_saved_audience(
+                account_id=account, name=name, target_keys=keys
+            )
+            async with self._flow.apply(page, admit) as window:
                 after = capture.write_count
                 clicked = await _submit(dialog, _save_submit(dialog))
                 response = (

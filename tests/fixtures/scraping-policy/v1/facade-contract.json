@@ -12,6 +12,10 @@
       "get_page_text"
     ],
     "methods": {
+      "add_post_to_campaign": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str', campaign_id: 'str', post_urn: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
       "click_button_by_text": {
         "coroutine": true,
         "signature": "(self, text: 'str', *, scope: 'str' = 'main', timeout: 'int' = 5000) -> 'bool'"
@@ -19,6 +23,18 @@
       "connect_with_person": {
         "coroutine": true,
         "signature": "(self, username: 'str', *, note: 'str | None' = None) -> 'dict[str, Any]'"
+      },
+      "create_campaign_draft": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str', campaign_group_id: 'str', *, objective: 'str', name: 'str', confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
+      "create_company_list_audience": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str', name: 'str', companies: 'Sequence[Mapping[str, Any]]', *, confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
+      "create_saved_audience": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str', campaign_id: 'str', name: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'"
       },
       "extract_feed": {
         "coroutine": true,
@@ -68,6 +84,10 @@
         "coroutine": true,
         "signature": "(self) -> 'dict[str, Any]'"
       },
+      "list_audiences": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str') -> 'dict[str, Any]'"
+      },
       "list_campaigns": {
         "coroutine": true,
         "signature": "(self, account_id: 'str') -> 'dict[str, Any]'"
@@ -108,9 +128,25 @@
         "coroutine": true,
         "signature": "(self, keywords: 'str', date_posted: 'str | None' = None, max_posts: 'int' = 10, content_type: 'str | None' = None) -> 'dict[str, Any]'"
       },
+      "search_targeting_entities": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str', campaign_id: 'str', query: 'str') -> 'dict[str, Any]'"
+      },
       "send_message": {
         "coroutine": true,
         "signature": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'"
+      },
+      "set_campaign_status": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str', campaign_id: 'str', *, status: 'str', confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
+      "update_campaign": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str', campaign_id: 'str', *, daily_budget: 'str | None' = None, lifetime_budget: 'str | None' = None, start_date: 'date | None' = None, end_date: 'date | None' = None, confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
+      "update_campaign_targeting": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str', campaign_id: 'str', *, add: 'Sequence[TargetingAdd] | None' = None, remove: 'Sequence[str] | None' = None, confirm_send: 'bool', deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
       "withdraw_invitations": {
         "coroutine": true,
@@ -118,7 +154,11 @@
       }
     },
     "tool_methods": [
+      "add_post_to_campaign",
       "connect_with_person",
+      "create_campaign_draft",
+      "create_company_list_audience",
+      "create_saved_audience",
       "extract_feed",
       "extract_page",
       "get_campaign",
@@ -130,6 +170,7 @@
       "get_saved_jobs",
       "get_sidebar_profiles",
       "list_ad_accounts",
+      "list_audiences",
       "list_campaigns",
       "reply_to_conversation",
       "scrape_company",
@@ -140,10 +181,48 @@
       "search_jobs",
       "search_people",
       "search_posts",
+      "search_targeting_entities",
       "send_message",
+      "set_campaign_status",
+      "update_campaign",
+      "update_campaign_targeting",
       "withdraw_invitations"
     ],
     "tool_schemas": {
+      "add_post_to_campaign": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id, its URN or account URL.",
+              "type": "string"
+            },
+            "campaign_id": {
+              "description": "Numeric campaign id, its URN or campaign URL.",
+              "type": "string"
+            },
+            "confirm_send": {
+              "description": "Must be True to add the post.",
+              "type": "boolean"
+            },
+            "post_urn": {
+              "description": "urn:li:share:<n> or urn:li:ugcPost:<n>, or the post's\n/feed/update/ link. Only the 100 most recent company posts\ncan be found.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ad_account_id",
+            "campaign_id",
+            "post_urn",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "close_session": {
         "input": {
           "additionalProperties": false,
@@ -183,6 +262,130 @@
           },
           "required": [
             "linkedin_username"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "create_campaign_draft": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id, its URN or account URL.",
+              "type": "string"
+            },
+            "campaign_group_id": {
+              "description": "Numeric id of an existing campaign group, as\nlist_campaigns returned it, or its URN.",
+              "type": "string"
+            },
+            "confirm_send": {
+              "description": "Must be True to create the draft.",
+              "type": "boolean"
+            },
+            "name": {
+              "description": "Name of the new ad set, 1 to 255 characters.",
+              "type": "string"
+            },
+            "objective": {
+              "description": "Campaign Manager objective in capitals, e.g.\nWEBSITE_VISIT. objective_unavailable lists the ones offered.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ad_account_id",
+            "campaign_group_id",
+            "objective",
+            "name",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "create_company_list_audience": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id, its URN or account URL.",
+              "type": "string"
+            },
+            "companies": {
+              "description": "1 to 10000 companies, each {name, linkedin_url?,\nwebsite?}. Only the name is required; repeats are dropped.",
+              "items": {
+                "properties": {
+                  "linkedin_url": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "website": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "confirm_send": {
+              "description": "Must be True to upload the list.",
+              "type": "boolean"
+            },
+            "name": {
+              "description": "Audience name, 1 to 200 characters.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ad_account_id",
+            "name",
+            "companies",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "create_saved_audience": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id, its URN or account URL.",
+              "type": "string"
+            },
+            "campaign_id": {
+              "description": "Numeric campaign id, its URN or campaign URL.",
+              "type": "string"
+            },
+            "confirm_send": {
+              "description": "Must be True to save the audience.",
+              "type": "boolean"
+            },
+            "name": {
+              "description": "Audience name, 1 to 25 characters.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ad_account_id",
+            "campaign_id",
+            "name",
+            "confirm_send"
           ],
           "type": "object"
         },
@@ -742,6 +945,25 @@
         "input": {
           "additionalProperties": false,
           "properties": {},
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "list_audiences": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id, its URN or account URL.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ad_account_id"
+          ],
           "type": "object"
         },
         "output": {
@@ -1379,6 +1601,37 @@
           "type": "object"
         }
       },
+      "search_targeting_entities": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id, its URN or account URL.",
+              "type": "string"
+            },
+            "campaign_id": {
+              "description": "Numeric campaign id, its URN or campaign URL.",
+              "type": "string"
+            },
+            "query": {
+              "description": "Search text, 1 to 100 characters. Pass the same text as\nthe query of update_campaign_targeting's add.",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "ad_account_id",
+            "campaign_id",
+            "query"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "send_message": {
         "input": {
           "additionalProperties": false,
@@ -1411,6 +1664,44 @@
           "required": [
             "linkedin_username",
             "message",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "set_campaign_status": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id, its URN or account URL.",
+              "type": "string"
+            },
+            "campaign_id": {
+              "description": "Numeric campaign id, its URN or campaign URL.",
+              "type": "string"
+            },
+            "confirm_send": {
+              "description": "Must be True to change the status.",
+              "type": "boolean"
+            },
+            "status": {
+              "description": "PAUSED or ACTIVE.",
+              "enum": [
+                "PAUSED",
+                "ACTIVE"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "ad_account_id",
+            "campaign_id",
+            "status",
             "confirm_send"
           ],
           "type": "object"
@@ -1462,6 +1753,160 @@
           "required": [
             "job_name",
             "usernames"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "update_campaign": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id, its URN or account URL.",
+              "type": "string"
+            },
+            "campaign_id": {
+              "description": "Numeric campaign id, its URN or campaign URL.",
+              "type": "string"
+            },
+            "confirm_send": {
+              "description": "Must be True to save the change.",
+              "type": "boolean"
+            },
+            "daily_budget": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "New daily budget as a plain number with a dot, e.g.\n\"12.5\", in the account's currency. Only for a daily budget."
+            },
+            "end_date": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "New end date (YYYY-MM-DD), only when the ad set has one."
+            },
+            "lifetime_budget": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "New lifetime budget, same format. Only for a\nlifetime budget."
+            },
+            "start_date": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "New start date (YYYY-MM-DD), not in the past."
+            }
+          },
+          "required": [
+            "ad_account_id",
+            "campaign_id",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "update_campaign_targeting": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id, its URN or account URL.",
+              "type": "string"
+            },
+            "add": {
+              "anyOf": [
+                {
+                  "items": {
+                    "description": "A value to target: its URN and the search text that finds it.",
+                    "properties": {
+                      "exclude": {
+                        "type": "boolean"
+                      },
+                      "query": {
+                        "type": "string"
+                      },
+                      "urn": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "urn",
+                      "query"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Values to add, each {urn, query, exclude?}: the urn and the\nquery exactly as search_targeting_entities took and returned\nthem; exclude true adds it to the exclusions."
+            },
+            "campaign_id": {
+              "description": "Numeric campaign id, its URN or campaign URL.",
+              "type": "string"
+            },
+            "confirm_send": {
+              "description": "Must be True to save the change.",
+              "type": "boolean"
+            },
+            "remove": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "URNs of values the ad set targets now, to remove."
+            }
+          },
+          "required": [
+            "ad_account_id",
+            "campaign_id",
+            "confirm_send"
           ],
           "type": "object"
         },

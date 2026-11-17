@@ -203,6 +203,7 @@ class _Module:
         self.typed: list[str] = []
         self.pill_offset = 0
         self.autosave = True
+        self.add_button = True
 
     def __call__(self, page: Any, capture: Any) -> _Module:
         self.page = page
@@ -214,6 +215,15 @@ class _Module:
     async def open_block(self, attr: str) -> int:
         self.opened.append(attr)
         return BLOCKS[attr]
+
+    async def can_add_block(self) -> bool:
+        return self.add_button
+
+    async def open_new_block(self, ors: int) -> int:
+        self.opened.append(f"new:{ors}")
+        if not self.add_button:
+            raise targeting._unavailable("no new group")
+        return BLOCKS[f"includedOrs{ors}"]
 
     async def pills(self, index: int) -> int:
         return sum(1 for key in self.keys if key[0] == self._section(index))
@@ -247,7 +257,7 @@ class _Module:
     async def select_row(self, row: int, expected: int) -> None:
         entity = self.rows[self.typed[-1]][row]
         self.clicks.append(("row", entity["urn"]))
-        section = SECTIONS[BLOCKS[self.opened[-1]]]
+        section = SECTIONS[BLOCKS[self.opened[-1].replace("new:", "includedOrs")]]
         self.keys.append((section, entity["facetUrn"], entity["urn"]))
         self.on_click()
         if self.autosave:
@@ -540,3 +550,79 @@ async def test_a_launched_ad_set_saves_once_with_save_and_exit(mock_page):
     assert sent == ["fallback"]
     assert result["status"] == "updated"
     assert result["retry_safe"] is False
+
+
+SKILLS = "urn:li:adTargetingFacet:skills"
+SKILL = {"urn": "urn:li:skill:5", "name": "Example skill", "facetUrn": SKILLS}
+SKILL_TWO = {"urn": "urn:li:skill:6", "name": "Example skill", "facetUrn": SKILLS}
+
+
+async def test_a_new_facet_is_added_in_a_new_group_never_an_existing_one(mock_page):
+    linkedin = _LinkedIn(mock_page)
+    module = _Module(linkedin)
+    module.rows["skill"] = [SKILL, SKILL_TWO]
+
+    result = await _update(
+        mock_page,
+        linkedin,
+        module,
+        add=[
+            {"urn": SKILL["urn"], "query": "skill"},
+            {"urn": NEW_TITLE["urn"], "query": "engineer"},
+            {"urn": SKILL_TWO["urn"], "query": "skill"},
+        ],
+        remove=[],
+    )
+
+    assert result["status"] == "updated"
+    # One new group for both skills, made once; the title joins its own block.
+    assert module.opened.count("new:2") == 1
+    assert ("include_or:2", SKILLS, SKILL["urn"]) in linkedin.keys
+    assert ("include_or:2", SKILLS, SKILL_TWO["urn"]) in linkedin.keys
+    assert ("include_or:0", TITLES, NEW_TITLE["urn"]) in linkedin.keys
+    assert not any(
+        key[1] == SKILLS and key[0] != "include_or:2" for key in linkedin.keys
+    )
+
+
+async def test_a_page_without_the_new_group_button_changes_nothing(mock_page):
+    linkedin = _LinkedIn(mock_page)
+    module = _Module(linkedin)
+    module.rows["skill"] = [SKILL]
+    module.add_button = False
+
+    result = await _update(
+        mock_page, linkedin, module, add=[{"urn": SKILL["urn"], "query": "skill"}]
+    )
+
+    assert result["status"] == "control_unavailable"
+    assert result["retry_safe"] is True
+    assert module.clicks == []
+    assert linkedin.keys == ORIGINAL
+
+
+async def test_an_app_save_that_ors_a_new_facet_into_a_block_is_refused(mock_page):
+    linkedin = _LinkedIn(mock_page)
+    module = _Module(linkedin)
+    module.rows["skill"] = [SKILL]
+
+    def widened(keys: list) -> dict:
+        moved = [
+            ("include_or:0", key[1], key[2]) if key[1] == SKILLS else key
+            for key in keys
+        ]
+        return {"patch": {"$set": {"targetingCriteria": _criteria(moved)}}}
+
+    module.save = widened
+
+    result = await _update(
+        mock_page,
+        linkedin,
+        module,
+        add=[{"urn": SKILL["urn"], "query": "skill"}],
+        remove=[],
+    )
+
+    assert result["status"] == "change_blocked"
+    assert result["retry_safe"] is True
+    assert linkedin.keys == ORIGINAL

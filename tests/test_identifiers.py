@@ -20,6 +20,7 @@ from linkedin_mcp_server.scraping.identifiers import (
     job_view_url,
     messaging_thread_url,
     normalize_ad_account_id,
+    normalize_campaign_group_id,
     normalize_campaign_id,
     normalize_company_identifier,
     normalize_company_page_url,
@@ -669,6 +670,12 @@ class TestCampaignManagerIds:
         assert normalize_campaign_id(value) == "200000002"
 
     @pytest.mark.parametrize(
+        "value", ["300000003", " urn:li:sponsoredCampaignGroup:300000003 "]
+    )
+    def test_campaign_group_id_forms(self, value):
+        assert normalize_campaign_group_id(value) == "300000003"
+
+    @pytest.mark.parametrize(
         "value",
         [
             "",
@@ -701,6 +708,21 @@ class TestCampaignManagerIds:
     def test_campaign_id_rejects(self, value):
         with pytest.raises(InvalidReferenceError, match="campaign_id"):
             normalize_campaign_id(value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "example",
+            "urn:li:sponsoredCampaignGroup:",
+            "urn:li:sponsoredCampaign:300000003",
+            "https://www.linkedin.com/campaignmanager/accounts/1/campaign-groups/3",
+            "../3",
+        ],
+    )
+    def test_campaign_group_id_rejects(self, value):
+        with pytest.raises(InvalidReferenceError, match="campaign_group_id"):
+            normalize_campaign_group_id(value)
 
     def test_urls(self):
         assert (

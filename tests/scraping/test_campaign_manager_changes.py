@@ -345,7 +345,8 @@ def test_plan_targeting_blocks_and_order():
     assert plan.adds == (
         ("include_or:0", TITLES, "urn:li:title:7"),
         ("include_or:1", INDUSTRIES, "urn:li:industry:8"),
-        ("include_or:0", "urn:li:adTargetingFacet:skills", "urn:li:skill:5"),
+        # No block holds skills: a new AND block, never an existing OR.
+        ("include_or:2", "urn:li:adTargetingFacet:skills", "urn:li:skill:5"),
         ("exclude_locations", LOC, "urn:li:geo:104"),
         ("exclude_facets", EMPLOYERS, "urn:li:organization:10"),
     )
@@ -357,6 +358,103 @@ def test_plan_targeting_blocks_and_order():
     )
     assert ("include_or:0", TITLES, "urn:li:title:7") in plan.target
     assert ("include_or:0", TITLES, "urn:li:title:1") not in plan.target
+
+
+SKILLS = "urn:li:adTargetingFacet:skills"
+SENIORITIES = "urn:li:adTargetingFacet:seniorities"
+
+
+def test_plan_targeting_new_facet_never_joins_an_existing_block():
+    plan = plan_targeting(
+        _criteria(), add=[("urn:li:skill:5", SKILLS, False)], remove=[]
+    )
+    assert isinstance(plan, TargetingPlan)
+    assert plan.adds == (("include_or:2", SKILLS, "urn:li:skill:5"),)
+    existing = {
+        key for key in plan.target if key[0] in ("include_or:0", "include_or:1")
+    }
+    assert existing == {
+        key
+        for key in targeting_keys(_criteria()) or []
+        if key[0].startswith("include_or")
+    }
+
+
+def test_plan_targeting_values_of_one_new_facet_share_one_new_block():
+    plan = plan_targeting(
+        _criteria(),
+        add=[
+            ("urn:li:skill:5", SKILLS, False),
+            ("urn:li:seniority:3", SENIORITIES, False),
+            ("urn:li:skill:6", SKILLS, False),
+            ("urn:li:title:7", TITLES, False),
+        ],
+        remove=[],
+    )
+    assert isinstance(plan, TargetingPlan)
+    assert plan.adds == (
+        ("include_or:2", SKILLS, "urn:li:skill:5"),
+        ("include_or:3", SENIORITIES, "urn:li:seniority:3"),
+        ("include_or:2", SKILLS, "urn:li:skill:6"),
+        ("include_or:0", TITLES, "urn:li:title:7"),
+    )
+
+
+def test_plan_targeting_first_or_block_when_none_exists():
+    criteria = {
+        "include": {"and": [{"or": [_facet(LOC, "urn:li:geo:101")]}]},
+        "exclude": {"or": []},
+    }
+    plan = plan_targeting(criteria, add=[("urn:li:skill:5", SKILLS, False)], remove=[])
+    assert isinstance(plan, TargetingPlan)
+    assert plan.adds == (("include_or:0", SKILLS, "urn:li:skill:5"),)
+
+
+def test_patch_admits_a_new_and_block_and_nothing_wider():
+    record = _record()
+    plan = plan_targeting(
+        record["targetingCriteria"],
+        add=[("urn:li:skill:5", SKILLS, False), ("urn:li:skill:6", SKILLS, False)],
+        remove=[],
+    )
+    assert isinstance(plan, TargetingPlan)
+    allowed = {"targetingCriteria": plan.target}
+    path = ("targetingCriteria",)
+
+    def sent(criteria: dict) -> Req:
+        return _patch(**{"$set": {"targetingCriteria": criteria}})
+
+    def appended(*skills: str) -> dict:
+        criteria = _criteria()
+        criteria["include"]["and"].append({"or": [_facet(SKILLS, *skills)]})
+        return criteria
+
+    assert (
+        _admit(
+            sent(appended("urn:li:skill:5", "urn:li:skill:6")), record, allowed=allowed
+        )
+        is None
+    )
+    # One value saved before the other: still on the path.
+    assert (
+        _admit(
+            sent(appended("urn:li:skill:5")), record, allowed=allowed, path_fields=path
+        )
+        is None
+    )
+    # The same values ORed into an existing block widen the audience.
+    widened = _criteria()
+    widened["include"]["and"][2]["or"].append(
+        _facet(SKILLS, "urn:li:skill:5", "urn:li:skill:6")
+    )
+    assert _admit(sent(widened), record, allowed=allowed, path_fields=path)
+    # Two new blocks where one was planned.
+    split = _criteria()
+    split["include"]["and"] += [
+        {"or": [_facet(SKILLS, "urn:li:skill:5")]},
+        {"or": [_facet(SKILLS, "urn:li:skill:6")]},
+    ]
+    assert _admit(sent(split), record, allowed=allowed, path_fields=path)
 
 
 def test_plan_targeting_renumbers_an_emptied_block():
@@ -684,12 +782,20 @@ def test_saved_audience_admission():
 
     def admit(name: str = "Example audience", target_keys=keys) -> str | None:
         return admit_saved_audience(
-            req, account_id=ACCOUNT, name=name, target_keys=target_keys
-        )
+            account_id=ACCOUNT, name=name, target_keys=target_keys
+        )(req)
 
     assert admit() is None
     assert admit(target_keys=keys[:-1])
     assert admit(name="Other")
+
+    once = admit_saved_audience(
+        account_id=ACCOUNT, name="Example audience", target_keys=keys
+    )
+    # A refused create does not use up the one allowed create.
+    assert once(_req({}, resource="campaignManagerTargetingCriteria", entity_id=None))
+    assert once(req) is None
+    assert "second" in _reason(once(req))
 
 
 def test_patch_schedule_compares_utc_dates():

@@ -159,7 +159,20 @@ class TestBulkToolsAreStillPaced:
 class TestWriteToolsWaitLonger:
     """An invitation or a message is spaced further from the previous call."""
 
-    @pytest.mark.parametrize("tool", ["send_message", "reply_to_conversation"])
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "send_message",
+            "reply_to_conversation",
+            "update_campaign",
+            "set_campaign_status",
+            "update_campaign_targeting",
+            "create_campaign_draft",
+            "add_post_to_campaign",
+            "create_company_list_audience",
+            "create_saved_audience",
+        ],
+    )
     async def test_a_write_tool_arms_the_longer_gap(self, paced, tool):
         await _timed_call(paced, tool)
         second = await _timed_call(paced, "get_inbox")

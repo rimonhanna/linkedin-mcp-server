@@ -133,7 +133,7 @@ def typeahead_entities(payload: Any) -> list[TargetingEntity] | None:
             "facetUrn": facet,
             "targetable": element.get("targetable") is True,
         }
-        description = _str(element.get("subLine"))
+        description = _str(element.get("description")) or _str(element.get("subLine"))
         if description is not None:
             entity["description"] = description
         entities.append(entity)

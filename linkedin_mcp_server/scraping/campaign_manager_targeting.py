@@ -151,6 +151,45 @@ _PILL_JS = (
     return { clicked: true };
 }"""
 )
+# "Narrow audience further": a new AND block after the last OR block.
+_ADD_BLOCK_JS = (
+    """(click) => {
+    /* linkedin-mcp:cm-pill */"""
+    + _BLOCK_HELPERS
+    + """
+    const buttons = [...document.querySelectorAll(
+        'button[data-js-targeting-module__add-more-new-facet-block]'
+    )];
+    if (buttons.length !== 1) return { state: 'missing', count: buttons.length };
+    if (open.length) return { state: 'busy', open };
+    if (buttons[0].disabled) return { state: 'disabled' };
+    if (!visible(buttons[0])) return { state: 'hidden' };
+    if (!click) return { state: 'ready' };
+    buttons[0].click();
+    return { state: 'clicked' };
+}"""
+)
+# The new block: the one active article, open, at the expected OR index.
+_NEW_BLOCK_JS = (
+    """(expected) => {
+    /* linkedin-mcp:cm-pill */"""
+    + _BLOCK_HELPERS
+    + """
+    const active = articles.filter(
+        (article) => article.getAttribute('data-js-targeting-module__facet-block') === 'active'
+    );
+    if (active.length !== 1) return { ready: false, active: active.length };
+    const index = articles.indexOf(active[0]);
+    const ors = active[0].getAttribute('data-live-test-facet-block-included-ors');
+    return {
+        ready: ors === String(expected) && open.length === 1 && open[0] === index,
+        index,
+        ors,
+        open,
+        pills: active[0].querySelectorAll(PILLS).length,
+    };
+}"""
+)
 _FOCUS_SEARCH_JS = """(location) => {
     /* linkedin-mcp:cm-typeahead-rows */
     const selector = location
@@ -398,6 +437,12 @@ def _emptied(plan: TargetingPlan) -> set[int]:
     }
 
 
+def _new_sections(plan: TargetingPlan) -> set[str]:
+    """OR blocks the plan creates: none of their values exist yet."""
+    existing = {key[0] for key in plan.original}
+    return {key[0] for key in plan.adds if key[0] not in existing}
+
+
 def _count(keys: Sequence[TargetingKey], section: str) -> int:
     return sum(1 for key in keys if key[0] == section)
 
@@ -429,6 +474,50 @@ class _TargetingPage:
         result = await self.page.evaluate(_OPEN_BLOCK_JS, attr)
         return result if isinstance(result, dict) else {}
 
+    async def _close(self, indices: Sequence[int]) -> None:
+        for index in indices:
+            if not await self.page.evaluate(_CLOSE_BLOCK_JS, index):
+                raise _unavailable("An open targeting block could not be closed.")
+        await self._until(
+            -1, lambda s: s["open"] == [], "An open targeting block stayed open."
+        )
+        self._open = None
+
+    async def can_add_block(self) -> bool:
+        """Whether the page offers exactly one "narrow further" button."""
+        result = await self.page.evaluate(_ADD_BLOCK_JS, False)
+        return isinstance(result, dict) and result.get("state") in ("ready", "busy")
+
+    async def open_new_block(self, ors: int) -> int:
+        """Add an AND block, which must open empty as OR block ``ors``."""
+        result = await self.page.evaluate(_ADD_BLOCK_JS, True)
+        if isinstance(result, dict) and result.get("state") == "busy":
+            await self._close(result["open"])
+            result = await self.page.evaluate(_ADD_BLOCK_JS, True)
+        if not (isinstance(result, dict) and result.get("state") == "clicked"):
+            logger.debug("New targeting block not added: %s", result)
+            raise _unavailable(
+                "The button that adds a targeting group was not found on the ad "
+                "set page."
+            )
+        stop = time.monotonic() + _DOM_TIMEOUT
+        while True:
+            state = await self.page.evaluate(_NEW_BLOCK_JS, ors)
+            if isinstance(state, dict) and state.get("ready") is True:
+                break
+            if time.monotonic() >= stop:
+                logger.debug("New targeting block %s not ready: %s", ors, state)
+                raise _unavailable(
+                    "Adding a targeting group did not open the one new group expected."
+                )
+            await asyncio.sleep(_POLL)
+        if state["pills"] != 0:
+            raise _unavailable("The new targeting group is not empty.")
+        index = state["index"]
+        self._open = (f"includedOrs{ors}", index)
+        await human_pause(_STEP_PAUSE)
+        return index
+
     async def open_block(self, attr: str) -> int:
         """Open the block whose edit button carries ``attr``; its article index."""
         if self._open is not None and self._open[0] == attr:
@@ -438,12 +527,7 @@ class _TargetingPage:
         self._open = None
         result = await self._click_edit(attr)
         if result.get("state") == "busy":
-            for index in result["open"]:
-                if not await self.page.evaluate(_CLOSE_BLOCK_JS, index):
-                    raise _unavailable("An open targeting block could not be closed.")
-            await self._until(
-                -1, lambda s: s["open"] == [], "An open targeting block stayed open."
-            )
+            await self._close(result["open"])
             result = await self._click_edit(attr)
         if result.get("state") == "disabled":
             raise _Stop(
@@ -733,17 +817,28 @@ class CampaignTargetingEditor:
                 "add in two calls.",
             )
         by_urn = {item.urn: item for item in adds}
+        new = _new_sections(plan)
+        if new and not await module.can_add_block():
+            return (
+                "control_unavailable",
+                "The ad set page does not offer a new targeting group, which "
+                "this change needs. Nothing was changed.",
+            )
         for section in dict.fromkeys(key[0] for key in plan.removes + plan.adds):
             if _out_of_time(deadline):
                 return ("deadline", f"{_OUT_OF_TIME} Nothing was changed.")
-            index = await module.open_block(_block_attr(section))
-            await module.expect_pills(index, _count(original, section))
+            if section not in new:
+                index = await module.open_block(_block_attr(section))
+                await module.expect_pills(index, _count(original, section))
             for key in plan.adds:
                 item = by_urn[key[2]]
                 if key[0] != section:
                     continue
                 row = item.row
-                if item.probed != section:
+                # A new group does not exist before the apply phase, where its
+                # rows are resolved again; the first OR block's answer stands
+                # in until then.
+                if item.probed != section and section not in new:
                     row = await self._row(module, section, item)
                 if row is None:
                     return (
@@ -816,10 +911,23 @@ class CampaignTargetingEditor:
                     or_index = _or_index(section)
                     if expected == 0 and or_index is not None:
                         emptied.append(or_index)
-                for key in plan.adds:
+                new = _new_sections(plan)
+                created: set[str] = set()
+                # Each section's adds together, so a new group is made once
+                # and the groups are made in their planned order.
+                sections = list(dict.fromkeys(key[0] for key in plan.adds))
+                ordered = [k for s in sections for k in plan.adds if k[0] == s]
+                for key in ordered:
                     check(window)
                     item = run.adds[key[2]]
-                    index = await module.open_block(_block_attr(key[0], emptied))
+                    attr = _block_attr(key[0], emptied)
+                    if key[0] in new and key[0] not in created:
+                        index = await module.open_new_block(
+                            int(attr.removeprefix("includedOrs"))
+                        )
+                        created.add(key[0])
+                    else:
+                        index = await module.open_block(attr)
                     pills = await module.pills(index)
                     location = _is_location_section(key[0])
                     rows = await module.search(item.query, location=location)

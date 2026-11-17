@@ -20,6 +20,10 @@ from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.callbacks import ProgressCallback
 from linkedin_mcp_server.pacing import JobStore
+from linkedin_mcp_server.scraping import campaign_manager_editor as cm_editor_module
+from linkedin_mcp_server.scraping import (
+    campaign_manager_targeting as cm_targeting_module,
+)
 from linkedin_mcp_server.scraping import capture as capture_module
 from linkedin_mcp_server.scraping import company as company_module
 from linkedin_mcp_server.scraping import conversations as conversations_module
@@ -1656,8 +1660,823 @@ TOOL_FACADE_METHODS = {
     "send_message",
     "reply_to_conversation",
     "withdraw_invitations",
+    "update_campaign",
+    "set_campaign_status",
+    "search_targeting_entities",
+    "update_campaign_targeting",
+    "create_campaign_draft",
+    "add_post_to_campaign",
+    "list_audiences",
+    "create_company_list_audience",
+    "create_saved_audience",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
+
+
+_CM_WRITE_ALLOWED = _COMMON_ALLOWED | {
+    "route.abort",
+    "route.fallback",
+    "locator.focus",
+    "locator.get_attribute",
+    "locator.input_value",
+    "locator.is_enabled",
+    "locator.select_option",
+    "locator.select_text",
+    "locator.set_input_files",
+}
+_CM_DETAILS = f"{_CM_ACCOUNT_URL}/campaigns/{_CM_CAMPAIGN}/details"
+_CM_NEW_CAMPAIGN = "100000302"
+# The editor's today, fixed so a trace never depends on the day it is built.
+_CM_TODAY = date(2026, 11, 2)
+_CM_DAY_MS = 86_400_000
+
+
+def _cm_write_page(name: str, url: str = "about:blank") -> ScriptedPage:
+    return _page(TraceRecorder(name, _CM_WRITE_ALLOWED), url=url)
+
+
+def _cm_campaign_record(
+    campaign: str = _CM_CAMPAIGN, **fields: Any
+) -> ScriptedCmResponse:
+    record = {
+        "id": int(campaign),
+        "accountId": int(_CM_ACCOUNT),
+        "campaignGroupId": _CM_GROUP,
+        "name": "Example ad set",
+        "status": "DRAFT",
+        "objectiveType": "WEBSITE_VISIT",
+        "dailyBudget": {"amount": "10", "currencyCode": "EUR"},
+        "runSchedule": {
+            # 2026-12-01 and 2026-12-31 23:45 UTC, as Campaign Manager keeps them.
+            "start": 1_796_083_200_000,
+            "end": 1_798_760_700_000,
+        },
+        **fields,
+    }
+    return _cm_response(
+        f"campaignManagerCampaigns/{campaign}", {"data": record, "included": []}
+    )
+
+
+def _cm_write(
+    path: str,
+    body: Any,
+    *,
+    restli: str | None,
+    status: int = 200,
+    created_id: str | None = None,
+) -> ScriptedCmResponse:
+    headers = {"content-type": "application/json"}
+    if restli is not None:
+        headers["x-restli-method"] = restli
+    request = ScriptedCmRequest(
+        _CM_API + path, method="POST", headers=headers, post_data=json.dumps(body)
+    )
+    return ScriptedCmResponse(
+        request,
+        {},
+        status=status,
+        headers={"x-restli-id": created_id} if created_id else None,
+    )
+
+
+def _cm_billing_write() -> ScriptedCmResponse:
+    return _cm_write(
+        f"campaignManagerAccounts/{_CM_ACCOUNT}/billingConfiguration"
+        "?action=findOrCreate",
+        {},
+        restli=None,
+    )
+
+
+async def _cm_app_sends(page: ScriptedPage, *writes: ScriptedCmResponse) -> None:
+    """The app's own writes, each through the guard and answered only if passed."""
+    for write in writes:
+        if await page.route_request(write.request):
+            _cm_emit(page, [write])
+
+
+def _cm_patch(campaign: str = _CM_CAMPAIGN, **fields: Any) -> ScriptedCmResponse:
+    return _cm_write(
+        f"campaignManagerCampaigns/{campaign}",
+        {"patch": {"$set": fields}},
+        restli="partial_update",
+    )
+
+
+async def _cm_write_run(
+    page: ScriptedPage, method: str, arguments: dict[str, Any], call: Any
+) -> dict[str, Any]:
+    recorder = page.recorder
+    clock = FakeClock(recorder)
+    extractor = _extractor(page)
+
+    async def typed(typed_page: Any, text: str, **_kwargs: Any) -> None:
+        # The real helpers draw jittered delays from an unseeded RNG.
+        await typed_page.keyboard.type(text)
+
+    async def paused(base: float, spread: float = 0.5) -> None:
+        await asyncio.sleep(base)
+
+    with (
+        patch.object(cm_editor_module, "_today", return_value=_CM_TODAY),
+        patch.object(cm_targeting_module, "human_type", typed),
+        patch.object(cm_targeting_module, "human_pause", paused),
+    ):
+        async with boundaries(recorder, clock):
+            with recorder.context(method, recorder.scenario):
+                result = await call(extractor)
+    page.assert_clean(retained_cm_guard=True)
+    return recorder.trace({"method": method, "arguments": arguments}, result)
+
+
+async def _cm_update_campaign_scenario(outcome: str) -> dict[str, Any]:
+    """A draft's daily budget: a dry run, the saved autosave, or an off-plan one."""
+    page = _cm_write_page(f"update_campaign__{outcome}")
+    goto: list[Any] = [lambda: _cm_emit(page, [_cm_campaign_record()])]
+    ready = {"state": "ready"}
+    editor: list[Any] = [ready]
+    if outcome != "dry_run":
+        if outcome == "draft":
+            # The app's own billing call rides along the autosave: aborted,
+            # while the planned budget alone leaves the browser.
+            sent = [_cm_billing_write(), _cm_patch(dailyBudget=_cm_money("12.5"))]
+            goto.append(
+                lambda: _cm_emit(
+                    page, [_cm_campaign_record(dailyBudget=_cm_money("12.5"))]
+                )
+            )
+        else:
+            sent = [_cm_patch(dailyBudget=_cm_money("99"))]
+            goto.append(None)
+
+        async def blur() -> dict[str, bool]:
+            await _cm_app_sends(page, *sent)
+            return {"blurred": True}
+
+        editor += [ready, blur]
+    page.script("goto", *goto)
+    page.script("evaluate:cm_editor", *editor)
+    arguments = {
+        "account_id": _CM_ACCOUNT,
+        "campaign_id": _CM_CAMPAIGN,
+        "daily_budget": "12.5",
+        "confirm_send": outcome != "dry_run",
+    }
+    trace = await _cm_write_run(
+        page,
+        "update_campaign",
+        arguments,
+        lambda extractor: extractor.update_campaign(
+            _CM_ACCOUNT,
+            _CM_CAMPAIGN,
+            daily_budget="12.5",
+            confirm_send=outcome != "dry_run",
+        ),
+    )
+    kinds = [event["kind"] for event in trace["events"]]
+    if outcome == "dry_run":
+        assert "route.fallback" not in kinds and "keyboard.insert_text" not in kinds
+    return trace
+
+
+def _cm_money(amount: str) -> dict[str, str]:
+    return {"amount": amount, "currencyCode": "EUR"}
+
+
+async def _cm_set_status_scenario() -> dict[str, Any]:
+    page = _cm_write_page("set_campaign_status__pause")
+
+    async def toggle() -> dict[str, str]:
+        await _cm_app_sends(page, _cm_patch(status="PAUSED"))
+        return {"state": "ready"}
+
+    page.script(
+        "goto",
+        lambda: _cm_emit(page, [_cm_campaign_record(status="ACTIVE")]),
+        lambda: _cm_emit(page, [_cm_campaign_record(status="PAUSED")]),
+    )
+    page.script("evaluate:cm_editor", {"state": "ready"}, toggle)
+    return await _cm_write_run(
+        page,
+        "set_campaign_status",
+        {
+            "account_id": _CM_ACCOUNT,
+            "campaign_id": _CM_CAMPAIGN,
+            "status": "PAUSED",
+            "confirm_send": True,
+        },
+        lambda extractor: extractor.set_campaign_status(
+            _CM_ACCOUNT, _CM_CAMPAIGN, status="PAUSED", confirm_send=True
+        ),
+    )
+
+
+async def _cm_create_draft_scenario() -> dict[str, Any]:
+    page = _cm_write_page("create_campaign_draft__created")
+    group = _cm_response(
+        f"campaignManagerCampaignGroups/{_CM_GROUP}",
+        {"id": _CM_GROUP, "accountId": int(_CM_ACCOUNT), "name": "Example group"},
+    )
+    new_details = f"{_CM_ACCOUNT_URL}/campaigns/{_CM_NEW_CAMPAIGN}/details"
+
+    async def setup() -> None:
+        # Latched on arrival: the app's own billing call is aborted.
+        _cm_emit(page, [group])
+        await _cm_app_sends(page, _cm_billing_write())
+
+    async def objective() -> dict[str, Any]:
+        create = _cm_write(
+            "campaignManagerCampaigns",
+            {
+                "status": "DRAFT",
+                "accountId": f"urn:li:sponsoredAccount:{_CM_ACCOUNT}",
+                "campaignGroupId": f"urn:li:sponsoredCampaignGroup:{_CM_GROUP}",
+                "objectiveType": "WEBSITE_VISIT",
+            },
+            restli="create",
+            created_id=_CM_NEW_CAMPAIGN,
+        )
+        await _cm_app_sends(page, create)
+        # The app moves to the new draft's own page by itself.
+        page.url = page.main_frame.url = new_details
+        for callback in tuple(page.listeners["framenavigated"]):
+            callback(page.main_frame)
+        _cm_emit(page, [_cm_campaign_record(_CM_NEW_CAMPAIGN, name="Untitled")])
+        return {"state": "ready", "available": ["WEBSITE_VISIT"]}
+
+    async def blur() -> dict[str, bool]:
+        await _cm_app_sends(page, _cm_patch(_CM_NEW_CAMPAIGN, name="Example draft"))
+        return {"blurred": True}
+
+    page.script(
+        "goto",
+        setup,
+        lambda: _cm_emit(
+            page, [_cm_campaign_record(_CM_NEW_CAMPAIGN, name="Example draft")]
+        ),
+    )
+    page.script(
+        "evaluate:cm_editor",
+        {"state": "ready", "available": ["WEBSITE_VISIT"]},
+        objective,
+        {"state": "ready"},
+        blur,
+    )
+    return await _cm_write_run(
+        page,
+        "create_campaign_draft",
+        {
+            "account_id": _CM_ACCOUNT,
+            "campaign_group_id": str(_CM_GROUP),
+            "objective": "WEBSITE_VISIT",
+            "name": "Example draft",
+            "confirm_send": True,
+        },
+        lambda extractor: extractor.create_campaign_draft(
+            _CM_ACCOUNT,
+            str(_CM_GROUP),
+            objective="WEBSITE_VISIT",
+            name="Example draft",
+            confirm_send=True,
+        ),
+    )
+
+
+_CM_POST = "urn:li:share:100000701"
+_CM_CREATIVE = "100000501"
+_CM_MATCHED_URL = f"{_CM_ACCOUNT_URL}/audiences/matched"
+
+
+async def _cm_add_post_scenario() -> dict[str, Any]:
+    page = _cm_write_page("add_post_to_campaign__added")
+    library_path = (
+        f"/campaignmanager/accounts/{_CM_ACCOUNT}/campaigns/{_CM_CAMPAIGN}"
+        "/creatives/sponsorable-contents?businessId=personal"
+    )
+    library = _cm_response(
+        "campaignManagerContentLibraryEntities?q=organicCompanyContent"
+        "&count=100&start=0",
+        {
+            "data": {"elements": [{"content": {"*sponsoredUpdateContent": _CM_POST}}]},
+            "included": [
+                {
+                    "entityUrn": _CM_POST,
+                    "sponsorable": True,
+                    "nonSponsorableReasons": [],
+                    "visibility": "ORGANIC",
+                    "userGeneratedAdContent": {"contentType": "TEXT"},
+                }
+            ],
+        },
+    )
+    creative = f"urn:li:sponsoredCreative:{_CM_CREATIVE}"
+    creatives = _cm_response(
+        f"campaignManagerCreatives?q=campaignIds&campaignIds=List({_CM_CAMPAIGN})",
+        {
+            "data": {"elements": [creative]},
+            "included": [
+                {
+                    "entityUrn": creative,
+                    "id": creative,
+                    "campaign": f"urn:li:sponsoredCampaign:{_CM_CAMPAIGN}",
+                    "reference": _CM_POST,
+                    "status": "ACTIVE",
+                }
+            ],
+        },
+    )
+
+    def rows(checked: int | None = None) -> dict[str, Any]:
+        return {
+            "rows": [
+                {
+                    "id": "select-row-0-checkbox",
+                    "disabled": False,
+                    "checked": checked == 0,
+                }
+            ],
+            "add": {"disabled": checked is None},
+        }
+
+    def opened() -> bool:
+        # The in-app route change to the ad set's content library.
+        page.url = page.main_frame.url = "https://www.linkedin.com" + library_path
+        _cm_emit(page, [library])
+        return True
+
+    async def add() -> dict[str, Any]:
+        await _cm_app_sends(
+            page,
+            _cm_write(
+                "campaignManagerCreatives",
+                {
+                    "campaignId": int(_CM_CAMPAIGN),
+                    "reference": _CM_POST,
+                    "status": "ACTIVE",
+                    "type": "SPONSORED_STATUS_UPDATE",
+                    "name": "",
+                },
+                restli="create",
+                created_id=creative,
+            ),
+        )
+        return {"clicked": True, "state": rows(0)}
+
+    page.script(
+        "goto",
+        lambda: _cm_emit(page, [_cm_campaign_record()]),
+        lambda: _cm_emit(page, [_cm_campaign_record(), creatives]),
+    )
+    page.script("evaluate:cm_route", opened)
+    page.script(
+        "evaluate:cm_content_pill", {"found": True, "checked": True, "clicked": False}
+    )
+    page.script("evaluate:cm_content_rows", rows())
+    page.script("evaluate:cm_content_click", {"clicked": True, "state": rows(0)}, add)
+    return await _cm_write_run(
+        page,
+        "add_post_to_campaign",
+        {
+            "account_id": _CM_ACCOUNT,
+            "campaign_id": _CM_CAMPAIGN,
+            "post_urn": _CM_POST,
+            "confirm_send": True,
+        },
+        lambda extractor: extractor.add_post_to_campaign(
+            _CM_ACCOUNT, _CM_CAMPAIGN, _CM_POST, confirm_send=True
+        ),
+    )
+
+
+def _cm_matched(*elements: dict[str, Any]) -> ScriptedCmResponse:
+    return _cm_response(
+        f"campaignManagerMatchedAudiences?q=account&accountId={_CM_ACCOUNT}",
+        {"elements": list(elements), "paging": {"count": 10, "start": 0}},
+    )
+
+
+def _cm_list_entry(audience_id: int, name: str, status: str) -> dict[str, Any]:
+    return {
+        "id": audience_id,
+        "name": name,
+        "segmentType": "COMPANY",
+        "maSegmentType": "BULK",
+        "maSegmentStatus": status,
+    }
+
+
+async def _cm_list_audiences_scenario() -> dict[str, Any]:
+    page = _cm_write_page("list_audiences__matched_and_saved")
+    page.declare_locator(
+        '[id$="-tab-accounts.item.audiences.saved.index"]', "cm_saved_tab"
+    )
+    saved = _cm_response(
+        f"campaignManagerTargetingCriteria?q=member&accountId={_CM_ACCOUNT}",
+        {
+            "elements": [
+                {
+                    "type": "USER_AUDIENCE",
+                    "id": 100000601,
+                    "name": "Example saved audience",
+                    "ownership": "ACCOUNT",
+                    "audienceCount": 4000,
+                }
+            ],
+            "paging": {"count": 10, "start": 0},
+        },
+    )
+    page.script(
+        "goto",
+        lambda: _cm_emit(
+            page, [_cm_matched(_cm_list_entry(100000501, "Example list", "READY"))]
+        ),
+    )
+    page.script("cm_saved_tab.count", 1)
+    page.script("cm_saved_tab.click", lambda: _cm_emit(page, [saved]))
+    trace = await _cm_write_run(
+        page,
+        "list_audiences",
+        {"account_id": _CM_ACCOUNT},
+        lambda extractor: extractor.list_audiences(_CM_ACCOUNT),
+    )
+    trace["result"] = _complete_mapping_result(
+        trace["result"], section_names=list(trace["result"]["sections"])
+    )
+    return trace
+
+
+async def _cm_audience_upload_scenario() -> dict[str, Any]:
+    page = _cm_write_page("create_company_list_audience__uploaded")
+    owner = f"urn:li:sponsoredAccount:{_CM_ACCOUNT}"
+    dialog = "[role=dialog][aria-labelledby=create-matched-audience-modal-title]"
+    page.declare_locator("#ma-header-actions-create-trigger", "cm_create_trigger")
+    page.declare_locator('[id="hue-menu-1"] [role=menuitem]', "cm_menu_items")
+    page.declare_derived("cm_menu_items", "first", "cm_menu_item_first")
+    page.declare_derived("cm_menu_items", "nth:1", "cm_menu_item_matched")
+    page.declare_locator(dialog, "cm_upload_dialog")
+    page.declare_derived("cm_upload_dialog", "first", "cm_upload_dialog_first")
+    for selector, semantic_id in (
+        ("#create-ma-list-name-input", "cm_list_name"),
+        (
+            'select#create-ma-list-modal-type-select option[value="COMPANY"]',
+            "cm_company_option",
+        ),
+        ("select#create-ma-list-modal-type-select", "cm_list_type"),
+        ("input#create-ma-list-file-input[type=file]", "cm_list_file"),
+        ("a[data-test-create-ma-list-panel__legal-terms-link]", "cm_terms_link"),
+        ("button", "cm_upload_buttons"),
+    ):
+        page.declare_locator(selector, semantic_id, parent="cm_upload_dialog")
+    page.declare_derived("cm_upload_buttons", "last", "cm_upload_submit")
+
+    async def submit() -> None:
+        signed = _cm_write(
+            "campaignManagerAmbrySignedUrl",
+            {"owner": owner, "uploadType": "MATCHED_AUDIENCE", "requestType": "UPLOAD"},
+            restli="create",
+        )
+        segment = _cm_write(
+            "campaignManagerDmpSegments",
+            {
+                "account": owner,
+                "name": "Example list",
+                "sourcePlatform": "LIST_UPLOAD",
+                "segmentType": "COMPANY",
+            },
+            restli="create",
+            created_id="100000502",
+        )
+        await _cm_app_sends(page, signed, segment)
+
+    page.script(
+        "goto",
+        lambda: _cm_emit(
+            page, [_cm_matched(_cm_list_entry(100000501, "Older list", "READY"))]
+        ),
+        lambda: _cm_emit(
+            page,
+            [
+                _cm_matched(
+                    _cm_list_entry(100000502, "Example list", "BUILDING"),
+                    _cm_list_entry(100000501, "Older list", "READY"),
+                )
+            ],
+        ),
+    )
+    for operation in (
+        "cm_create_trigger.click",
+        "cm_menu_item_first.wait_for",
+        "cm_menu_item_matched.click",
+        "cm_upload_dialog_first.wait_for",
+        "cm_list_name.focus",
+        "cm_list_name.select_text",
+        "cm_list_file.set_input_files",
+    ):
+        page.script(operation, None)
+    page.script("cm_create_trigger.count", 1)
+    page.script("cm_create_trigger.get_attribute", "hue-menu-1")
+    page.script("cm_menu_items.count", 3)
+    page.script("cm_upload_dialog.count", 1, 1)
+    for semantic_id in (
+        "cm_list_name",
+        "cm_company_option",
+        "cm_list_file",
+        "cm_terms_link",
+    ):
+        page.script(f"{semantic_id}.count", 1)
+    page.script("cm_terms_link.get_attribute", "/legal/sas-terms")
+    page.script("cm_list_name.input_value", "Example list")
+    page.script("cm_list_type.select_option", ["COMPANY"])
+    page.script("cm_list_type.input_value", "COMPANY")
+    page.script("cm_upload_submit.is_visible", True)
+    page.script("cm_upload_submit.is_enabled", True, True)
+    page.script("cm_upload_submit.click", submit)
+    return await _cm_write_run(
+        page,
+        "create_company_list_audience",
+        {
+            "account_id": _CM_ACCOUNT,
+            "name": "Example list",
+            "companies": [
+                {"name": "Example company", "website": "https://example.com"}
+            ],
+            "confirm_send": True,
+        },
+        lambda extractor: extractor.create_company_list_audience(
+            _CM_ACCOUNT,
+            "Example list",
+            [{"name": "Example company", "website": "https://example.com"}],
+            confirm_send=True,
+        ),
+    )
+
+
+_CM_TITLES = "urn:li:adTargetingFacet:titles"
+
+
+def _cm_titles(*urns: str) -> dict[str, Any]:
+    return {
+        "include": {
+            "and": [
+                {
+                    "or": [
+                        {
+                            "facet": {"urn": _CM_TITLES, "name": "Job titles"},
+                            "segments": [
+                                {"urn": urn, "name": f"Example title {urn[-3:]}"}
+                                for urn in urns
+                            ],
+                        }
+                    ]
+                }
+            ]
+        },
+        "exclude": {"or": []},
+    }
+
+
+def _cm_typeahead(query: str) -> ScriptedCmResponse:
+    return _cm_response(
+        "campaignManagerAdTargetingEntities?q=queryAndMultiFacetTypeahead"
+        f"&query={query}&facets=List(urn%3Ali%3AadTargetingFacet%3Atitles)",
+        {
+            "elements": [
+                {
+                    "urn": "urn:li:title:300",
+                    "name": "Example title 300",
+                    "facetUrn": _CM_TITLES,
+                    "targetable": True,
+                },
+                {
+                    "urn": "urn:li:title:301",
+                    "name": "Example title 301",
+                    "facetUrn": _CM_TITLES,
+                    "targetable": False,
+                },
+            ]
+        },
+    )
+
+
+_CM_TYPEAHEAD_ROWS = {
+    "rows": 2,
+    "ordered": True,
+    "disabled": [False, True],
+    "checked": [False, False],
+}
+
+
+async def _cm_search_targeting_scenario() -> dict[str, Any]:
+    page = _cm_write_page("search_targeting_entities__titles")
+    record = _cm_campaign_record(targetingCriteria=_cm_titles("urn:li:title:100"))
+    page.script("goto", lambda: _cm_emit(page, [record]))
+    page.script(
+        "evaluate:cm_pill",
+        {"state": "clicked", "index": 0},
+        {"open": [0], "pills": 1},
+    )
+    page.script(
+        "evaluate:cm_typeahead_rows",
+        {"ok": True, "length": 0},
+        _CM_TYPEAHEAD_ROWS,
+        {"ok": True, "length": 8},
+    )
+    page.script("keyboard.type", lambda: _cm_emit(page, [_cm_typeahead("engineer")]))
+    trace = await _cm_write_run(
+        page,
+        "search_targeting_entities",
+        {"account_id": _CM_ACCOUNT, "campaign_id": _CM_CAMPAIGN, "query": "engineer"},
+        lambda extractor: extractor.search_targeting_entities(
+            _CM_ACCOUNT, _CM_CAMPAIGN, "engineer"
+        ),
+    )
+    trace["result"] = _complete_mapping_result(
+        trace["result"], section_names=list(trace["result"]["sections"])
+    )
+    return trace
+
+
+async def _cm_update_targeting_scenario() -> dict[str, Any]:
+    """Remove a pill by its record position, add a row by its answer position."""
+    page = _cm_write_page("update_campaign_targeting__draft")
+    original = _cm_titles("urn:li:title:100", "urn:li:title:200")
+    final = _cm_titles("urn:li:title:100", "urn:li:title:300")
+
+    def criteria(*urns: str) -> dict[str, Any]:
+        # The app saves targeting undecorated: facet URN to value URNs.
+        return {
+            "include": {"and": [{"or": {_CM_TITLES: list(urns)}}]},
+            "exclude": {"or": {}},
+        }
+
+    async def remove() -> dict[str, bool]:
+        await _cm_app_sends(
+            page, _cm_patch(targetingCriteria=criteria("urn:li:title:100"))
+        )
+        return {"clicked": True}
+
+    async def select() -> dict[str, bool]:
+        await _cm_app_sends(
+            page,
+            _cm_patch(
+                targetingCriteria=criteria("urn:li:title:100", "urn:li:title:300")
+            ),
+        )
+        return {"clicked": True}
+
+    page.script(
+        "goto",
+        lambda: _cm_emit(page, [_cm_campaign_record(targetingCriteria=original)]),
+        lambda: _cm_emit(page, [_cm_campaign_record(targetingCriteria=final)]),
+    )
+    page.script(
+        "evaluate:cm_pill",
+        # Read phase: open the block, find the value, check the block's pills.
+        {"state": "clicked", "index": 0},
+        {"open": [0], "pills": 2},
+        {"open": [0], "pills": 2},
+        {"open": [0], "pills": 2},
+        # Apply phase: remove the second pill, then add the found row.
+        {"open": [0], "pills": 2},
+        {"open": [0], "pills": 2},
+        remove,
+        {"open": [0], "pills": 1},
+        {"open": [0], "pills": 1},
+        {"open": [0], "pills": 1},
+        {"open": [0], "pills": 2},
+    )
+    page.script(
+        "evaluate:cm_typeahead_rows",
+        {"ok": True, "length": 0},
+        _CM_TYPEAHEAD_ROWS,
+        {"ok": True, "length": 8},
+        {"ok": True, "length": 0},
+        _CM_TYPEAHEAD_ROWS,
+        select,
+        {"ok": True, "length": 8},
+    )
+    page.script(
+        "keyboard.type",
+        lambda: _cm_emit(page, [_cm_typeahead("engineer")]),
+        lambda: _cm_emit(page, [_cm_typeahead("engineer")]),
+    )
+    add = [{"urn": "urn:li:title:300", "query": "engineer"}]
+    return await _cm_write_run(
+        page,
+        "update_campaign_targeting",
+        {
+            "account_id": _CM_ACCOUNT,
+            "campaign_id": _CM_CAMPAIGN,
+            "add": add,
+            "remove": ["urn:li:title:200"],
+            "confirm_send": True,
+        },
+        lambda extractor: extractor.update_campaign_targeting(
+            _CM_ACCOUNT,
+            _CM_CAMPAIGN,
+            add=add,
+            remove=["urn:li:title:200"],
+            confirm_send=True,
+        ),
+    )
+
+
+async def _cm_saved_audience_scenario() -> dict[str, Any]:
+    page = _cm_write_page("create_saved_audience__saved")
+    owner = f"urn:li:sponsoredAccount:{_CM_ACCOUNT}"
+    page.declare_locator("#targeting-module-save-audience-button", "cm_save_button")
+    page.declare_locator(
+        "[role=dialog][aria-labelledby=save-audience-modal__header]", "cm_save_dialog"
+    )
+    page.declare_derived("cm_save_dialog", "first", "cm_save_dialog_first")
+    page.declare_locator(
+        "input#audience-name", "cm_saved_name", parent="cm_save_dialog"
+    )
+    page.declare_locator(
+        ".modal-footer--with-buttons", "cm_save_footer", parent="cm_save_dialog"
+    )
+    page.declare_locator("button", "cm_save_footer_buttons", parent="cm_save_footer")
+    page.declare_derived("cm_save_footer_buttons", "last", "cm_save_submit")
+    page.declare_locator(
+        '[id$="-tab-accounts.item.audiences.saved.index"]', "cm_saved_tab"
+    )
+
+    def saved_list(*elements: dict[str, Any]) -> ScriptedCmResponse:
+        return _cm_response(
+            f"campaignManagerTargetingCriteria?q=member&accountId={_CM_ACCOUNT}",
+            {"elements": list(elements), "paging": {"count": 10, "start": 0}},
+        )
+
+    async def submit() -> None:
+        create = _cm_write(
+            "campaignManagerTargetingCriteria",
+            {
+                "account": owner,
+                "name": "Example audience",
+                "ownership": "ACCOUNT",
+                "include": {"and": [{"or": {_CM_TITLES: ["urn:li:title:100"]}}]},
+                "exclude": {"or": {}},
+            },
+            restli="create",
+            created_id="100000602",
+        )
+        await _cm_app_sends(page, create)
+
+    record = _cm_campaign_record(targetingCriteria=_cm_titles("urn:li:title:100"))
+    page.script(
+        "goto",
+        lambda: _cm_emit(page, [record]),
+        lambda: _cm_emit(page, [_cm_matched()]),
+    )
+    for operation in (
+        "cm_save_button.click",
+        "cm_save_dialog_first.wait_for",
+        "cm_saved_name.focus",
+        "cm_saved_name.select_text",
+    ):
+        page.script(operation, None)
+    page.script("cm_save_button.count", 1)
+    page.script("cm_save_button.is_enabled", True)
+    page.script("cm_save_dialog.count", 1, 1)
+    page.script("cm_saved_name.count", 1)
+    page.script("cm_save_footer.count", 1)
+    page.script("cm_save_footer_buttons.count", 2)
+    page.script("cm_saved_name.input_value", "Example audience")
+    page.script("cm_save_submit.is_visible", True)
+    page.script("cm_save_submit.is_enabled", True, True)
+    page.script("cm_save_submit.click", submit)
+    page.script("cm_saved_tab.count", 1)
+    page.script(
+        "cm_saved_tab.click",
+        lambda: _cm_emit(
+            page,
+            [
+                saved_list(
+                    {
+                        "type": "USER_AUDIENCE",
+                        "id": 100000602,
+                        "name": "Example audience",
+                        "ownership": "ACCOUNT",
+                        "audienceCount": 4000,
+                    }
+                )
+            ],
+        ),
+    )
+    return await _cm_write_run(
+        page,
+        "create_saved_audience",
+        {
+            "account_id": _CM_ACCOUNT,
+            "campaign_id": _CM_CAMPAIGN,
+            "name": "Example audience",
+            "confirm_send": True,
+        },
+        lambda extractor: extractor.create_saved_audience(
+            _CM_ACCOUNT, _CM_CAMPAIGN, "Example audience", confirm_send=True
+        ),
+    )
 
 
 async def build_policy_traces() -> dict[str, dict[str, Any]]:
@@ -1745,6 +2564,21 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         ),
         "cm-campaign.json": await _cm_campaign_scenario(),
         "cm-analytics.json": await _cm_analytics_scenario(),
+        "cm-update-campaign-dry-run.json": await _cm_update_campaign_scenario(
+            "dry_run"
+        ),
+        "cm-update-campaign-draft.json": await _cm_update_campaign_scenario("draft"),
+        "cm-update-campaign-blocked.json": await _cm_update_campaign_scenario(
+            "blocked"
+        ),
+        "cm-set-status-pause.json": await _cm_set_status_scenario(),
+        "cm-search-targeting.json": await _cm_search_targeting_scenario(),
+        "cm-update-targeting.json": await _cm_update_targeting_scenario(),
+        "cm-create-draft.json": await _cm_create_draft_scenario(),
+        "cm-add-post.json": await _cm_add_post_scenario(),
+        "cm-list-audiences.json": await _cm_list_audiences_scenario(),
+        "cm-audience-upload.json": await _cm_audience_upload_scenario(),
+        "cm-saved-audience.json": await _cm_saved_audience_scenario(),
     }
     return traces
 
