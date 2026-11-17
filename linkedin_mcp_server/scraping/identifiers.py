@@ -58,11 +58,15 @@ __all__ = [
     "normalize_ad_account_id",
     "normalize_campaign_id",
     "normalize_company_identifier",
+    "normalize_company_page_url",
     "normalize_job_id",
     "normalize_opaque_id",
     "normalize_person_identifier",
+    "normalize_post_urn",
     "normalize_profile_urn",
+    "normalize_targeting_urn",
     "normalize_thread_id",
+    "normalize_website",
     "person_profile_url",
 ]
 
@@ -161,6 +165,10 @@ _CAMPAIGN_URN = "urn:li:sponsoredCampaign:"
 
 _PROFILE_URN_PREFIX = "urn:li:fsd_profile:"
 _PROFILE_URN_ID = re.compile(r"^[A-Za-z0-9_-]+$")
+_TARGETING_URN = re.compile(r"^urn:li:[A-Za-z]+:[A-Za-z0-9_-]+$")
+_POST_URN = re.compile(r"^urn:li:(?:share|ugcPost):[0-9]+$")
+_POST_URL_ROUTE = ("feed", "update")
+_WHITESPACE = re.compile(r"\s")
 
 
 def _decoded(value: str) -> str | None:
@@ -603,3 +611,76 @@ def campaign_manager_date_range(
             f"The date range may span at most {_MAX_RANGE_DAYS} days."
         )
     return start_date, end_date
+
+
+def normalize_targeting_urn(value: str) -> str:
+    """A targeting entity URN such as ``urn:li:title:100``, exactly as returned."""
+    value = value.strip()
+    if not _TARGETING_URN.fullmatch(value):
+        raise InvalidReferenceError(
+            "urn is not a targeting URN. Pass the urn exactly as "
+            "search_targeting_entities returned it, for example urn:li:title:100."
+        )
+    return value
+
+
+def normalize_post_urn(value: str) -> str:
+    """A company post URN, from the URN or from a LinkedIn post link."""
+    value = value.strip()
+    candidate = value
+    if _HAS_SCHEME.match(value):
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower()
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if (
+            parsed.scheme.lower() in ("http", "https")
+            and _LINKEDIN_HOST.fullmatch(host)
+            and len(segments) == len(_POST_URL_ROUTE) + 1
+            and tuple(segments[:2]) == _POST_URL_ROUTE
+        ):
+            candidate = _decoded(segments[2]) or ""
+    if not _POST_URN.fullmatch(candidate):
+        raise InvalidReferenceError(
+            "post_urn is not a company post. Pass urn:li:share:<number> or "
+            "urn:li:ugcPost:<number>, or the post's /feed/update/ link."
+        )
+    return candidate
+
+
+def normalize_company_page_url(value: str) -> str:
+    """The canonical company page URL, from a link or the page slug."""
+    try:
+        slug = normalize_company_identifier(value)
+    except InvalidReferenceError:
+        raise InvalidReferenceError(
+            "linkedin_url is not a LinkedIn company page. Pass a "
+            "https://www.linkedin.com/company/<name>/ link."
+        ) from None
+    return company_page_url(slug, "/")
+
+
+def _web_host(value: str) -> str | None:
+    try:
+        parsed = urlparse(value)
+        host = parsed.hostname
+        _ = parsed.port
+    except ValueError:
+        return None
+    if (
+        parsed.scheme.lower() not in ("http", "https")
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return None
+    return host
+
+
+def normalize_website(value: str) -> str:
+    """An http(s) website address with a host and no credentials."""
+    value = value.strip()
+    if not _web_host(value) or _RAW_REFUSED.search(value) or _WHITESPACE.search(value):
+        raise InvalidReferenceError(
+            "website is not a web address. Pass a http:// or https:// link "
+            "without a username or password."
+        )
+    return value

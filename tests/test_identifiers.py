@@ -22,11 +22,15 @@ from linkedin_mcp_server.scraping.identifiers import (
     normalize_ad_account_id,
     normalize_campaign_id,
     normalize_company_identifier,
+    normalize_company_page_url,
     normalize_job_id,
     normalize_opaque_id,
     normalize_person_identifier,
+    normalize_post_urn,
     normalize_profile_urn,
+    normalize_targeting_urn,
     normalize_thread_id,
+    normalize_website,
     person_profile_url,
 )
 
@@ -708,3 +712,108 @@ class TestCampaignManagerIds:
             == "https://www.linkedin.com/campaignmanager/accounts/100000001"
         )
         assert campaign_manager_url("1", "/campaigns").endswith("/accounts/1/campaigns")
+
+
+class TestWriteIdentifiers:
+    @pytest.mark.parametrize(
+        "value", ["urn:li:title:100", "urn:li:geo:90000001", " urn:li:industry:4 "]
+    )
+    def test_targeting_urn_accepts(self, value):
+        assert normalize_targeting_urn(value) == value.strip()
+
+    @pytest.mark.parametrize(
+        "value",
+        ["", "title:100", "urn:li:title:", "urn:li:title:1/2", "urn:li:t1tle:1", "100"],
+    )
+    def test_targeting_urn_rejects(self, value):
+        with pytest.raises(InvalidReferenceError, match="urn"):
+            normalize_targeting_urn(value)
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("urn:li:share:7000000000000000001", "urn:li:share:7000000000000000001"),
+            (
+                "urn:li:ugcPost:7000000000000000002",
+                "urn:li:ugcPost:7000000000000000002",
+            ),
+            (
+                "https://www.linkedin.com/feed/update/urn:li:share:123/",
+                "urn:li:share:123",
+            ),
+            (
+                "https://www.linkedin.com/feed/update/urn%3Ali%3AugcPost%3A456/?x=1",
+                "urn:li:ugcPost:456",
+            ),
+        ],
+    )
+    def test_post_urn_accepts(self, value, expected):
+        assert normalize_post_urn(value) == expected
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "urn:li:share:",
+            "urn:li:share:abc",
+            "urn:li:activity:123",
+            "https://example.com/feed/update/urn:li:share:123/",
+            "https://www.linkedin.com/in/someone/",
+            "https://www.linkedin.com/feed/update/urn:li:activity:123/",
+            "https://www.linkedin.com/feed/update/urn:li:share:1/extra",
+        ],
+    )
+    def test_post_urn_rejects(self, value):
+        with pytest.raises(InvalidReferenceError, match="post_urn"):
+            normalize_post_urn(value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "example-co",
+            "https://www.linkedin.com/company/example-co",
+            "https://de.linkedin.com/company/example-co/?trk=x",
+        ],
+    )
+    def test_company_page_url_accepts(self, value):
+        assert (
+            normalize_company_page_url(value)
+            == "https://www.linkedin.com/company/example-co/"
+        )
+
+    @pytest.mark.parametrize(
+        "value", ["", "https://www.linkedin.com/in/someone/", "../x", "a b"]
+    )
+    def test_company_page_url_rejects(self, value):
+        with pytest.raises(InvalidReferenceError, match="linkedin_url"):
+            normalize_company_page_url(value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "https://example.com",
+            "http://example.com/a?b=1",
+            " https://example.com:8080/x ",
+        ],
+    )
+    def test_website_accepts(self, value):
+        assert normalize_website(value) == value.strip()
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "example.com",
+            "ftp://example.com",
+            "javascript:alert(1)",
+            "https://",
+            "https://user:pw@example.com",
+            "https://user@example.com",
+            "https://exa mple.com",
+            "https://example.com/\x00",
+            "https://example.com:notaport",
+        ],
+    )
+    def test_website_rejects(self, value):
+        with pytest.raises(InvalidReferenceError, match="website"):
+            normalize_website(value)
