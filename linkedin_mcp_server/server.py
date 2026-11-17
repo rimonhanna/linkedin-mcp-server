@@ -46,6 +46,7 @@ from linkedin_mcp_server.server_role import (
     set_process_role,
 )
 from linkedin_mcp_server.update_check import UpdateNoticeMiddleware
+from linkedin_mcp_server.tools.campaign_manager import register_campaign_manager_tools
 from linkedin_mcp_server.tools.company import register_company_tools
 from linkedin_mcp_server.tools.company_enrichment import (
     register_company_enrichment_tools,
@@ -327,6 +328,7 @@ def create_mcp_server(
         register_messaging_tools(mcp, tool_timeout=tool_timeout)
         register_feed_tools(mcp, tool_timeout=tool_timeout)
         register_post_tools(mcp, tool_timeout=tool_timeout)
+        register_campaign_manager_tools(mcp, tool_timeout=tool_timeout)
         register_enrichment_tools(mcp, tool_timeout=tool_timeout)
         register_company_enrichment_tools(mcp, tool_timeout=tool_timeout)
 

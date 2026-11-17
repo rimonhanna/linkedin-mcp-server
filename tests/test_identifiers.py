@@ -14,9 +14,14 @@ from linkedin_mcp_server.core.exceptions import (
     LinkedInScraperException,
 )
 from linkedin_mcp_server.scraping.identifiers import (
+    CAMPAIGN_MANAGER_ACCOUNTS_URL,
+    campaign_manager_url,
     company_page_url,
     job_view_url,
     messaging_thread_url,
+    normalize_ad_account_id,
+    normalize_campaign_group_id,
+    normalize_campaign_id,
     normalize_company_identifier,
     normalize_job_id,
     normalize_opaque_id,
@@ -633,3 +638,93 @@ class TestIdentifierAllowlist:
     )
     def test_a_real_one_passes(self, value: str):
         assert normalize_person_identifier(value) == value
+
+
+class TestCampaignManagerIds:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "100000001",
+            " 100000001 ",
+            "urn:li:sponsoredAccount:100000001",
+            "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+            "/campaignmanager/accounts/100000001/campaigns/200000002/details",
+        ],
+    )
+    def test_account_id_forms(self, value):
+        assert normalize_ad_account_id(value) == "100000001"
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "200000002",
+            "urn:li:sponsoredCampaign:200000002",
+            "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/200000002/details",
+        ],
+    )
+    def test_campaign_id_forms(self, value):
+        assert normalize_campaign_id(value) == "200000002"
+
+    @pytest.mark.parametrize(
+        "value", ["300000003", "urn:li:sponsoredCampaignGroup:300000003"]
+    )
+    def test_campaign_group_id_forms(self, value):
+        assert normalize_campaign_group_id(value) == "300000003"
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "/feed/",
+            "../1",
+            "abc",
+            "urn:li:sponsoredCampaign:",
+            "urn:li:sponsoredCampaign:200000002",
+            "https://www.linkedin.com/campaignmanager/campaigns/1",
+            "https://www.linkedin.com/campaignmanager/accounts/abc",
+            "https://example.com/campaignmanager/accounts/100000001",
+        ],
+    )
+    def test_account_id_rejects(self, value):
+        with pytest.raises(InvalidReferenceError, match="ad_account_id"):
+            normalize_ad_account_id(value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "/feed/",
+            "../1",
+            "urn:li:sponsoredCampaign:",
+            "urn:li:sponsoredAccount:100000001",
+            "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+            "https://www.linkedin.com/campaignmanager/accounts/100000001/creatives/5",
+            "https://example.com/campaignmanager/accounts/1/campaigns/2",
+        ],
+    )
+    def test_campaign_id_rejects(self, value):
+        with pytest.raises(InvalidReferenceError, match="campaign_id"):
+            normalize_campaign_id(value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "urn:li:sponsoredCampaignGroup:",
+            "urn:li:sponsoredCampaign:300000003",
+            "https://www.linkedin.com/campaignmanager/accounts/1/campaign-groups/3",
+            "../3",
+        ],
+    )
+    def test_campaign_group_id_rejects(self, value):
+        with pytest.raises(InvalidReferenceError, match="campaign_group_id"):
+            normalize_campaign_group_id(value)
+
+    def test_urls(self):
+        assert (
+            CAMPAIGN_MANAGER_ACCOUNTS_URL
+            == "https://www.linkedin.com/campaignmanager/accounts"
+        )
+        assert (
+            campaign_manager_url("100000001")
+            == "https://www.linkedin.com/campaignmanager/accounts/100000001"
+        )
+        assert campaign_manager_url("1", "/campaigns").endswith("/accounts/1/campaigns")

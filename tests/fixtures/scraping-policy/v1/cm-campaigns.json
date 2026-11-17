@@ -1,0 +1,207 @@
+{
+  "call": {
+    "arguments": {
+      "account_id": "100000001"
+    },
+    "method": "list_campaigns"
+  },
+  "events": [
+    {
+      "call": "list_campaigns",
+      "callback_id": "callback-1",
+      "kind": "route.add",
+      "pattern": "**/campaign-manager-api/**",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "callback_id": "callback-2",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "callback_id": "callback-3",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+      "section": "campaigns",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "list_campaigns",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "kind": "wait_for_load_state",
+      "section": "campaigns",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "list_campaigns",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "kind": "boundary.rate_limit",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "callback_id": "callback-2",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "campaigns"
+    },
+    {
+      "call": "list_campaigns",
+      "callback_id": "callback-3",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "campaigns"
+    }
+  ],
+  "result": {
+    "ad_accounts": [
+      {
+        "currencyCode": "EUR",
+        "id": 100000001,
+        "kind": "ad_account",
+        "name": "Example account",
+        "status": "ACTIVE",
+        "type": "BUSINESS",
+        "uiLabel": "Ad account"
+      }
+    ],
+    "campaign_groups": [
+      {
+        "id": 100000201,
+        "kind": "campaign_group",
+        "name": "Example group",
+        "status": "ACTIVE",
+        "uiLabel": "Campaign"
+      }
+    ],
+    "campaigns": [
+      {
+        "campaignGroupId": 100000201,
+        "dailyBudget": {
+          "amount": "10.00",
+          "currencyCode": "EUR"
+        },
+        "id": 100000301,
+        "kind": "campaign",
+        "name": "Example ad set",
+        "status": "DRAFT",
+        "uiLabel": "Ad set"
+      }
+    ],
+    "section_names": [
+      "campaigns"
+    ],
+    "sections": {
+      "campaigns": "campaign_group Example group (id 100000201): ACTIVE\ncampaign Example ad set (id 100000301): DRAFT, daily 10.00 EUR"
+    },
+    "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns"
+  },
+  "scenario": "list_campaigns__baseline",
+  "schema_version": 1
+}

@@ -129,6 +129,22 @@
       "description": "Search LinkedIn posts/content globally by keyword (the 'Posts' tab) with an optional recency filter (past-24h/past-week/past-month) and content-type filter (e.g. documents), scrolling until max_posts results are loaded"
     },
     {
+      "name": "list_ad_accounts",
+      "description": "List the Campaign Manager ad accounts the member can open, including the personal boost account (read-only)"
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List an ad account's campaign groups (UI 'Campaigns') and campaigns (UI 'Ad sets') with status and budget (read-only)"
+    },
+    {
+      "name": "get_campaign",
+      "description": "Get one campaign (UI 'Ad set') with its targeting, schedule, campaign group (UI 'Campaign') and creatives (UI 'Ads') (read-only)"
+    },
+    {
+      "name": "get_campaign_analytics",
+      "description": "Read Campaign Manager performance per campaign group, campaign or creative (UI 'Campaign', 'Ad set', 'Ad') for the page's or a chosen date range, with optional demographic breakdowns (read-only)"
+    },
+    {
       "name": "close_session",
       "description": "Properly close browser session and clean up resources"
     },

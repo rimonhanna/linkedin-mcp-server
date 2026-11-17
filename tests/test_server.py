@@ -998,3 +998,21 @@ class TestWhatTheToolsPromise:
                 claiming.add(name)
 
         assert claiming == passive_reads
+
+    async def test_campaign_manager_reads_claim_read_only(self):
+        """They may claim it only because the page's own writes are aborted."""
+        mcp = create_mcp_server()
+        reads = {
+            "list_ad_accounts",
+            "list_campaigns",
+            "get_campaign",
+            "get_campaign_analytics",
+        }
+        claiming = set()
+        for name in reads:
+            tool = await mcp.get_tool(name)
+            assert tool is not None, f"{name} is not registered any more"
+            if tool.annotations and tool.annotations.readOnlyHint:
+                claiming.add(name)
+
+        assert claiming == reads

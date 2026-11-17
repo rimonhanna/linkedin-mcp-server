@@ -482,7 +482,10 @@ class ScriptedPage:
         )
         for callback in tuple(self.listeners["framenavigated"]):
             callback(self.main_frame)
-        self._take("goto", default=None)
+        outcome = self._take("goto", default=None)
+        # What the app requests on its own after a load, through the routes.
+        if inspect.isawaitable(outcome):
+            await outcome
 
     async def title(self) -> str:
         self.recorder.record("title")
@@ -582,12 +585,29 @@ class ScriptedPage:
         for callback in callbacks:
             callback(value)
 
-    def assert_clean(self, *, retained_read_guard: bool = False) -> None:
+    async def route_request(self, request: ScriptedCmRequest) -> None:
+        """Pass a request the app makes through every route matching it."""
+        for pattern, handlers in self.routes.items():
+            if pattern == "**/campaign-manager-api/**" and (
+                "/campaign-manager-api/" in request.url
+            ):
+                for handler in tuple(handlers):
+                    await handler(ScriptedRoute(self.recorder, request))
+
+    def assert_clean(
+        self, *, retained_read_guard: bool = False, retained_cm_guard: bool = False
+    ) -> None:
         remaining = {
             name: len(values) for name, values in self.listeners.items() if values
         }
         routed = {name: len(values) for name, values in self.routes.items() if values}
-        if retained_read_guard:
+        if retained_cm_guard:
+            # The capture's listeners go; the write guard stays for late requests.
+            assert not remaining, (
+                f"{self.recorder.scenario}: listeners remain: {remaining}"
+            )
+            assert routed == {"**/campaign-manager-api/**": 1}, routed
+        elif retained_read_guard:
             assert remaining == {"request": 1}, remaining
             assert routed == {
                 "**/voyager/api/voyagerMessagingDashMessengerConversations*": 1,
@@ -649,6 +669,57 @@ class ScriptedResponse:
         finally:
             self.recorder.pending_response_reads -= 1
             self.recorder.record("response.body.finish", url=self.url)
+
+
+class ScriptedCmRequest:
+    """A Campaign Manager API request as Playwright exposes it."""
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        post_data: str | None = None,
+    ):
+        self.url = url
+        self.method = method
+        self.headers = headers or {}
+        self.post_data = post_data
+
+    async def all_headers(self) -> dict[str, str]:
+        return {**self.headers, "csrf-token": "policy-token"}
+
+
+class ScriptedCmResponse:
+    """A Campaign Manager API response with its request and JSON body."""
+
+    def __init__(self, request: ScriptedCmRequest, payload: Any, *, status: int = 200):
+        self.url = request.url
+        self.request = request
+        self.status = status
+        self._payload = payload
+
+    async def json(self) -> Any:
+        return self._payload
+
+
+class ScriptedRoute:
+    """A routed request whose outcome, aborted or passed on, is recorded."""
+
+    def __init__(self, recorder: TraceRecorder, request: ScriptedCmRequest):
+        self.recorder = recorder
+        self.request = request
+
+    async def abort(self) -> None:
+        self.recorder.record(
+            "route.abort", method=self.request.method, url=self.request.url
+        )
+
+    async def fallback(self) -> None:
+        self.recorder.record(
+            "route.fallback", method=self.request.method, url=self.request.url
+        )
 
 
 def semantic_selector_id(selector: str) -> str:
@@ -724,6 +795,9 @@ def semantic_program_id(program: str) -> str:
         ("promoted.push(id)", "job_promoted_ids"),
         ("easyApplyLabel, externalLabel", "job_apply_signals"),
         ("const heading = document.querySelector('main h1')", "profile_display_name"),
+        # Ahead of the messaging fetch: the replay uses the same fetch options.
+        ("linkedin-mcp:cm-analytics-replay", "cm_analytics_replay"),
+        ("linkedin-mcp:cm-route", "cm_route"),
         ("credentials: 'same-origin'", "messaging_api_fetch"),
         ("main li label[aria-label]", "conversation_thread_refs"),
         ("isScrollable", "scroll_main_region"),
