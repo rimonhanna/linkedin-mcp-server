@@ -6,17 +6,26 @@ must not let that through, so every Campaign Manager API request that is not a
 read is aborted while a read has latched the page. ``page.route`` does not see
 requests a service worker handles; measured 2026-11 that www.linkedin.com
 registers no service worker, so every Campaign Manager request reaches the route.
+
+Once latched, only ``explicit_campaign_write`` lets a non-read request through,
+and only the ones its ``admit`` accepts.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+import json
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any
 from weakref import WeakKeyDictionary
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+from linkedin_mcp_server.scraping.campaign_manager_payload import (
+    CmCall,
+    parse_cm_call,
+)
 
 _CM_ROUTES = ("**/campaign-manager-api/**",)
 # See ``messaging_read_state``: a page's first route mid-session can hang on
@@ -24,11 +33,68 @@ _CM_ROUTES = ("**/campaign-manager-api/**",)
 # this bound covers a page that reaches a read without that.
 _REGISTRATION_TIMEOUT_SECONDS = 15.0
 
+# Resources the app POSTs to while pages and blocks open, observed live
+# 2026-11 to answer with data and change nothing. Their ``?action=`` POSTs to
+# campaigns, accounts and legal-term tracking are not here: unobserved effect.
+READ_ONLY_POST_RESOURCES = frozenset(
+    f"campaignManager{name}"
+    for name in (
+        "EntityRecommendations",
+        "Limits",
+        "LegoWidgets",
+        "AudienceCounts",
+        "InventoryReach",
+        "AudienceInsights",
+    )
+)
+
+
+def is_campaign_manager_read(
+    method: str, headers: Mapping[str, str], resource: str | None
+) -> bool:
+    """GET, a POST tunneling a GET, or a POST to a read-only resource."""
+    method = method.upper()
+    if method == "GET":
+        return True
+    if method != "POST":
+        return False
+    lowered = {key.casefold(): value for key, value in headers.items()}
+    if lowered.get("x-http-method-override", "").casefold() == "get":
+        return True
+    return resource in READ_ONLY_POST_RESOURCES
+
+
+@dataclass(frozen=True, slots=True)
+class CmWriteRequest:
+    call: CmCall
+    method: str
+    restli_method: str | None
+    # The JSON-decoded body; None when absent or not JSON.
+    body: Any
+
+
+@dataclass(slots=True)
+class WriteWindow:
+    admitted: list[CmWriteRequest] = field(default_factory=list)
+    refused: list[tuple[CmWriteRequest, str]] = field(default_factory=list)
+
+
+Admission = Callable[[CmWriteRequest], "str | None"]
+
+
+def _json_body(request: Any) -> Any:
+    try:
+        text = request.post_data
+        return json.loads(text) if text else None
+    except ValueError:
+        return None
+
 
 class _PageGuard:
     def __init__(self) -> None:
         # Nothing is blocked until a Campaign Manager read latches it.
         self.read_mode = False
+        self.admission: tuple[Admission, WriteWindow] | None = None
         self.registered: set[str] = set()
         self.registration: asyncio.Task[None] | None = None
         self.registration_failed = False
@@ -37,16 +103,41 @@ class _PageGuard:
     async def handle(self, route: Any) -> None:
         request = route.request
         method = request.method.upper()
-        # Reads tunnel through POST with this header; the header can be absent
-        # from ``request.headers`` while it is provisional, so fall back to all.
-        override = request.headers.get("x-http-method-override", "")
-        if self.read_mode and method == "POST" and not override:
-            override = (await request.all_headers()).get("x-http-method-override", "")
-        is_read = method == "GET" or (method == "POST" and override.upper() == "GET")
-        if self.read_mode and not is_read:
-            await route.abort()
-        else:
+        admission = self.admission
+        if method == "GET" or not (self.read_mode or admission is not None):
             await route.fallback()
+            return
+        # The tunnel and Rest.li method headers can be absent from
+        # ``request.headers`` while it is provisional, so read the full set.
+        headers = {
+            key.casefold(): value
+            for key, value in (await request.all_headers()).items()
+        }
+        call = parse_cm_call(request.url, method, headers, request.post_data)
+        if is_campaign_manager_read(method, headers, call.resource if call else None):
+            await route.fallback()
+            return
+        if admission is None or call is None:
+            await route.abort()
+            return
+        admit, window = admission
+        write = CmWriteRequest(
+            call=call,
+            method=method,
+            restli_method=headers.get("x-restli-method"),
+            body=_json_body(request),
+        )
+        try:
+            reason = admit(write)
+        except Exception:
+            reason = "admission error"
+        if reason is None:
+            # Recorded before it leaves, so a failed send still counts as sent.
+            window.admitted.append(write)
+            await route.fallback()
+        else:
+            window.refused.append((write, reason))
+            await route.abort()
 
     async def install(self, page: Any) -> None:
         if self.registration_failed:
@@ -113,3 +204,28 @@ async def without_campaign_manager_writes(page: Any) -> AsyncIterator[None]:
     state.read_mode = True
     await state.install(page)
     yield
+
+
+@asynccontextmanager
+async def explicit_campaign_write(
+    page: Any, *, admit: Admission
+) -> AsyncIterator[WriteWindow]:
+    """Let through only the app's non-read requests that ``admit`` accepts.
+
+    ``admit`` returns None to admit a request or the reason to abort it; one
+    that raises aborts. Every other non-read request is aborted, and the page
+    is latched again on every exit.
+    """
+    state = _guard_for(page)
+    if state.admission is not None:
+        raise LinkedInScraperException(
+            "A Campaign Manager change is already in progress on this page."
+        )
+    await state.install(page)
+    window = WriteWindow()
+    state.admission = (admit, window)
+    try:
+        yield window
+    finally:
+        state.admission = None
+        state.read_mode = True
