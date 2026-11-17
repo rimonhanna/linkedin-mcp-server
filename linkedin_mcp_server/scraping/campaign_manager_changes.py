@@ -13,6 +13,7 @@ decorated ``targetingCriteria``.
 
 from __future__ import annotations
 
+import html
 import re
 from collections import Counter
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
@@ -991,6 +992,21 @@ def admit_list_upload(*, account_id: str, name: str) -> Admit:
     return admit
 
 
+# The save audience modal's create body (app bundle, 2026-11): ``name`` and
+# ``description`` HTML-encoded, ``include``/``exclude`` from
+# ``toJSforAccountTemplates`` and ``account``; ``ownership`` is set only by
+# other entry points.
+_SAVED_AUDIENCE_FIELDS = frozenset(
+    {"name", "description", "include", "exclude", "account", "ownership"}
+)
+
+
+def _audience_shape(keys: Iterable[TargetingKey]) -> tuple[Any, ...]:
+    """Targeting compared as the AND of its blocks, which is order-free."""
+    sections, ors = _blocks(keys)
+    return frozenset(sections.items()), Counter(ors)
+
+
 def admit_saved_audience(
     *,
     account_id: str,
@@ -1000,9 +1016,15 @@ def admit_saved_audience(
     """An admission for one saved audience create with the ad set's own targeting.
 
     Stateful like ``admit_campaign_create``: a second create would be a second
-    audience, so only the first matching create passes.
+    audience, so only the first matching create passes. Unless the account has
+    LinkedIn's locale-saving flag, the app leaves the profile language out of a
+    saved audience, so the targeting may lack exactly that block.
     """
     created = False
+    with_language = _audience_shape(target_keys)
+    without_language = _audience_shape(
+        key for key in target_keys if key[0] != "include_language"
+    )
 
     def admit(req: WriteRequest) -> str | None:
         nonlocal created
@@ -1012,14 +1034,24 @@ def admit_saved_audience(
         if created:
             return "second saved audience create"
         body = _mapping(req.body) or {}
+        if set(body) - _SAVED_AUDIENCE_FIELDS:
+            return "saved audience carries fields outside the plan"
         if body.get("account") != _ACCOUNT_URN + account_id:
             return "saved audience for another ad account"
-        if body.get("name") != name or body.get("ownership") != "ACCOUNT":
+        sent_name = body.get("name")
+        if not isinstance(sent_name, str) or html.unescape(sent_name) != name:
+            return "saved audience is not the planned one"
+        if body.get("ownership", "ACCOUNT") != "ACCOUNT" or not isinstance(
+            body.get("description", ""), str
+        ):
             return "saved audience is not the planned one"
         keys = targeting_keys(
             {"include": body.get("include"), "exclude": body.get("exclude")}
         )
-        if keys is None or frozenset(keys) != frozenset(target_keys):
+        if keys is None or _audience_shape(keys) not in (
+            with_language,
+            without_language,
+        ):
             return "saved audience targeting differs from the ad set's"
         created = True
         return None

@@ -895,3 +895,61 @@ def test_patch_schedule_compares_utc_dates():
     # 23:45 UTC read in a zone east of UTC is the next day; the UTC date rules.
     next_day = _patch(runSchedule={"$set": {"end": _ms(date(2026, 3, 26))}})
     assert _admit(next_day, record, allowed=end_only)
+
+
+def _app_saved_audience_body(**overrides: Any) -> dict:
+    """The save audience modal's create as the app bundle builds it.
+
+    No ``ownership``, an HTML-encoded name and an empty description; the
+    profile language block is left out (LinkedIn's locale-saving flag off),
+    and the AND blocks arrive in another order.
+    """
+    criteria = _criteria()
+    ands = [
+        block
+        for block in criteria["include"]["and"]
+        if block["or"][0]["facet"]["urn"] != LANG
+    ]
+    body = {
+        "name": "Example &amp; audience",
+        "description": "",
+        "include": {"and": list(reversed(ands))},
+        "exclude": criteria["exclude"],
+        "account": f"urn:li:sponsoredAccount:{ACCOUNT}",
+    }
+    body.update(overrides)
+    return body
+
+
+def test_saved_audience_admits_the_apps_real_create():
+    keys = targeting_keys(_criteria())
+    assert keys is not None
+
+    def admit(body: dict) -> str | None:
+        req = _req(
+            body,
+            resource="campaignManagerTargetingCriteria",
+            entity_id=None,
+            restli=None,
+        )
+        return admit_saved_audience(
+            account_id=ACCOUNT, name="Example & audience", target_keys=keys
+        )(req)
+
+    assert admit(_app_saved_audience_body()) is None
+    with_language = _app_saved_audience_body(**_criteria())
+    assert admit(with_language) is None
+    assert admit(_app_saved_audience_body(ownership="ACCOUNT")) is None
+
+    assert "fields outside" in _reason(admit(_app_saved_audience_body(audienceCount=1)))
+    assert "not the planned" in _reason(
+        admit(_app_saved_audience_body(ownership="MEMBER"))
+    )
+    assert "not the planned" in _reason(admit(_app_saved_audience_body(name="Other")))
+    other_language = _criteria()
+    other_language["include"]["and"][1] = {"or": [_facet(LANG, "urn:li:locale:de_DE")]}
+    assert "differs" in _reason(admit(_app_saved_audience_body(**other_language)))
+    merged = _criteria()
+    ands = merged["include"]["and"]
+    ands[2]["or"] += ands.pop(3)["or"]
+    assert "differs" in _reason(admit(_app_saved_audience_body(**merged)))

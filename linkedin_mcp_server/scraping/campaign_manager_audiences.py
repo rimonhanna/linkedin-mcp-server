@@ -38,6 +38,11 @@ from linkedin_mcp_server.scraping.campaign_manager import (
     _error,
     _page_limit,
 )
+from linkedin_mcp_server.response_structure import (
+    is_field_name,
+    params_shape,
+    skeleton,
+)
 from linkedin_mcp_server.scraping.campaign_manager_api import (
     CampaignManagerCapture,
     CmResponse,
@@ -60,6 +65,7 @@ from linkedin_mcp_server.scraping.campaign_manager_entities_payload import (
     saved_audiences,
 )
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
+    CmWriteRequest,
     WriteWindow,
     without_campaign_manager_writes,
 )
@@ -806,6 +812,29 @@ def _targeting(keys: Sequence[TargetingKey]) -> list[dict[str, str]]:
     ]
 
 
+def _request_structure(request: CmWriteRequest, reason: str) -> dict[str, Any]:
+    """A refused request without its values: what the next fix needs to see."""
+    segments = urlparse(request.url).path.split("/")
+    return {
+        "method": request.method,
+        "restli_method": request.restli_method,
+        "resource": request.call.resource,
+        "finder": request.call.finder,
+        "path": "/".join(s if is_field_name(s) else "{id}" for s in segments if s),
+        "params": params_shape(request.call.params),
+        "body": skeleton(request.body),
+        "reason": reason,
+    }
+
+
+def _with_structure(result: dict[str, Any], window: WriteWindow) -> dict[str, Any]:
+    if window.refused:
+        result["refused_structure"] = [
+            _request_structure(request, reason) for request, reason in window.refused
+        ]
+    return result
+
+
 def _write_outcome(
     tool: str,
     url: str,
@@ -817,17 +846,20 @@ def _write_outcome(
     """The result of a create that did not succeed; None when LinkedIn accepted it."""
     retry_safe = retry_safe_from(window)
     if response is None and window.refused:
-        return campaign_action_result(
-            tool,
-            url,
-            "change_blocked",
-            "Campaign Manager tried to send a change outside the plan, which "
-            "was stopped before it left the browser."
-            + ("" if retry_safe else " Part of the plan was already sent."),
-            retry_safe=retry_safe,
-            target=target,
-            planned=planned,
-            refused=window.refused,
+        return _with_structure(
+            campaign_action_result(
+                tool,
+                url,
+                "change_blocked",
+                "Campaign Manager tried to send a change outside the plan, which "
+                "was stopped before it left the browser."
+                + ("" if retry_safe else " Part of the plan was already sent."),
+                retry_safe=retry_safe,
+                target=target,
+                planned=planned,
+                refused=window.refused,
+            ),
+            window,
         )
     if response is None and retry_safe:
         return campaign_action_result(

@@ -799,3 +799,70 @@ def test_created_number(value, expected):
 )
 def test_file_name(name, expected):
     assert audiences._file_name(name) == expected
+
+
+def _app_saved_create(name: str, **extra: Any) -> SimpleNamespace:
+    """The save audience modal's create as the app bundle builds it."""
+    return _response(
+        "campaignManagerTargetingCriteria",
+        None,
+        method="POST",
+        status=201,
+        body={
+            "name": name,
+            "description": "",
+            "include": TARGETING["include"],
+            "exclude": TARGETING["exclude"],
+            "account": f"urn:li:sponsoredAccount:{ACCOUNT}",
+            **extra,
+        },
+        created_id=NEW_ID,
+    )
+
+
+async def test_saved_audience_admits_the_apps_create_without_ownership(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads[DETAILS] = [[_campaign()]]
+    browser.loads[MATCHED] = [[_matched()]]
+    browser.tab_waves = [[_saved(_saved_entry(int(NEW_ID), "Example saved"))]]
+
+    with (
+        browser.running(),
+        _dialog(mock_page, sends=[_app_saved_create("Example saved")]) as calls,
+    ):
+        result = await _audiences(mock_page).create_saved_audience(
+            ACCOUNT, CAMPAIGN, "Example saved", confirm_send=True
+        )
+
+    assert calls.admitted == [True]
+    assert result["status"] == "audience_created"
+
+
+async def test_blocked_saved_audience_reports_the_refused_structure(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads[DETAILS] = [[_campaign()]]
+    sends = [_app_saved_create("Example saved", audienceCount=100000777)]
+
+    with browser.running(), _dialog(mock_page, sends=sends) as calls:
+        result = await _audiences(mock_page).create_saved_audience(
+            ACCOUNT, CAMPAIGN, "Example saved", confirm_send=True
+        )
+
+    assert calls.admitted == [False]
+    assert result["status"] == "change_blocked"
+    [structure] = result["refused_structure"]
+    assert structure["path"] == "campaign-manager-api/campaignManagerTargetingCriteria"
+    assert structure["method"] == "POST"
+    assert structure["restli_method"] is None
+    assert set(structure["body"]) == {
+        "name",
+        "description",
+        "include",
+        "exclude",
+        "account",
+        "audienceCount",
+    }
+    assert structure["reason"] == "saved audience carries fields outside the plan"
+    shown = json.dumps(structure)
+    for value in ("Example saved", ACCOUNT, "100000777", "urn:li:", "100000901"):
+        assert value not in shown
