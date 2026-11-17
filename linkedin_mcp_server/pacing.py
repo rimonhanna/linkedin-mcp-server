@@ -298,10 +298,10 @@ def navigation_kind(url: str) -> str:
     if path.startswith("/campaignmanager/"):
         return CAMPAIGN_MANAGER
     # A Sales Navigator search is the same activity as a classic one and
-    # spends the same cap; a lead page is a profile view.
+    # spends the same cap; a lead or people page is a profile view.
     if path.startswith("/sales/search/"):
         return SEARCH
-    if path.startswith("/sales/lead/"):
+    if path.startswith(("/sales/lead/", "/sales/people/")):
         return PROFILE
     if path.startswith("/sales/"):
         return SALES_NAVIGATOR

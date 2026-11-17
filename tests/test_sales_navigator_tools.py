@@ -57,20 +57,19 @@ class TestRegistration:
         assert tool.annotations.readOnlyHint is True
         assert tool.tags == {"sales_navigator", "scraping"}
 
-    async def test_account_list_tool_says_it_reads_the_whole_list(self):
+    @pytest.mark.parametrize(
+        "name",
+        ["get_sales_navigator_account_list", "list_sales_navigator_account_lists"],
+    )
+    async def test_list_tools_say_how_far_one_call_reads(self, name):
         mcp = FastMCP("test")
         register_sales_navigator_tools(mcp)
-        tool = await mcp.get_tool("get_sales_navigator_account_list")
+        tool = await mcp.get_tool(name)
         assert tool is not None
-        assert "reads the whole list" in (tool.description or "")
-
-    async def test_lists_tool_says_it_reads_every_list(self):
-        mcp = FastMCP("test")
-        register_sales_navigator_tools(mcp)
-        tool = await mcp.get_tool("list_sales_navigator_account_lists")
-        assert tool is not None
-        assert "reads every list" in (tool.description or "")
-        assert "first 25" not in (tool.description or "")
+        description = " ".join((tool.description or "").split())
+        assert "reads up to 1,000 entries per call" in description
+        assert "pass next_page to continue" in description
+        assert "first 25" not in description
 
     async def test_seniority_values_are_the_payload_levels(self):
         """The tool offers exactly the levels the reader can map to ids."""
@@ -177,7 +176,13 @@ class TestDelegation:
         extractor = _extractor()
         fn = await _fn("list_sales_navigator_account_lists")
         assert await fn(mock_context, extractor=extractor) == RESULT
-        extractor.list_sales_navigator_account_lists.assert_awaited_once_with()
+        extractor.list_sales_navigator_account_lists.assert_awaited_once_with(1)
+
+    async def test_list_account_lists_passes_the_start_page(self, mock_context):
+        extractor = _extractor()
+        fn = await _fn("list_sales_navigator_account_lists")
+        await fn(mock_context, page=41, extractor=extractor)
+        extractor.list_sales_navigator_account_lists.assert_awaited_once_with(41)
 
     @pytest.mark.parametrize(
         "value",
@@ -192,7 +197,17 @@ class TestDelegation:
         extractor = _extractor()
         fn = await _fn("get_sales_navigator_account_list")
         await fn(value, mock_context, extractor=extractor)
-        extractor.get_sales_navigator_account_list.assert_awaited_once_with("100000001")
+        extractor.get_sales_navigator_account_list.assert_awaited_once_with(
+            "100000001", 1
+        )
+
+    async def test_get_account_list_passes_the_start_page(self, mock_context):
+        extractor = _extractor()
+        fn = await _fn("get_sales_navigator_account_list")
+        await fn("100000001", mock_context, page=41, extractor=extractor)
+        extractor.get_sales_navigator_account_list.assert_awaited_once_with(
+            "100000001", 41
+        )
 
 
 class TestBadInput:
@@ -209,6 +224,8 @@ class TestBadInput:
                 "get_sales_navigator_account_list",
                 {"list_id": "https://www.linkedin.com/sales/lists/company?listId=abc"},
             ),
+            ("get_sales_navigator_account_list", {"list_id": "1", "page": 0}),
+            ("list_sales_navigator_account_lists", {"page": 0}),
             ("search_sales_navigator_accounts", {}),
             ("search_sales_navigator_accounts", {"keywords": "x", "page": 0}),
             ("search_sales_navigator_accounts", {"keywords": "x", "page": 41}),

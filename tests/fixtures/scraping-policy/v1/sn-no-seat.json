@@ -14,13 +14,6 @@
     {
       "call": "list_sales_navigator_account_lists",
       "callback_id": "callback-2",
-      "event": "request",
-      "kind": "listener.add",
-      "section": "no_seat"
-    },
-    {
-      "call": "list_sales_navigator_account_lists",
-      "callback_id": "callback-3",
       "event": "framenavigated",
       "kind": "listener.add",
       "section": "no_seat"
@@ -77,7 +70,7 @@
     },
     {
       "call": "list_sales_navigator_account_lists",
-      "callback_id": "callback-3",
+      "callback_id": "callback-2",
       "event": "framenavigated",
       "kind": "listener.remove",
       "section": "no_seat"
@@ -97,13 +90,6 @@
       "call": "list_sales_navigator_account_lists",
       "callback_id": "callback-1",
       "event": "response",
-      "kind": "listener.remove",
-      "section": "no_seat"
-    },
-    {
-      "call": "list_sales_navigator_account_lists",
-      "callback_id": "callback-2",
-      "event": "request",
       "kind": "listener.remove",
       "section": "no_seat"
     }

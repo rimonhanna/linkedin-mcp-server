@@ -1632,6 +1632,11 @@ def _sn_boot() -> list[ScriptedCmResponse]:
     ]
 
 
+def _sn_emit(page: ScriptedPage, responses: list[ScriptedCmResponse]) -> None:
+    for response in responses:
+        page.emit("response", response)
+
+
 def _sn_search(
     resource: str, query: str, start: int, elements: list[Any], total: int
 ) -> ScriptedCmResponse:
@@ -1718,7 +1723,7 @@ async def _sn_account_search_scenario() -> dict[str, Any]:
     }
     page.script(
         "goto",
-        lambda: _cm_emit(
+        lambda: _sn_emit(
             page,
             [
                 *_sn_boot(),
@@ -1759,7 +1764,7 @@ async def _sn_lead_search_scenario() -> dict[str, Any]:
     ]
     page.script(
         "goto",
-        lambda: _cm_emit(
+        lambda: _sn_emit(
             page,
             [*_sn_boot(), _sn_search("salesApiLeadSearch", query, 0, leads, 2)],
         ),
@@ -1782,7 +1787,7 @@ async def _sn_account_scenario() -> dict[str, Any]:
     record = f"salesApiCompanies/{_SN_COMPANY}?decoration=example"
     page.script(
         "goto",
-        lambda: _cm_emit(
+        lambda: _sn_emit(
             page,
             [
                 *_sn_boot(),
@@ -1816,7 +1821,7 @@ async def _sn_account_lists_scenario() -> dict[str, Any]:
     page = _sn_page("list_sales_navigator_account_lists__one_page")
     page.script(
         "goto",
-        lambda: _cm_emit(
+        lambda: _sn_emit(
             page,
             [
                 *_sn_boot(),
@@ -1872,8 +1877,8 @@ async def _sn_account_list_scenario() -> dict[str, Any]:
     )
     page.script(
         "goto",
-        lambda: _cm_emit(page, [*_sn_boot(), table(0, 25), metadata]),
-        lambda: _cm_emit(page, [table(25, 1)]),
+        lambda: _sn_emit(page, [*_sn_boot(), table(0, 25), metadata]),
+        lambda: _sn_emit(page, [table(25, 1)]),
     )
     trace = await _sales_navigator_run(
         "account_list",

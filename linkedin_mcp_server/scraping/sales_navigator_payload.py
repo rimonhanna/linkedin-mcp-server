@@ -41,7 +41,19 @@ CURRENT_TITLE = "CURRENT_TITLE"
 SENIORITY_LEVEL = "SENIORITY_LEVEL"
 CURRENT_COMPANY = "CURRENT_COMPANY"
 
-SENIORITY_IDS: Mapping[str, str] = {
+SeniorityLevel = Literal[
+    "in_training",
+    "entry_level",
+    "senior",
+    "strategic",
+    "entry_level_manager",
+    "experienced_manager",
+    "director",
+    "vice_president",
+    "cxo",
+    "owner_partner",
+]
+SENIORITY_IDS: Mapping[SeniorityLevel, str] = {
     "in_training": "100",
     "entry_level": "110",
     "senior": "120",
@@ -417,6 +429,26 @@ def missing_echoes(
         if not echoed and search_filter.type not in missing:
             missing.append(search_filter.type)
     return missing
+
+
+def unrequested_echoes(
+    keywords: str | None, filters: Sequence[SearchFilter], captured_query: str
+) -> list[str]:
+    """Criteria the captured API ``query`` carries that were not asked for.
+
+    A page that kept a filter from an earlier search would narrow the results
+    past what was asked, which the echo of the asked criteria cannot show.
+    """
+    captured = _record(captured_query)
+    extra: list[str] = []
+    if not keywords and "keywords" in captured:
+        extra.append("keywords")
+    asked = {f.type for f in filters if _filter_clause(f) is not None}
+    for item in restli_list(captured.get("filters", "")):
+        kind = _record(item).get("type", item)
+        if kind not in asked and kind not in extra:
+            extra.append(kind)
+    return extra
 
 
 def build_paging(payload: Any, page: int) -> SearchPaging | None:

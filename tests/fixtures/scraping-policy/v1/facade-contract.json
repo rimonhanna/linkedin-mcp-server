@@ -78,7 +78,7 @@
       },
       "get_sales_navigator_account_list": {
         "coroutine": true,
-        "signature": "(self, list_id: 'str') -> 'dict[str, Any]'"
+        "signature": "(self, list_id: 'str', page: 'int' = 1) -> 'dict[str, Any]'"
       },
       "get_saved_jobs": {
         "coroutine": true,
@@ -102,7 +102,7 @@
       },
       "list_sales_navigator_account_lists": {
         "coroutine": true,
-        "signature": "(self) -> 'dict[str, Any]'"
+        "signature": "(self, page: 'int' = 1) -> 'dict[str, Any]'"
       },
       "reply_to_conversation": {
         "coroutine": true,
@@ -943,6 +943,12 @@
             "list_id": {
               "description": "Numeric list id, as list_sales_navigator_account_lists\nreturned it. A Sales Navigator list URL carrying listId is\naccepted too.",
               "type": "string"
+            },
+            "page": {
+              "default": 1,
+              "description": "1-based page of 25 accounts to start from (default 1); pass\na previous result's next_page to continue.",
+              "minimum": 1,
+              "type": "integer"
             }
           },
           "required": [
@@ -1056,7 +1062,14 @@
       "list_sales_navigator_account_lists": {
         "input": {
           "additionalProperties": false,
-          "properties": {},
+          "properties": {
+            "page": {
+              "default": 1,
+              "description": "1-based page of 25 lists to start from (default 1); pass a\nprevious result's next_page to continue.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
           "type": "object"
         },
         "output": {

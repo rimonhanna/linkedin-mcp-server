@@ -7,7 +7,7 @@ and never open a lead page, so no profile view is registered.
 """
 
 import logging
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -22,7 +22,7 @@ from linkedin_mcp_server.scraping.identifiers import (
     normalize_sales_company_id,
     normalize_sales_list_id,
 )
-from linkedin_mcp_server.scraping.sales_navigator_payload import SENIORITY_IDS
+from linkedin_mcp_server.scraping.sales_navigator_payload import SeniorityLevel
 from linkedin_mcp_server.scraping.search_urls import (
     company_size_letters,
     industry_ids,
@@ -30,9 +30,6 @@ from linkedin_mcp_server.scraping.search_urls import (
 from linkedin_mcp_server.tools.person import StrList
 
 logger = logging.getLogger(__name__)
-
-# One source of truth: the levels the payload module maps to LinkedIn's ids.
-Seniority = Literal[*SENIORITY_IDS]  # ty: ignore[invalid-type-form]
 
 
 def register_sales_navigator_tools(
@@ -158,7 +155,7 @@ def register_sales_navigator_tools(
         ctx: Context,
         keywords: str | None = None,
         title: StrList | None = None,
-        seniority: list[Seniority] | None = None,
+        seniority: list[SeniorityLevel] | None = None,
         current_company: StrList | None = None,
         location: StrList | None = None,
         industry: StrList | None = None,
@@ -314,23 +311,28 @@ def register_sales_navigator_tools(
     )
     async def list_sales_navigator_account_lists(
         ctx: Context,
+        page: Annotated[int, Field(ge=1)] = 1,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
-        List every Sales Navigator account list of the signed-in member.
-        Read-only. Needs a Sales Navigator seat. This reads every list, not
-        only the first page: it loads one page of 25 lists at a time until all
-        are read, and every page counts against the pacing budget.
-        section_errors.account_lists is set when a page did not load, so the
-        result is partial.
+        List the Sales Navigator account lists of the signed-in member.
+        Read-only. Needs a Sales Navigator seat. This reads up to 1,000
+        entries per call; pass next_page to continue. It loads one page of 25
+        lists at a time until all are read or the 1,000 are reached, and every
+        page counts against the pacing budget. section_errors.account_lists is
+        set when the result is partial: a page did not load, or there are more
+        lists than one call reads (then next_page is set).
 
         Args:
             ctx: FastMCP context for progress reporting
+            page: 1-based page of 25 lists to start from (default 1); pass a
+                previous result's next_page to continue.
 
         Returns:
-            Dict with url, sections (account_lists -> one line per list) and
+            Dict with url, sections (account_lists -> one line per list),
             account_lists (id, name, description, listType, listSource,
-            entityCount, role, lastModifiedAt).
+            entityCount, role, lastModifiedAt) and, when more lists remain,
+            next_page.
         """
         try:
             extractor = extractor or await get_ready_extractor(
@@ -342,7 +344,7 @@ def register_sales_navigator_tools(
                 progress=0, total=100, message="Loading account lists"
             )
 
-            result = await extractor.list_sales_navigator_account_lists()
+            result = await extractor.list_sales_navigator_account_lists(page)
 
             await ctx.report_progress(progress=100, total=100, message="Complete")
 
@@ -366,29 +368,35 @@ def register_sales_navigator_tools(
     async def get_sales_navigator_account_list(
         list_id: str,
         ctx: Context,
+        page: Annotated[int, Field(ge=1)] = 1,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
-        Get one Sales Navigator account list and every account in it. Read-only.
-        Needs a Sales Navigator seat. This reads the whole list, not only the
-        first page: it loads one page of 25 accounts at a time until the list
-        is covered, and every page counts against the pacing budget, so a long
-        list takes several navigations. Display-text fields are in the
-        member's UI language. The accounts can be passed, by name, as the
-        companies of create_company_list_audience.
+        Get one Sales Navigator account list and its accounts. Read-only.
+        Needs a Sales Navigator seat. This reads up to 1,000 entries per call;
+        pass next_page to continue. It loads one page of 25 accounts at a time
+        until the list is covered or the 1,000 are reached, and every page
+        counts against the pacing budget, so a long list takes several
+        navigations. section_errors.accounts is set when the result is
+        partial: a page did not load, the list changed while it was read, or
+        the list is longer than one call reads (then next_page is set).
+        Display-text fields are in the member's UI language. The accounts can
+        be passed, by name, as the companies of create_company_list_audience.
 
         Args:
             list_id: Numeric list id, as list_sales_navigator_account_lists
                 returned it. A Sales Navigator list URL carrying listId is
                 accepted too.
             ctx: FastMCP context for progress reporting
+            page: 1-based page of 25 accounts to start from (default 1); pass
+                a previous result's next_page to continue.
 
         Returns:
-            Dict with url, sections (account_list and accounts, one line each)
-            and account_list (id, name, description, listType, listSource,
-            entityCount, role, lastModifiedAt) plus accounts, every row (id,
+            Dict with url, sections (account_list and accounts, one line each),
+            account_list (id, name, description, listType, listSource,
+            entityCount, role, lastModifiedAt), accounts, each row read (id,
             name, industry, employeeCount, employeeDisplayCount,
-            buyerIntentLevel, saved).
+            buyerIntentLevel, saved) and, when more accounts remain, next_page.
         """
         try:
             list_id = normalize_sales_list_id(list_id)
@@ -401,7 +409,7 @@ def register_sales_navigator_tools(
                 progress=0, total=100, message="Loading account list"
             )
 
-            result = await extractor.get_sales_navigator_account_list(list_id)
+            result = await extractor.get_sales_navigator_account_list(list_id, page)
 
             await ctx.report_progress(progress=100, total=100, message="Complete")
 

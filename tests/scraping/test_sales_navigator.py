@@ -96,8 +96,6 @@ class _Browser:
         self.events.append(f"load {url}")
         self.page.url = self.landings.get(url, url)
         for response in self.loads.get(url, []):
-            for callback in list(self.page.listeners.get("request", [])):
-                callback(response.request)
             for callback in list(self.page.listeners.get("response", [])):
                 callback(response)
 
@@ -222,6 +220,22 @@ async def test_search_accounts_refuses_results_missing_a_filter(mock_page):
 
     with pytest.raises(
         LinkedInScraperException, match="ignored the hq_location filter"
+    ):
+        await _run(mock_page, browser, _account_search())
+
+
+async def test_search_accounts_refuses_results_with_an_extra_filter(mock_page):
+    browser = _Browser(mock_page)
+    query = build_search_query(KEYWORDS, ACCOUNT_FILTERS)
+    extra = build_search_query(
+        KEYWORDS, [*ACCOUNT_FILTERS, SearchFilter(SENIORITY_LEVEL, ids=("310",))]
+    )
+    browser.loads[search_page_url("company", query, 2)] = [
+        _search("salesApiAccountSearch", extra, 25, [_card()], 30)
+    ]
+
+    with pytest.raises(
+        LinkedInScraperException, match="also applied the SENIORITY_LEVEL filter"
     ):
         await _run(mock_page, browser, _account_search())
 
@@ -465,6 +479,20 @@ async def test_get_account_refused_by_linkedin_names_the_id(mock_page):
         await _run(mock_page, browser, lambda r: r.get_account(COMPANY))
 
 
+async def test_get_account_survives_one_refused_decoration(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads[ACCOUNT_URL] = [
+        *_boot(),
+        _response(f"salesApiCompanies/{COMPANY}?decoration=other", status=403),
+        _profile_record(),
+    ]
+
+    result = await _run(mock_page, browser, lambda r: r.get_account(COMPANY))
+
+    assert result["account"]["name"] == "Example Company"
+    assert result["section_errors"]["headcount"]["error_type"] == "unavailable"
+
+
 # --- list_account_lists -----------------------------------------------------
 
 
@@ -518,6 +546,43 @@ async def test_list_account_lists_stops_when_a_page_does_not_arrive(mock_page):
     error = result["section_errors"]["account_lists"]
     assert error["error_type"] == "page_limit"
     assert "reported 30 account lists and 25 were read" in error["error_message"]
+
+
+def _lists_pages(first: int, last: int, total: int) -> dict[str, list]:
+    return {
+        SALES_ACCOUNT_LISTS_URL
+        if page == 1
+        else f"{SALES_ACCOUNT_LISTS_URL}?page={page}": [
+            _lists((page - 1) * 25, min(25, total - (page - 1) * 25), total)
+        ]
+        for page in range(first, last + 1)
+    }
+
+
+async def test_list_account_lists_reads_at_most_40_pages(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads.update(_lists_pages(1, 41, 1010))
+
+    result = await _run(mock_page, browser, lambda r: r.list_account_lists())
+
+    assert len(browser.navigated) == 40
+    assert len(result["account_lists"]) == 1000
+    assert result["next_page"] == 41
+    error = result["section_errors"]["account_lists"]
+    assert error["error_type"] == "page_limit"
+    assert "next_page=41" in error["error_message"]
+
+
+async def test_list_account_lists_continues_from_next_page(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads.update(_lists_pages(41, 41, 1010))
+
+    result = await _run(mock_page, browser, lambda r: r.list_account_lists(41))
+
+    assert browser.navigated == [f"{SALES_ACCOUNT_LISTS_URL}?page=41"]
+    assert len(result["account_lists"]) == 10
+    assert "next_page" not in result
+    assert "section_errors" not in result
 
 
 # --- get_account_list -------------------------------------------------------
@@ -606,3 +671,57 @@ async def test_get_account_list_refuses_metadata_of_another_list(mock_page):
 
     with pytest.raises(LinkedInScraperException, match="does not recognise"):
         await _run(mock_page, browser, lambda r: r.get_account_list(LIST))
+
+
+def _table_pages(first: int, last: int, total: int) -> dict[str, list]:
+    loads: dict[str, list] = {}
+    for page in range(first, last + 1):
+        start = (page - 1) * 25
+        rows = _table(start, min(25, total - start), total, "UNIFIED_RECOMMENDED_LEAD")
+        loads[LIST_URL if page == 1 else f"{LIST_URL}&page={page}"] = [
+            rows,
+            _list_metadata(),
+        ]
+    return loads
+
+
+async def test_get_account_list_reads_at_most_40_pages(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads.update(_table_pages(1, 41, 1001))
+
+    result = await _run(mock_page, browser, lambda r: r.get_account_list(LIST))
+
+    assert len(browser.navigated) == 40
+    assert len(result["accounts"]) == 1000
+    assert result["next_page"] == 41
+    assert result["section_errors"]["accounts"]["error_type"] == "page_limit"
+
+
+async def test_get_account_list_continues_from_next_page(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads.update(_table_pages(41, 41, 1001))
+
+    result = await _run(mock_page, browser, lambda r: r.get_account_list(LIST, 41))
+
+    assert browser.navigated == [f"{LIST_URL}&page=41"]
+    assert result["account_list"]["id"] == LIST
+    assert len(result["accounts"]) == 1
+    assert "next_page" not in result
+    assert "section_errors" not in result
+
+
+async def test_get_account_list_stops_when_a_page_repeats_a_row(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads.update(_table_pages(1, 2, 27))
+    repeated = browser.loads[f"{LIST_URL}&page=2"][0].json.return_value
+    repeated["elements"][0]["companyInfo"]["entityUrn"] = (
+        "urn:li:fs_salesCompany:100000500"
+    )
+
+    result = await _run(mock_page, browser, lambda r: r.get_account_list(LIST))
+
+    assert len(result["accounts"]) == 25
+    error = result["section_errors"]["accounts"]
+    assert error["error_type"] == "page_limit"
+    assert "the list changed while reading" in error["error_message"]
+    assert "next_page" not in result

@@ -1,5 +1,7 @@
 """Tests for Sales Navigator query building and payload parsing (synthetic data only)."""
 
+from typing import get_args
+
 from linkedin_mcp_server.scraping.sales_navigator_payload import (
     COMPANY_FILTER_ID,
     COMPANY_HEADCOUNT,
@@ -12,6 +14,7 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
     SENIORITY_LEVEL,
     WITHHELD_REASON,
     SearchFilter,
+    SeniorityLevel,
     build_account,
     build_account_card,
     build_account_list,
@@ -31,6 +34,7 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
     render_leads,
     render_listed_accounts,
     search_page_url,
+    unrequested_echoes,
 )
 
 API = "https://www.linkedin.com/sales-api/"
@@ -125,6 +129,10 @@ def test_seniority_ids_are_numeric():
     assert all(value.isdigit() for value in SENIORITY_IDS.values())
 
 
+def test_seniority_levels_are_the_mapped_keys():
+    assert list(get_args(SeniorityLevel)) == list(SENIORITY_IDS)
+
+
 def test_page_url_first_and_later_page():
     query = build_search_query("a b", [SearchFilter(INDUSTRY, ids=("106",))])
     first = search_page_url("company", query, 1)
@@ -184,6 +192,21 @@ def test_echo_check_names_each_dropped_criterion():
         REGION,
         COMPANY_HEADCOUNT_GROWTH,
     ]
+
+
+def test_echo_check_names_each_unrequested_criterion():
+    filters = [SearchFilter(INDUSTRY, ids=("106",))]
+    sent = build_search_query(None, filters)
+    assert unrequested_echoes(None, filters, sent) == []
+    captured = (
+        "(spellCorrectionEnabled:true,keywords:other,filters:List("
+        "(type:INDUSTRY,values:List((id:106,selectionType:INCLUDED))),"
+        "(type:REGION,values:List((id:102890719,selectionType:INCLUDED))),"
+        "(type:REGION,values:List((id:102890720,selectionType:INCLUDED)))))"
+    )
+    assert missing_echoes(None, filters, captured) == []
+    assert unrequested_echoes(None, filters, captured) == ["keywords", REGION]
+    assert unrequested_echoes("other", filters, captured) == [REGION]
 
 
 def test_parse_sn_call_keeps_restli_raw():

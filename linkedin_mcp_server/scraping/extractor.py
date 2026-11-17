@@ -536,10 +536,12 @@ class LinkedInExtractor:
         """One account's firmographics from its Sales Navigator page."""
         return await self._sales_navigator.get_account(company_id)
 
-    async def list_sales_navigator_account_lists(self) -> dict[str, Any]:
-        """Every Sales Navigator account list of the member."""
-        return await self._sales_navigator.list_account_lists()
+    async def list_sales_navigator_account_lists(self, page: int = 1) -> dict[str, Any]:
+        """The member's Sales Navigator account lists, up to 1,000 per call."""
+        return await self._sales_navigator.list_account_lists(page)
 
-    async def get_sales_navigator_account_list(self, list_id: str) -> dict[str, Any]:
-        """One Sales Navigator account list and every account in it."""
-        return await self._sales_navigator.get_account_list(list_id)
+    async def get_sales_navigator_account_list(
+        self, list_id: str, page: int = 1
+    ) -> dict[str, Any]:
+        """One Sales Navigator account list and up to 1,000 of its accounts."""
+        return await self._sales_navigator.get_account_list(list_id, page)

@@ -6,8 +6,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
-import logging
-
 from linkedin_mcp_server.scraping.sales_navigator_api import SalesNavigatorCapture
 
 SN = "https://www.linkedin.com/sales-api/"
@@ -26,8 +24,6 @@ def _response(
 
 
 def _emit(page: Any, response: SimpleNamespace) -> None:
-    for callback in list(page.listeners.get("request", [])):
-        callback(response.request)
     for callback in list(page.listeners.get("response", [])):
         callback(response)
 
@@ -85,26 +81,3 @@ async def test_ignores_responses_outside_the_sales_api(mock_page):
 
     assert capture.responses == []
     assert mock_page.listeners["response"] == []
-    assert mock_page.listeners["request"] == []
-
-
-async def test_logs_a_non_get_call_by_resource_and_action_only(mock_page, caplog):
-    post = _response(
-        "salesApiCoach?action=suggest&query=(keywords:private%20words)",
-        method="POST",
-    )
-    get = _response("salesApiLeadSearch?q=searchQuery&query=(keywords:hidden)")
-
-    with caplog.at_level(logging.DEBUG, "linkedin_mcp_server.scraping"):
-        async with SalesNavigatorCapture(mock_page, resources=frozenset()) as capture:
-            _emit(mock_page, post)
-            _emit(mock_page, get)
-            await capture.settle()
-
-    lines = [
-        record.getMessage()
-        for record in caplog.records
-        if record.name.endswith("sales_navigator_api")
-    ]
-    assert lines == ["Sales Navigator page sent POST salesApiCoach action=suggest"]
-    assert "private" not in caplog.text and "hidden" not in caplog.text

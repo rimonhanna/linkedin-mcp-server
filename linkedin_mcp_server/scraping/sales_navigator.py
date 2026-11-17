@@ -9,7 +9,8 @@ LinkedIn not to share data with third-party tools is left out and counted.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, Literal, TypeVar
+from dataclasses import dataclass
+from typing import Any, Literal, TypeVar, cast
 from urllib.parse import urlparse
 
 from linkedin_mcp_server.core.exceptions import (
@@ -41,9 +42,13 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
     MAX_PAGE,
     PAGE_SIZE,
     REGION,
+    RESULT_CAP,
     SENIORITY_IDS,
     SENIORITY_LEVEL,
+    AccountList,
+    ListedAccount,
     SearchFilter,
+    SeniorityLevel,
     build_account,
     build_account_card,
     build_account_list,
@@ -61,6 +66,7 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
     render_leads,
     render_listed_accounts,
     search_page_url,
+    unrequested_echoes,
 )
 from linkedin_mcp_server.scraping.search_urls import (
     company_size_letters,
@@ -69,6 +75,7 @@ from linkedin_mcp_server.scraping.search_urls import (
 from linkedin_mcp_server.scraping.session import ScrapingSession
 
 _T = TypeVar("_T")
+_Row = TypeVar("_Row", AccountList, ListedAccount)
 
 _READY_TIMEOUT = 12.0
 # For a response the page may not send; a miss is no throttle evidence.
@@ -125,20 +132,32 @@ def _on_path(path: str, expected: str) -> bool:
     return path == expected or path.startswith(expected.rstrip("/") + "/")
 
 
-def _refusal(
-    field: str, resources: frozenset[str], entity_id: str
-) -> Callable[[SnResponse], str | None]:
-    """The input field a refused response names, so a wrong id fails at once."""
+@dataclass(frozen=True)
+class _Refusal:
+    """How LinkedIn answers a wrong ``field``: a 403/404 for that entity."""
 
-    def refused(response: SnResponse) -> str | None:
+    field: str
+    resources: frozenset[str]
+    entity_id: str
+
+    def _names(self, response: SnResponse) -> bool:
         call = response.call
-        if response.status not in _REFUSED_STATUSES or call.resource not in resources:
-            return None
-        if call.entity_id == entity_id or call.params.get("listId") == entity_id:
-            return field
-        return None
+        return call.resource in self.resources and (
+            call.entity_id == self.entity_id
+            or call.params.get("listId") == self.entity_id
+        )
 
-    return refused
+    def refuses(self, response: SnResponse) -> bool:
+        return response.status in _REFUSED_STATUSES and self._names(response)
+
+    def stands(self, responses: Sequence[SnResponse]) -> bool:
+        """Refused, and no other call for the same entity answered OK.
+
+        One decoration can be refused for a valid id while another loads.
+        """
+        return any(self.refuses(r) for r in responses) and not any(
+            r.ok and self._names(r) for r in responses
+        )
 
 
 def _first_built(
@@ -188,7 +207,7 @@ class SalesNavigatorReader:
         *,
         expected_path: str,
         ready: Callable[[SnResponse], bool],
-        refused: Callable[[SnResponse], str | None] | None = None,
+        refused: _Refusal | None = None,
         required: bool = True,
     ) -> SnResponse | None:
         """Load ``url`` (one charged page load) and wait for its data.
@@ -208,15 +227,20 @@ class SalesNavigatorReader:
                 + _NO_SEAT_ADVICE
             )
 
+        def answered(response: SnResponse) -> bool:
+            return ready(response) or _seat_refused(response)
+
         def done(response: SnResponse) -> bool:
-            return (
-                ready(response)
-                or _seat_refused(response)
-                or (refused is not None and refused(response) is not None)
+            return answered(response) or (
+                refused is not None and refused.refuses(response)
             )
 
         try:
             response = await capture.wait_for(done, timeout=_READY_TIMEOUT)
+            if refused is not None and refused.refuses(response):
+                await capture.settle()
+                if not refused.stands(capture.responses):
+                    response = await capture.wait_for(answered, timeout=_READY_TIMEOUT)
         except LinkedInScraperException:
             if required:
                 raise
@@ -226,12 +250,11 @@ class SalesNavigatorReader:
                 f"Sales Navigator refused this account (HTTP {response.status}). "
                 + _NO_SEAT_ADVICE
             )
-        field = refused(response) if refused is not None else None
-        if field is not None:
+        if refused is not None and refused.refuses(response):
             raise InvalidReferenceError(
-                f"Sales Navigator refused that {field} (HTTP {response.status}). "
-                f"Check the {field}: pass an id exactly as a previous Sales "
-                "Navigator result returned it."
+                f"Sales Navigator refused that {refused.field} (HTTP "
+                f"{response.status}). Check the {refused.field}: pass an id "
+                "exactly as a previous Sales Navigator result returned it."
             )
         await capture.settle()
         return response
@@ -251,24 +274,43 @@ class SalesNavigatorReader:
         self,
         page_url: Callable[[int], str],
         *,
+        first_page: int,
         expected_path: str,
         resources: tuple[str, ...],
         rows_at: Callable[[int], Callable[[SnResponse], bool]],
-        builder: Callable[[Any], _T | None],
+        builder: Callable[[Any], _Row | None],
         name: str,
-        refused: Callable[[SnResponse], str | None] | None = None,
+        refused: _Refusal | None = None,
         on_first: Callable[[SalesNavigatorCapture], Awaitable[None]] | None = None,
-    ) -> tuple[list[_T], dict[str, str] | None]:
-        """Every row of a paged table, one ``&page=N`` load per 25 rows.
+    ) -> tuple[list[_Row], dict[str, str] | None, int | None]:
+        """The rows of a paged table from ``first_page``, one load per 25 rows.
 
-        Stops with a ``page_limit`` error when a page does not arrive or the
-        reported total changes between pages.
+        Reads at most ``MAX_PAGE`` pages; a longer table stops with a
+        ``page_limit`` error and the page to continue from. Also stops with a
+        ``page_limit`` error when a page does not arrive, the reported total
+        changes between pages or a row repeats one of an earlier page.
         """
-        rows: list[_T] = []
+        if first_page < 1:
+            raise FilterValidationError("page must be 1 or greater.")
+        rows: list[_Row] = []
+        seen: set[str | None] = set()
         total = 0
-        page = 0
-        while page == 0 or page * PAGE_SIZE < total:
+        page = first_page - 1
+        while page < first_page or page * PAGE_SIZE < total:
+            if page - first_page + 1 == MAX_PAGE:
+                return (
+                    rows,
+                    _page_limit(
+                        name,
+                        total,
+                        len(rows),
+                        f"one call reads at most {RESULT_CAP:,} (pass "
+                        f"next_page={page + 1} to continue)",
+                    ),
+                    page + 1,
+                )
             page += 1
+            first = page == first_page
             ready = rows_at((page - 1) * PAGE_SIZE)
             async with self._capture(*resources) as capture:
                 found = await self._open(
@@ -277,33 +319,54 @@ class SalesNavigatorReader:
                     expected_path=expected_path,
                     ready=ready,
                     refused=refused,
-                    required=page == 1,
+                    required=first,
                 )
-                if page == 1 and on_first is not None:
+                if first and on_first is not None:
                     await on_first(capture)
             if found is None:
-                return rows, _page_limit(
-                    name, total, len(rows), f"page {page} did not load"
+                return (
+                    rows,
+                    _page_limit(name, total, len(rows), f"page {page} did not load"),
+                    None,
                 )
             built = _first_built(capture.matching(ready), builder)
             if built is None:
                 raise _unverified(f"the {name}")
             items, reported = built
-            if page == 1:
+            if first:
                 total = reported
             elif reported != total:
-                return rows, _page_limit(
-                    name,
-                    total,
-                    len(rows),
-                    f"the total changed to {reported} while it was read",
+                return (
+                    rows,
+                    _page_limit(
+                        name,
+                        total,
+                        len(rows),
+                        f"the total changed to {reported} while it was read",
+                    ),
+                    None,
                 )
+            ids = [item.get("id") for item in items]
+            if seen.intersection(ids):
+                return (
+                    rows,
+                    _page_limit(
+                        name,
+                        total,
+                        len(rows),
+                        f"the list changed while reading (page {page} repeated a row)",
+                    ),
+                    None,
+                )
+            seen.update(ids)
             rows.extend(items)
-        if len(rows) < total:
-            return rows, _page_limit(
-                name, total, len(rows), "the pages returned fewer rows"
+        if len(rows) < total - (first_page - 1) * PAGE_SIZE:
+            return (
+                rows,
+                _page_limit(name, total, len(rows), "the pages returned fewer rows"),
+                None,
             )
-        return rows, None
+        return rows, None, None
 
     async def _geo_ids(self, values: Sequence[str], field: str) -> list[str]:
         ids: list[str] = []
@@ -354,18 +417,24 @@ class SalesNavigatorReader:
             )
         responses = capture.matching(is_page)
         for response in responses:
-            if not missing_echoes(
-                keywords, criteria, response.call.params.get("query", "")
+            sent = response.call.params.get("query", "")
+            if not missing_echoes(keywords, criteria, sent) and not unrequested_echoes(
+                keywords, criteria, sent
             ):
                 return url, response
-        missing = missing_echoes(
-            keywords, criteria, responses[0].call.params.get("query", "")
-        )
+        sent = responses[0].call.params.get("query", "")
         names = {search_filter.type: field for field, search_filter in filters}
-        ignored = ", ".join(names.get(item, item) for item in missing)
+        if missing := missing_echoes(keywords, criteria, sent):
+            ignored = ", ".join(names.get(item, item) for item in missing)
+            raise LinkedInScraperException(
+                f"Sales Navigator ignored the {ignored} filter, so the results "
+                "were not filtered as asked and nothing was reported."
+            )
+        added = ", ".join(unrequested_echoes(keywords, criteria, sent))
         raise LinkedInScraperException(
-            f"Sales Navigator ignored the {ignored} filter, so the results were "
-            "not filtered as asked and nothing was reported."
+            f"Sales Navigator also applied the {added} filter, which was not "
+            "asked for, so the results were not filtered as asked and nothing "
+            "was reported."
         )
 
     @staticmethod
@@ -478,7 +547,7 @@ class SalesNavigatorReader:
         if titles:
             filters.append(("title", SearchFilter(CURRENT_TITLE, texts=tuple(titles))))
         if levels:
-            ids = tuple(SENIORITY_IDS[level] for level in levels)
+            ids = tuple(SENIORITY_IDS[cast(SeniorityLevel, level)] for level in levels)
             filters.append(("seniority", SearchFilter(SENIORITY_LEVEL, ids=ids)))
         if companies:
             company_ids = tuple(await self._company_ids(companies))
@@ -538,7 +607,7 @@ class SalesNavigatorReader:
                 url,
                 expected_path=urlparse(url).path,
                 ready=is_named,
-                refused=_refusal("company_id", frozenset({_COMPANIES}), company),
+                refused=_Refusal("company_id", frozenset({_COMPANIES}), company),
             )
             if not capture.matching(is_headcount):
                 await self._optional(capture, is_headcount)
@@ -561,8 +630,8 @@ class SalesNavigatorReader:
             result["section_errors"] = section_errors
         return result
 
-    async def list_account_lists(self) -> dict[str, Any]:
-        """Every account list of the member, read page by page."""
+    async def list_account_lists(self, page: int = 1) -> dict[str, Any]:
+        """The member's account lists from ``page``, up to 1,000 per call."""
         url = SALES_ACCOUNT_LISTS_URL
 
         def rows_at(start: int) -> Callable[[SnResponse], bool]:
@@ -575,8 +644,9 @@ class SalesNavigatorReader:
 
             return match
 
-        lists, limit = await self._read_all(
-            lambda page: url if page == 1 else f"{url}?page={page}",
+        lists, limit, next_page = await self._read_all(
+            lambda n: url if n == 1 else f"{url}?page={n}",
+            first_page=page,
             expected_path=_LISTS_PATH,
             resources=(_LISTS,),
             rows_at=rows_at,
@@ -588,10 +658,12 @@ class SalesNavigatorReader:
             result["sections"]["account_lists"] = text
         if limit is not None:
             result["section_errors"] = {"account_lists": limit}
+        if next_page is not None:
+            result["next_page"] = next_page
         return result
 
-    async def get_account_list(self, list_id: str) -> dict[str, Any]:
-        """One account list and every account in it, read page by page."""
+    async def get_account_list(self, list_id: str, page: int = 1) -> dict[str, Any]:
+        """One account list and its accounts from ``page``, up to 1,000 per call."""
         list_ref = normalize_sales_list_id(list_id)
         url = sales_account_list_url(list_ref)
         metadata: list[SnResponse] = []
@@ -614,14 +686,15 @@ class SalesNavigatorReader:
                 await capture.wait_for(is_metadata, timeout=_READY_TIMEOUT)
             metadata.extend(capture.matching(is_metadata))
 
-        accounts, limit = await self._read_all(
-            lambda page: url if page == 1 else f"{url}&page={page}",
+        accounts, limit, next_page = await self._read_all(
+            lambda n: url if n == 1 else f"{url}&page={n}",
+            first_page=page,
             expected_path=_LIST_PATH,
             resources=(_LISTS, _ACCOUNT_TABLE),
             rows_at=rows_at,
             builder=build_listed_account,
             name="accounts",
-            refused=_refusal("list_id", frozenset({_LISTS, _ACCOUNT_TABLE}), list_ref),
+            refused=_Refusal("list_id", frozenset({_LISTS, _ACCOUNT_TABLE}), list_ref),
             on_first=read_metadata,
         )
         account_list = build_account_list(metadata[0].payload) if metadata else None
@@ -635,4 +708,6 @@ class SalesNavigatorReader:
         result["accounts"] = accounts
         if limit is not None:
             result["section_errors"] = {"accounts": limit}
+        if next_page is not None:
+            result["next_page"] = next_page
         return result
