@@ -66,6 +66,12 @@ async def _run(
 
     with (
         patch.object(write_module.CampaignWriteFlow, "save_and_exit", save_and_exit),
+        # Save and exit is the classic editor's footer.
+        patch.object(
+            write_module.CampaignWriteFlow,
+            "saves_by_footer",
+            AsyncMock(return_value=True),
+        ),
         patch.object(targeting, "political_dialog", question),
         patch.object(targeting, "_SAVE_TIMEOUT", 0.5),
     ):

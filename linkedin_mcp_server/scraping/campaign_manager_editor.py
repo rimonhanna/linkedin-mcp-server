@@ -65,10 +65,12 @@ from linkedin_mcp_server.scraping.campaign_manager_political import (
     DECLARATION_REQUIRED,
     POLITICAL_INTENT,
     UNANSWERED,
-    declared_intent,
+    declaration_stop,
     political_dialog,
     political_question,
     question_sentence,
+    refuse_intent,
+    sent_intent,
 )
 from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
@@ -433,11 +435,9 @@ def _edit_matches(record: Mapping[str, Any], plan: CampaignEditPlan) -> bool:
 
 
 def _edit_admission(
-    record: Mapping[str, Any], plan: CampaignEditPlan, political_ad: bool | None
+    record: Mapping[str, Any], plan: CampaignEditPlan
 ) -> tuple[dict[str, Any], set[str]]:
     allowed: dict[str, Any] = {}
-    if political_ad is not None:
-        allowed[POLITICAL_INTENT] = declared_intent(political_ad)
     if plan.daily is not None:
         allowed["dailyBudget"] = plan.daily
     if plan.lifetime is not None:
@@ -474,6 +474,9 @@ def _is_create(write: Any) -> bool:
 def _stopped(outcome: CmWriteResponse | str, window: WriteWindow) -> Refusal:
     """Why a save the plan waited for did not succeed, in the common vocabulary."""
     if outcome == "refused":
+        declaration = declaration_stop(window.refused)
+        if declaration is not None:
+            return declaration
         return (
             "change_blocked",
             "Campaign Manager tried to save a value that is not the planned one, "
@@ -759,21 +762,33 @@ class CampaignManagerEditor:
     ) -> dict[str, Any]:
         page = self._session.page
         draft = record.get("status") == "DRAFT"
-        allowed, path = _edit_admission(record, plan, political_ad)
+        allowed, path = _edit_admission(record, plan)
         is_save = _is_patch(campaign)
+        # A draft autosaves each field, except in the classic editor, which
+        # saves a draft like a launched ad set: once, by Save and exit.
+        newer_editor = not await self._flow.saves_by_footer(page)
+        autosaves = draft and newer_editor
 
         def admit(request: CmWriteRequest) -> str | None:
-            return admit_campaign_patch(
+            sent = sent_intent(request.body)
+            refusal = admit_campaign_patch(
                 request,
                 campaign_id=campaign,
                 record=record,
-                allowed=allowed,
+                allowed=allowed
+                if sent is None
+                else {**allowed, POLITICAL_INTENT: sent},
                 path_fields=path,
             )
+            if refusal is not None or sent is None:
+                return refusal
+            return refuse_intent(
+                sent,
+                record.get(POLITICAL_INTENT),
+                political_ad,
+                newer_editor=newer_editor,
+            )
 
-        # A draft autosaves each field, except in the classic editor, which
-        # saves a draft like a launched ad set: once, by Save and exit.
-        autosaves = draft and not await self._flow.saves_by_footer(page)
         saves = "autosave" if autosaves else "save_and_exit"
         saved = 0
         stop: Refusal | None = None

@@ -35,6 +35,11 @@ work, health checks, or background maintenance.
   That answer is a legal declaration the user makes for the advertiser: ask
   them, and pass `political_ad` true or false only as they declared it. Never
   choose it yourself.
+- `declaration_would_clear`, `declaration_cleared_by_linkedin` and
+  `declaration_not_offered` mean Campaign Manager would have changed that
+  declaration on its own (it clears it for targeting without an EU location;
+  its newer editor only saves "not political"). Nothing was sent; tell the
+  user what the message says instead of retrying.
 - Do not retry a failed write action unless the result proves it was not sent.
 
 ## Browser and authentication

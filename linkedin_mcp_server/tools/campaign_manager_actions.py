@@ -178,7 +178,13 @@ def register_campaign_manager_action_tools(
         On EU targeting the save first asks whether the ad set's ads are
         political. That answer is a legal declaration the user makes for the
         advertiser: pass political_ad only as the user declared it; the tool
-        never defaults it.
+        never defaults it. Saving targeting with no EU location makes Campaign
+        Manager clear an existing declaration: that save stops with
+        declaration_would_clear, or declaration_cleared_by_linkedin when
+        political_ad was given, and sends nothing. In the newer editor the
+        save may fill in "not political" itself: it passes only with
+        political_ad false (declaration_required without it,
+        declaration_not_offered with true).
 
         Args:
             ad_account_id: Numeric ad account id, its URN or account URL.
@@ -340,7 +346,13 @@ def register_campaign_manager_action_tools(
         On EU targeting the save first asks whether the ad set's ads are
         political. That answer is a legal declaration the user makes for the
         advertiser: pass political_ad only as the user declared it; the tool
-        never defaults it.
+        never defaults it. Saving targeting with no EU location makes Campaign
+        Manager clear an existing declaration: that save stops with
+        declaration_would_clear, or declaration_cleared_by_linkedin when
+        political_ad was given, and sends nothing. In the newer editor the
+        save may fill in "not political" itself: it passes only with
+        political_ad false (declaration_required without it,
+        declaration_not_offered with true).
 
         Args:
             ad_account_id: Numeric ad account id, its URN or account URL.

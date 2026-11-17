@@ -177,8 +177,11 @@ async def test_a_declaration_the_caller_never_made_is_refused(mock_page):
 
     result = await _update(mock_page, app, daily_budget="11")
 
-    assert result["status"] == "change_blocked"
-    assert result["refused"][0]["reason"] == "unplanned change to politicalIntent"
+    assert result["status"] == "declaration_required"
+    assert result["retry_safe"] is True
+    assert result["refused"][0]["reason"] == (
+        "politicalIntent filled in without the caller's declaration"
+    )
 
 
 async def test_a_question_in_an_unknown_layout_is_closed_unanswered(mock_page):

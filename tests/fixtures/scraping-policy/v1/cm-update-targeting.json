@@ -227,6 +227,13 @@
     },
     {
       "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_footer",
+      "program_digest": "e4333f693237",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
       "callback_id": "callback-5",
       "event": "framenavigated",
       "kind": "listener.add",

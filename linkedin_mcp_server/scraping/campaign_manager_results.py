@@ -7,6 +7,16 @@ from typing import Any, Protocol
 
 from linkedin_mcp_server.scraping.campaign_manager_changes import WriteRequest
 
+# The political-ad declaration stops of the two tools that save by Save and exit.
+_DECLARATION = frozenset(
+    {
+        "declaration_required",
+        "declaration_would_clear",
+        "declaration_cleared_by_linkedin",
+        "declaration_not_offered",
+    }
+)
+
 _COMMON = frozenset(
     {
         "confirmation_required",
@@ -24,17 +34,18 @@ _COMMON = frozenset(
 
 STATUSES: Mapping[str, frozenset[str]] = {
     "update_campaign": _COMMON
-    | {"updated", "budget_type_mismatch", "schedule_locked", "declaration_required"},
+    | _DECLARATION
+    | {"updated", "budget_type_mismatch", "schedule_locked"},
     "set_campaign_status": _COMMON
     | {"paused", "resumed", "reactivation_needs_changes"},
     "update_campaign_targeting": _COMMON
+    | _DECLARATION
     | {
         "updated",
         "entity_not_found",
         "entity_not_addable",
         "value_not_present",
         "deadline",
-        "declaration_required",
     },
     "create_campaign_draft": _COMMON
     | {"created", "no_campaign_group", "objective_unavailable"},

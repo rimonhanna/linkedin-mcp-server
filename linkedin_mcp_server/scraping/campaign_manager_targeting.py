@@ -61,12 +61,15 @@ from linkedin_mcp_server.scraping.campaign_manager_payload import (
 )
 from linkedin_mcp_server.scraping.campaign_manager_political import (
     DECLARATION_REQUIRED,
+    DECLARATION_STATUSES,
     POLITICAL_INTENT,
     UNANSWERED,
-    declared_intent,
+    declaration_stop,
     political_dialog,
     political_question,
     question_sentence,
+    refuse_intent,
+    sent_intent,
 )
 from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
@@ -321,6 +324,21 @@ class _Stop(Exception):
 
 def _unavailable(message: str) -> _Stop:
     return _Stop("control_unavailable", message)
+
+
+def _check_refused(window: WriteWindow) -> None:
+    """Stop once the guard refused a save of the ad set."""
+    refused = [
+        item
+        for item in window.refused
+        if item[0].call.resource == "campaignManagerCampaigns"
+    ]
+    if not refused:
+        return
+    declaration = declaration_stop(refused)
+    if declaration is not None:
+        raise _Stop(*declaration)
+    raise _Stop("change_blocked", _BLOCKED)
 
 
 _OUT_OF_TIME = "The time for this call ran out before the next step."
@@ -898,28 +916,36 @@ class CampaignTargetingEditor:
     ) -> dict[str, Any]:
         page = module.page
         plan = run.plan
-
-        allowed: dict[str, Any] = {"targetingCriteria": plan.target}
-        if run.political_ad is not None:
-            allowed[POLITICAL_INTENT] = declared_intent(run.political_ad)
+        draft = run.record.get("status") == "DRAFT"
+        # Only the newer editor autosaves a draft; the classic one saves a
+        # draft like a launched ad set, once, by Save and exit.
+        newer_editor = not await self._flow.saves_by_footer(page)
 
         def admit(request: CmWriteRequest) -> str | None:
-            return admit_campaign_patch(
+            sent = sent_intent(request.body)
+            allowed: dict[str, Any] = {"targetingCriteria": plan.target}
+            if sent is not None:
+                allowed[POLITICAL_INTENT] = sent
+            refusal = admit_campaign_patch(
                 request,
                 campaign_id=run.campaign,
                 record=run.record,
                 allowed=allowed,
                 path_fields=("targetingCriteria",),
             )
+            if refusal is not None or sent is None:
+                return refusal
+            return refuse_intent(
+                sent,
+                run.record.get(POLITICAL_INTENT),
+                run.political_ad,
+                newer_editor=newer_editor,
+            )
 
         def check(window: WriteWindow) -> None:
             if _out_of_time(deadline):
                 raise _Stop("deadline", _OUT_OF_TIME)
-            if any(
-                req.call.resource == "campaignManagerCampaigns"
-                for req, _ in window.refused
-            ):
-                raise _Stop("change_blocked", _BLOCKED)
+            _check_refused(window)
 
         after = capture.write_count
         stop: _Stop | None = None
@@ -972,20 +998,20 @@ class CampaignTargetingEditor:
                     await module.clear_search(location)
                     await human_pause(_STEP_PAUSE)
                 check(window)
-                if run.record.get("status") == "DRAFT":
-                    # A draft saves itself after each edit; the last save holds
-                    # the whole change.
+                if draft and newer_editor:
+                    # The last autosave holds the whole change.
                     saved = await self._flow.wait_saved(
                         capture,
                         lambda w: run.ours(w) and _sent_keys(w.body) == plan.target,
                         after,
                     )
                 else:
-                    if not await self._flow.save_and_exit(page, draft=False):
+                    if not await self._flow.save_and_exit(page, draft=draft):
                         raise _unavailable("The ad set's Save and exit was not found.")
                     saved = await self._footer_save(
                         capture,
                         page,
+                        window,
                         lambda w: (
                             run.ours(w)
                             and (w.restli_method or "").lower() == "partial_update"
@@ -1005,6 +1031,7 @@ class CampaignTargetingEditor:
         self,
         capture: CampaignManagerCapture,
         page: Any,
+        window: WriteWindow,
         predicate: Callable[[CmWriteResponse], bool],
         after: int,
         political_ad: bool | None,
@@ -1024,6 +1051,7 @@ class CampaignTargetingEditor:
             )
             if saved is not None or loop.time() >= deadline:
                 return saved
+            _check_refused(window)
             if not asks:
                 continue
             question = await political_dialog(page, political_ad)
@@ -1058,10 +1086,10 @@ class CampaignTargetingEditor:
             )
 
         if not window.admitted:
+            if stop is not None and stop.status in DECLARATION_STATUSES:
+                return result(stop.status, stop.message)
             if window.refused:
                 return result("change_blocked", f"{_BLOCKED} Nothing was saved.")
-            if stop is not None and stop.status == "declaration_required":
-                return result(stop.status, stop.message)
             if stop is not None and stop.status in ("deadline", "not_editable"):
                 return result(stop.status, f"{stop.message} Nothing was saved.")
             reason = (

@@ -18,6 +18,7 @@ from linkedin_mcp_server.scraping import (
     campaign_manager_changes,
     campaign_manager_content,
     campaign_manager_editor,
+    campaign_manager_political,
     campaign_manager_targeting,
     campaign_manager_write,
 )
@@ -376,7 +377,12 @@ def _builder_statuses() -> set[str]:
 
 def _string_literals() -> set[str]:
     found: set[str] = set()
-    for module in (*_SCRAPERS, campaign_manager_write, campaign_manager_changes):
+    for module in (
+        *_SCRAPERS,
+        campaign_manager_write,
+        campaign_manager_changes,
+        campaign_manager_political,
+    ):
         for node in ast.walk(ast.parse(inspect.getsource(module))):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
                 found.add(node.value)

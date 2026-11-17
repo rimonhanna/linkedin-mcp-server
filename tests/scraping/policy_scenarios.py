@@ -2676,6 +2676,8 @@ async def _cm_update_targeting_scenario() -> dict[str, Any]:
         lambda: _cm_emit(page, [_cm_typeahead("engineer")]),
         lambda: _cm_emit(page, [_cm_typeahead("engineer")]),
     )
+    # The editor that autosaves a draft has no classic footer.
+    page.script("evaluate:cm_footer", 0)
     add = [{"urn": "urn:li:title:300", "query": "engineer"}]
     return await _cm_write_run(
         page,

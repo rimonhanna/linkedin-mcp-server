@@ -220,6 +220,16 @@ through only the matching declaration. The dry run says in
 `planned.politicalAdQuestion` whether the save `will` ask (the targeting
 includes an EU country or region) or `may` (a place inside one is not
 recognisable from the record).
+Campaign Manager also changes the declaration without asking. Saving an ad
+set whose targeting has no EU location sets it to "not declared": that is let
+through when the ad set has no declaration, and otherwise stops with
+`declaration_would_clear` (the save would clear it). With `political_ad`,
+such a save stops with `declaration_cleared_by_linkedin`, because Campaign
+Manager keeps no declaration there; nothing is sent either way. The newer
+editor fills in "not political" on its own: that passes only with
+`political_ad` false, stops with `declaration_required` without it and with
+`declaration_not_offered` with true (that editor offers no political choice
+there).
 `create_company_list_audience` clicks LinkedIn's agree-and-upload button,
 which accepts LinkedIn's Ads Agreement for that upload; the dry run returns
 the terms link as `planned.termsUrl`. Other limits: `create_campaign_draft` never creates a campaign
