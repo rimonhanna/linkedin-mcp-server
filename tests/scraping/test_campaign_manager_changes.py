@@ -763,6 +763,8 @@ def test_create_admissions_refuse_sub_paths_actions_and_other_methods():
 
     sub_path = _create(path="campaignManagerCampaigns/draft")
     assert "sub-path" in _reason(fresh()(sub_path))
+    matrix = _create(path="campaignManagerCampaigns;x=1")
+    assert "sub-path" in _reason(fresh()(matrix))
     action = _create(params={"action": "duplicate"})
     assert "action" in _reason(fresh()(action))
     signed_url = {

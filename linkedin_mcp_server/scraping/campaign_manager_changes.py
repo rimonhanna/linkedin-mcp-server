@@ -782,8 +782,13 @@ def _refuse_create(
     refusal = _refuse_target(req, resource, None, restli)
     if refusal is not None:
         return refusal
-    path = urlparse(req.url).path
-    if not path.startswith(CM_API_PREFIX) or path[len(CM_API_PREFIX) :] != resource:
+    parsed = urlparse(req.url)
+    path = parsed.path
+    if (
+        parsed.params
+        or not path.startswith(CM_API_PREFIX)
+        or path[len(CM_API_PREFIX) :] != resource
+    ):
         return f"{resource} write to a sub-path, not a create"
     if "action" in req.call.params:
         return f"{resource} action request, not a create"
