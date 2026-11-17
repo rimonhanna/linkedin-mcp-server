@@ -21,11 +21,16 @@ from linkedin_mcp_server.scraping.restli import (
     as_int as _int,
     as_mapping as _mapping,
     as_str as _str,
+    envelope_elements as envelope_elements,
+    envelope_record as envelope_record,
+    envelope_total as envelope_total,
+    included_by_urn as included_by_urn,
     iso_from_ms as _iso_from_ms,
     normalized_elements as normalized_elements,
     normalized_record as normalized_record,
     plain_elements as plain_elements,
     restli_list as restli_list,
+    same_id as same_id,
 )
 
 CM_API_PREFIX = "/campaign-manager-api/"
@@ -557,7 +562,7 @@ def _pivot_kind(pivot: str) -> tuple[str, str]:
 
 def build_analytics_rows(payload: Any, pivot: str) -> list[AnalyticsRow] | None:
     """Rows of a ``campaignManagerAdAnalytics`` reply, or ``None`` on a URN mismatch."""
-    elements = plain_elements(payload)
+    elements = envelope_elements(payload)
     if elements is None:
         return None
     kind, prefix = _pivot_kind(pivot)

@@ -91,20 +91,31 @@ def normalized_record(payload: Any) -> dict[str, Any] | None:
     return as_mapping(record.get("data"))
 
 
-def normalized_elements(payload: Any) -> list[dict[str, Any]] | None:
-    """Entities of a normalized collection, resolving URN refs against ``included``."""
+def included_by_urn(payload: Any) -> dict[str, dict[str, Any]]:
+    """The ``included`` entities of a normalized payload, by ``entityUrn``."""
     record = as_mapping(payload)
-    data = as_mapping(record.get("data")) if record is not None else None
-    if record is None or data is None:
-        return None
-    elements = data.get("elements")
-    if not isinstance(elements, list):
-        return None
     included: dict[str, dict[str, Any]] = {}
-    for entity in as_dicts(record.get("included")):
+    for entity in as_dicts(record.get("included") if record is not None else None):
         urn = entity.get("entityUrn")
         if isinstance(urn, str):
             included[urn] = entity
+    return included
+
+
+def normalized_elements(payload: Any) -> list[dict[str, Any]] | None:
+    """Entities of a normalized collection, resolving URN refs against ``included``.
+
+    Elements are inline objects or URN references (``elements`` or
+    ``*elements``); one reference that ``included`` does not hold refuses all.
+    """
+    record = as_mapping(payload)
+    data = as_mapping(record.get("data")) if record is not None else None
+    if data is None:
+        return None
+    elements = data.get("elements", data.get("*elements"))
+    if not isinstance(elements, list):
+        return None
+    included = included_by_urn(record)
     resolved: list[dict[str, Any]] = []
     for element in elements:
         if isinstance(element, dict):
@@ -114,3 +125,72 @@ def normalized_elements(payload: Any) -> list[dict[str, Any]] | None:
         else:
             return None
     return resolved
+
+
+def _is_normalized(record: dict[str, Any]) -> bool:
+    return "data" in record and "elements" not in record
+
+
+def envelope_elements(payload: Any) -> list[dict[str, Any]] | None:
+    """A collection's entities, plain ``{elements}`` or normalized ``{data, included}``.
+
+    LinkedIn picks the envelope per resource (by the request's ``Accept``), so
+    every collection reader goes through here.
+    """
+    record = as_mapping(payload)
+    if record is None:
+        return None
+    if _is_normalized(record):
+        return normalized_elements(record)
+    return plain_elements(record)
+
+
+def envelope_paging(payload: Any) -> dict[str, Any] | None:
+    """A collection's ``paging``, from either envelope."""
+    record = as_mapping(payload)
+    if record is None:
+        return None
+    if _is_normalized(record):
+        data = as_mapping(record.get("data"))
+        return as_mapping(data.get("paging")) if data is not None else None
+    return as_mapping(record.get("paging"))
+
+
+def envelope_total(payload: Any) -> int | None:
+    """``paging.total`` of a collection in either envelope."""
+    paging = envelope_paging(payload)
+    return as_int(paging.get("total")) if paging is not None else None
+
+
+def envelope_record(payload: Any) -> dict[str, Any] | None:
+    """A single entity: normalized ``{data: {...}}``, a ``data`` URN resolved
+    through ``included``, or a plain object. A collection is not a record.
+    """
+    record = as_mapping(payload)
+    if record is None or "elements" in record:
+        return None
+    if "data" not in record:
+        return record
+    data = record.get("data")
+    if isinstance(data, str):
+        return included_by_urn(record).get(data)
+    data = as_mapping(data)
+    if data is None or "elements" in data or "*elements" in data:
+        return None
+    return data
+
+
+def entity_id(value: Any) -> int | None:
+    """An entity id sent as a number or as a string of digits; nothing else."""
+    number = as_int(value)
+    if number is not None:
+        return number
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def same_id(value: Any, ref: str) -> bool:
+    """Whether ``value`` is the numeric id ``ref`` names."""
+    number = entity_id(value)
+    return number is not None and ref.isdigit() and number == int(ref)

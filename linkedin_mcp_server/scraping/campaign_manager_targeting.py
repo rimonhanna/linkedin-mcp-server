@@ -587,7 +587,11 @@ class _TargetingPage:
         await human_type(self.page, query, budget_seconds=_TYPE_BUDGET)
         try:
             await self.capture.wait_for(
-                matches, after=after, timeout=_TYPEAHEAD_TIMEOUT, throttle=False
+                matches,
+                after=after,
+                timeout=_TYPEAHEAD_TIMEOUT,
+                throttle=False,
+                wanted=(_TYPEAHEAD_RESOURCE,),
             )
         except LinkedInScraperException:
             # A query typed before can be answered from the app's cache with

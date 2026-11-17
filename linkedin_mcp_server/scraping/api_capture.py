@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, Protocol, Self, TypeVar
 
@@ -145,12 +145,16 @@ class ApiResponseCapture(Generic[_C]):
         after: int = 0,
         timeout: float = 12.0,
         throttle: bool = True,
+        wanted: Iterable[str] = (),
     ) -> CapturedResponse[_C]:
         """Wait for the first captured response, from ``after`` on, that matches.
 
         ``throttle=False`` is for a wait whose miss has another explanation
         (an optional request the page may not make): no throttle evidence.
+        ``wanted`` names the resources the predicate looks for, so a failure's
+        notes show every response of theirs.
         """
+        self.structure.want(wanted)
         self._event.clear()
         try:
             async with asyncio.timeout(timeout):

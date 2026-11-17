@@ -645,7 +645,7 @@ async def test_analytics_ignores_a_query_for_another_account(mock_page):
             [],
         )
     ]
-    with pytest.raises(LinkedInScraperException, match="did not return"):
+    with pytest.raises(LinkedInScraperException, match="none was the query"):
         await _run(mock_page, browser, lambda r: r.get_campaign_analytics(ACCOUNT))
 
 

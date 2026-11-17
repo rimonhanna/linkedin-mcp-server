@@ -37,7 +37,6 @@ from linkedin_mcp_server.scraping.campaign_manager import (
     _SETUP_PATH,
     _error,
     _page_limit,
-    _total,
 )
 from linkedin_mcp_server.scraping.campaign_manager_api import (
     CampaignManagerCapture,
@@ -67,7 +66,8 @@ from linkedin_mcp_server.scraping.campaign_manager_guard import (
 from linkedin_mcp_server.scraping.campaign_manager_payload import (
     build_ad_account,
     build_campaign,
-    plain_elements,
+    envelope_elements,
+    envelope_total,
 )
 from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
@@ -357,6 +357,7 @@ class CampaignAudiences:
                     lambda r: is_list(r) or refused(r),
                     after=after,
                     timeout=_READY_TIMEOUT,
+                    wanted=(_MATCHED_RESOURCE,),
                 )
             except LinkedInScraperException:
                 return None
@@ -389,6 +390,7 @@ class CampaignAudiences:
                     after=after,
                     timeout=_READY_TIMEOUT,
                     throttle=False,
+                    wanted=(_SAVED_RESOURCE,),
                 )
             except LinkedInScraperException:
                 return None
@@ -424,13 +426,13 @@ class CampaignAudiences:
                 )
                 continue
             audiences = parse(response.payload)
-            elements = plain_elements(response.payload)
+            elements = envelope_elements(response.payload)
             if audiences is None or elements is None:
                 raise _unverified(f"the {label}")
             result[name] = audiences
             if text := render_audiences(audiences):
                 result["sections"][name] = text
-            total = _total(response.payload)
+            total = envelope_total(response.payload)
             if total is not None and total > len(elements):
                 section_errors[name] = _page_limit(label, total, len(elements))
         if section_errors:

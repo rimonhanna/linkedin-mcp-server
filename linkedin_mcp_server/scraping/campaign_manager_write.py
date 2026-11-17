@@ -37,7 +37,10 @@ from linkedin_mcp_server.scraping.campaign_manager_guard import (
     explicit_campaign_write,
     without_campaign_manager_writes,
 )
-from linkedin_mcp_server.scraping.campaign_manager_payload import normalized_record
+from linkedin_mcp_server.scraping.campaign_manager_payload import (
+    envelope_record,
+    same_id,
+)
 from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
 )
@@ -190,14 +193,14 @@ class CampaignWriteFlow:
         refused = _refusal(account, campaign)
 
         def is_campaign(response: CmResponse) -> bool:
-            record = normalized_record(response.payload)
+            record = envelope_record(response.payload)
             return (
                 response.ok
                 and response.call.resource == "campaignManagerCampaigns"
                 and response.call.finder is None
                 and response.call.entity_id == campaign
                 and record is not None
-                and record.get("id") == int(campaign)
+                and same_id(record.get("id"), campaign)
             )
 
         page = self._session.page
@@ -216,6 +219,7 @@ class CampaignWriteFlow:
                 lambda r: is_campaign(r) or refused(r) is not None,
                 after=after,
                 timeout=_READY_TIMEOUT,
+                wanted=("campaignManagerCampaigns",),
             )
             await capture.settle()
         field = refused(response)
@@ -223,7 +227,7 @@ class CampaignWriteFlow:
             return _not_found(
                 f"Campaign Manager refused that {field} (HTTP {response.status})."
             )
-        record = normalized_record(response.payload) or {}
+        record = envelope_record(response.payload) or {}
         if not isinstance(record.get("accountId"), int):
             raise LinkedInScraperException(
                 "Campaign Manager returned the ad set in a shape this tool does "

@@ -6,11 +6,18 @@ strings, numbers and booleans become their type name, a list becomes its length
 and the skeleton of its first element, and a key that is not a plain API field
 name (an id, URN, email or number used as a map key) is dropped and counted.
 Bounded per record and per capture, so a large page cannot bloat the notes.
+
+The notes show the most recent records plus every kept record of the
+resources the failing read was waiting for, so the response a read refused or
+never matched is shown however many others came after it. Request parameters
+are kept as structure too: Rest.li syntax with every digit run masked, or just
+the value's type.
 """
 
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Iterable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
@@ -18,6 +25,10 @@ from typing import Any
 import re
 
 MAX_RECORDS = 30
+#: Older records of the awaited resources shown on top of the recent ones.
+MAX_WANTED = 40
+#: Records a capture keeps to pick the awaited ones from.
+MAX_KEPT = 400
 MAX_DEPTH = 4
 MAX_KEYS = 25
 #: Skeleton nodes per record: bounds the work and the size together.
@@ -30,6 +41,29 @@ _DIGIT_RUN = re.compile(r"\d{3,}")
 _HEX_RUN = re.compile(r"[0-9a-fA-F\-]{12,}")
 _ID_KEYS = "<id-like key>"
 _TRUNCATED = "..."
+# Parameters whose value is Rest.li structure (finder, pivots, projection,
+# date range, scope). Any other one (search text, keywords) shows its type only.
+_STRUCTURE_PARAMS = frozenset(
+    {
+        "q",
+        "pivot",
+        "pivots",
+        "timeGranularity",
+        "fields",
+        "projection",
+        "dateRange",
+        "accountIds",
+        "campaignGroupIds",
+        "campaignIds",
+        "creativeIds",
+        "start",
+        "count",
+        "decoration",
+        "decorationId",
+    }
+)
+_DIGITS = re.compile(r"\d+")
+_MAX_PARAM = 200
 
 
 def is_field_name(key: object) -> bool:
@@ -94,6 +128,22 @@ def _header(headers: Any, name: str) -> str | None:
     return None
 
 
+def params_shape(params: Any) -> dict[str, str] | None:
+    """A request's parameters with every value masked or reduced to its type."""
+    if not isinstance(params, Mapping):
+        return None
+    shape: dict[str, str] = {}
+    for key, value in params.items():
+        if not is_field_name(key):
+            continue
+        if key in _STRUCTURE_PARAMS and isinstance(value, str):
+            masked = _DIGITS.sub("N", _HEX_RUN.sub("H", value))
+            shape[key] = masked[:_MAX_PARAM]
+        else:
+            shape[key] = type(value).__name__
+    return shape
+
+
 def response_record(
     call: Any, response: Any, *, body: str, payload: Any = None
 ) -> dict[str, Any]:
@@ -109,6 +159,9 @@ def response_record(
         "accept": _header(getattr(request, "headers", None), "accept"),
         "body": body,
     }
+    params = params_shape(getattr(call, "params", None))
+    if params is not None:
+        record["params"] = params
     if body == "json":
         record["skeleton"] = skeleton(payload)
     return record
@@ -123,10 +176,29 @@ class ResponseLog:
         default_factory=lambda: deque(maxlen=MAX_RECORDS)
     )
     seen: int = 0
+    #: Resources a read of this capture waited for.
+    wanted: set[str] = field(default_factory=set)
+    _kept: deque[tuple[int, dict[str, Any]]] = field(
+        default_factory=lambda: deque(maxlen=MAX_KEPT)
+    )
 
     def add(self, record: dict[str, Any]) -> None:
+        self._kept.append((self.seen, record))
         self.records.append(record)
         self.seen += 1
+
+    def want(self, resources: Iterable[str]) -> None:
+        self.wanted.update(resources)
+
+    def shown(self) -> list[dict[str, Any]]:
+        """Older records of the wanted resources, then the recent ones, in order."""
+        recent_from = self.seen - len(self.records)
+        older = [
+            record
+            for index, record in self._kept
+            if index < recent_from and record.get("resource") in self.wanted
+        ]
+        return older[-MAX_WANTED:] + list(self.records)
 
 
 # Set by the capture on entry, in the task that runs the tool, and read by

@@ -27,7 +27,12 @@ from linkedin_mcp_server.scraping.identifiers import (
     sales_company_url,
 )
 from linkedin_mcp_server.scraping.navigation import PageNavigator
-from linkedin_mcp_server.scraping.restli import as_mapping, as_str, paging_total
+from linkedin_mcp_server.scraping.restli import (
+    as_str,
+    envelope_elements,
+    envelope_record,
+    envelope_total,
+)
 from linkedin_mcp_server.scraping.sales_navigator_api import (
     SalesNavigatorCapture,
     SnResponse,
@@ -59,7 +64,6 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
     build_search_query,
     build_withheld,
     missing_echoes,
-    plain_elements,
     render_account,
     render_account_cards,
     render_account_lists,
@@ -181,7 +185,7 @@ def _first_built(
     """Rows and ``paging.total`` of the first response whose every row builds."""
     for response in responses:
         rows = build_elements(response.payload, builder)
-        total = paging_total(response.payload)
+        total = envelope_total(response.payload)
         if rows is not None and total is not None:
             return rows, total
     return None
@@ -588,7 +592,7 @@ class SalesNavigatorReader:
         url, response = await self._search(
             "people", _LEAD_SEARCH, keywords, filters, page
         )
-        elements = plain_elements(response.payload)
+        elements = envelope_elements(response.payload)
         built = build_leads(elements) if elements is not None else None
         paging = build_paging(response.payload, page)
         if built is None or paging is None:
@@ -612,18 +616,17 @@ class SalesNavigatorReader:
             return (
                 _is(response, _COMPANIES)
                 and response.call.entity_id == company
-                and as_mapping(response.payload) is not None
+                and envelope_record(response.payload) is not None
             )
 
         def is_named(response: SnResponse) -> bool:
-            return (
-                is_company(response)
-                and as_str(response.payload.get("name")) is not None
-            )
+            record = envelope_record(response.payload) or {}
+            return is_company(response) and as_str(record.get("name")) is not None
 
         def is_headcount(response: SnResponse) -> bool:
+            record = envelope_record(response.payload) or {}
             return is_company(response) and any(
-                field in response.payload for field in _HEADCOUNT_FIELDS
+                field in record for field in _HEADCOUNT_FIELDS
             )
 
         async with self._capture(_COMPANIES) as capture:
@@ -638,7 +641,11 @@ class SalesNavigatorReader:
                 await self._optional(capture, is_headcount)
                 await capture.settle()
 
-        records = [response.payload for response in capture.matching(is_company)]
+        records = [
+            record
+            for response in capture.matching(is_company)
+            if (record := envelope_record(response.payload)) is not None
+        ]
         account = build_account(records, company)
         if account is None:
             raise _unverified("the account")
@@ -722,7 +729,11 @@ class SalesNavigatorReader:
             refused=_Refusal("list_id", frozenset({_LISTS, _ACCOUNT_TABLE}), list_ref),
             on_first=read_metadata,
         )
-        account_list = build_account_list(metadata[0].payload) if metadata else None
+        account_list = (
+            build_account_list(envelope_record(metadata[0].payload))
+            if metadata
+            else None
+        )
         if account_list is None or account_list.get("id") != list_ref:
             raise _unverified("the account list")
         result: dict[str, Any] = {"url": url, "sections": {}}

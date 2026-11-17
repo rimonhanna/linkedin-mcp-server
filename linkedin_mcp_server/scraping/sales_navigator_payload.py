@@ -23,8 +23,9 @@ from linkedin_mcp_server.scraping.restli import (
     as_int,
     as_mapping,
     as_str,
+    envelope_elements,
+    envelope_paging,
     iso_from_ms,
-    plain_elements,
     restli_list,
 )
 
@@ -452,8 +453,7 @@ def unrequested_echoes(
 
 
 def build_paging(payload: Any, page: int) -> SearchPaging | None:
-    record = as_mapping(payload)
-    paging = as_mapping(record.get("paging")) if record is not None else None
+    paging = envelope_paging(payload)
     if paging is None:
         return None
     start = as_int(paging.get("start"))
@@ -732,8 +732,8 @@ def build_listed_account(row: Any) -> ListedAccount | None:
 
 
 def build_elements(payload: Any, builder: Callable[[Any], T | None]) -> list[T] | None:
-    """``builder`` over a flat collection; ``None`` if any element is malformed."""
-    elements = plain_elements(payload)
+    """``builder`` over a collection; ``None`` if any element is malformed."""
+    elements = envelope_elements(payload)
     if elements is None:
         return None
     built: list[T] = []

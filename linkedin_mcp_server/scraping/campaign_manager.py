@@ -47,16 +47,17 @@ from linkedin_mcp_server.scraping.campaign_manager_payload import (
     build_campaign,
     build_campaign_group,
     build_creative,
+    envelope_elements,
+    envelope_record,
+    envelope_total,
     merge_by_id,
-    normalized_elements,
-    normalized_record,
-    plain_elements,
     render_accounts,
     render_analytics,
     render_campaign,
     render_campaigns,
     restli_date_range,
     restli_list,
+    same_id,
 )
 from linkedin_mcp_server.scraping.identifiers import (
     CAMPAIGN_MANAGER_ACCOUNTS_URL,
@@ -129,12 +130,6 @@ def _for_account(response: CmResponse, account_id: str) -> bool:
     return response.call.params.get("accountId") == account_id
 
 
-def _total(payload: Any) -> int | None:
-    paging = payload.get("paging") if isinstance(payload, dict) else None
-    total = paging.get("total") if isinstance(paging, dict) else None
-    return total if isinstance(total, int) and not isinstance(total, bool) else None
-
-
 def _page_limit(name: str, total: int, seen: int) -> dict[str, str]:
     return _error(
         "page_limit",
@@ -150,11 +145,11 @@ def _merged_elements(
     elements: list[dict[str, Any]] = []
     total: int | None = None
     for response in responses:
-        items = plain_elements(response.payload)
+        items = envelope_elements(response.payload)
         if items is None:
             return None
         elements.extend(items)
-        reported = _total(response.payload)
+        reported = envelope_total(response.payload)
         if reported is not None and (total is None or reported > total):
             total = reported
     return merge_by_id(elements), total
@@ -223,6 +218,7 @@ class CampaignManagerReader:
         ready: Callable[[CmResponse], bool],
         refused: Callable[[CmResponse], str | None] | None = None,
         throttle: bool = True,
+        wanted: tuple[str, ...] = (),
     ) -> CmResponse | None:
         """Load ``url`` and wait for its data; None if it stayed on setup.
 
@@ -251,7 +247,10 @@ class CampaignManagerReader:
 
         try:
             response = await capture.wait_for(
-                done, timeout=_READY_TIMEOUT, throttle=throttle and not redirected
+                done,
+                timeout=_READY_TIMEOUT,
+                throttle=throttle and not redirected,
+                wanted=wanted,
             )
         except LinkedInScraperException:
             if not redirected:
@@ -275,12 +274,14 @@ class CampaignManagerReader:
         predicate: Callable[[CmResponse], bool],
         *,
         timeout: float | None = None,
+        wanted: tuple[str, ...] = (),
     ) -> CmResponse | None:
         try:
             return await capture.wait_for(
                 predicate,
                 timeout=_OPTIONAL_WAIT if timeout is None else timeout,
                 throttle=False,
+                wanted=wanted,
             )
         except LinkedInScraperException:
             return None
@@ -295,9 +296,9 @@ class CampaignManagerReader:
                 and r.call.entity_id == account_id
             )
         ):
-            record = normalized_record(response.payload)
+            record = envelope_record(response.payload)
             # Sub-resources share the path prefix; only the account names itself.
-            if record is not None and record.get("id") == int(account_id):
+            if record is not None and same_id(record.get("id"), account_id):
                 return build_ad_account(record)
         return None
 
@@ -319,15 +320,23 @@ class CampaignManagerReader:
                 ready=lambda r: _resource(
                     r, "campaignManagerReportingAccounts", finder="findAll"
                 ),
+                wanted=("campaignManagerReportingAccounts",),
             )
-            boost = await self._optional(capture, is_boost, timeout=_BOOST_ON_LIST_WAIT)
+            boost = await self._optional(
+                capture,
+                is_boost,
+                timeout=_BOOST_ON_LIST_WAIT,
+                wanted=("campaignManagerAccounts",),
+            )
             if boost is None:
                 await self._route_to(_BOOST_ACCOUNTS_PATH)
-                boost = await self._optional(capture, is_boost)
+                boost = await self._optional(
+                    capture, is_boost, wanted=("campaignManagerAccounts",)
+                )
                 await capture.settle()
 
         assert listed is not None
-        elements = plain_elements(listed.payload)
+        elements = envelope_elements(listed.payload)
         if elements is None:
             raise _unverified("the ad account list")
         accounts: list[AdAccount] = []
@@ -336,7 +345,7 @@ class CampaignManagerReader:
             if account is None or not isinstance(element.get("name"), str):
                 raise _unverified("an ad account")
             accounts.append(account)
-        total = _total(listed.payload)
+        total = envelope_total(listed.payload)
         if total is not None and total > len(elements):
             section_errors["ad_accounts"] = _page_limit(
                 "ad accounts", total, len(elements)
@@ -349,9 +358,7 @@ class CampaignManagerReader:
                 "boosted posts' ad account is not listed.",
             )
         else:
-            boost_elements = normalized_elements(boost.payload)
-            if boost_elements is None:
-                boost_elements = plain_elements(boost.payload)
+            boost_elements = envelope_elements(boost.payload)
             if boost_elements is None:
                 raise _unverified("the boost account list")
             known = {account["id"] for account in accounts}
@@ -399,9 +406,17 @@ class CampaignManagerReader:
                 tab_path=urlparse(url).path,
                 ready=is_campaigns,
                 refused=_refusal(account),
+                wanted=(
+                    "campaignManagerReportingCampaigns",
+                    "campaignManagerReportingCampaignGroups",
+                ),
             )
             if not capture.matching(is_groups):
-                await self._optional(capture, is_groups)
+                await self._optional(
+                    capture,
+                    is_groups,
+                    wanted=("campaignManagerReportingCampaignGroups",),
+                )
                 await capture.settle()
 
         account_record = self._account_record(capture, account)
@@ -476,12 +491,12 @@ class CampaignManagerReader:
         section_errors: dict[str, dict[str, str]] = {}
 
         def is_campaign(response: CmResponse) -> bool:
-            record = normalized_record(response.payload)
+            record = envelope_record(response.payload)
             return (
                 _resource(response, "campaignManagerCampaigns")
                 and response.call.entity_id == campaign_ref
                 and record is not None
-                and record.get("id") == int(campaign_ref)
+                and same_id(record.get("id"), campaign_ref)
             )
 
         def is_creatives(response: CmResponse) -> bool:
@@ -498,9 +513,10 @@ class CampaignManagerReader:
                 tab_path=None,
                 ready=is_campaign,
                 refused=_refusal(account, campaign_ref),
+                wanted=("campaignManagerCampaigns",),
             )
             assert found is not None
-            record = normalized_record(found.payload) or {}
+            record = envelope_record(found.payload) or {}
             if not isinstance(record.get("accountId"), int):
                 raise _unverified("the campaign")
             if record.get("accountId") != int(account):
@@ -517,21 +533,28 @@ class CampaignManagerReader:
                         _resource(r, "campaignManagerCampaignGroups")
                         and r.call.entity_id == str(group_id)
                     ),
+                    wanted=("campaignManagerCampaignGroups",),
                 )
-            creatives_response = await self._optional(capture, is_creatives)
+            creatives_response = await self._optional(
+                capture, is_creatives, wanted=("campaignManagerCreatives",)
+            )
 
         campaign = build_campaign(record)
         if campaign is None:
             raise _unverified("the campaign")
 
         group: CampaignGroup | None = None
-        payload = group_response.payload if group_response is not None else None
+        group_record = (
+            envelope_record(group_response.payload)
+            if group_response is not None
+            else None
+        )
         if (
-            isinstance(payload, dict)
-            and payload.get("id") == group_id
-            and payload.get("accountId", int(account)) == int(account)
+            group_record is not None
+            and same_id(group_record.get("id"), str(group_id))
+            and same_id(group_record.get("accountId", int(account)), account)
         ):
-            group = build_campaign_group(payload)
+            group = build_campaign_group(group_record)
         if group is None:
             section_errors["campaign_groups"] = _error(
                 "unavailable", "Campaign Manager did not load the campaign's group."
@@ -539,7 +562,7 @@ class CampaignManagerReader:
 
         creatives: list[Creative] | None = None
         elements = (
-            normalized_elements(creatives_response.payload)
+            envelope_elements(creatives_response.payload)
             if creatives_response is not None
             else None
         )
@@ -613,14 +636,25 @@ class CampaignManagerReader:
                     and echoes(response.call)
                 )
 
-            found = await self._open(
-                capture,
-                url,
-                tab_path=urlparse(url).path,
-                ready=is_level,
-                refused=_refusal(account),
-            )
+            try:
+                found = await self._open(
+                    capture,
+                    url,
+                    tab_path=urlparse(url).path,
+                    ready=is_level,
+                    refused=_refusal(account),
+                    wanted=("campaignManagerAdAnalytics",),
+                )
+            except LinkedInScraperException as exc:
+                # Only the plain timeout: a refused id or a throttle stays as is.
+                unmatched = _unmatched_analytics(capture, pivot)
+                if type(exc) is not LinkedInScraperException or unmatched is None:
+                    raise
+                raise unmatched from exc
             if found is None:
+                unmatched = _unmatched_analytics(capture, pivot)
+                if unmatched is not None:
+                    raise unmatched
                 return {
                     "url": url,
                     "sections": {},
@@ -662,6 +696,7 @@ class CampaignManagerReader:
                         tab_path=urlparse(demographics_url).path,
                         ready=is_demographic,
                         throttle=False,
+                        wanted=("campaignManagerAdAnalytics",),
                     )
                 except LinkedInScraperException as exc:
                     failure = _error("unavailable", str(exc))
@@ -715,6 +750,36 @@ class CampaignManagerReader:
         return result
 
 
+def _unmatched_analytics(
+    capture: CampaignManagerCapture, pivot: str
+) -> LinkedInScraperException | None:
+    """The failure for a reporting table whose analytics query was not the one read.
+
+    None when the page sent no ``q=statistics`` query at all, which is what a
+    setup page that never shows the table looks like.
+    """
+    seen = capture.matching(
+        lambda r: (
+            r.call.resource == "campaignManagerAdAnalytics"
+            and r.call.finder == "statistics"
+        )
+    )
+    if not seen:
+        return None
+    if all(not r.ok for r in seen):
+        statuses = ", ".join(sorted({str(r.status) for r in seen}))
+        detail = f"LinkedIn refused every one (HTTP {statuses})"
+    else:
+        detail = (
+            "none was the query this tool reads: the single pivot "
+            f"{pivot}, the whole period with metrics, for this ad account alone"
+        )
+    return LinkedInScraperException(
+        f"Campaign Manager loaded analytics for this ad account's reporting "
+        f"table, but {detail}, so nothing was reported."
+    )
+
+
 def _reporting_lists(
     capture: CampaignManagerCapture, account_id: str
 ) -> dict[str, tuple[set[str], int | None]]:
@@ -729,10 +794,10 @@ def _reporting_lists(
     ):
         kind = _REPORTING_LISTS[response.call.resource]
         ids, total = lists[kind]
-        for element in plain_elements(response.payload) or []:
+        for element in envelope_elements(response.payload) or []:
             if isinstance(element.get("id"), int):
                 ids.add(str(element["id"]))
-        reported = _total(response.payload)
+        reported = envelope_total(response.payload)
         if reported is not None and (total is None or reported > total):
             lists[kind] = (ids, reported)
     return lists
@@ -774,7 +839,7 @@ def _merged_level(
     rows: dict[str, dict[str, Any]] = {}
     scoped: dict[str, set[str]] = {}
     for response in responses:
-        elements = plain_elements(response.payload)
+        elements = envelope_elements(response.payload)
         if elements is None:
             raise _unverified("the analytics")
         for element in elements:

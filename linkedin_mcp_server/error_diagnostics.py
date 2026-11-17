@@ -103,7 +103,8 @@ def build_issue_diagnostics(
         payload["api_responses"] = {
             "label": log.label,
             "seen": log.seen,
-            "records": list(log.records),
+            "wanted": sorted(log.wanted),
+            "records": log.shown(),
         }
     payload["issue_search_skipped"] = _inside_running_event_loop()
     if payload["issue_search_skipped"]:
@@ -228,6 +229,14 @@ def _render_api_responses(responses: dict[str, Any] | None) -> list[str]:
         "their type, lists their length and first element; keys are API field "
         "names, and keys that look like ids are counted, not kept.",
         f"- Shown: {len(records)} of {responses['seen']} seen",
+        *(
+            [
+                "- Every kept response of the resources the read waited for is "
+                f"shown: {', '.join(responses['wanted'])}"
+            ]
+            if responses.get("wanted")
+            else []
+        ),
         "```json",
         *(json.dumps(record, sort_keys=True) for record in records),
         "```",

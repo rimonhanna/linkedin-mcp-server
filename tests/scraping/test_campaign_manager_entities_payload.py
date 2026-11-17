@@ -126,7 +126,8 @@ class TestContentLibrary:
 
     def test_empty_and_wrong_shapes(self):
         assert content_library_entries(_library([], [])) == []
-        assert content_library_entries({"elements": []}) is None
+        assert content_library_entries({"elements": []}) == []
+        assert content_library_entries({"data": {"paging": {}}}) is None
         assert content_library_entries("x") is None
         unresolved = _library(
             [{"content": {"*sponsoredUpdateContent": "urn:li:share:9"}}], []

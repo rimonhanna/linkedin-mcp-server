@@ -56,8 +56,9 @@ from linkedin_mcp_server.scraping.campaign_manager_guard import (
     explicit_campaign_write,
 )
 from linkedin_mcp_server.scraping.campaign_manager_payload import (
-    normalized_record,
-    plain_elements,
+    envelope_elements,
+    envelope_record,
+    same_id,
 )
 from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
@@ -992,10 +993,10 @@ class CampaignManagerEditor:
 
         def is_group(response: CmResponse) -> bool:
             if response.call.resource == "campaignManagerCampaignGroups":
-                record = normalized_record(response.payload) or response.payload
-                return response.call.entity_id == group and isinstance(record, dict)
+                record = envelope_record(response.payload)
+                return response.call.entity_id == group and record is not None
             if response.call.resource == "campaignManagerReportingCampaignGroups":
-                return response.ok and plain_elements(response.payload) is not None
+                return response.ok and envelope_elements(response.payload) is not None
             return False
 
         async with explicit_campaign_write(
@@ -1006,7 +1007,15 @@ class CampaignManagerEditor:
             await self._session.check_rate_limit()
             await self._session.dismiss_modal()
             try:
-                await capture.wait_for(is_group, after=after, timeout=_READY_TIMEOUT)
+                await capture.wait_for(
+                    is_group,
+                    after=after,
+                    timeout=_READY_TIMEOUT,
+                    wanted=(
+                        "campaignManagerCampaignGroups",
+                        "campaignManagerReportingCampaignGroups",
+                    ),
+                )
             except LinkedInScraperException:
                 logger.debug("No campaign group response on setup")
             await capture.settle()
@@ -1184,25 +1193,28 @@ class CampaignManagerEditor:
             await self._flow.leave(page, details)
 
         def is_draft(response: CmResponse) -> bool:
-            record = normalized_record(response.payload)
+            record = envelope_record(response.payload)
             return (
                 response.ok
                 and response.call.resource == "campaignManagerCampaigns"
                 and response.call.entity_id == campaign
                 and record is not None
-                and record.get("id") == int(campaign)
+                and same_id(record.get("id"), campaign)
             )
 
         try:
             found = await capture.wait_for(
-                is_draft, after=responses, timeout=_READY_TIMEOUT
+                is_draft,
+                after=responses,
+                timeout=_READY_TIMEOUT,
+                wanted=("campaignManagerCampaigns",),
             )
         except LinkedInScraperException:
             return (
                 "control_unavailable",
                 "Campaign Manager did not load the new draft.",
             )
-        draft["record"] = normalized_record(found.payload) or {}
+        draft["record"] = envelope_record(found.payload) or {}
         if draft["record"].get("name") == name:
             return None
         writes, refused = capture.write_count, len(window.refused)
@@ -1227,13 +1239,13 @@ def _group_record(
         if not response.ok:
             continue
         if response.call.resource == "campaignManagerCampaignGroups":
-            record = normalized_record(response.payload) or response.payload
-            candidates = [record] if isinstance(record, dict) else []
+            record = envelope_record(response.payload)
+            candidates = [record] if record is not None else []
         else:
-            candidates = plain_elements(response.payload) or []
+            candidates = envelope_elements(response.payload) or []
         for candidate in candidates:
-            if candidate.get("id") == int(group) and candidate.get("accountId") == int(
-                account
+            if same_id(candidate.get("id"), group) and same_id(
+                candidate.get("accountId"), account
             ):
                 return candidate
     return None

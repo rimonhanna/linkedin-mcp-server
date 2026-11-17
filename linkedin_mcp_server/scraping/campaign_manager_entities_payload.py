@@ -18,7 +18,8 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 from linkedin_mcp_server.scraping.campaign_manager_payload import (
-    plain_elements,
+    envelope_elements,
+    included_by_urn,
 )
 from linkedin_mcp_server.scraping.identifiers import (
     normalize_company_page_url,
@@ -112,12 +113,12 @@ def _int(value: Any) -> int | None:
 
 
 def typeahead_entities(payload: Any) -> list[TargetingEntity] | None:
-    """Rows of a targeting typeahead answer (plain ``elements``).
+    """Rows of a targeting typeahead answer, in either envelope.
 
     A row without ``targetable`` is reported as not targetable, so a caller
     never selects what the app has not declared selectable.
     """
-    elements = plain_elements(payload)
+    elements = envelope_elements(payload)
     if elements is None:
         return None
     entities: list[TargetingEntity] = []
@@ -143,23 +144,18 @@ def typeahead_entities(payload: Any) -> list[TargetingEntity] | None:
 def content_library_entries(payload: Any) -> list[SponsorableContent] | None:
     """Entries of a content library answer, in the order the app lists them.
 
-    Each ``data.elements[].content["*sponsoredUpdateContent"]`` URN is resolved
+    Each element's ``content["*sponsoredUpdateContent"]`` URN is resolved
     against ``included``. ``sponsorable`` is the server's verdict only: the app
     also applies client-side checks (landing page, objective) that no payload
     carries.
     """
-    record = payload if isinstance(payload, dict) else None
-    data = record.get("data") if record is not None else None
-    elements = data.get("elements") if isinstance(data, dict) else None
-    if not isinstance(elements, list) or record is None:
+    elements = envelope_elements(payload)
+    if elements is None:
         return None
-    included: dict[str, dict[str, Any]] = {}
-    for entity in record.get("included") or []:
-        if isinstance(entity, dict) and isinstance(entity.get("entityUrn"), str):
-            included[entity["entityUrn"]] = entity
+    included = included_by_urn(payload)
     entries: list[SponsorableContent] = []
     for element in elements:
-        content = element.get("content") if isinstance(element, dict) else None
+        content = element.get("content")
         ref = (
             content.get("*sponsoredUpdateContent")
             if isinstance(content, dict)
@@ -202,7 +198,7 @@ def content_library_entries(payload: Any) -> list[SponsorableContent] | None:
 
 def matched_audiences(payload: Any) -> list[MatchedAudience] | None:
     """Matched audiences of ``campaignManagerMatchedAudiences?q=account``."""
-    elements = plain_elements(payload)
+    elements = envelope_elements(payload)
     if elements is None:
         return None
     audiences: list[MatchedAudience] = []
@@ -234,7 +230,7 @@ def matched_audiences(payload: Any) -> list[MatchedAudience] | None:
 
 def saved_audiences(payload: Any) -> list[SavedAudience] | None:
     """The account's own saved audiences; LinkedIn's templates are skipped."""
-    elements = plain_elements(payload)
+    elements = envelope_elements(payload)
     if elements is None:
         return None
     audiences: list[SavedAudience] = []

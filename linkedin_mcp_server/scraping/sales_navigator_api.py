@@ -29,6 +29,7 @@ class SalesNavigatorCapture(ApiResponseCapture[SnCall]):
     def __init__(self, page: Any, *, resources: frozenset[str]):
         self._resources = resources
         super().__init__(page)
+        self.structure.want(resources)
 
     def _parse(self, response: Any) -> SnCall | None:
         return parse_sn_call(response.url, response.request.method)

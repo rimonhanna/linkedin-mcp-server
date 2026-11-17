@@ -5,7 +5,7 @@ the guard asks the admission rules here whether a request the app is about to
 send matches that plan. Nothing here reads a page: every input is a record or a
 request body the caller already holds.
 
-``record`` is always a campaign as ``normalized_record`` returns it from
+``record`` is always a campaign as ``envelope_record`` returns it from
 ``campaignManagerCampaigns/{id}``: raw field names, money as
 ``{amount, currencyCode}``, ``runSchedule`` in epoch milliseconds and the
 decorated ``targetingCriteria``.

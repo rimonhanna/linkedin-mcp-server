@@ -45,7 +45,7 @@ from linkedin_mcp_server.scraping.campaign_manager_guard import (
 from linkedin_mcp_server.scraping.campaign_manager_payload import (
     build_campaign,
     build_creative,
-    normalized_elements,
+    envelope_elements,
     restli_list,
 )
 from linkedin_mcp_server.scraping.campaign_manager_results import (
@@ -206,10 +206,13 @@ def _rows_in_order(state: dict[str, Any] | None) -> list[dict[str, Any]] | None:
     return ordered
 
 
+_LIBRARY = ("campaignManagerContentLibraryEntities",)
+
+
 def _is_library(response: CmResponse) -> bool:
     return (
         response.ok
-        and response.call.resource == "campaignManagerContentLibraryEntities"
+        and response.call.resource == _LIBRARY[0]
         and response.call.finder == "organicCompanyContent"
         and response.call.params.get("start", "0") == "0"
     )
@@ -405,7 +408,9 @@ class CampaignContentEditor:
             after = len(capture.responses)
             self._navigator._charge_navigation(f"{_LINKEDIN}{library_path}")
             await page.evaluate(_ROUTE_SCRIPT, library_path)
-            await capture.wait_for(_is_library, after=after, timeout=_READY_TIMEOUT)
+            await capture.wait_for(
+                _is_library, after=after, timeout=_READY_TIMEOUT, wanted=_LIBRARY
+            )
             if urlparse(page.url).path != urlparse(library_path).path:
                 return (
                     "control_unavailable",
@@ -425,7 +430,7 @@ class CampaignContentEditor:
                 await capture.settle()
                 before = len(capture.responses)
                 await capture.wait_for(
-                    _is_library, after=before, timeout=_READY_TIMEOUT
+                    _is_library, after=before, timeout=_READY_TIMEOUT, wanted=_LIBRARY
                 )
             await capture.settle()
             # The latest answer is the one the table renders.
@@ -581,12 +586,16 @@ class CampaignContentEditor:
             if isinstance(record, tuple):
                 return None
             response = await capture.wait_for(
-                is_creatives, after=after, timeout=_CREATIVES_WAIT, throttle=False
+                is_creatives,
+                after=after,
+                timeout=_CREATIVES_WAIT,
+                throttle=False,
+                wanted=("campaignManagerCreatives",),
             )
         except LinkedInScraperException:
             logger.debug("Re-read after adding the post failed", exc_info=True)
             return None
-        for element in normalized_elements(response.payload) or []:
+        for element in envelope_elements(response.payload) or []:
             creative = build_creative(element)
             if (
                 creative is not None
