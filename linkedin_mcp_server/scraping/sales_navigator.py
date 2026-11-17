@@ -128,6 +128,21 @@ def _seat_refused(response: SnResponse) -> bool:
     )
 
 
+def _seat_refusal(responses: Sequence[SnResponse]) -> SnResponse | None:
+    """A seat check that answered 401/403 and was never answered OK.
+
+    The first boot of a Sales Navigator session can answer 401 before the app
+    mints its session cookie and retries, then the page loads normally.
+    """
+    for response in responses:
+        resource = response.call.resource
+        if _seat_refused(response) and not any(
+            r.ok and r.call.resource == resource for r in responses
+        ):
+            return response
+    return None
+
+
 def _on_path(path: str, expected: str) -> bool:
     return path == expected or path.startswith(expected.rstrip("/") + "/")
 
@@ -212,9 +227,11 @@ class SalesNavigatorReader:
     ) -> SnResponse | None:
         """Load ``url`` (one charged page load) and wait for its data.
 
-        The seat check is locale-free: the page must stay on ``expected_path``
-        and the boot calls must not answer 401/403. With ``required=False`` a
-        data wait that times out returns None instead of raising.
+        The seat check is locale-free: the page must stay on ``expected_path``,
+        and a data wait that times out is a missing seat only when a boot seat
+        check refused (401/403) and never recovered. The data response itself
+        proves a seat. With ``required=False`` any other data wait that times
+        out returns None instead of raising.
         """
         await self._navigator._navigate_to_page(url)
         await self._session.check_rate_limit()
@@ -228,28 +245,36 @@ class SalesNavigatorReader:
             )
 
         def answered(response: SnResponse) -> bool:
-            return ready(response) or _seat_refused(response)
-
-        def done(response: SnResponse) -> bool:
-            return answered(response) or (
+            return ready(response) or (
                 refused is not None and refused.refuses(response)
             )
 
+        def done(response: SnResponse) -> bool:
+            return answered(response) or _seat_refused(response)
+
         try:
             response = await capture.wait_for(done, timeout=_READY_TIMEOUT)
+            if _seat_refused(response):
+                # A refusal the app recovers from ends with the data; a real
+                # one is no evidence of a throttle.
+                response = await capture.wait_for(
+                    answered, timeout=_READY_TIMEOUT, throttle=False
+                )
             if refused is not None and refused.refuses(response):
                 await capture.settle()
                 if not refused.stands(capture.responses):
-                    response = await capture.wait_for(answered, timeout=_READY_TIMEOUT)
-        except LinkedInScraperException:
+                    response = await capture.wait_for(ready, timeout=_READY_TIMEOUT)
+        except LinkedInScraperException as exc:
+            await capture.settle()
+            seat = _seat_refusal(capture.responses)
+            if seat is not None:
+                raise LinkedInScraperException(
+                    f"Sales Navigator refused this account (HTTP {seat.status}). "
+                    + _NO_SEAT_ADVICE
+                ) from exc
             if required:
                 raise
             return None
-        if _seat_refused(response):
-            raise LinkedInScraperException(
-                f"Sales Navigator refused this account (HTTP {response.status}). "
-                + _NO_SEAT_ADVICE
-            )
         if refused is not None and refused.refuses(response):
             raise InvalidReferenceError(
                 f"Sales Navigator refused that {refused.field} (HTTP "

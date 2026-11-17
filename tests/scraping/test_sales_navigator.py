@@ -267,6 +267,37 @@ async def test_search_refuses_when_the_seat_check_answers_403(mock_page):
         await _run(mock_page, browser, _account_search())
 
 
+@pytest.mark.parametrize("retried", [True, False])
+async def test_search_reads_past_a_seat_check_401_the_page_recovers_from(
+    mock_page, retried
+):
+    # The first boot of a session can answer 401 before the app mints its
+    # Sales Navigator cookie and retries; the results then load normally.
+    browser = _Browser(mock_page)
+    query = build_search_query(KEYWORDS, ACCOUNT_FILTERS)
+    browser.loads[search_page_url("company", query, 2)] = [
+        _response("salesApiAccess", status=401),
+        *(_boot() if retried else []),
+        _search("salesApiAccountSearch", query, 25, [_card()], 30),
+    ]
+
+    result = await _run(mock_page, browser, _account_search())
+
+    assert [card["id"] for card in result["accounts"]] == [COMPANY]
+
+
+async def test_a_recovered_seat_check_does_not_explain_missing_data(mock_page):
+    browser = _Browser(mock_page)
+    query = build_search_query(KEYWORDS, ACCOUNT_FILTERS)
+    browser.loads[search_page_url("company", query, 2)] = [
+        _response("salesApiAccess", status=401),
+        *_boot(),
+    ]
+
+    with pytest.raises(LinkedInScraperException, match="expected data in time"):
+        await _run(mock_page, browser, _account_search())
+
+
 @pytest.mark.parametrize(
     "overrides, message",
     [
