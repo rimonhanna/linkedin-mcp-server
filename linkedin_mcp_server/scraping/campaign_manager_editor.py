@@ -49,6 +49,7 @@ from linkedin_mcp_server.scraping.campaign_manager_changes import (
     plan_campaign_edit,
     refuse_invalid_campaign_edit,
     refuse_invalid_draft,
+    targeting_keys,
 )
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
     CmWriteRequest,
@@ -59,6 +60,15 @@ from linkedin_mcp_server.scraping.campaign_manager_payload import (
     envelope_elements,
     envelope_record,
     same_id,
+)
+from linkedin_mcp_server.scraping.campaign_manager_political import (
+    DECLARATION_REQUIRED,
+    POLITICAL_INTENT,
+    UNANSWERED,
+    declared_intent,
+    political_dialog,
+    political_question,
+    question_sentence,
 )
 from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
@@ -423,9 +433,11 @@ def _edit_matches(record: Mapping[str, Any], plan: CampaignEditPlan) -> bool:
 
 
 def _edit_admission(
-    record: Mapping[str, Any], plan: CampaignEditPlan
+    record: Mapping[str, Any], plan: CampaignEditPlan, political_ad: bool | None
 ) -> tuple[dict[str, Any], set[str]]:
     allowed: dict[str, Any] = {}
+    if political_ad is not None:
+        allowed[POLITICAL_INTENT] = declared_intent(political_ad)
     if plan.daily is not None:
         allowed["dailyBudget"] = plan.daily
     if plan.lifetime is not None:
@@ -485,15 +497,16 @@ def _stopped(outcome: CmWriteResponse | str, window: WriteWindow) -> Refusal:
             "The change was sent but LinkedIn's answer did not arrive. Check the "
             "ad set before retrying.",
         )
+    if outcome == "declaration":
+        return ("declaration_required", DECLARATION_REQUIRED)
+    if outcome == "unanswered":
+        return ("control_unavailable", UNANSWERED)
     if outcome == "dialog":
-        # The app's own code: Save and exit on an ad set targeting an EU
-        # country always asks for a political-ad declaration first.
         return (
             "control_unavailable",
-            "Campaign Manager asked a question in a dialog before saving (for "
-            "an ad set that targets EU countries it asks whether its ads are "
-            "political). The tool does not answer it, so the dialog was closed "
-            "and nothing was sent. Make this change in Campaign Manager.",
+            "Campaign Manager asked a question in a dialog before saving that "
+            "this tool does not answer, so the dialog was closed and nothing "
+            "was sent. Make this change in Campaign Manager.",
         )
     if window.refused:
         return (
@@ -524,13 +537,18 @@ class CampaignManagerEditor:
         writes: int,
         refused: int,
         dialog_grace: float | None = None,
+        asks_political: bool = False,
+        political_ad: bool | None = None,
     ) -> CmWriteResponse | str:
         """LinkedIn's answer to the planned save, or why it never came.
 
         ``"refused"``: the guard aborted the app's save of this entity as off
         plan. ``"dialog"``: a dialog stayed open ``dialog_grace`` seconds
         without a save; it was closed with Escape, never by its buttons.
-        ``"timeout"``: nothing came.
+        ``"timeout"``: nothing came. With ``asks_political`` the political-ad
+        question is answered with ``political_ad``, the caller's declaration;
+        without one it is closed with Escape (``"declaration"``), and one
+        that is not the known dialog is closed unanswered (``"unanswered"``).
         """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + _SAVE_TIMEOUT
@@ -544,6 +562,15 @@ class CampaignManagerEditor:
             )
             if answer is not None:
                 return answer
+            if asks_political:
+                question = await political_dialog(page, political_ad)
+                if question == "answered":
+                    asks_political = False
+                    dialog_since = None
+                    continue
+                if question not in ("absent", None):
+                    await page.keyboard.press("Escape")
+                    return "declaration" if question == "open" else "unanswered"
             now = loop.time()
             if dialog_grace is not None and await page.evaluate(_DIALOG_JS) is True:
                 dialog_since = now if dialog_since is None else dialog_since
@@ -577,12 +604,16 @@ class CampaignManagerEditor:
         start_date: date | None = None,
         end_date: date | None = None,
         confirm_send: bool,
+        political_ad: bool | None = None,
     ) -> dict[str, Any]:
         """Change an ad set's budget amount or schedule dates.
 
         The budget and schedule types never switch. A draft in the editor
         that autosaves saves each field as it is edited; any other ad set,
         a draft in the classic editor included, saves once, by Save and exit.
+        ``political_ad`` is the user's own declaration whether the ad set's
+        ads are political, for the question Save and exit asks on EU
+        targeting; None never answers it.
         """
         account = normalize_ad_account_id(account_id)
         campaign = normalize_campaign_id(campaign_id)
@@ -632,18 +663,30 @@ class CampaignManagerEditor:
                     planned=planned,
                 )
             if not confirm_send:
+                question = political_question(
+                    targeting_keys(record.get("targetingCriteria"))
+                )
                 return campaign_action_result(
                     _UPDATE,
                     url,
                     "confirmation_required",
                     "Nothing was changed. Call again with confirm_send true to "
-                    "apply the planned change.",
+                    "apply the planned change."
+                    + (question_sentence(question) if political_ad is None else ""),
                     retry_safe=True,
                     target=target,
-                    planned=planned,
+                    planned={**planned, "politicalAdQuestion": question},
                 )
             return await self._apply_edit(
-                capture, url, account, campaign, record, plan, target, planned
+                capture,
+                url,
+                account,
+                campaign,
+                record,
+                plan,
+                target,
+                planned,
+                political_ad,
             )
 
     async def _check_edit_controls(
@@ -712,10 +755,11 @@ class CampaignManagerEditor:
         plan: CampaignEditPlan,
         target: dict[str, Any],
         planned: dict[str, Any],
+        political_ad: bool | None,
     ) -> dict[str, Any]:
         page = self._session.page
         draft = record.get("status") == "DRAFT"
-        allowed, path = _edit_admission(record, plan)
+        allowed, path = _edit_admission(record, plan, political_ad)
         is_save = _is_patch(campaign)
 
         def admit(request: CmWriteRequest) -> str | None:
@@ -763,6 +807,8 @@ class CampaignManagerEditor:
                         writes=writes,
                         refused=refused,
                         dialog_grace=_DIALOG_GRACE,
+                        asks_political=True,
+                        political_ad=political_ad,
                     )
                     if isinstance(outcome, CmWriteResponse) and outcome.ok:
                         saved += 1

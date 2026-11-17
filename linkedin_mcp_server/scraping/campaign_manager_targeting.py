@@ -59,6 +59,15 @@ from linkedin_mcp_server.scraping.campaign_manager_payload import (
     _UI_LABELS,
     build_targeting,
 )
+from linkedin_mcp_server.scraping.campaign_manager_political import (
+    DECLARATION_REQUIRED,
+    POLITICAL_INTENT,
+    UNANSWERED,
+    declared_intent,
+    political_dialog,
+    political_question,
+    question_sentence,
+)
 from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
     retry_safe_from,
@@ -79,6 +88,7 @@ _GEO_PREFIX = "urn:li:geo:"
 _TYPEAHEAD_TIMEOUT = 8.0
 _DOM_TIMEOUT = 5.0
 _POLL = 0.2
+_SAVE_TIMEOUT = 20.0
 _TYPE_BUDGET = 10.0
 _STEP_PAUSE = 0.6
 # A step left with less than this before the caller's deadline is not started.
@@ -283,6 +293,7 @@ class _Run:
     url: str
     target: dict[str, Any]
     planned: dict[str, Any]
+    political_ad: bool | None = None
 
     @property
     def campaign(self) -> str:
@@ -698,13 +709,16 @@ class CampaignTargetingEditor:
         remove: Sequence[str] | None = None,
         confirm_send: bool,
         deadline: float | None = None,
+        political_ad: bool | None = None,
     ) -> dict[str, Any]:
         """Add and remove targeting values of one ad set.
 
         Each add is the typeahead row for its ``query`` whose answer element
         has its ``urn``; each removal is the pill at the URN's position in its
         block. ``deadline`` is a ``time.monotonic()`` instant: no step starts
-        within 15 s of it.
+        within 15 s of it. ``political_ad`` is the user's own declaration
+        whether the ad set's ads are political, for the question Save and
+        exit asks on EU targeting; None never answers it.
         """
         adds = [
             _Add(item["urn"], item["query"], item.get("exclude", False))
@@ -767,14 +781,18 @@ class CampaignTargetingEditor:
                     "remove": [_value(key, names) for key in plan.removes],
                     "add": [_value(key, names) for key in plan.adds],
                 },
+                political_ad=political_ad,
             )
             if not confirm_send:
+                # The app asks about the targeting as it will be saved.
+                question = political_question(plan.target)
                 return refusal(
                     "confirmation_required",
                     "Dry run: the ad set and every value were found and nothing "
                     "was changed. Call again with confirm_send true to apply the "
-                    "planned change.",
-                    planned=run.planned,
+                    "planned change."
+                    + (question_sentence(question) if political_ad is None else ""),
+                    planned={**run.planned, "politicalAdQuestion": question},
                 )
             return await self._apply(capture, module, run, deadline)
 
@@ -881,12 +899,16 @@ class CampaignTargetingEditor:
         page = module.page
         plan = run.plan
 
+        allowed: dict[str, Any] = {"targetingCriteria": plan.target}
+        if run.political_ad is not None:
+            allowed[POLITICAL_INTENT] = declared_intent(run.political_ad)
+
         def admit(request: CmWriteRequest) -> str | None:
             return admit_campaign_patch(
                 request,
                 campaign_id=run.campaign,
                 record=run.record,
-                allowed={"targetingCriteria": plan.target},
+                allowed=allowed,
                 path_fields=("targetingCriteria",),
             )
 
@@ -961,13 +983,15 @@ class CampaignTargetingEditor:
                 else:
                     if not await self._flow.save_and_exit(page, draft=False):
                         raise _unavailable("The ad set's Save and exit was not found.")
-                    saved = await self._flow.wait_saved(
+                    saved = await self._footer_save(
                         capture,
+                        page,
                         lambda w: (
                             run.ours(w)
                             and (w.restli_method or "").lower() == "partial_update"
                         ),
                         after,
+                        run.political_ad,
                     )
             except _Stop as exc:
                 stop = exc
@@ -976,6 +1000,40 @@ class CampaignTargetingEditor:
             # Only our own unsaved edit is discarded by leaving.
             await self._flow.leave(page, run.url)
         return await self._verify(capture, run, window, answers, stop, saved)
+
+    async def _footer_save(
+        self,
+        capture: CampaignManagerCapture,
+        page: Any,
+        predicate: Callable[[CmWriteResponse], bool],
+        after: int,
+        political_ad: bool | None,
+    ) -> CmWriteResponse | None:
+        """The Save and exit's answer; None if none came.
+
+        The political-ad question it may ask first is answered with
+        ``political_ad``, the caller's declaration; without one it is closed
+        with Escape and the change stops (``declaration_required``).
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _SAVE_TIMEOUT
+        asks = True
+        while True:
+            saved = await self._flow.wait_saved(
+                capture, predicate, after, timeout=_POLL
+            )
+            if saved is not None or loop.time() >= deadline:
+                return saved
+            if not asks:
+                continue
+            question = await political_dialog(page, political_ad)
+            if question == "answered":
+                asks = False
+            elif question not in ("absent", None):
+                await page.keyboard.press("Escape")
+                if question == "open":
+                    raise _Stop("declaration_required", DECLARATION_REQUIRED)
+                raise _unavailable(UNANSWERED)
 
     async def _verify(
         self,
@@ -1002,6 +1060,8 @@ class CampaignTargetingEditor:
         if not window.admitted:
             if window.refused:
                 return result("change_blocked", f"{_BLOCKED} Nothing was saved.")
+            if stop is not None and stop.status == "declaration_required":
+                return result(stop.status, stop.message)
             if stop is not None and stop.status in ("deadline", "not_editable"):
                 return result(stop.status, f"{stop.message} Nothing was saved.")
             reason = (

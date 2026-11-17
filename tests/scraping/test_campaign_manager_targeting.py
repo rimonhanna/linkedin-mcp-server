@@ -374,6 +374,7 @@ async def test_dry_run_resolves_everything_and_clicks_nothing(mock_page):
                 "name": "Example title",
             }
         ],
+        "politicalAdQuestion": "may",
     }
     assert linkedin.keys == ORIGINAL
 

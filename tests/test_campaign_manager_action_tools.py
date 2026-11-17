@@ -180,6 +180,7 @@ class TestDelegation:
             start_date=None,
             end_date=date(2099, 1, 31),
             confirm_send=True,
+            political_ad=None,
         )
 
     async def test_set_campaign_status(self, pacing):

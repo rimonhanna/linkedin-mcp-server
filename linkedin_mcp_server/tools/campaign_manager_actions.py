@@ -160,6 +160,7 @@ def register_campaign_manager_action_tools(
         lifetime_budget: str | None = None,
         start_date: date | None = None,
         end_date: date | None = None,
+        political_ad: bool | None = None,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -171,7 +172,13 @@ def register_campaign_manager_action_tools(
         never switched. Never launches the ad set and never touches billing.
 
         confirm_send False is a dry run that verifies the target and returns
-        the full planned change.
+        the full planned change, with planned.politicalAdQuestion "will" when
+        the save will ask whether the ads are political, else "may".
+
+        On EU targeting the save first asks whether the ad set's ads are
+        political. That answer is a legal declaration the user makes for the
+        advertiser: pass political_ad only as the user declared it; the tool
+        never defaults it.
 
         Args:
             ad_account_id: Numeric ad account id, its URN or account URL.
@@ -184,6 +191,13 @@ def register_campaign_manager_action_tools(
                 lifetime budget.
             start_date: New start date (YYYY-MM-DD), not in the past.
             end_date: New end date (YYYY-MM-DD), only when the ad set has one.
+            political_ad: Only when the user has declared it: true if this
+                ad set's ads are political, false if they are not. Campaign
+                Manager asks this on save for an ad set that targets the EU
+                (EU political advertising rules). It is a legal declaration
+                the user makes for the advertiser, so never guess or default
+                it; leave it out until the user answers. Without it, a save
+                that asks stops with declaration_required and sends nothing.
 
         Returns:
             Dict with url, status, message, retry_safe and, when known,
@@ -220,6 +234,7 @@ def register_campaign_manager_action_tools(
                     start_date=start_date,
                     end_date=end_date,
                     confirm_send=confirm_send,
+                    political_ad=political_ad,
                 ),
             )
         except AuthenticationError as e:
@@ -307,6 +322,7 @@ def register_campaign_manager_action_tools(
         ctx: Context,
         add: list[TargetingAdd] | None = None,
         remove: list[str] | None = None,
+        political_ad: bool | None = None,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -317,7 +333,14 @@ def register_campaign_manager_action_tools(
         10 in total. Never launches the ad set and never touches billing.
 
         confirm_send False is a dry run that verifies the target and returns
-        the full planned change.
+        the full planned change, with planned.politicalAdQuestion "will" when
+        the save will ask whether the ads are political (the targeting after
+        the change includes an EU location), else "may".
+
+        On EU targeting the save first asks whether the ad set's ads are
+        political. That answer is a legal declaration the user makes for the
+        advertiser: pass political_ad only as the user declared it; the tool
+        never defaults it.
 
         Args:
             ad_account_id: Numeric ad account id, its URN or account URL.
@@ -328,6 +351,13 @@ def register_campaign_manager_action_tools(
                 query exactly as search_targeting_entities took and returned
                 them; exclude true adds it to the exclusions.
             remove: URNs of values the ad set targets now, to remove.
+            political_ad: Only when the user has declared it: true if this
+                ad set's ads are political, false if they are not. Campaign
+                Manager asks this on save for an ad set that targets the EU
+                (EU political advertising rules). It is a legal declaration
+                the user makes for the advertiser, so never guess or default
+                it; leave it out until the user answers. Without it, a save
+                that asks stops with declaration_required and sends nothing.
 
         Returns:
             Dict with url, status, message, retry_safe and, when known,
@@ -366,6 +396,7 @@ def register_campaign_manager_action_tools(
                     remove=removes or None,
                     confirm_send=confirm_send,
                     deadline=deadline,
+                    political_ad=political_ad,
                 ),
             )
         except AuthenticationError as e:

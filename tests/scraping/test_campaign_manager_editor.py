@@ -8,7 +8,7 @@ admission refuses never reaches the capture.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
@@ -19,6 +19,7 @@ import pytest
 
 from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 from linkedin_mcp_server.scraping import campaign_manager_editor as editor_module
+from linkedin_mcp_server.scraping import campaign_manager_political as political_module
 from linkedin_mcp_server.scraping import campaign_manager_write as write_module
 from linkedin_mcp_server.scraping.campaign_manager_editor import CampaignManagerEditor
 from linkedin_mcp_server.scraping.campaign_manager_write import CampaignWriteFlow
@@ -121,6 +122,8 @@ class _App:
         self.states: dict[str, str] = {}
         self.dialog_on_switch = False
         self.dialog = False
+        # The political-ad question: None absent, else how it answers.
+        self.political: Callable[[Any], Awaitable[dict]] | None = None
         self.group_write_on_setup = False
         self.on_blur: Callable[[str, str], dict | None] | None = None
         self.picks: list[dict | None] = []
@@ -151,6 +154,7 @@ class _App:
             editor_module._DATE_INPUT_JS: "date_input",
             editor_module._CALENDAR_JS: "calendar",
             write_module._FOOTER_JS: "footer",
+            political_module.POLITICAL_JS: "political",
         }
 
     def _move(self, url: str) -> None:
@@ -257,6 +261,10 @@ class _App:
             return {"state": state}
         if name == "dialog":
             return self.dialog
+        if name == "political":
+            if self.political is None:
+                return {"state": "absent"}
+            return await self.political(arg)
         if name == "objective":
             ready = arg["value"] in self.objectives
             if arg["click"] and ready:
@@ -352,7 +360,8 @@ async def test_dry_run_verifies_and_plans_without_a_window_or_an_edit(mock_page)
     assert result["status"] == "confirmation_required"
     assert result["retry_safe"] is True
     assert result["planned"] == {
-        "dailyBudget": {"amount": "12.5", "currencyCode": "EUR"}
+        "dailyBudget": {"amount": "12.5", "currencyCode": "EUR"},
+        "politicalAdQuestion": "may",
     }
     assert result["target"]["id"] == int(CAMPAIGN)
     mock_page.keyboard.insert_text.assert_not_awaited()

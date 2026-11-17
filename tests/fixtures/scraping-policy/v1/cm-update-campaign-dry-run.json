@@ -156,12 +156,13 @@
     }
   ],
   "result": {
-    "message": "Nothing was changed. Call again with confirm_send true to apply the planned change.",
+    "message": "Nothing was changed. Call again with confirm_send true to apply the planned change. Saving may make Campaign Manager ask whether this ad set's ads are political (EU political advertising rules). That answer is a legal declaration the user makes for the advertiser; this tool never chooses it. Pass political_ad true or false as the user declared it.",
     "planned": {
       "dailyBudget": {
         "amount": "12.5",
         "currencyCode": "EUR"
-      }
+      },
+      "politicalAdQuestion": "may"
     },
     "retry_safe": true,
     "status": "confirmation_required",

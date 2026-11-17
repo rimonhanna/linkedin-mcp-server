@@ -208,6 +208,18 @@ it is false, check Campaign Manager before calling again.
 
 No tool launches a campaign or touches billing: a draft is never set active,
 and status changes are only active to paused and back.
+
+On an ad set that targets the EU, Campaign Manager asks on saving whether its
+ads are political (EU political advertising rules). That answer is a legal
+declaration you make for the advertiser, so the tools never choose it: pass
+`political_ad` true (the ads are political) or false (they are not) to
+`update_campaign` or `update_campaign_targeting` only once you have decided.
+Without it, a save that asks closes the question, sends nothing and returns
+`declaration_required`; with it, the tool gives exactly that answer and lets
+through only the matching declaration. The dry run says in
+`planned.politicalAdQuestion` whether the save `will` ask (the targeting
+includes an EU country or region) or `may` (a place inside one is not
+recognisable from the record).
 `create_company_list_audience` clicks LinkedIn's agree-and-upload button,
 which accepts LinkedIn's Ads Agreement for that upload; the dry run returns
 the terms link as `planned.termsUrl`. Other limits: `create_campaign_draft` never creates a campaign

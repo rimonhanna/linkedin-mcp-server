@@ -26,6 +26,7 @@ a page-owning collaborator.
 | `campaign_manager_entities_payload` | `ACCOUNT_TEMPLATE_HEADERS`, `CompanyRow`, `MAX_COMPANY_ROWS`, `MAX_CSV_BYTES`, `MatchedAudience`, `SavedAudience`, `SponsorableContent`, `TargetingEntity`, `company_list_csv()`, `content_library_entries()`, `matched_audiences()`, `render_audiences()`, `render_entities()`, `saved_audiences()`, `typeahead_entities()` | `browser-free` |
 | `campaign_manager_guard` | `Admission`, `CmWriteRequest`, `READ_ONLY_POST_RESOURCES`, `WriteWindow`, `explicit_campaign_write()`, `is_campaign_manager_read()`, `register_campaign_manager_routes()`, `without_campaign_manager_writes()` | `browser-free` |
 | `campaign_manager_payload` | `AdAccount`, `AnalyticsEntity`, `AnalyticsRow`, `BASE_METRICS`, `CM_API_PREFIX`, `Campaign`, `CampaignGroup`, `CmCall`, `Creative`, `DateWindow`, `Money`, `RunSchedule`, `Targeting`, `TargetingFacet`, `TargetingInclude`, `TargetingSegment`, `build_ad_account()`, `build_analytics_rows()`, `build_boost_account()`, `build_campaign()`, `build_campaign_group()`, `build_creative()`, `build_targeting()`, `format_restli_date_range()`, `merge_by_id()`, `parse_cm_call()`, `render_accounts()`, `render_analytics()`, `render_campaign()`, `render_campaigns()`, `restli_date_range()` | `browser-free` |
+| `campaign_manager_political` | `DECLARATION_REQUIRED`, `POLITICAL_INTENT`, `POLITICAL_JS`, `PoliticalQuestion`, `UNANSWERED`, `declared_intent()`, `political_dialog()`, `political_question()`, `question_sentence()` | `browser-free` |
 | `campaign_manager_results` | `STATUSES`, `SUCCEEDED`, `campaign_action_result()`, `retry_safe_from()` | `browser-free` |
 | `campaign_manager_targeting` | `CampaignTargetingEditor`, `TargetingAdd` | `page-owning` |
 | `campaign_manager_write` | `ANCHORS`, `CampaignWriteFlow`, `WriteLedger`, `record_write_window()`, `tracking_writes()` | `page-owning` |
@@ -76,12 +77,13 @@ a page-owning collaborator.
 - `campaign_manager_audiences` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
 - `campaign_manager_changes` -> `campaign_manager_payload`, `identifiers`
 - `campaign_manager_content` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
-- `campaign_manager_editor` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
+- `campaign_manager_editor` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_political`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
 - `campaign_manager_entities_payload` -> `campaign_manager_payload`, `identifiers`
 - `campaign_manager_guard` -> `campaign_manager_payload`
 - `campaign_manager_payload` -> `restli`
+- `campaign_manager_political` -> `campaign_manager_changes`
 - `campaign_manager_results` -> `campaign_manager_changes`
-- `campaign_manager_targeting` -> `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
+- `campaign_manager_targeting` -> `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_political`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
 - `campaign_manager_write` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `identifiers`, `navigation`, `session`
 - `capture` -> `content`, `contracts`, `link_metadata`, `navigation`, `session`, `text`
 - `company` -> `capture`, `contracts`, `facets`, `fields`, `identifiers`, `link_metadata`, `search_pages`, `search_parse`, `search_urls`, `session`

@@ -60,7 +60,7 @@ async def test_dialog_instead_of_a_save_is_closed_and_named(mock_page):
 
     assert result["status"] == "control_unavailable"
     assert result["retry_safe"] is True
-    assert "political" in result["message"]
+    assert "dialog was closed" in result["message"]
     assert "nothing was sent" in result["message"]
     mock_page.keyboard.press.assert_any_await("Escape")
     assert app.sent == []

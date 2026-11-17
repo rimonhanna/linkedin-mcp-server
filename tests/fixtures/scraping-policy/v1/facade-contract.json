@@ -162,11 +162,11 @@
       },
       "update_campaign": {
         "coroutine": true,
-        "signature": "(self, account_id: 'str', campaign_id: 'str', *, daily_budget: 'str | None' = None, lifetime_budget: 'str | None' = None, start_date: 'date | None' = None, end_date: 'date | None' = None, confirm_send: 'bool') -> 'dict[str, Any]'"
+        "signature": "(self, account_id: 'str', campaign_id: 'str', *, daily_budget: 'str | None' = None, lifetime_budget: 'str | None' = None, start_date: 'date | None' = None, end_date: 'date | None' = None, confirm_send: 'bool', political_ad: 'bool | None' = None) -> 'dict[str, Any]'"
       },
       "update_campaign_targeting": {
         "coroutine": true,
-        "signature": "(self, account_id: 'str', campaign_id: 'str', *, add: 'Sequence[TargetingAdd] | None' = None, remove: 'Sequence[str] | None' = None, confirm_send: 'bool', deadline: 'float | None' = None) -> 'dict[str, Any]'"
+        "signature": "(self, account_id: 'str', campaign_id: 'str', *, add: 'Sequence[TargetingAdd] | None' = None, remove: 'Sequence[str] | None' = None, confirm_send: 'bool', deadline: 'float | None' = None, political_ad: 'bool | None' = None) -> 'dict[str, Any]'"
       },
       "withdraw_invitations": {
         "coroutine": true,
@@ -2119,6 +2119,18 @@
               "default": null,
               "description": "New lifetime budget, same format. Only for a\nlifetime budget."
             },
+            "political_ad": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Only when the user has declared it: true if this\nad set's ads are political, false if they are not. Campaign\nManager asks this on save for an ad set that targets the EU\n(EU political advertising rules). It is a legal declaration\nthe user makes for the advertiser, so never guess or default\nit; leave it out until the user answers. Without it, a save\nthat asks stops with declaration_required and sends nothing."
+            },
             "start_date": {
               "anyOf": [
                 {
@@ -2191,6 +2203,18 @@
             "confirm_send": {
               "description": "Must be True to save the change.",
               "type": "boolean"
+            },
+            "political_ad": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Only when the user has declared it: true if this\nad set's ads are political, false if they are not. Campaign\nManager asks this on save for an ad set that targets the EU\n(EU political advertising rules). It is a legal declaration\nthe user makes for the advertiser, so never guess or default\nit; leave it out until the user answers. Without it, a save\nthat asks stops with declaration_required and sends nothing."
             },
             "remove": {
               "anyOf": [

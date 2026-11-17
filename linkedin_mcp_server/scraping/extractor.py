@@ -389,6 +389,7 @@ class LinkedInExtractor:
         start_date: date | None = None,
         end_date: date | None = None,
         confirm_send: bool,
+        political_ad: bool | None = None,
     ) -> dict[str, Any]:
         """Change an ad set's budget amount or schedule dates."""
         return await self._campaign_editor.update_campaign(
@@ -399,6 +400,7 @@ class LinkedInExtractor:
             start_date=start_date,
             end_date=end_date,
             confirm_send=confirm_send,
+            political_ad=political_ad,
         )
 
     async def set_campaign_status(
@@ -444,6 +446,7 @@ class LinkedInExtractor:
         remove: Sequence[str] | None = None,
         confirm_send: bool,
         deadline: float | None = None,
+        political_ad: bool | None = None,
     ) -> dict[str, Any]:
         """Add and remove targeting values of one ad set."""
         return await self._campaign_targeting.update_campaign_targeting(
@@ -453,6 +456,7 @@ class LinkedInExtractor:
             remove=remove,
             confirm_send=confirm_send,
             deadline=deadline,
+            political_ad=political_ad,
         )
 
     async def add_post_to_campaign(

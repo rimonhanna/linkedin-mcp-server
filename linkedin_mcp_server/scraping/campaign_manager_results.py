@@ -23,7 +23,8 @@ _COMMON = frozenset(
 )
 
 STATUSES: Mapping[str, frozenset[str]] = {
-    "update_campaign": _COMMON | {"updated", "budget_type_mismatch", "schedule_locked"},
+    "update_campaign": _COMMON
+    | {"updated", "budget_type_mismatch", "schedule_locked", "declaration_required"},
     "set_campaign_status": _COMMON
     | {"paused", "resumed", "reactivation_needs_changes"},
     "update_campaign_targeting": _COMMON
@@ -33,6 +34,7 @@ STATUSES: Mapping[str, frozenset[str]] = {
         "entity_not_addable",
         "value_not_present",
         "deadline",
+        "declaration_required",
     },
     "create_campaign_draft": _COMMON
     | {"created", "no_campaign_group", "objective_unavailable"},

@@ -30,6 +30,11 @@ work, health checks, or background maintenance.
   `create_company_list_audience` accepts LinkedIn's Ads Agreement for the
   upload; say so before confirming. None of them launches a campaign or
   touches billing.
+- On an ad set that targets the EU, saving asks whether its ads are political
+  (`declaration_required`, or `planned.politicalAdQuestion` on a dry run).
+  That answer is a legal declaration the user makes for the advertiser: ask
+  them, and pass `political_ad` true or false only as they declared it. Never
+  choose it yourself.
 - Do not retry a failed write action unless the result proves it was not sent.
 
 ## Browser and authentication
