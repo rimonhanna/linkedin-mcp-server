@@ -904,8 +904,10 @@ def admit_status_patch(
     return None
 
 
-def admit_campaign_create(*, account_id: str, group_id: str, objective: str) -> Admit:
-    """An admission for one DRAFT create in the planned group with the objective.
+def admit_campaign_create(
+    *, account_id: str, group_id: str, objective: str, name: str
+) -> Admit:
+    """An admission for one DRAFT create in the planned group, objective and name.
 
     Stateful like ``admit_list_upload``: a second create would be a second
     draft, so only the first matching create passes.
@@ -928,6 +930,8 @@ def admit_campaign_create(*, account_id: str, group_id: str, objective: str) -> 
             return "campaign create in another campaign group"
         if body.get("objectiveType") != objective:
             return "campaign create with another objective"
+        if body.get("name") != name:
+            return "campaign create with another name"
         created = True
         return None
 

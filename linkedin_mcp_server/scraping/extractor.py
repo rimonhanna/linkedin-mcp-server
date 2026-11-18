@@ -419,6 +419,7 @@ class LinkedInExtractor:
         objective: str,
         name: str,
         confirm_send: bool,
+        political_ad: bool | None = None,
     ) -> dict[str, Any]:
         """Create a draft ad set in an existing campaign group."""
         return await self._campaign_editor.create_campaign_draft(
@@ -427,6 +428,7 @@ class LinkedInExtractor:
             objective=objective,
             name=name,
             confirm_send=confirm_send,
+            political_ad=political_ad,
         )
 
     async def search_targeting_entities(

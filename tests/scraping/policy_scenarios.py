@@ -2193,14 +2193,14 @@ async def _cm_create_draft_scenario() -> dict[str, Any]:
         f"campaignManagerCampaignGroups/{_CM_GROUP}",
         {"id": _CM_GROUP, "accountId": int(_CM_ACCOUNT), "name": "Example group"},
     )
-    new_details = f"{_CM_ACCOUNT_URL}/campaigns/{_CM_NEW_CAMPAIGN}/details"
 
     async def setup() -> None:
         # Latched on arrival: the app's own billing call is aborted.
         _cm_emit(page, [group])
         await _cm_app_sends(page, _cm_billing_write())
 
-    async def objective() -> dict[str, Any]:
+    async def save_and_exit() -> dict[str, Any]:
+        # The classic editor creates the draft only here, the name in it.
         create = _cm_write(
             "campaignManagerCampaigns",
             {
@@ -2208,25 +2208,18 @@ async def _cm_create_draft_scenario() -> dict[str, Any]:
                 "accountId": f"urn:li:sponsoredAccount:{_CM_ACCOUNT}",
                 "campaignGroupId": f"urn:li:sponsoredCampaignGroup:{_CM_GROUP}",
                 "objectiveType": "WEBSITE_VISIT",
+                "name": "Example draft",
             },
             restli="create",
             created_id=_CM_NEW_CAMPAIGN,
         )
         await _cm_app_sends(page, create)
-        # The app moves to the new draft's own page by itself.
-        page.url = page.main_frame.url = new_details
-        for callback in tuple(page.listeners["framenavigated"]):
-            callback(page.main_frame)
-        _cm_emit(page, [_cm_campaign_record(_CM_NEW_CAMPAIGN, name="Untitled")])
-        return {"state": "ready", "available": ["WEBSITE_VISIT"]}
-
-    async def blur() -> dict[str, bool]:
-        await _cm_app_sends(page, _cm_patch(_CM_NEW_CAMPAIGN, name="Example draft"))
-        return {"blurred": True}
+        return {"count": 2, "clicked": True}
 
     page.script(
         "goto",
         setup,
+        None,
         lambda: _cm_emit(
             page, [_cm_campaign_record(_CM_NEW_CAMPAIGN, name="Example draft")]
         ),
@@ -2234,11 +2227,12 @@ async def _cm_create_draft_scenario() -> dict[str, Any]:
     page.script(
         "evaluate:cm_editor",
         {"state": "ready", "available": ["WEBSITE_VISIT"]},
-        objective,
         {"state": "ready"},
         {"state": "typed"},
-        blur,
+        {"blurred": True},
     )
+    # The classic editor's footer, then its Save and exit.
+    page.script("evaluate:cm_footer", 1, save_and_exit)
     return await _cm_write_run(
         page,
         "create_campaign_draft",

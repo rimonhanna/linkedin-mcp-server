@@ -26,7 +26,7 @@
       },
       "create_campaign_draft": {
         "coroutine": true,
-        "signature": "(self, account_id: 'str', campaign_group_id: 'str', *, objective: 'str', name: 'str', confirm_send: 'bool') -> 'dict[str, Any]'"
+        "signature": "(self, account_id: 'str', campaign_group_id: 'str', *, objective: 'str', name: 'str', confirm_send: 'bool', political_ad: 'bool | None' = None) -> 'dict[str, Any]'"
       },
       "create_company_list_audience": {
         "coroutine": true,
@@ -323,6 +323,18 @@
             "objective": {
               "description": "Campaign Manager objective in capitals, e.g.\nWEBSITE_VISIT. objective_unavailable lists the ones offered.",
               "type": "string"
+            },
+            "political_ad": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Only when the user has declared it: true if this\nad set's ads are political, false if they are not (EU\npolitical advertising rules). It is a legal declaration the\nuser makes for the advertiser, so never guess or default it;\nleave it out until the user answers."
             }
           },
           "required": [

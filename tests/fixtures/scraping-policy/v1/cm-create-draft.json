@@ -138,13 +138,12 @@
     },
     {
       "arg": {
-        "click": false,
         "value": "WEBSITE_VISIT"
       },
       "call": "create_campaign_draft",
       "kind": "evaluate",
       "operation": "cm_editor",
-      "program_digest": "b906be3cee93",
+      "program_digest": "dc3a612cb32a",
       "section": "create_campaign_draft__created"
     },
     {
@@ -155,49 +154,71 @@
       "section": "create_campaign_draft__created"
     },
     {
-      "arg": {
-        "click": true,
-        "value": "WEBSITE_VISIT"
+      "call": "create_campaign_draft",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/new/details?campaignGroupId=100000201&initialObjectiveType=WEBSITE_VISIT",
+        "wait_until": "domcontentloaded"
       },
-      "call": "create_campaign_draft",
-      "kind": "evaluate",
-      "operation": "cm_editor",
-      "program_digest": "b906be3cee93",
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
       "section": "create_campaign_draft__created"
     },
     {
       "call": "create_campaign_draft",
-      "kind": "route.fallback",
-      "method": "POST",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/new/details?campaignGroupId=100000201&initialObjectiveType=WEBSITE_VISIT",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/new/details?campaignGroupId=100000201&initialObjectiveType=WEBSITE_VISIT",
       "section": "create_campaign_draft__created",
-      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerCampaigns"
+      "timeout_ms": 30000,
+      "wait_until": "commit"
     },
     {
       "call": "create_campaign_draft",
-      "count": 1,
-      "event": "request",
-      "kind": "listener.emit",
+      "kind": "wait_for_load_state",
+      "section": "create_campaign_draft__created",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "create_campaign_draft",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/new/details?campaignGroupId=100000201&initialObjectiveType=WEBSITE_VISIT",
+      "kind": "boundary.stabilize",
+      "result": null,
       "section": "create_campaign_draft__created"
     },
     {
       "call": "create_campaign_draft",
-      "count": 1,
-      "event": "response",
-      "kind": "listener.emit",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/new/details?campaignGroupId=100000201&initialObjectiveType=WEBSITE_VISIT",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
       "section": "create_campaign_draft__created"
     },
     {
       "call": "create_campaign_draft",
-      "count": 1,
-      "event": "request",
-      "kind": "listener.emit",
+      "kind": "boundary.auth_quick",
+      "result": null,
       "section": "create_campaign_draft__created"
     },
     {
       "call": "create_campaign_draft",
-      "count": 1,
-      "event": "response",
-      "kind": "listener.emit",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "boundary.rate_limit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "dismissed": false,
+      "kind": "boundary.modal",
       "section": "create_campaign_draft__created"
     },
     {
@@ -208,6 +229,29 @@
       "program_digest": "53bb7b9500fb",
       "section": "create_campaign_draft__created",
       "timeout_ms": 15000.0
+    },
+    {
+      "arg": "[data-js-wizard-container-footer-actions]",
+      "call": "create_campaign_draft",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "create_campaign_draft__created",
+      "timeout_ms": 15000.0
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "evaluate",
+      "operation": "cm_footer",
+      "program_digest": "e4333f693237",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "create_campaign_draft__created"
     },
     {
       "arg": {
@@ -254,10 +298,17 @@
     },
     {
       "call": "create_campaign_draft",
+      "kind": "evaluate",
+      "operation": "cm_footer",
+      "program_digest": "41a48c5042ea",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
       "kind": "route.fallback",
       "method": "POST",
       "section": "create_campaign_draft__created",
-      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerCampaigns/100000302"
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerCampaigns"
     },
     {
       "call": "create_campaign_draft",
@@ -275,14 +326,14 @@
     },
     {
       "call": "create_campaign_draft",
-      "callback_id": "callback-5",
+      "callback_id": "callback-6",
       "event": "framenavigated",
       "kind": "listener.remove",
       "section": "create_campaign_draft__created"
     },
     {
       "call": "create_campaign_draft",
-      "callback_id": "callback-6",
+      "callback_id": "callback-7",
       "event": "framenavigated",
       "kind": "listener.add",
       "section": "create_campaign_draft__created"
@@ -353,7 +404,7 @@
     },
     {
       "call": "create_campaign_draft",
-      "callback_id": "callback-6",
+      "callback_id": "callback-7",
       "event": "framenavigated",
       "kind": "listener.remove",
       "section": "create_campaign_draft__created"

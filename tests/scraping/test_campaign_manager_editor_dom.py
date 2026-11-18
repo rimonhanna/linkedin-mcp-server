@@ -236,7 +236,7 @@ async def test_disabled_status_switch_is_not_clicked(dom_page):
 
 
 @pytest.mark.parametrize("label", ["Website visits", "Websitebesuche"])
-async def test_objective_is_chosen_by_value(dom_page, label):
+async def test_objective_is_found_by_value_and_never_clicked(dom_page, label):
     await dom_page.set_content(
         _LOG
         + "".join(
@@ -250,16 +250,13 @@ async def test_objective_is_chosen_by_value(dom_page, label):
         )
     )
 
-    blocked = await dom_page.evaluate(
-        editor._OBJECTIVE_JS, {"value": "JOB_APPLICANT", "click": True}
-    )
-    chosen = await dom_page.evaluate(
-        editor._OBJECTIVE_JS, {"value": "WEBSITE_VISIT", "click": True}
-    )
+    blocked = await dom_page.evaluate(editor._OBJECTIVE_JS, {"value": "JOB_APPLICANT"})
+    found = await dom_page.evaluate(editor._OBJECTIVE_JS, {"value": "WEBSITE_VISIT"})
 
     assert blocked == {
         "state": "unavailable",
         "available": ["BRAND_AWARENESS", "WEBSITE_VISIT"],
     }
-    assert chosen["state"] == "ready"
-    assert await _log(dom_page) == ["WEBSITE_VISIT"]
+    assert found["state"] == "ready"
+    # Choosing a tile sends nothing in the classic setup flow; it is only read.
+    assert await _log(dom_page) == []

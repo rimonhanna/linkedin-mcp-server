@@ -12,17 +12,16 @@ from typing import Any
 
 from .test_campaign_manager_editor import (
     CAMPAIGN,
-    NEW,
     _App,
     _campaign,
     _create,
     _ms,
-    _rename,
     _set,
     _status,
     _update,
 )
 from .test_campaign_manager_editor_calendar_press import _StaysOpen
+from .test_campaign_manager_editor_new_draft import _NewDraftApp
 
 
 async def test_pick_failing_after_its_autosave_left_is_read_back(mock_page):
@@ -51,8 +50,8 @@ async def test_pick_failing_with_nothing_sent_still_says_so(mock_page):
     assert app.sent == []
 
 
-class _BlurStays(_App):
-    """The name input saves on blur, yet focus stays on it afterwards."""
+class _BlurStays(_NewDraftApp):
+    """The new ad set's name input keeps focus after Tab."""
 
     async def evaluate(self, script: str, arg: Any = None) -> Any:
         answer = await super().evaluate(script, arg)
@@ -61,16 +60,16 @@ class _BlurStays(_App):
         return answer
 
 
-async def test_rename_failing_after_its_save_left_is_read_back(mock_page):
-    app = _BlurStays(mock_page, _campaign())
-    app.on_blur = _rename
+async def test_a_name_that_did_not_take_creates_nothing(mock_page):
+    app = _BlurStays(mock_page)
 
     result = await _create(mock_page, app)
 
-    assert result["status"] == "partially_applied", result["message"]
-    assert "already sent a save" in result["message"]
-    assert result["created_id"] == NEW
-    assert result["applied"]["name"] == "Example draft"
+    assert result["status"] == "control_unavailable", result["message"]
+    assert "Nothing was created" in result["message"]
+    assert result["retry_safe"] is True
+    assert "created_id" not in result
+    assert app.sent == []
 
 
 async def test_status_save_without_a_clear_answer_is_read_back(mock_page):

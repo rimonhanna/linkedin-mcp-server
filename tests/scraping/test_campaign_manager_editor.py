@@ -267,23 +267,6 @@ class _App:
             return await self.political(arg)
         if name == "objective":
             ready = arg["value"] in self.objectives
-            if arg["click"] and ready:
-                body = {
-                    "status": "DRAFT",
-                    "accountId": f"urn:li:sponsoredAccount:{ACCOUNT}",
-                    "campaignGroupId": f"urn:li:sponsoredCampaignGroup:{GROUP}",
-                    "objectiveType": arg["value"],
-                }
-                if (
-                    await self.send(
-                        "campaignManagerCampaigns", body, "create", created_id=NEW
-                    )
-                    and 200 <= self.save_status < 300
-                ):
-                    self.records[NEW] = _campaign(
-                        id=int(NEW), name="Untitled", objectiveType=arg["value"]
-                    )
-                    await self.navigate(f"{APP}/campaigns/{NEW}/details")
             return {
                 "state": "ready" if ready else "unavailable",
                 "available": self.objectives,
@@ -563,10 +546,6 @@ async def _create(page: Any, app: _App, **kwargs: Any) -> dict:
         return await _editor(page).create_campaign_draft(ACCOUNT, GROUP, **kwargs)
 
 
-def _rename(input_id: str, text: str) -> dict | None:
-    return _set(name=text) if input_id == "campaign-name" else None
-
-
 async def test_create_with_a_refused_group_write_is_no_campaign_group(mock_page):
     app = _App(mock_page, _campaign())
     app.group_write_on_setup = True
@@ -576,38 +555,7 @@ async def test_create_with_a_refused_group_write_is_no_campaign_group(mock_page)
     assert result["status"] == "no_campaign_group"
     assert result["retry_safe"] is True
     assert app.sent == [("campaignManagerCampaignGroups", "abort")]
-    assert app.clicked("objective") == []
-
-
-async def test_create_and_rename_are_admitted_and_verified(mock_page):
-    app = _App(mock_page, _campaign())
-    app.on_blur = _rename
-
-    result = await _create(mock_page, app)
-
-    assert result["status"] == "created"
-    assert result["created_id"] == NEW
-    assert result["retry_safe"] is False
-    assert result["applied"] == {
-        "status": "DRAFT",
-        "name": "Example draft",
-        "campaignGroupId": int(GROUP),
-        "objectiveType": "WEBSITE_VISIT",
-    }
-    assert app.sent == [
-        ("campaignManagerCampaigns", "fallback"),
-        (f"campaignManagerCampaigns/{NEW}", "fallback"),
-    ]
-
-
-async def test_create_without_the_rename_is_partially_applied(mock_page):
-    app = _App(mock_page, _campaign())
-
-    result = await _create(mock_page, app)
-
-    assert result["status"] == "partially_applied"
-    assert result["created_id"] == NEW
-    assert result["retry_safe"] is False
+    assert app.navigated == [SETUP]
 
 
 async def test_unknown_objective_lists_the_available_ones(mock_page):
@@ -627,7 +575,8 @@ async def test_create_dry_run_creates_nothing(mock_page):
 
     assert result["status"] == "confirmation_required"
     assert result["target"]["kind"] == "campaign_group"
-    assert app.clicked("objective") == []
+    assert result["planned"]["politicalAdQuestion"] == "may"
+    assert app.navigated == [SETUP]
 
 
 async def test_campaign_group_id_must_be_numeric(mock_page):

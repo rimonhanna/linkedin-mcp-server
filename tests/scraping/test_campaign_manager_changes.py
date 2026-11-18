@@ -737,7 +737,7 @@ def _create(path: str | None = None, params=None, **body: Any) -> Req:
         "accountId": int(ACCOUNT),
         "campaignGroupId": f"urn:li:sponsoredCampaignGroup:{GROUP}",
         "objectiveType": "WEBSITE_VISIT",
-        "name": "",
+        "name": "Example draft",
     }
     base.update(body)
     return _req(base, entity_id=None, restli="create", path=path, params=params)
@@ -746,20 +746,27 @@ def _create(path: str | None = None, params=None, **body: Any) -> Req:
 def test_campaign_create_admission():
     def fresh():
         return admit_campaign_create(
-            account_id=ACCOUNT, group_id=GROUP, objective="WEBSITE_VISIT"
+            account_id=ACCOUNT,
+            group_id=GROUP,
+            objective="WEBSITE_VISIT",
+            name="Example draft",
         )
 
     assert "draft" in _reason(fresh()(_create(status="ACTIVE")))
     assert fresh()(_create(accountId=100000009))
     assert fresh()(_create(campaignGroupId=100000009))
     assert fresh()(_create(objectiveType="LEAD_GENERATION"))
+    assert "name" in _reason(fresh()(_create(name="Untitled")))
     assert fresh()(_create()) is None
 
 
 def test_create_admissions_refuse_sub_paths_actions_and_other_methods():
     def fresh():
         return admit_campaign_create(
-            account_id=ACCOUNT, group_id=GROUP, objective="WEBSITE_VISIT"
+            account_id=ACCOUNT,
+            group_id=GROUP,
+            objective="WEBSITE_VISIT",
+            name="Example draft",
         )
 
     sub_path = _create(path="campaignManagerCampaigns/draft")
@@ -798,7 +805,10 @@ def test_create_admissions_refuse_sub_paths_actions_and_other_methods():
 
 def test_campaign_create_admits_only_one_create():
     admit = admit_campaign_create(
-        account_id=ACCOUNT, group_id=GROUP, objective="WEBSITE_VISIT"
+        account_id=ACCOUNT,
+        group_id=GROUP,
+        objective="WEBSITE_VISIT",
+        name="Example draft",
     )
     # A refused create does not use up the one allowed create.
     assert admit(_create(status="ACTIVE"))
