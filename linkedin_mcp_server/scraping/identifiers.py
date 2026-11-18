@@ -56,13 +56,18 @@ __all__ = [
     "job_view_url",
     "messaging_thread_url",
     "normalize_ad_account_id",
+    "normalize_campaign_group_id",
     "normalize_campaign_id",
     "normalize_company_identifier",
+    "normalize_company_page_url",
     "normalize_job_id",
     "normalize_opaque_id",
     "normalize_person_identifier",
+    "normalize_post_urn",
     "normalize_profile_urn",
+    "normalize_targeting_urn",
     "normalize_thread_id",
+    "normalize_website",
     "person_profile_url",
 ]
 
@@ -158,9 +163,14 @@ _MAX_RANGE_DAYS = 366
 
 _AD_ACCOUNT_URN = "urn:li:sponsoredAccount:"
 _CAMPAIGN_URN = "urn:li:sponsoredCampaign:"
+_CAMPAIGN_GROUP_URN = "urn:li:sponsoredCampaignGroup:"
 
 _PROFILE_URN_PREFIX = "urn:li:fsd_profile:"
 _PROFILE_URN_ID = re.compile(r"^[A-Za-z0-9_-]+$")
+_TARGETING_URN = re.compile(r"^urn:li:[A-Za-z]+:[A-Za-z0-9_-]+$")
+_POST_URN = re.compile(r"^urn:li:(?:share|ugcPost):[0-9]+$")
+_POST_URL_ROUTE = ("feed", "update")
+_WHITESPACE = re.compile(r"\s")
 
 
 def _decoded(value: str) -> str | None:
@@ -534,19 +544,20 @@ def normalize_profile_urn(value: str) -> str:
 
 
 def _campaign_manager_id(
-    value: str, *, field: str, urn_prefix: str, url_path: tuple[str | None, ...]
+    value: str, *, field: str, urn_prefix: str, url_path: tuple[str | None, ...] | None
 ) -> str:
     """A Campaign Manager numeric id, from the id, its URN or a Campaign Manager URL.
 
     ``url_path`` is the path template of the URL form, with ``None`` marking a
-    numeric segment; the last one is the id. Every id is strictly numeric:
-    nothing here is ever a slug.
+    numeric segment; the last one is the id. ``None`` for the whole template
+    means the id has no URL form. Every id is strictly numeric: nothing here is
+    ever a slug.
     """
     value = value.strip()
     reference = value.removeprefix(urn_prefix)
     if _NUMERIC_ID.fullmatch(reference):
         return reference
-    if not value.startswith("urn:"):
+    if url_path is not None and not value.startswith("urn:"):
         segments = _linkedin_segments(value, want=field)
         if segments is not None and len(segments) >= len(url_path):
             head = segments[: len(url_path)]
@@ -581,6 +592,16 @@ def normalize_campaign_id(value: str) -> str:
     )
 
 
+def normalize_campaign_group_id(value: str) -> str:
+    """The numeric id of a campaign group, from the id or its URN."""
+    return _campaign_manager_id(
+        value,
+        field="campaign_group_id",
+        urn_prefix=_CAMPAIGN_GROUP_URN,
+        url_path=None,
+    )
+
+
 def campaign_manager_url(account_id: str, suffix: str = "") -> str:
     """Campaign Manager URL for an already-normalized ad account id."""
     return f"{CAMPAIGN_MANAGER_ACCOUNTS_URL}/{quote(account_id, safe='')}{suffix}"
@@ -603,3 +624,76 @@ def campaign_manager_date_range(
             f"The date range may span at most {_MAX_RANGE_DAYS} days."
         )
     return start_date, end_date
+
+
+def normalize_targeting_urn(value: str) -> str:
+    """A targeting entity URN such as ``urn:li:title:100``, exactly as returned."""
+    value = value.strip()
+    if not _TARGETING_URN.fullmatch(value):
+        raise InvalidReferenceError(
+            "urn is not a targeting URN. Pass the urn exactly as "
+            "search_targeting_entities returned it, for example urn:li:title:100."
+        )
+    return value
+
+
+def normalize_post_urn(value: str) -> str:
+    """A company post URN, from the URN or from a LinkedIn post link."""
+    value = value.strip()
+    candidate = value
+    if _HAS_SCHEME.match(value):
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower()
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if (
+            parsed.scheme.lower() in ("http", "https")
+            and _LINKEDIN_HOST.fullmatch(host)
+            and len(segments) == len(_POST_URL_ROUTE) + 1
+            and tuple(segments[:2]) == _POST_URL_ROUTE
+        ):
+            candidate = _decoded(segments[2]) or ""
+    if not _POST_URN.fullmatch(candidate):
+        raise InvalidReferenceError(
+            "post_urn is not a company post. Pass urn:li:share:<number> or "
+            "urn:li:ugcPost:<number>, or the post's /feed/update/ link."
+        )
+    return candidate
+
+
+def normalize_company_page_url(value: str) -> str:
+    """The canonical company page URL, from a link or the page slug."""
+    try:
+        slug = normalize_company_identifier(value)
+    except InvalidReferenceError:
+        raise InvalidReferenceError(
+            "linkedin_url is not a LinkedIn company page. Pass a "
+            "https://www.linkedin.com/company/<name>/ link."
+        ) from None
+    return company_page_url(slug, "/")
+
+
+def _web_host(value: str) -> str | None:
+    try:
+        parsed = urlparse(value)
+        host = parsed.hostname
+        _ = parsed.port
+    except ValueError:
+        return None
+    if (
+        parsed.scheme.lower() not in ("http", "https")
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return None
+    return host
+
+
+def normalize_website(value: str) -> str:
+    """An http(s) website address with a host and no credentials."""
+    value = value.strip()
+    if not _web_host(value) or _RAW_REFUSED.search(value) or _WHITESPACE.search(value):
+        raise InvalidReferenceError(
+            "website is not a web address. Pass a http:// or https:// link "
+            "without a username or password."
+        )
+    return value

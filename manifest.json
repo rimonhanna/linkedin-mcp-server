@@ -145,6 +145,42 @@
       "description": "Read Campaign Manager performance per campaign group, campaign or creative (UI 'Campaign', 'Ad set', 'Ad') for the page's or a chosen date range, with optional demographic breakdowns (read-only)"
     },
     {
+      "name": "search_targeting_entities",
+      "description": "Find the targeting values (job titles, industries, places, ...) Campaign Manager offers for a word on one campaign (UI 'Ad set'), with their URNs for update_campaign_targeting (read-only)"
+    },
+    {
+      "name": "list_audiences",
+      "description": "List an ad account's matched audiences (uploaded lists, retargeting) and saved audiences with their status (read-only)"
+    },
+    {
+      "name": "update_campaign",
+      "description": "Change a campaign's (UI 'Ad set') budget amount or schedule dates after a dry run; never switches the budget type, never launches it and never touches billing"
+    },
+    {
+      "name": "set_campaign_status",
+      "description": "Pause an active campaign (UI 'Ad set') or resume a paused one after a dry run; never launches a draft"
+    },
+    {
+      "name": "update_campaign_targeting",
+      "description": "Add or remove targeting values on a campaign (UI 'Ad set') after a dry run, using URNs from search_targeting_entities"
+    },
+    {
+      "name": "create_campaign_draft",
+      "description": "Create a draft campaign (UI 'Ad set') with an objective and a name in an existing campaign group (UI 'Campaign') after a dry run; never creates a group and never launches the draft"
+    },
+    {
+      "name": "add_post_to_campaign",
+      "description": "Add a company page post to a draft or paused campaign (UI 'Ad set') as a creative (UI 'Ad') after a dry run"
+    },
+    {
+      "name": "create_company_list_audience",
+      "description": "Upload a list of companies as a matched audience of the ad account after a dry run; confirming accepts LinkedIn's Ads Agreement for the upload"
+    },
+    {
+      "name": "create_saved_audience",
+      "description": "Save a campaign's (UI 'Ad set') targeting as a named saved audience after a dry run"
+    },
+    {
       "name": "close_session",
       "description": "Properly close browser session and clean up resources"
     },

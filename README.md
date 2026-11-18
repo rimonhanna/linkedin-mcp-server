@@ -70,6 +70,15 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `list_campaigns` | List an ad account's campaign groups (UI "Campaigns") and campaigns (UI "Ad sets") with status, objective and budgets. Read-only |
 | `get_campaign` | Get one campaign (UI "Ad set") with its targeting, run schedule, campaign group and creatives (UI "Ads"). Read-only |
 | `get_campaign_analytics` | Performance per campaign group, campaign or creative (`level`) for the period Campaign Manager shows, or for `start_date`/`end_date`, with optional `demographics` breakdowns. Read-only |
+| `search_targeting_entities` | Targeting values (job titles, industries, places, ...) Campaign Manager offers for a word on one campaign (UI "Ad set"), with the URN `update_campaign_targeting` takes and whether the value can be added. Read-only |
+| `list_audiences` | An ad account's matched audiences (uploaded lists, retargeting) and saved audiences, with their status. Read-only |
+| `update_campaign` | Change a campaign's (UI "Ad set") daily or lifetime budget amount, or its start and end dates. Never switches the budget or schedule type. `confirm_send` (default false: a dry run) |
+| `set_campaign_status` | Pause an active campaign (UI "Ad set") or resume a paused one. Never launches a draft. `confirm_send` |
+| `update_campaign_targeting` | Add (by URN from `search_targeting_entities`, as an include or an exclude) and remove targeting values on a campaign (UI "Ad set"). `confirm_send` |
+| `create_campaign_draft` | Create a draft campaign (UI "Ad set") with an objective and a name in an existing campaign group (UI "Campaign"). Never creates a group. `confirm_send` |
+| `add_post_to_campaign` | Add a company page post to a draft or paused campaign (UI "Ad set") as a creative (UI "Ad"). `confirm_send` |
+| `create_company_list_audience` | Upload a list of companies (name, and optionally website and LinkedIn page) as a matched audience. Confirming accepts LinkedIn's Ads Agreement for the upload. `confirm_send` |
+| `create_saved_audience` | Save a campaign's (UI "Ad set") targeting as a named saved audience (1 to 25 characters). `confirm_send` |
 | `start_enrichment_job` | Queue a resumable bulk profile-enrichment job from a list of usernames or profile URLs |
 | `run_enrichment_bunch` | Visit the next few profiles in a job, paced with randomized delays, a rolling 24h action budget and working hours; returns when to call it again. A bunch that loses its browser relaunches it and retries once; a profile that never loaded is left pending and is not charged |
 | `get_enrichment_status` | Progress and collected results for an enrichment job, or list all jobs |
@@ -154,7 +163,7 @@ labels, which changed in 2026: an API campaign group is a "Campaign" in the UI,
 an API campaign is an "Ad set" and an API creative is an "Ad". Every entity in
 a result carries `kind` and `uiLabel`, so both names are at hand.
 
-The tools only read. They take their data from the responses Campaign Manager
+The read tools only read. They take their data from the responses Campaign Manager
 itself loads in your browser. The one request of their own is a repeat of
 Campaign Manager's own analytics query with another date range or demographic
 pivot, when you ask for one the page did not load; nothing else in it changes.
@@ -169,6 +178,44 @@ Only the `MEMBER_JOB_FUNCTION` demographic was seen answering. The others
 (`MEMBER_SENIORITY`, `MEMBER_INDUSTRY`, `MEMBER_COMPANY_SIZE`,
 `MEMBER_COUNTRY_V2`) are unverified; one LinkedIn refuses is reported under
 `section_errors` and does not fail the call.
+
+### Campaign Manager writes
+
+`update_campaign`, `set_campaign_status`, `update_campaign_targeting`,
+`create_campaign_draft`, `add_post_to_campaign`,
+`create_company_list_audience` and `create_saved_audience` change your ad
+account. Call each with `confirm_send` false first: that dry run opens the
+record, checks the change against it and returns the full planned change, and
+sends nothing. Confirm only the change you approved.
+
+They work through Campaign Manager's own page, as you would by hand, and send
+no request of their own. While a write runs, every request the app makes is
+inspected before it leaves the browser: reads pass, and a write passes only
+when it is exactly the planned change. Anything else, such as an autosave of
+another value or the app creating a billing configuration or a campaign group
+by itself, is aborted and listed under `refused`. After saving, the tool reads
+the record again and compares it with the plan, so `updated` (or `paused`,
+`created`, ...) means LinkedIn answered and the record shows the change.
+
+Every result carries `retry_safe`. It is true only when none of the app's
+writes left the browser, so calling again cannot apply anything twice. When
+it is false, check Campaign Manager before calling again.
+
+No tool launches a campaign or touches billing: a draft is never set active,
+and status changes are only active to paused and back.
+`create_company_list_audience` clicks LinkedIn's agree-and-upload button,
+which accepts LinkedIn's Ads Agreement for that upload; the dry run returns
+the terms link as `planned.termsUrl`. Other limits: `create_campaign_draft` never creates a campaign
+group, `add_post_to_campaign` refuses an active campaign (an ad on a running
+campaign starts spending at once) and only finds the company posts the
+content library loads first (up to the 100 most recent), and `update_campaign` never switches between a daily and a lifetime
+budget or between a continuous and a fixed schedule. Targeting a matched
+audience is unverified: it works only when Campaign Manager's own search
+offers the audience for the word you pass.
+
+Campaign Manager writes are counted against `CAMPAIGN_WRITES_MAX` (30 per
+rolling 24 h) when one left the browser, a dry run never is, and they are
+refused outside working hours like invitations and messages.
 
 
 
@@ -862,9 +909,9 @@ the refusal once, under `section_errors`, with `limit`, `window` and
 hours by default (09:00-18:00, lunch 12:00-13:00 and weekends off; a ledger
 that already exists keeps the schedule it stored). Those hours are read off
 the clock of the machine running the server -- in Docker that is UTC unless
-the container is given `TZ`. Outside it invitations and messages are refused
-until it reopens, with the reopening time in the error, and profile and
-search loads run on half their cap. Bulk enrichment runs wait for it unless
+the container is given `TZ`. Outside it invitations, messages and Campaign
+Manager writes are refused until it reopens, with the reopening time in the
+error, and profile and search loads run on half their cap. Bulk enrichment runs wait for it unless
 called with `ignore_schedule`. `WORKING_HOURS_DISABLED=1` turns all of that
 off.
 
@@ -875,7 +922,8 @@ off.
 | `SEARCH_PAGES_MAX` | `100` | Search result pages per rolling 24 h; may be raised or lowered |
 | `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / per calendar week (resets Monday 00:00 local time); both may be raised or lowered |
 | `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may be raised or lowered |
-| `WORKING_HOURS_DISABLED` | off | `1` lets invitations and messages go outside working hours and lifts the halved read caps |
+| `CAMPAIGN_WRITES_MAX` | `30` | Campaign Manager writes per rolling 24 h; may be raised or lowered |
+| `WORKING_HOURS_DISABLED` | off | `1` lets invitations, messages and Campaign Manager writes go outside working hours and lifts the halved read caps |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one |
 | `DAILY_CAP_JITTER` | `0.15` | Fraction shaved off the daily cap at random each day |
 | `WARMUP_CAPS` | `10,20,50` | Per-day caps during the warm-up ramp |
@@ -903,7 +951,8 @@ off.
 
 Two consecutive tool calls are spaced by a random gap drawn log-uniformly
 from 8–20 s for tools that only read and 20–60 s for `connect_with_person`,
-`send_message` and `reply_to_conversation`. The middleware reports progress while it waits, so a client
+`send_message`, `reply_to_conversation`, `withdraw_invitations` and the
+Campaign Manager writes. The middleware reports progress while it waits, so a client
 never sees a silent server. `TOOL_CALL_GAP_SECONDS` replaces the read minimum
 and scales every other bound with it.
 

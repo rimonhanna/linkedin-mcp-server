@@ -1,0 +1,303 @@
+{
+  "call": {
+    "arguments": {
+      "account_id": "100000001",
+      "campaign_id": "100000301",
+      "confirm_send": true,
+      "daily_budget": "12.5"
+    },
+    "method": "update_campaign"
+  },
+  "events": [
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-3",
+      "kind": "route.add",
+      "pattern": "**/campaign-manager-api/**",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "section": "update_campaign__blocked",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "update_campaign",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "kind": "wait_for_load_state",
+      "section": "update_campaign__blocked",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "update_campaign",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "kind": "boundary.rate_limit",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "arg": {
+        "focus": false,
+        "id": "bid-and-budget__daily-budget",
+        "scope": "[data-live-test-bid-and-budget]"
+      },
+      "call": "update_campaign",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "5f367be55a01",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "arg": {
+        "focus": true,
+        "id": "bid-and-budget__daily-budget",
+        "scope": "[data-live-test-bid-and-budget]"
+      },
+      "call": "update_campaign",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "5f367be55a01",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "kind": "keyboard.insert_text",
+      "section": "update_campaign__blocked",
+      "text": "12.5"
+    },
+    {
+      "arg": "bid-and-budget__daily-budget",
+      "call": "update_campaign",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "16ef7a28c1ee",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "kind": "route.abort",
+      "method": "POST",
+      "section": "update_campaign__blocked",
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerCampaigns/100000301"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-6",
+      "event": "dialog",
+      "kind": "listener.add",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-7",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "section": "update_campaign__blocked",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "update_campaign",
+      "kind": "wait_for_load_state",
+      "section": "update_campaign__blocked",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "update_campaign",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-7",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-6",
+      "event": "dialog",
+      "kind": "listener.remove",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "update_campaign__blocked"
+    },
+    {
+      "call": "update_campaign",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "update_campaign__blocked"
+    }
+  ],
+  "result": {
+    "message": "Campaign Manager tried to save a value that is not the planned one, so it was stopped before it left the browser.",
+    "planned": {
+      "dailyBudget": {
+        "amount": "12.5",
+        "currencyCode": "EUR"
+      }
+    },
+    "refused": [
+      {
+        "method": "POST",
+        "reason": "dailyBudget is not the planned value",
+        "resource": "campaignManagerCampaigns"
+      }
+    ],
+    "retry_safe": true,
+    "status": "change_blocked",
+    "target": {
+      "accountId": 100000001,
+      "id": 100000301,
+      "kind": "campaign",
+      "name": "Example ad set",
+      "status": "DRAFT",
+      "uiLabel": "Ad set"
+    },
+    "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details"
+  },
+  "scenario": "update_campaign__blocked",
+  "schema_version": 1
+}

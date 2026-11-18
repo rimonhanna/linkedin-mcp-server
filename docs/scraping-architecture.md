@@ -17,9 +17,17 @@ a page-owning collaborator.
 | --- | --- | --- |
 | `__init__` | _(no public definitions)_ | `browser-free` |
 | `campaign_manager` | `CampaignManagerReader` | `page-owning` |
-| `campaign_manager_api` | `CampaignManagerCapture`, `CmResponse`, `DEMOGRAPHIC_PIVOTS`, `LEVEL_PIVOTS`, `SCOPE_ID_PARAMS`, `analytics_call_matches()`, `period_order()`, `template_call()` | `browser-free` |
-| `campaign_manager_guard` | `register_campaign_manager_routes()`, `without_campaign_manager_writes()` | `browser-free` |
+| `campaign_manager_api` | `CampaignManagerCapture`, `CmResponse`, `CmWriteResponse`, `DEMOGRAPHIC_PIVOTS`, `LEVEL_PIVOTS`, `SCOPE_ID_PARAMS`, `analytics_call_matches()`, `period_order()`, `template_call()` | `browser-free` |
+| `campaign_manager_audiences` | `CampaignAudiences` | `page-owning` |
+| `campaign_manager_changes` | `Admit`, `CampaignEditPlan`, `DAY_MS`, `EDITABLE_STATUSES`, `LIST_AUDIENCE_NAME_MAX`, `SAVED_AUDIENCE_NAME_MAX`, `TargetingPlan`, `WriteRequest`, `admit_campaign_create()`, `admit_campaign_patch()`, `admit_creative_create()`, `admit_list_upload()`, `admit_saved_audience()`, `admit_status_patch()`, `format_budget()`, `ms_to_date()`, `parse_budget()`, `pill_index()`, `plan_campaign_edit()`, `plan_targeting()`, `planned_end_ms()`, `refuse_invalid_audience_name()`, `refuse_invalid_campaign_edit()`, `refuse_invalid_draft()`, `refuse_invalid_targeting_change()`, `targeting_keys()` | `browser-free` |
+| `campaign_manager_content` | `CampaignContentEditor`, `TOOL`, `click_library()`, `library_rows()`, `select_organic()` | `page-owning` |
+| `campaign_manager_editor` | `CampaignManagerEditor`, `check_calendar()`, `pick_date()`, `set_text()`, `toggle_status()` | `page-owning` |
+| `campaign_manager_entities_payload` | `ACCOUNT_TEMPLATE_HEADERS`, `CompanyRow`, `MAX_COMPANY_ROWS`, `MAX_CSV_BYTES`, `MatchedAudience`, `SavedAudience`, `SponsorableContent`, `TargetingEntity`, `company_list_csv()`, `content_library_entries()`, `matched_audiences()`, `render_audiences()`, `render_entities()`, `saved_audiences()`, `typeahead_entities()` | `browser-free` |
+| `campaign_manager_guard` | `Admission`, `CmWriteRequest`, `READ_ONLY_POST_RESOURCES`, `WriteWindow`, `explicit_campaign_write()`, `is_campaign_manager_read()`, `register_campaign_manager_routes()`, `without_campaign_manager_writes()` | `browser-free` |
 | `campaign_manager_payload` | `AdAccount`, `AnalyticsEntity`, `AnalyticsRow`, `CM_API_PREFIX`, `Campaign`, `CampaignGroup`, `CmCall`, `Creative`, `DateWindow`, `Money`, `RunSchedule`, `Targeting`, `TargetingFacet`, `TargetingInclude`, `TargetingSegment`, `build_ad_account()`, `build_analytics_rows()`, `build_boost_account()`, `build_campaign()`, `build_campaign_group()`, `build_creative()`, `build_targeting()`, `format_restli_date_range()`, `merge_by_id()`, `normalized_elements()`, `normalized_record()`, `parse_cm_call()`, `plain_elements()`, `render_accounts()`, `render_analytics()`, `render_campaign()`, `render_campaigns()`, `restli_date_range()`, `restli_list()` | `browser-free` |
+| `campaign_manager_results` | `STATUSES`, `SUCCEEDED`, `campaign_action_result()`, `retry_safe_from()` | `browser-free` |
+| `campaign_manager_targeting` | `CampaignTargetingEditor`, `TargetingAdd` | `page-owning` |
+| `campaign_manager_write` | `CampaignWriteFlow`, `WriteLedger`, `tracking_writes()` | `page-owning` |
 | `capture` | `CONTENT_SEARCH_COUNT_JS`, `CONTENT_SEARCH_MAX_SCROLLS`, `CONTENT_SEARCH_SCROLL_BUDGET`, `CaptureMode`, `CapturePlan`, `OverlayRootNotFoundError`, `SectionCapture`, `capture_plan_for_url()` | `page-owning` |
 | `company` | `CompanyScraper` | `browser-free` |
 | `company_parse` | `ParsedJobs`, `has_about_labels()`, `parse_about()`, `parse_job_search()`, `parse_search_results()` | `browser-free` |
@@ -33,7 +41,7 @@ a page-owning collaborator.
 | `feed` | `FeedScraper` | `page-owning` |
 | `feed_payload` | `POST_SLUG_URL_RE`, `build_feed_references()`, `is_feed_payload_response()` | `browser-free` |
 | `fields` | `COMPANY_SECTIONS`, `PERSON_SECTIONS`, `parse_company_sections()`, `parse_person_sections()` | `browser-free` |
-| `identifiers` | `CAMPAIGN_MANAGER_ACCOUNTS_URL`, `campaign_manager_date_range()`, `campaign_manager_url()`, `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_ad_account_id()`, `normalize_campaign_id()`, `normalize_company_identifier()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_person_identifier()`, `normalize_profile_urn()`, `normalize_thread_id()`, `person_profile_url()` | `browser-free` |
+| `identifiers` | `CAMPAIGN_MANAGER_ACCOUNTS_URL`, `campaign_manager_date_range()`, `campaign_manager_url()`, `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_ad_account_id()`, `normalize_campaign_group_id()`, `normalize_campaign_id()`, `normalize_company_identifier()`, `normalize_company_page_url()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_person_identifier()`, `normalize_post_urn()`, `normalize_profile_urn()`, `normalize_targeting_urn()`, `normalize_thread_id()`, `normalize_website()`, `person_profile_url()` | `browser-free` |
 | `invitation_withdrawal` | `InvitationWithdrawer`, `MAX_WITHDRAWALS_LIMIT`, `age_text()`, `normalize_exclusions()`, `parse_age_days()`, `plan_withdrawals()`, `username_from_href()` | `browser-free` |
 | `job_pages` | `APPLY_SIGNALS_JS`, `JOB_IDS_JS`, `JobApplySignals`, `JobPageCapture`, `JobPageReader`, `ORGANIC_BEFORE_NOTICE_JS`, `PROMOTED_JOB_IDS_JS` | `page-owning` |
 | `job_policy` | `AI_SEARCH_PATH`, `ApplyType`, `JOB_SEARCH_PATHS`, `JobsTrackerStage`, `LOCATION_RESOLUTION_MIN`, `LOCATION_RESOLUTION_RESERVE`, `RESULTS_PER_LINKEDIN_PAGE`, `SAFETY_REDIRECT_PATH`, `SAVED_JOBS_PAGE_SIZE`, `SAVED_JOBS_PATHS`, `SAVED_JOBS_URL`, `SCROLL_BUDGET_TOTAL`, `SCROLL_DEADLINE_MAX`, `SEARCH_TIMEOUT_FRACTION`, `ai_search_section_error()`, `apply_link_missing_section_error()`, `dropped_filters_section_error()`, `dropped_offset_section_error()`, `dropped_stage_section_error()`, `employer_apply_url()`, `label_similar_jobs()`, `lost_keywords_section_error()`, `missing_description_section_error()`, `no_matching_jobs_section_error()`, `posting_state()`, `reaches_the_public_internet()`, `reconcile_search_references()`, `route()`, `same_job_search()`, `unresolved_location_section_error()` | `browser-free` |
@@ -58,9 +66,17 @@ a page-owning collaborator.
 
 - `__init__` -> `extractor`, `fields`
 - `campaign_manager` -> `campaign_manager_api`, `campaign_manager_guard`, `campaign_manager_payload`, `identifiers`, `navigation`, `session`
-- `campaign_manager_api` -> `campaign_manager_payload`
-- `campaign_manager_guard` -> _(none)_
+- `campaign_manager_api` -> `campaign_manager_guard`, `campaign_manager_payload`
+- `campaign_manager_audiences` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
+- `campaign_manager_changes` -> `campaign_manager_payload`, `identifiers`
+- `campaign_manager_content` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
+- `campaign_manager_editor` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
+- `campaign_manager_entities_payload` -> `campaign_manager_payload`, `identifiers`
+- `campaign_manager_guard` -> `campaign_manager_payload`
 - `campaign_manager_payload` -> _(none)_
+- `campaign_manager_results` -> `campaign_manager_changes`
+- `campaign_manager_targeting` -> `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
+- `campaign_manager_write` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `identifiers`, `navigation`, `session`
 - `capture` -> `content`, `contracts`, `link_metadata`, `navigation`, `session`, `text`
 - `company` -> `capture`, `contracts`, `facets`, `fields`, `identifiers`, `link_metadata`, `search_pages`, `search_parse`, `search_urls`, `session`
 - `company_parse` -> `search_parse`
@@ -69,7 +85,7 @@ a page-owning collaborator.
 - `content` -> `session`, `text`
 - `contracts` -> `identifiers`, `link_metadata`
 - `conversations` -> `content`, `identifiers`, `link_metadata`, `messaging_api`, `messaging_payload`, `messaging_read_state`, `navigation`, `profile_page`, `session`, `text`
-- `extractor` -> `campaign_manager`, `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `session`, `text`
+- `extractor` -> `campaign_manager`, `campaign_manager_audiences`, `campaign_manager_content`, `campaign_manager_editor`, `campaign_manager_targeting`, `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `session`, `text`
 - `facets` -> `capture`, `company_parse`, `contracts`, `identifiers`, `job_policy`, `link_metadata`, `navigation`, `session`
 - `feed` -> `content`, `contracts`, `feed_payload`, `navigation`, `session`, `text`
 - `feed_payload` -> `link_metadata`
@@ -97,8 +113,12 @@ a page-owning collaborator.
 
 ## `LinkedInExtractor` public coroutine surface
 
+- `add_post_to_campaign`
 - `click_button_by_text`
 - `connect_with_person`
+- `create_campaign_draft`
+- `create_company_list_audience`
+- `create_saved_audience`
 - `extract_feed`
 - `extract_page`
 - `get_campaign`
@@ -111,6 +131,7 @@ a page-owning collaborator.
 - `get_saved_jobs`
 - `get_sidebar_profiles`
 - `list_ad_accounts`
+- `list_audiences`
 - `list_campaigns`
 - `reply_to_conversation`
 - `scrape_company`
@@ -121,11 +142,19 @@ a page-owning collaborator.
 - `search_jobs`
 - `search_people`
 - `search_posts`
+- `search_targeting_entities`
 - `send_message`
+- `set_campaign_status`
+- `update_campaign`
+- `update_campaign_targeting`
 - `withdraw_invitations`
 
 ## `LinkedInExtractor` construction-state allowlist
 
+- `_audiences`
+- `_campaign_content`
+- `_campaign_editor`
+- `_campaign_targeting`
 - `_campaigns`
 - `_capture`
 - `_company`

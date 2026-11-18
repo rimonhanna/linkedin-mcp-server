@@ -1,0 +1,380 @@
+{
+  "call": {
+    "arguments": {
+      "account_id": "100000001",
+      "campaign_group_id": "100000201",
+      "confirm_send": true,
+      "name": "Example draft",
+      "objective": "WEBSITE_VISIT"
+    },
+    "method": "create_campaign_draft"
+  },
+  "events": [
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-3",
+      "kind": "route.add",
+      "pattern": "**/campaign-manager-api/**",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/new/setup?campaignGroupId=100000201",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/new/setup?campaignGroupId=100000201",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/new/setup?campaignGroupId=100000201",
+      "section": "create_campaign_draft__created",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "create_campaign_draft",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "route.abort",
+      "method": "POST",
+      "section": "create_campaign_draft__created",
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerAccounts/100000001/billingConfiguration?action=findOrCreate"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "wait_for_load_state",
+      "section": "create_campaign_draft__created",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "create_campaign_draft",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/new/setup?campaignGroupId=100000201",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/new/setup?campaignGroupId=100000201",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "boundary.rate_limit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "arg": {
+        "click": false,
+        "value": "WEBSITE_VISIT"
+      },
+      "call": "create_campaign_draft",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "b906be3cee93",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "arg": {
+        "click": true,
+        "value": "WEBSITE_VISIT"
+      },
+      "call": "create_campaign_draft",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "b906be3cee93",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "route.fallback",
+      "method": "POST",
+      "section": "create_campaign_draft__created",
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerCampaigns"
+    },
+    {
+      "call": "create_campaign_draft",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "arg": {
+        "focus": true,
+        "id": "campaign-name",
+        "scope": null
+      },
+      "call": "create_campaign_draft",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "5f367be55a01",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "keyboard.insert_text",
+      "section": "create_campaign_draft__created",
+      "text": "Example draft"
+    },
+    {
+      "arg": "campaign-name",
+      "call": "create_campaign_draft",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "16ef7a28c1ee",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "route.fallback",
+      "method": "POST",
+      "section": "create_campaign_draft__created",
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerCampaigns/100000302"
+    },
+    {
+      "call": "create_campaign_draft",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000302/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000302/details",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000302/details",
+      "section": "create_campaign_draft__created",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "create_campaign_draft",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "wait_for_load_state",
+      "section": "create_campaign_draft__created",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "create_campaign_draft",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000302/details",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000302/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "kind": "boundary.rate_limit",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "create_campaign_draft__created"
+    },
+    {
+      "call": "create_campaign_draft",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "create_campaign_draft__created"
+    }
+  ],
+  "result": {
+    "applied": {
+      "campaignGroupId": 100000201,
+      "name": "Example draft",
+      "objectiveType": "WEBSITE_VISIT",
+      "status": "DRAFT"
+    },
+    "created_id": "100000302",
+    "message": "The draft ad set was created. It is not launched.",
+    "planned": {
+      "campaignGroupId": 100000201,
+      "name": "Example draft",
+      "objectiveType": "WEBSITE_VISIT"
+    },
+    "retry_safe": false,
+    "status": "created",
+    "target": {
+      "accountId": 100000001,
+      "id": 100000201,
+      "kind": "campaign_group",
+      "name": "Example group",
+      "status": null,
+      "uiLabel": "Campaign"
+    },
+    "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/new/setup?campaignGroupId=100000201"
+  },
+  "scenario": "create_campaign_draft__created",
+  "schema_version": 1
+}

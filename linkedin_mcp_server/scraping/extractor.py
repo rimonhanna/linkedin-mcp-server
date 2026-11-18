@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +10,15 @@ from patchright.async_api import Page
 
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
 from linkedin_mcp_server.scraping.campaign_manager import CampaignManagerReader
+from linkedin_mcp_server.scraping.campaign_manager_audiences import CampaignAudiences
+from linkedin_mcp_server.scraping.campaign_manager_content import (
+    CampaignContentEditor,
+)
+from linkedin_mcp_server.scraping.campaign_manager_editor import CampaignManagerEditor
+from linkedin_mcp_server.scraping.campaign_manager_targeting import (
+    CampaignTargetingEditor,
+    TargetingAdd,
+)
 from linkedin_mcp_server.scraping.capture import SectionCapture
 from linkedin_mcp_server.scraping.company import CompanyScraper
 from linkedin_mcp_server.scraping.connection_actions import ConnectionActions
@@ -75,6 +84,10 @@ class LinkedInExtractor:
             session, navigator, content, profile_page
         )
         self._campaigns = CampaignManagerReader(session, navigator)
+        self._campaign_editor = CampaignManagerEditor(session, navigator)
+        self._campaign_targeting = CampaignTargetingEditor(session, navigator)
+        self._campaign_content = CampaignContentEditor(session, navigator)
+        self._audiences = CampaignAudiences(session, navigator)
 
     async def get_page_text(self) -> str:
         """Extract innerText from the main content area of the current page."""
@@ -362,4 +375,113 @@ class LinkedInExtractor:
             start_date=start_date,
             end_date=end_date,
             demographics=demographics,
+        )
+
+    async def update_campaign(
+        self,
+        account_id: str,
+        campaign_id: str,
+        *,
+        daily_budget: str | None = None,
+        lifetime_budget: str | None = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        confirm_send: bool,
+    ) -> dict[str, Any]:
+        """Change an ad set's budget amount or schedule dates."""
+        return await self._campaign_editor.update_campaign(
+            account_id,
+            campaign_id,
+            daily_budget=daily_budget,
+            lifetime_budget=lifetime_budget,
+            start_date=start_date,
+            end_date=end_date,
+            confirm_send=confirm_send,
+        )
+
+    async def set_campaign_status(
+        self, account_id: str, campaign_id: str, *, status: str, confirm_send: bool
+    ) -> dict[str, Any]:
+        """Pause an active ad set or resume a paused one."""
+        return await self._campaign_editor.set_campaign_status(
+            account_id, campaign_id, status=status, confirm_send=confirm_send
+        )
+
+    async def create_campaign_draft(
+        self,
+        account_id: str,
+        campaign_group_id: str,
+        *,
+        objective: str,
+        name: str,
+        confirm_send: bool,
+    ) -> dict[str, Any]:
+        """Create a draft ad set in an existing campaign group."""
+        return await self._campaign_editor.create_campaign_draft(
+            account_id,
+            campaign_group_id,
+            objective=objective,
+            name=name,
+            confirm_send=confirm_send,
+        )
+
+    async def search_targeting_entities(
+        self, account_id: str, campaign_id: str, query: str
+    ) -> dict[str, Any]:
+        """Targeting values Campaign Manager offers for ``query`` on an ad set."""
+        return await self._campaign_targeting.search_targeting_entities(
+            account_id, campaign_id, query
+        )
+
+    async def update_campaign_targeting(
+        self,
+        account_id: str,
+        campaign_id: str,
+        *,
+        add: Sequence[TargetingAdd] | None = None,
+        remove: Sequence[str] | None = None,
+        confirm_send: bool,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """Add and remove targeting values of one ad set."""
+        return await self._campaign_targeting.update_campaign_targeting(
+            account_id,
+            campaign_id,
+            add=add,
+            remove=remove,
+            confirm_send=confirm_send,
+            deadline=deadline,
+        )
+
+    async def add_post_to_campaign(
+        self, account_id: str, campaign_id: str, post_urn: str, *, confirm_send: bool
+    ) -> dict[str, Any]:
+        """Add a company post to a draft or paused ad set as an ad."""
+        return await self._campaign_content.add_post_to_campaign(
+            account_id, campaign_id, post_urn, confirm_send=confirm_send
+        )
+
+    async def list_audiences(self, account_id: str) -> dict[str, Any]:
+        """List an ad account's matched and saved audiences."""
+        return await self._audiences.list_audiences(account_id)
+
+    async def create_company_list_audience(
+        self,
+        account_id: str,
+        name: str,
+        companies: Sequence[Mapping[str, Any]],
+        *,
+        confirm_send: bool,
+    ) -> dict[str, Any]:
+        """Upload a company list as a matched audience of the ad account."""
+        return await self._audiences.create_company_list_audience(
+            account_id, name, companies, confirm_send=confirm_send
+        )
+
+    async def create_saved_audience(
+        self, account_id: str, campaign_id: str, name: str, *, confirm_send: bool
+    ) -> dict[str, Any]:
+        """Save an ad set's targeting as a saved audience."""
+        return await self._audiences.create_saved_audience(
+            account_id, campaign_id, name, confirm_send=confirm_send
         )

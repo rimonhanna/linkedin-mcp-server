@@ -22,6 +22,14 @@ work, health checks, or background maintenance.
   actions. Use them only when the user explicitly authorizes the
   exact recipient and action (for a reply, the exact thread). Confirm the
   final message or connection note unless the user has already supplied it.
+- `update_campaign`, `set_campaign_status`, `update_campaign_targeting`,
+  `create_campaign_draft`, `add_post_to_campaign`,
+  `create_company_list_audience` and `create_saved_audience` change the
+  user's ad account. Call them with `confirm_send` false first, show the user
+  the planned change, and confirm only what they approved. Confirming
+  `create_company_list_audience` accepts LinkedIn's Ads Agreement for the
+  upload; say so before confirming. None of them launches a campaign or
+  touches billing.
 - Do not retry a failed write action unless the result proves it was not sent.
 
 ## Browser and authentication
@@ -73,11 +81,17 @@ instances, clear profiles, or replace the user's browser session.
 - Content: `get_feed` and `search_posts`.
 - Messages: `get_inbox`, `get_conversation`, and `search_conversations`.
 - Campaign Manager (read-only): `list_ad_accounts`, `list_campaigns`,
-  `get_campaign` and `get_campaign_analytics`. An API campaign group is the
-  UI's "Campaign", an API campaign its "Ad set" and a creative its "Ad".
+  `get_campaign`, `get_campaign_analytics`, `search_targeting_entities` and
+  `list_audiences`. An API campaign group is the UI's "Campaign", an API
+  campaign its "Ad set" and a creative its "Ad".
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
-  InMail included, by its thread ID) and `connect_with_person`, subject to the
-  explicit authorization rules above.
+  InMail included, by its thread ID) and `connect_with_person`, and the
+  Campaign Manager writes (`update_campaign`, `set_campaign_status`,
+  `update_campaign_targeting`, `create_campaign_draft`,
+  `add_post_to_campaign`, `create_company_list_audience`,
+  `create_saved_audience`), subject to the explicit authorization rules above.
+  A Campaign Manager result with `retry_safe` false may have been saved: ask
+  the user to check Campaign Manager before calling again.
 - Cleanup: use `close_session` only when the user asks to end the managed
   browser session or when the current LinkedIn task is finished and no follow-up
   call is expected.

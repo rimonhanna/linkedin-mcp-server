@@ -1,0 +1,363 @@
+{
+  "call": {
+    "arguments": {
+      "account_id": "100000001",
+      "campaign_id": "100000301",
+      "confirm_send": true,
+      "post_urn": "urn:li:share:100000701"
+    },
+    "method": "add_post_to_campaign"
+  },
+  "events": [
+    {
+      "call": "add_post_to_campaign",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "callback_id": "callback-3",
+      "kind": "route.add",
+      "pattern": "**/campaign-manager-api/**",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "section": "add_post_to_campaign__added",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "kind": "wait_for_load_state",
+      "section": "add_post_to_campaign__added",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "add_post_to_campaign",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "kind": "boundary.rate_limit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "arg": "/campaignmanager/accounts/100000001/campaigns/100000301/creatives/sponsorable-contents?businessId=personal",
+      "call": "add_post_to_campaign",
+      "kind": "evaluate",
+      "operation": "cm_route",
+      "program_digest": "919386b7a793",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "arg": "#sponsored-content-library__pill-filter-ORGANIC",
+      "call": "add_post_to_campaign",
+      "kind": "evaluate",
+      "operation": "cm_content_pill",
+      "program_digest": "a3da00c513ab",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "kind": "evaluate",
+      "operation": "cm_content_rows",
+      "program_digest": "4c3c53699c71",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "arg": [
+        "row",
+        0,
+        1
+      ],
+      "call": "add_post_to_campaign",
+      "kind": "evaluate",
+      "operation": "cm_content_click",
+      "program_digest": "591d6b870bca",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "arg": [
+        "add",
+        0,
+        1
+      ],
+      "call": "add_post_to_campaign",
+      "kind": "evaluate",
+      "operation": "cm_content_click",
+      "program_digest": "591d6b870bca",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "kind": "route.fallback",
+      "method": "POST",
+      "section": "add_post_to_campaign__added",
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerCreatives"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "section": "add_post_to_campaign__added",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "kind": "wait_for_load_state",
+      "section": "add_post_to_campaign__added",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "add_post_to_campaign",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "kind": "boundary.rate_limit",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "add_post_to_campaign__added"
+    },
+    {
+      "call": "add_post_to_campaign",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "add_post_to_campaign__added"
+    }
+  ],
+  "result": {
+    "applied": {
+      "creativeId": "100000501",
+      "postUrn": "urn:li:share:100000701",
+      "status": "ACTIVE"
+    },
+    "created_id": "100000501",
+    "message": "The post was added to the ad set as a new ad.",
+    "planned": {
+      "contentType": "TEXT",
+      "postUrn": "urn:li:share:100000701",
+      "visibility": "ORGANIC"
+    },
+    "retry_safe": false,
+    "status": "added",
+    "target": {
+      "accountId": 100000001,
+      "id": 100000301,
+      "kind": "campaign",
+      "name": "Example ad set",
+      "status": "DRAFT",
+      "uiLabel": "Ad set"
+    },
+    "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/creatives/sponsorable-contents?businessId=personal"
+  },
+  "scenario": "add_post_to_campaign__added",
+  "schema_version": 1
+}

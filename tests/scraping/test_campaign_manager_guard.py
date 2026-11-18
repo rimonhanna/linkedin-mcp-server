@@ -29,7 +29,13 @@ class FakePage:
 
 
 class FakeRoute:
-    def __init__(self, method: str, url: str, headers: dict[str, str] | None = None):
+    def __init__(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str] | None = None,
+        body: str | None = None,
+    ):
         headers = headers or {}
         self.outcome = ""
 
@@ -38,7 +44,11 @@ class FakeRoute:
 
         # Provisional headers: the sync view lacks the tunnel header.
         self.request = SimpleNamespace(
-            method=method, url=url, headers={}, all_headers=all_headers
+            method=method,
+            url=url,
+            headers={},
+            all_headers=all_headers,
+            post_data=body,
         )
 
     async def abort(self) -> None:
@@ -48,8 +58,10 @@ class FakeRoute:
         self.outcome = "fallback"
 
 
-async def _outcome(page: FakePage, method: str, url: str, headers=None) -> str:
-    route = FakeRoute(method, url, headers)
+async def _outcome(
+    page: FakePage, method: str, url: str, headers=None, body=None
+) -> str:
+    route = FakeRoute(method, url, headers, body)
     await page.routes[0][1](route)
     return route.outcome
 
@@ -106,3 +118,108 @@ async def test_registration_failure_latches_refusal():
     with pytest.raises(LinkedInScraperException, match="close_session"):
         async with guard.without_campaign_manager_writes(page):
             pytest.fail("a read must not run unguarded")
+
+
+PATCH = {"X-RestLi-Method": "PARTIAL_UPDATE"}
+PATCH_BODY = '{"patch": {"$set": {"status": "PAUSED"}}}'
+
+
+def _admit_status_patch(request: guard.CmWriteRequest) -> str | None:
+    if request.call.resource != "campaignManagerCampaigns":
+        return "not planned"
+    return None
+
+
+async def test_read_only_posts_pass_latched_and_inside_a_window():
+    page = await _registered()
+    url = API + "campaignManagerEntityRecommendations"
+    async with guard.without_campaign_manager_writes(page):
+        assert await _outcome(page, "POST", url) == "fallback"
+    async with guard.explicit_campaign_write(page, admit=lambda _: "no") as window:
+        assert await _outcome(page, "POST", url) == "fallback"
+        assert await _outcome(page, "PUT", url) == "abort"
+    assert window.admitted == []
+    assert [(r.method, reason) for r, reason in window.refused] == [("PUT", "no")]
+
+
+async def test_window_admits_the_planned_write_and_refuses_the_rest():
+    page = await _registered()
+    async with guard.without_campaign_manager_writes(page):
+        pass
+    tunneled = {"X-HTTP-Method-Override": "GET"}
+    patch_url = API + "campaignManagerCampaigns/100000001"
+    billing = API + "billingConfiguration?action=findOrCreate"
+    async with guard.explicit_campaign_write(page, admit=_admit_status_patch) as window:
+        assert await _outcome(page, "POST", API + "x", tunneled) == "fallback"
+        assert await _outcome(page, "POST", patch_url, PATCH, PATCH_BODY) == "fallback"
+        assert await _outcome(page, "POST", billing) == "abort"
+    [admitted] = window.admitted
+    assert admitted.call.entity_id == "100000001"
+    assert admitted.restli_method == "PARTIAL_UPDATE"
+    assert admitted.body == {"patch": {"$set": {"status": "PAUSED"}}}
+    [(refused, reason)] = window.refused
+    assert refused.call.resource == "billingConfiguration"
+    assert refused.body is None
+    assert reason == "not planned"
+    # Latched again once the window closes.
+    assert await _outcome(page, "POST", patch_url, PATCH, PATCH_BODY) == "abort"
+
+
+async def test_an_admission_that_raises_aborts():
+    def broken(_request: guard.CmWriteRequest) -> str | None:
+        raise KeyError("x")
+
+    page = await _registered()
+    url = API + "campaignManagerCampaigns/100000001"
+    async with guard.explicit_campaign_write(page, admit=broken) as window:
+        assert await _outcome(page, "POST", url, PATCH, "not json") == "abort"
+    assert window.admitted == []
+    [(refused, reason)] = window.refused
+    assert reason == "admission error"
+    assert refused.body is None
+
+
+@pytest.mark.parametrize("exit_by", [ValueError, asyncio.CancelledError])
+async def test_window_latches_on_an_exception_or_cancellation(exit_by):
+    page = await _registered()
+    url = API + "campaignManagerCampaigns/100000001"
+    with pytest.raises(exit_by):
+        async with guard.explicit_campaign_write(page, admit=lambda _: None):
+            assert await _outcome(page, "POST", url) == "fallback"
+            raise exit_by()
+    assert guard._GUARDS[page].admission is None
+    assert await _outcome(page, "POST", url) == "abort"
+
+
+async def test_a_second_window_on_the_page_is_refused():
+    page = await _registered()
+    async with guard.explicit_campaign_write(page, admit=lambda _: None):
+        with pytest.raises(LinkedInScraperException, match="already in progress"):
+            async with guard.explicit_campaign_write(page, admit=lambda _: None):
+                pytest.fail("a nested window must not open")
+        # The refused inner window leaves the outer one open.
+        url = API + "campaignManagerCampaigns/100000001"
+        assert await _outcome(page, "POST", url) == "fallback"
+
+
+async def test_request_whose_window_closes_while_headers_are_read_is_aborted():
+    page = await _registered()
+    url = API + "campaignManagerCampaigns/100000001"
+    released = asyncio.Event()
+    route = FakeRoute("POST", url, PATCH, PATCH_BODY)
+    read_headers = route.request.all_headers
+
+    async def slow_headers() -> dict[str, str]:
+        await released.wait()
+        return await read_headers()
+
+    route.request.all_headers = slow_headers
+    async with guard.explicit_campaign_write(page, admit=lambda _: None) as closed:
+        handling = asyncio.create_task(page.routes[0][1](route))
+        await asyncio.sleep(0)
+    async with guard.explicit_campaign_write(page, admit=lambda _: None) as reopened:
+        released.set()
+        await handling
+    assert route.outcome == "abort"
+    assert closed.admitted == [] and closed.refused == []
+    assert reopened.admitted == [] and reopened.refused == []

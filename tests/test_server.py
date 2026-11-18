@@ -925,6 +925,12 @@ withdraw_invitations act as the user. Use them only for the recipient and text
 the user approved; when asked for a draft, reply with the text instead. If a write's outcome is unknown, ask the
 user to check LinkedIn before acting again.
 
+update_campaign, set_campaign_status, update_campaign_targeting,
+create_campaign_draft, add_post_to_campaign, create_company_list_audience and
+create_saved_audience change the user's ad account and can spend money: call
+them with confirm_send false first, show the user the planned change, and
+confirm only what they approved.
+
 Calls are paced and run one at a time on purpose. If a tool reports a rate
 limit, an account cooldown or a pacing cap, do not retry or work around it:
 every retry counts against the account. Tell the user when it lifts. An
@@ -1007,6 +1013,8 @@ class TestWhatTheToolsPromise:
             "list_campaigns",
             "get_campaign",
             "get_campaign_analytics",
+            "search_targeting_entities",
+            "list_audiences",
         }
         claiming = set()
         for name in reads:
@@ -1016,3 +1024,24 @@ class TestWhatTheToolsPromise:
                 claiming.add(name)
 
         assert claiming == reads
+
+    async def test_campaign_manager_writes_claim_destructive(self):
+        mcp = create_mcp_server()
+        writes = {
+            "update_campaign",
+            "set_campaign_status",
+            "update_campaign_targeting",
+            "create_campaign_draft",
+            "add_post_to_campaign",
+            "create_company_list_audience",
+            "create_saved_audience",
+        }
+        claiming = set()
+        for name in writes:
+            tool = await mcp.get_tool(name)
+            assert tool is not None, f"{name} is not registered any more"
+            assert not (tool.annotations and tool.annotations.readOnlyHint)
+            if tool.annotations and tool.annotations.destructiveHint:
+                claiming.add(name)
+
+        assert claiming == writes

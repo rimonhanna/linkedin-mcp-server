@@ -1,0 +1,323 @@
+"""The page-owning steps every Campaign Manager write tool shares.
+
+A write runs in three phases over one capture: a latched read that verifies
+the target, an apply phase inside ``explicit_campaign_write`` where only the
+app's requests the plan admits leave the browser, and a latched re-read that
+verifies what LinkedIn kept. This module owns the navigation, the record
+read, the write window with its route pin, the footer's Save and exit, and
+leaving a page whose edit was refused.
+
+Per the AGENTS.md Scraping Rules nothing here reads visible text: the target
+is identified by URL path and the record's ids, the footer button by its
+container attribute and position.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
+from typing import Any
+from urllib.parse import urlparse
+
+import logging
+
+from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+from linkedin_mcp_server.scraping.campaign_manager import _SETUP_PATH, _refusal
+from linkedin_mcp_server.scraping.campaign_manager_api import (
+    CampaignManagerCapture,
+    CmResponse,
+    CmWriteResponse,
+)
+from linkedin_mcp_server.scraping.campaign_manager_changes import Refusal
+from linkedin_mcp_server.scraping.campaign_manager_guard import (
+    Admission,
+    CmWriteRequest,
+    WriteWindow,
+    explicit_campaign_write,
+    without_campaign_manager_writes,
+)
+from linkedin_mcp_server.scraping.campaign_manager_payload import normalized_record
+from linkedin_mcp_server.scraping.campaign_manager_results import (
+    campaign_action_result,
+)
+from linkedin_mcp_server.scraping.identifiers import (
+    campaign_manager_url,
+    normalize_ad_account_id,
+    normalize_campaign_id,
+)
+from linkedin_mcp_server.scraping.navigation import PageNavigator
+from linkedin_mcp_server.scraping.session import ScrapingSession
+
+logger = logging.getLogger(__name__)
+
+_READY_TIMEOUT = 12.0
+_SAVE_TIMEOUT = 20.0
+# Save and exit is the footer button right before Next: after Previous on a
+# draft, alone on a launched campaign (observed 2026-11).
+_FOOTER_CANDIDATES = {True: 2, False: 1}
+_FOOTER_JS = """(expected) => {
+    /* linkedin-mcp:cm-footer */
+    const footers = [...document.querySelectorAll(
+        '[data-js-wizard-container-footer-actions]'
+    )];
+    if (footers.length !== 1) return { count: -footers.length, clicked: false };
+    const candidates = [...footers[0].querySelectorAll(
+        'button:not([data-live-test-wizard-container__button--next])'
+    )];
+    const target = candidates[candidates.length - 1];
+    const buttons = [...footers[0].querySelectorAll('button')];
+    const next = buttons[buttons.length - 1];
+    if (
+        candidates.length !== expected ||
+        buttons[buttons.length - 2] !== target ||
+        !next.matches('[data-live-test-wizard-container__button--next]') ||
+        target.disabled ||
+        target.getClientRects().length === 0
+    ) {
+        return { count: candidates.length, clicked: false };
+    }
+    target.click();
+    return { count: candidates.length, clicked: true };
+}"""
+
+
+def _not_found(message: str) -> Refusal:
+    return (
+        "target_not_found",
+        f"{message} Nothing was changed. Pass the ad_account_id and campaign_id "
+        "exactly as list_campaigns returned them.",
+    )
+
+
+class WriteLedger:
+    """Every write window one tool call opened, for the tool's error path.
+
+    A flow catches only its own stop types, so a Playwright timeout, a closed
+    page or a cancellation after a write left the browser escapes it. The tool
+    layer reads this ledger then: with a write admitted the outcome is
+    ``save_unverified`` and counted, never an error the agent retries.
+    """
+
+    def __init__(self) -> None:
+        self.windows: list[WriteWindow] = []
+        self.url = ""
+
+    @property
+    def admitted(self) -> bool:
+        return any(window.admitted for window in self.windows)
+
+    def unverified(self, tool: str, error: BaseException) -> dict[str, Any]:
+        """The result for ``error`` raised after a write was admitted."""
+        return campaign_action_result(
+            tool,
+            self.url,
+            "save_unverified",
+            "A change was sent to LinkedIn, then the tool stopped on an "
+            f"unexpected error ({type(error).__name__}), so whether LinkedIn "
+            "kept it is unknown. Check Campaign Manager before calling again.",
+            retry_safe=False,
+            refused=[pair for window in self.windows for pair in window.refused],
+        )
+
+
+_ledger: ContextVar[WriteLedger | None] = ContextVar(
+    "campaign_write_ledger", default=None
+)
+
+
+@contextmanager
+def tracking_writes() -> Iterator[WriteLedger]:
+    """Collect the write windows opened in this context into one ledger."""
+    ledger = WriteLedger()
+    token = _ledger.set(ledger)
+    try:
+        yield ledger
+    finally:
+        _ledger.reset(token)
+
+
+class _RoutePin:
+    """Where the page was when the window opened, and where it went since."""
+
+    def __init__(self, page: Any, expected: Callable[[str], bool] | None) -> None:
+        self._page = page
+        self._path = urlparse(page.url).path
+        self._expected = expected
+        self.moved_to: str | None = None
+        self.listener = self._record
+
+    def _record(self, frame: Any) -> None:
+        if frame != self._page.main_frame or self.moved_to is not None:
+            return
+        path = urlparse(frame.url).path
+        if path != self._path and not (self._expected and self._expected(path)):
+            self.moved_to = path
+
+
+class CampaignWriteFlow:
+    """Navigation, verification and the write window shared by every write tool."""
+
+    def __init__(self, session: ScrapingSession, navigator: PageNavigator):
+        self._session = session
+        self._navigator = navigator
+        self._pin: _RoutePin | None = None
+
+    @asynccontextmanager
+    async def capturing(self) -> AsyncIterator[CampaignManagerCapture]:
+        """One capture spanning the read, apply and verify phases."""
+        async with CampaignManagerCapture(self._session.page) as capture:
+            yield capture
+
+    async def read_campaign(
+        self,
+        capture: CampaignManagerCapture,
+        account_id: str,
+        campaign_id: str,
+        *,
+        suffix: str = "/details",
+    ) -> dict[str, Any] | Refusal:
+        """Open the campaign's ``suffix`` page latched and return its record.
+
+        Only a record that arrives after this call counts, so a re-read after
+        a save never returns the record from before it. A setup redirect, an
+        id LinkedIn refuses and a campaign of another account are refusals
+        (``target_not_found``); a record that never arrives raises.
+        """
+        account = normalize_ad_account_id(account_id)
+        campaign = normalize_campaign_id(campaign_id)
+        url = campaign_manager_url(account, f"/campaigns/{campaign}{suffix}")
+        refused = _refusal(account, campaign)
+
+        def is_campaign(response: CmResponse) -> bool:
+            record = normalized_record(response.payload)
+            return (
+                response.ok
+                and response.call.resource == "campaignManagerCampaigns"
+                and response.call.finder is None
+                and response.call.entity_id == campaign
+                and record is not None
+                and record.get("id") == int(campaign)
+            )
+
+        page = self._session.page
+        async with without_campaign_manager_writes(page):
+            await capture.settle()
+            after = len(capture.responses)
+            await self._navigator._navigate_to_page(url)
+            await self._session.check_rate_limit()
+            await self._session.dismiss_modal()
+            if _SETUP_PATH in urlparse(page.url).path:
+                return _not_found(
+                    "Campaign Manager opened its campaign setup page instead of "
+                    "this ad set."
+                )
+            response = await capture.wait_for(
+                lambda r: is_campaign(r) or refused(r) is not None,
+                after=after,
+                timeout=_READY_TIMEOUT,
+            )
+            await capture.settle()
+        field = refused(response)
+        if field is not None:
+            return _not_found(
+                f"Campaign Manager refused that {field} (HTTP {response.status})."
+            )
+        record = normalized_record(response.payload) or {}
+        if not isinstance(record.get("accountId"), int):
+            raise LinkedInScraperException(
+                "Campaign Manager returned the ad set in a shape this tool does "
+                "not recognise, so nothing was changed."
+            )
+        if record["accountId"] != int(account):
+            return _not_found("That ad set does not belong to that ad account.")
+        return record
+
+    @asynccontextmanager
+    async def apply(
+        self,
+        page: Any,
+        admit: Admission,
+        *,
+        expected_path: Callable[[str], bool] | None = None,
+    ) -> AsyncIterator[WriteWindow]:
+        """Open the write window, pinned to the page's current route.
+
+        Once the main frame moves to a path that is neither the one at entry
+        nor one ``expected_path`` accepts, every further write is refused and
+        ``moved_to`` names the path, so a click that took the app somewhere
+        unplanned cannot save anything there. The window joins the current
+        ``tracking_writes`` ledger, so an error after an admitted write is
+        reported as unverified by the tool layer whichever flow raised it.
+        """
+        pin = _RoutePin(page, expected_path)
+        self._pin = pin
+
+        def pinned(request: CmWriteRequest) -> str | None:
+            if pin.moved_to is not None:
+                return "the page left the planned route"
+            return admit(request)
+
+        page.on("framenavigated", pin.listener)
+        try:
+            async with explicit_campaign_write(page, admit=pinned) as window:
+                ledger = _ledger.get()
+                if ledger is not None:
+                    ledger.windows.append(window)
+                    ledger.url = page.url
+                yield window
+        finally:
+            try:
+                page.remove_listener("framenavigated", pin.listener)
+            except Exception:
+                logger.debug("Could not remove route pin listener", exc_info=True)
+
+    def moved_to(self) -> str | None:
+        """The unplanned path the last write window's page moved to, if any."""
+        return self._pin.moved_to if self._pin is not None else None
+
+    async def save_and_exit(self, page: Any, *, draft: bool) -> bool:
+        """Click the footer's Save and exit; False, unclicked, on any other layout.
+
+        The footer must be the only one, hold exactly the buttons a draft or a
+        launched campaign shows, and its last one must be enabled and visible.
+        """
+        result = await page.evaluate(_FOOTER_JS, _FOOTER_CANDIDATES[draft])
+        clicked = isinstance(result, dict) and result.get("clicked") is True
+        if not clicked:
+            logger.debug("Save and exit not clicked: %s", result)
+        return clicked
+
+    async def wait_saved(
+        self,
+        capture: CampaignManagerCapture,
+        predicate: Callable[[CmWriteResponse], bool],
+        after: int,
+        *,
+        timeout: float = _SAVE_TIMEOUT,
+    ) -> CmWriteResponse | None:
+        """LinkedIn's answer to an admitted write from ``after`` on; None if none came."""
+        return await capture.wait_for_write(predicate, after=after, timeout=timeout)
+
+    async def leave(self, page: Any, url: str) -> None:
+        """Navigate to ``url``, discarding the page's unsaved edit.
+
+        Only used after our own edit was refused, so the browser's leave-page
+        prompt is accepted; any other dialog is dismissed. The handler is
+        removed afterwards so no later tool's dialog is answered by it.
+        """
+
+        async def answer(dialog: Any) -> None:
+            if dialog.type == "beforeunload":
+                await dialog.accept()
+            else:
+                await dialog.dismiss()
+
+        page.on("dialog", answer)
+        try:
+            await self._navigator._navigate_to_page(url)
+        finally:
+            try:
+                page.remove_listener("dialog", answer)
+            except Exception:
+                logger.debug("Could not remove dialog listener", exc_info=True)

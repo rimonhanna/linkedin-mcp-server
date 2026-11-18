@@ -343,3 +343,87 @@ async def test_a_service_worker_response_fails_the_read_closed(mock_page):
         async with CampaignManagerCapture(mock_page) as capture:
             _emit(mock_page, response)
             await capture.wait_for(lambda r: True, timeout=1)
+
+
+def _write(
+    path: str,
+    body: str | None,
+    *,
+    restli: str,
+    status: int = 201,
+    answer: dict[str, str] | None = None,
+) -> SimpleNamespace:
+    headers = {"content-type": "application/json", "X-RestLi-Method": restli}
+    response = _response(
+        path, {"id": 1}, method="POST", body=body, status=status, headers=headers
+    )
+    response.request.all_headers = AsyncMock(return_value=headers)
+    response.all_headers = AsyncMock(return_value=answer or {})
+    return response
+
+
+async def test_a_write_answer_is_kept_apart_from_reads(mock_page):
+    create = _write(
+        "campaignManagerCampaigns",
+        '{"status": "DRAFT"}',
+        restli="CREATE",
+        answer={"X-RestLi-Id": "100000301"},
+    )
+    async with CampaignManagerCapture(mock_page) as capture:
+        _emit(
+            mock_page,
+            _response("campaignManagerReportingAccounts?q=findAll", {"elements": []}),
+            create,
+        )
+        found = await capture.wait_for_write(
+            lambda w: w.call.resource == "campaignManagerCampaigns", timeout=1
+        )
+        await capture.settle()
+    assert found is not None
+    assert found.ok
+    assert (found.method, found.restli_method) == ("POST", "CREATE")
+    assert found.body == {"status": "DRAFT"}
+    assert found.created_id == "100000301"
+    assert capture.write_count == 1
+    assert [r.call.resource for r in capture.responses] == [
+        "campaignManagerReportingAccounts"
+    ]
+
+
+async def test_a_read_only_post_is_a_read(mock_page):
+    response = _response(
+        "campaignManagerEntityRecommendations",
+        {"elements": []},
+        method="POST",
+        body="{}",
+        headers={"content-type": "application/json"},
+    )
+    response.request.all_headers = AsyncMock(
+        return_value={"content-type": "application/json"}
+    )
+    async with CampaignManagerCapture(mock_page) as capture:
+        _emit(mock_page, response)
+        await capture.wait_for(lambda r: True, timeout=1)
+    assert capture.writes == []
+
+
+async def test_wait_for_write_skips_earlier_writes_and_times_out_quietly(mock_page):
+    patch_url = "campaignManagerCampaigns/100000301"
+    with patch.object(api_module, "note_throttle_signal") as signal:
+        async with CampaignManagerCapture(mock_page) as capture:
+            _emit(mock_page, _write(patch_url, "{}", restli="PARTIAL_UPDATE"))
+            await capture.settle()
+            after = capture.write_count
+            missed = await capture.wait_for_write(
+                lambda w: True, after=after, timeout=0.05
+            )
+            _emit(
+                mock_page,
+                _write(patch_url, "not json", restli="PARTIAL_UPDATE", status=400),
+            )
+            found = await capture.wait_for_write(lambda w: True, after=after, timeout=1)
+    assert missed is None
+    signal.assert_not_called()
+    assert found is not None
+    assert (found.status, found.ok, found.body) == (400, False, None)
+    assert found.created_id is None

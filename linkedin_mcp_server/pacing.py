@@ -126,6 +126,7 @@ SEARCH_PAGES_MAX = 100  # SEARCH_PAGES_MAX, per 24 h (Linked Helper's recommenda
 INVITES_MAX = 20  # INVITES_MAX, per 24 h
 INVITES_WEEKLY_MAX = 160  # INVITES_WEEKLY_MAX, per calendar week (resets Monday 00:00)
 MESSAGES_MAX = 50  # MESSAGES_MAX, per 24 h
+CAMPAIGN_WRITES_MAX = 30  # CAMPAIGN_WRITES_MAX, per 24 h
 
 # Kinds a navigation is filed under, by URL. Only ``profile`` and ``search``
 # carry a cap; the rest, Campaign Manager included, are counted so the ledger
@@ -144,6 +145,9 @@ INVITES, MESSAGES = "invites", "messages"
 # A withdrawn invitation: a write like the two above (refused outside working
 # hours, counted in the hourly cap) but with no daily cap of its own.
 WITHDRAWALS = "withdrawals"
+# A Campaign Manager write that left the browser (a budget, status, targeting
+# or audience change): a write like the others, with its own daily cap.
+CAMPAIGN_WRITES = "campaign_writes"
 
 # Slice shaved off the daily cap by the per-day draw (DAILY_CAP_JITTER):
 # uniform(1 - jitter, 1.0), so the total is never a round number.
@@ -243,6 +247,15 @@ def kind_caps(kind: str) -> tuple[tuple[int, int], ...]:
         return (
             (
                 env_int(EnvironmentKeys.MESSAGES_MAX, MESSAGES_MAX, minimum=1),
+                WINDOW_SECONDS,
+            ),
+        )
+    if kind == CAMPAIGN_WRITES:
+        return (
+            (
+                env_int(
+                    EnvironmentKeys.CAMPAIGN_WRITES_MAX, CAMPAIGN_WRITES_MAX, minimum=1
+                ),
                 WINDOW_SECONDS,
             ),
         )
@@ -952,7 +965,7 @@ def refuse_if_limited(
     off_hours, caps = _effective_caps(
         budget, kind, now, ignore_schedule=ignore_schedule
     )
-    if off_hours and kind in (INVITES, MESSAGES, WITHDRAWALS):
+    if off_hours and kind in (INVITES, MESSAGES, WITHDRAWALS, CAMPAIGN_WRITES):
         raise ActionLimitError(
             kind,
             limit=0,

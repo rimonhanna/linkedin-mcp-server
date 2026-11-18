@@ -1,0 +1,236 @@
+{
+  "call": {
+    "arguments": {
+      "account_id": "100000001",
+      "campaign_id": "100000301",
+      "query": "engineer"
+    },
+    "method": "search_targeting_entities"
+  },
+  "events": [
+    {
+      "call": "search_targeting_entities",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "callback_id": "callback-3",
+      "kind": "route.add",
+      "pattern": "**/campaign-manager-api/**",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "section": "search_targeting_entities__titles",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "search_targeting_entities",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "kind": "wait_for_load_state",
+      "section": "search_targeting_entities__titles",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "search_targeting_entities",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "kind": "boundary.rate_limit",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "arg": "includedOrs0",
+      "call": "search_targeting_entities",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "4079f229b22e",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "arg": 0,
+      "call": "search_targeting_entities",
+      "kind": "evaluate",
+      "operation": "cm_pill",
+      "program_digest": "63122b9bba21",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.6,
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "arg": false,
+      "call": "search_targeting_entities",
+      "kind": "evaluate",
+      "operation": "cm_typeahead_rows",
+      "program_digest": "8e3999f47175",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "delay_ms": null,
+      "kind": "keyboard.type",
+      "section": "search_targeting_entities__titles",
+      "text": "engineer"
+    },
+    {
+      "call": "search_targeting_entities",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "kind": "evaluate",
+      "operation": "cm_typeahead_rows",
+      "program_digest": "ece81920a8d3",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "arg": false,
+      "call": "search_targeting_entities",
+      "kind": "evaluate",
+      "operation": "cm_typeahead_rows",
+      "program_digest": "8e3999f47175",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "key": "Backspace",
+      "kind": "keyboard.press",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "search_targeting_entities__titles"
+    },
+    {
+      "call": "search_targeting_entities",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "search_targeting_entities__titles"
+    }
+  ],
+  "result": {
+    "section_names": [
+      "targeting_entities"
+    ],
+    "sections": {
+      "targeting_entities": "Example title 300 (urn:li:title:300)\nExample title 301 (urn:li:title:301): not targetable"
+    },
+    "targeting_entities": [
+      {
+        "addable": true,
+        "facetUrn": "urn:li:adTargetingFacet:titles",
+        "name": "Example title 300",
+        "targetable": true,
+        "urn": "urn:li:title:300"
+      },
+      {
+        "addable": false,
+        "facetUrn": "urn:li:adTargetingFacet:titles",
+        "name": "Example title 301",
+        "targetable": false,
+        "urn": "urn:li:title:301"
+      }
+    ],
+    "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details"
+  },
+  "scenario": "search_targeting_entities__titles",
+  "schema_version": 1
+}

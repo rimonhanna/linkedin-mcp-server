@@ -94,6 +94,18 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
     mock.list_campaigns = AsyncMock(return_value=scrape_result)
     mock.get_campaign = AsyncMock(return_value=scrape_result)
     mock.get_campaign_analytics = AsyncMock(return_value=scrape_result)
+    mock.search_targeting_entities = AsyncMock(return_value=scrape_result)
+    mock.list_audiences = AsyncMock(return_value=scrape_result)
+    for name in (
+        "update_campaign",
+        "set_campaign_status",
+        "update_campaign_targeting",
+        "create_campaign_draft",
+        "add_post_to_campaign",
+        "create_company_list_audience",
+        "create_saved_audience",
+    ):
+        setattr(mock, name, AsyncMock(return_value=scrape_result))
     mock.extract_page = AsyncMock(
         return_value=ExtractedSection(text="some text", references=[])
     )
@@ -243,6 +255,41 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
             {"ad_account_id": "abc"},
             "ad_account_id is not a LinkedIn id",
         ),
+        (
+            "campaign_manager",
+            "search_targeting_entities",
+            {"ad_account_id": "100000001", "campaign_id": "/feed/", "query": "x"},
+            "campaign_id is not a LinkedIn id",
+        ),
+        (
+            "campaign_manager",
+            "list_audiences",
+            {"ad_account_id": "urn:li:sponsoredCampaign:100000001"},
+            "ad_account_id is not a LinkedIn id",
+        ),
+        (
+            "campaign_manager_actions",
+            "create_campaign_draft",
+            {
+                "ad_account_id": "100000001",
+                "campaign_group_id": "/feed/",
+                "objective": "WEBSITE_VISIT",
+                "name": "Example ad set",
+                "confirm_send": False,
+            },
+            "campaign_group_id is not a LinkedIn id",
+        ),
+        (
+            "campaign_manager_actions",
+            "add_post_to_campaign",
+            {
+                "ad_account_id": "100000001",
+                "campaign_id": "abc",
+                "post_urn": "urn:li:share:400000004",
+                "confirm_send": False,
+            },
+            "campaign_id is not a LinkedIn id",
+        ),
     ],
 )
 async def test_invalid_reference_is_rejected_before_extractor(
@@ -250,6 +297,9 @@ async def test_invalid_reference_is_rejected_before_extractor(
 ):
     from linkedin_mcp_server.tools.campaign_manager import (
         register_campaign_manager_tools,
+    )
+    from linkedin_mcp_server.tools.campaign_manager_actions import (
+        register_campaign_manager_action_tools,
     )
     from linkedin_mcp_server.tools.company import register_company_tools
     from linkedin_mcp_server.tools.job import register_job_tools
@@ -259,6 +309,7 @@ async def test_invalid_reference_is_rejected_before_extractor(
 
     register_by_module = {
         "campaign_manager": register_campaign_manager_tools,
+        "campaign_manager_actions": register_campaign_manager_action_tools,
         "company": register_company_tools,
         "job": register_job_tools,
         "messaging": register_messaging_tools,
@@ -2838,6 +2889,13 @@ class TestToolTimeouts:
             "list_campaigns",
             "get_campaign",
             "get_campaign_analytics",
+            "search_targeting_entities",
+            "list_audiences",
+            "update_campaign",
+            "set_campaign_status",
+            "create_campaign_draft",
+            "add_post_to_campaign",
+            "create_saved_audience",
             "start_enrichment_job",
             "run_enrichment_bunch",
             "get_enrichment_status",
@@ -2881,6 +2939,13 @@ class TestToolTimeouts:
             "list_campaigns",
             "get_campaign",
             "get_campaign_analytics",
+            "search_targeting_entities",
+            "list_audiences",
+            "update_campaign",
+            "set_campaign_status",
+            "create_campaign_draft",
+            "add_post_to_campaign",
+            "create_saved_audience",
             "start_enrichment_job",
             "run_enrichment_bunch",
             "get_enrichment_status",

@@ -1,0 +1,549 @@
+{
+  "call": {
+    "arguments": {
+      "account_id": "100000001",
+      "campaign_id": "100000301",
+      "confirm_send": true,
+      "name": "Example audience"
+    },
+    "method": "create_saved_audience"
+  },
+  "events": [
+    {
+      "call": "create_saved_audience",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "callback_id": "callback-3",
+      "kind": "route.add",
+      "pattern": "**/campaign-manager-api/**",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "section": "create_saved_audience__saved",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "create_saved_audience",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "wait_for_load_state",
+      "section": "create_saved_audience__saved",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "create_saved_audience",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "boundary.rate_limit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_save_button",
+      "parent": null,
+      "section": "create_saved_audience__saved",
+      "selector": "#targeting-module-save-audience-button"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.count",
+      "locator": "cm_save_button",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.is_enabled",
+      "locator": "cm_save_button",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.click",
+      "locator": "cm_save_button",
+      "section": "create_saved_audience__saved",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_save_dialog",
+      "parent": null,
+      "section": "create_saved_audience__saved",
+      "selector": "[role=dialog][aria-labelledby=save-audience-modal__header]"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.derive",
+      "locator": "cm_save_dialog_first",
+      "operation": "first",
+      "parent": "cm_save_dialog",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.wait_for",
+      "locator": "cm_save_dialog_first",
+      "section": "create_saved_audience__saved",
+      "state": "visible",
+      "timeout_ms": 5000.0
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.count",
+      "locator": "cm_save_dialog",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_saved_name",
+      "parent": "cm_save_dialog",
+      "section": "create_saved_audience__saved",
+      "selector": "input#audience-name"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.count",
+      "locator": "cm_saved_name",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_save_footer",
+      "parent": "cm_save_dialog",
+      "section": "create_saved_audience__saved",
+      "selector": ".modal-footer--with-buttons"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.count",
+      "locator": "cm_save_footer",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_save_footer",
+      "parent": "cm_save_dialog",
+      "section": "create_saved_audience__saved",
+      "selector": ".modal-footer--with-buttons"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_save_footer_buttons",
+      "parent": "cm_save_footer",
+      "section": "create_saved_audience__saved",
+      "selector": "button"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.count",
+      "locator": "cm_save_footer_buttons",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_saved_name",
+      "parent": "cm_save_dialog",
+      "section": "create_saved_audience__saved",
+      "selector": "input#audience-name"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.focus",
+      "locator": "cm_saved_name",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.select_text",
+      "locator": "cm_saved_name",
+      "section": "create_saved_audience__saved",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "keyboard.insert_text",
+      "section": "create_saved_audience__saved",
+      "text": "Example audience"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.input_value",
+      "locator": "cm_saved_name",
+      "section": "create_saved_audience__saved",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_save_footer",
+      "parent": "cm_save_dialog",
+      "section": "create_saved_audience__saved",
+      "selector": ".modal-footer--with-buttons"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_save_footer_buttons",
+      "parent": "cm_save_footer",
+      "section": "create_saved_audience__saved",
+      "selector": "button"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.derive",
+      "locator": "cm_save_submit",
+      "operation": "last",
+      "parent": "cm_save_footer_buttons",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.is_visible",
+      "locator": "cm_save_submit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.is_enabled",
+      "locator": "cm_save_submit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_save_footer",
+      "parent": "cm_save_dialog",
+      "section": "create_saved_audience__saved",
+      "selector": ".modal-footer--with-buttons"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_save_footer_buttons",
+      "parent": "cm_save_footer",
+      "section": "create_saved_audience__saved",
+      "selector": "button"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.derive",
+      "locator": "cm_save_submit",
+      "operation": "last",
+      "parent": "cm_save_footer_buttons",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.count",
+      "locator": "cm_save_dialog",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.is_enabled",
+      "locator": "cm_save_submit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.click",
+      "locator": "cm_save_submit",
+      "section": "create_saved_audience__saved",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "route.fallback",
+      "method": "POST",
+      "section": "create_saved_audience__saved",
+      "url": "https://www.linkedin.com/campaign-manager-api/campaignManagerTargetingCriteria"
+    },
+    {
+      "call": "create_saved_audience",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+      "section": "create_saved_audience__saved",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "create_saved_audience",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "wait_for_load_state",
+      "section": "create_saved_audience__saved",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "create_saved_audience",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "callback_id": "callback-6",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "boundary.rate_limit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.create",
+      "locator": "cm_saved_tab",
+      "parent": null,
+      "section": "create_saved_audience__saved",
+      "selector": "[id$=\"-tab-accounts.item.audiences.saved.index\"]"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.count",
+      "locator": "cm_saved_tab",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "kind": "locator.click",
+      "locator": "cm_saved_tab",
+      "section": "create_saved_audience__saved",
+      "timeout_ms": null
+    },
+    {
+      "call": "create_saved_audience",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "create_saved_audience__saved"
+    },
+    {
+      "call": "create_saved_audience",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "create_saved_audience__saved"
+    }
+  ],
+  "result": {
+    "applied": {
+      "audienceCount": 4000,
+      "id": 100000602,
+      "kind": "saved_audience",
+      "name": "Example audience"
+    },
+    "created_id": "100000602",
+    "message": "Saved this ad set's targeting as the saved audience 'Example audience' (id 100000602).",
+    "planned": {
+      "name": "Example audience",
+      "targeting": [
+        {
+          "facetUrn": "urn:li:adTargetingFacet:titles",
+          "section": "include_or:0",
+          "segmentUrn": "urn:li:title:100"
+        }
+      ]
+    },
+    "retry_safe": false,
+    "status": "audience_created",
+    "target": {
+      "accountId": 100000001,
+      "id": 100000301,
+      "kind": "campaign",
+      "name": "Example ad set",
+      "status": "DRAFT",
+      "uiLabel": "Ad set"
+    },
+    "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details"
+  },
+  "scenario": "create_saved_audience__saved",
+  "schema_version": 1
+}

@@ -28,6 +28,8 @@ DEFAULT_TOOL_TIMEOUT_SECONDS: float = 180.0
 PER_TOOL_TIMEOUT_SECONDS: dict[str, float] = {
     "get_inbox": 600.0,
     "withdraw_invitations": 600.0,
+    "update_campaign_targeting": 300.0,
+    "create_company_list_audience": 300.0,
 }
 DEFAULT_LOGIN_TIMEOUT_SECONDS: float = 1800.0  # 30 min; 0 = no limit
 DEFAULT_LOGIN_INLINE_WAIT_SECONDS: float = 25.0  # bounded inline wait

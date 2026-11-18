@@ -13,7 +13,8 @@ Available Tools:
 - Messaging tools: Inbox, conversations, search, and sending messages
 - Feed tools: Home feed scraping
 - Post tools: Global post/content search
-- Campaign Manager tools: ad accounts, campaign groups, campaigns, analytics
+- Campaign Manager tools: ad accounts, campaign groups, campaigns, analytics,
+  targeting values, audiences, and confirm-gated ad account changes
 
 Architecture:
 - FastMCP integration for MCP-compliant tool registration
