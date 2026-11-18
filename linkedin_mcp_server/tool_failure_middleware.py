@@ -28,10 +28,31 @@ from linkedin_mcp_server.error_diagnostics import (
 logger = logging.getLogger(__name__)
 
 # A write that failed after LinkedIn received it would be sent twice by a retry.
-_CHECK_BEFORE_RETRY = (
+_CHECK_LINKEDIN = (
     "It may or may not have taken effect on LinkedIn: check LinkedIn before "
     "calling it again."
 )
+# A write to this server's own state (openWorldHint false), such as a job.
+_CHECK_LOCAL = (
+    "It may or may not have taken effect: check the job's status or other "
+    "local state it changes before calling it again."
+)
+
+
+async def _changes_only_local_state(
+    context: MiddlewareContext[mt.CallToolRequestParams],
+) -> bool:
+    """True only when the tool says it does not reach LinkedIn; unknown is LinkedIn."""
+    fastmcp_context = context.fastmcp_context
+    if fastmcp_context is None:
+        return False
+    try:
+        tool = await fastmcp_context.fastmcp.get_tool(context.message.name)
+    except Exception:  # noqa: BLE001 - an unresolvable tool may reach LinkedIn
+        logger.debug("Could not read the annotations", exc_info=True)
+        return False
+    annotations = getattr(tool, "annotations", None)
+    return annotations is not None and annotations.openWorldHint is False
 
 
 def _masked(exc: ToolError, name: str) -> BaseException | None:
@@ -48,21 +69,22 @@ def _timed_out(cause: BaseException, name: str) -> bool:
     )
 
 
-def _explain(cause: BaseException, name: str, *, writes: bool) -> str:
+def _explain(cause: BaseException, name: str, *, check: str | None) -> str:
+    """``check`` is what a write's caller verifies first; None for a read."""
     if _timed_out(cause, name):
         assert isinstance(cause, McpError)
         what = (
             f"{name} did not finish within its time limit and was stopped "
             f"({cause.error.message})."
         )
-        if writes:
-            return f"{what} {_CHECK_BEFORE_RETRY}"
+        if check is not None:
+            return f"{what} {check}"
         return (
             f"{what} Nothing it read was returned. Ask for less in one call; a "
             "read that pages takes a page to start from."
         )
     what = f"{name} failed with an unexpected {type(cause).__name__}."
-    return f"{what} {_CHECK_BEFORE_RETRY}" if writes else what
+    return what if check is None else f"{what} {check}"
 
 
 class ToolFailureMiddleware(Middleware):
@@ -80,9 +102,11 @@ class ToolFailureMiddleware(Middleware):
             cause = _masked(exc, name)
             if cause is None:
                 raise
-            message = _explain(
-                cause, name, writes=await a_repeat_could_change_something(context)
-            )
+            check = None
+            if await a_repeat_could_change_something(context):
+                local = await _changes_only_local_state(context)
+                check = _CHECK_LOCAL if local else _CHECK_LINKEDIN
+            message = _explain(cause, name, check=check)
             logger.warning("%s", message)
             try:
                 diagnostics = build_issue_diagnostics(

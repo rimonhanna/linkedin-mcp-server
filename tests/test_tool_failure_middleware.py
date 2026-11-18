@@ -41,6 +41,10 @@ def _server(*, with_middleware: bool = True) -> FastMCP:
     async def broken_send() -> str:
         raise KeyError("a value the masking keeps out of the reply")
 
+    @mcp.tool(annotations={"readOnlyHint": False, "openWorldHint": False})
+    async def broken_job() -> str:
+        raise KeyError("a value the masking keeps out of the reply")
+
     @mcp.tool(annotations={"readOnlyHint": True})
     async def lookalike_read() -> str:
         from mcp.shared.exceptions import McpError
@@ -112,6 +116,16 @@ async def test_a_write_that_failed_says_check_linkedin_before_retrying():
     assert text.startswith("broken_send failed with an unexpected KeyError.")
     assert "check LinkedIn before calling it again" in text
     assert "a value the masking keeps out" not in text
+    check = text.index("check LinkedIn before calling it again")
+    assert text.index("the local notes below record them") > check
+
+
+async def test_a_local_write_says_check_its_local_state_not_linkedin():
+    text = await _error_text(_server(), "broken_job")
+
+    assert text.startswith("broken_job failed with an unexpected KeyError.")
+    assert "check the job's status or other local state" in text
+    assert "LinkedIn" not in text.split("Diagnostics:")[0]
 
 
 async def test_only_fastmcps_own_wording_counts_as_a_timeout():
