@@ -949,14 +949,104 @@ def admit_creative_create(
     return None
 
 
-def admit_list_upload(*, account_id: str, name: str) -> Admit:
+# The company list upload dialog's two requests (app bundle, 2026-11:
+# ``ambry.uploadCsvFileToAmbry`` and ``create-ma-list-panel``'s
+# ``createListAudienceTask``). The file itself goes to the signed URL in between,
+# on a host outside the guard's pattern.
+_SIGNED_URL_REQUEST = {
+    "requestType": "UPLOAD",
+    "uploadType": "AUDIENCE_MATCHING",
+    "contentType": "text/csv",
+}
+_LIST_SEGMENT_FIELDS = frozenset(
+    {"inputFileName", "inputFile", "account", "name", "sourcePlatform", "segmentType"}
+)
+_MEDIA_URN = "urn:li:media:"
+_URN_TYPE_RE = re.compile(r"^urn:li:([A-Za-z]+):")
+# A seen value is shown only when it is a word-like constant: no digits, so
+# never an id, and short enough not to be free text.
+_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z_./+-]{0,39}$")
+
+
+def _value_shape(value: Any) -> str:
+    """What a refused field held, without its value unless it is a constant."""
+    if value is None:
+        return "nothing"
+    if isinstance(value, str):
+        urn = _URN_TYPE_RE.match(value)
+        if urn:
+            return f"urn of type {urn.group(1)}"
+        return value if _TOKEN_RE.fullmatch(value) else "other text"
+    return type(value).__name__
+
+
+def _account_mismatch(field: str, value: Any, owner: str) -> str | None:
+    if value == owner:
+        return None
+    seen = _value_shape(value)
+    if seen == "urn of type sponsoredAccount":
+        seen += " for another ad account"
+    return (
+        f"{field}: urn of type sponsoredAccount for this ad account expected, "
+        f"{seen} seen"
+    )
+
+
+def _extra_fields(body: Mapping[str, Any], allowed: Collection[str]) -> list[str]:
+    return [f"{key}: not sent by the app" for key in sorted(set(body) - set(allowed))]
+
+
+def _refused_because(reason: str, mismatches: Sequence[str]) -> str:
+    return f"{reason} ({'; '.join(mismatches)})"
+
+
+def admit_list_upload(*, account_id: str, name: str, file_name: str) -> Admit:
     """An admission for one company list upload: one signed URL, one segment.
 
     Returns a stateful rule because the second of either request would be a
-    second upload or a second audience.
+    second upload or a second audience, and the segment must follow its signed
+    URL. A refusal names each field that differed and how, never its value
+    unless that is one of the app's constants.
     """
     owner = _ACCOUNT_URN + account_id
     seen: set[str] = set()
+
+    def signed_url_mismatches(body: Mapping[str, Any]) -> list[str]:
+        found = _extra_fields(body, {"owner", *_SIGNED_URL_REQUEST})
+        owner_miss = _account_mismatch("owner", body.get("owner"), owner)
+        if owner_miss is not None:
+            found.append(owner_miss)
+        found.extend(
+            f"{field}: {expected} expected, {_value_shape(body.get(field))} seen"
+            for field, expected in _SIGNED_URL_REQUEST.items()
+            if body.get(field) != expected
+        )
+        return found
+
+    def segment_mismatches(body: Mapping[str, Any]) -> list[str]:
+        found = _extra_fields(body, _LIST_SEGMENT_FIELDS)
+        account_miss = _account_mismatch("account", body.get("account"), owner)
+        if account_miss is not None:
+            found.append(account_miss)
+        for field, expected in (
+            ("sourcePlatform", "LIST_UPLOAD"),
+            ("segmentType", "COMPANY"),
+        ):
+            if body.get(field) != expected:
+                found.append(
+                    f"{field}: {expected} expected, "
+                    f"{_value_shape(body.get(field))} seen"
+                )
+        if body.get("name") != name:
+            found.append("name: the planned name expected, another seen")
+        if body.get("inputFileName") != file_name:
+            found.append("inputFileName: the planned file expected, another seen")
+        media = body.get("inputFile")
+        if not isinstance(media, str) or not media.startswith(_MEDIA_URN):
+            found.append(
+                f"inputFile: urn of type media expected, {_value_shape(media)} seen"
+            )
+        return found
 
     def admit(req: WriteRequest) -> str | None:
         resource = req.call.resource
@@ -972,20 +1062,20 @@ def admit_list_upload(*, account_id: str, name: str) -> Admit:
             return f"second {resource} request"
         body = _mapping(req.body) or {}
         if resource == "campaignManagerAmbrySignedUrl":
-            if (
-                body.get("owner") != owner
-                or body.get("uploadType") != "MATCHED_AUDIENCE"
-                or body.get("requestType") != "UPLOAD"
-            ):
-                return "upload URL request is not this ad account's list upload"
-        elif (
-            body.get("account") != owner
-            or body.get("name") != name
-            or body.get("sourcePlatform") != "LIST_UPLOAD"
-            or body.get("segmentType") != "COMPANY"
-            or "sourceType" in body
-        ):
-            return "audience create is not the planned company list"
+            mismatches = signed_url_mismatches(body)
+            if mismatches:
+                return _refused_because(
+                    "upload URL request is not this ad account's list upload",
+                    mismatches,
+                )
+        else:
+            if "campaignManagerAmbrySignedUrl" not in seen:
+                return "audience create before its upload URL request"
+            mismatches = segment_mismatches(body)
+            if mismatches:
+                return _refused_because(
+                    "audience create is not the planned company list", mismatches
+                )
         seen.add(resource)
         return None
 

@@ -2448,12 +2448,19 @@ async def _cm_audience_upload_scenario() -> dict[str, Any]:
     async def submit() -> None:
         signed = _cm_write(
             "campaignManagerAmbrySignedUrl",
-            {"owner": owner, "uploadType": "MATCHED_AUDIENCE", "requestType": "UPLOAD"},
+            {
+                "owner": owner,
+                "requestType": "UPLOAD",
+                "uploadType": "AUDIENCE_MATCHING",
+                "contentType": "text/csv",
+            },
             restli="create",
         )
         segment = _cm_write(
             "campaignManagerDmpSegments",
             {
+                "inputFileName": "example-list.csv",
+                "inputFile": "urn:li:media:example",
                 "account": owner,
                 "name": "Example list",
                 "sourcePlatform": "LIST_UPLOAD",

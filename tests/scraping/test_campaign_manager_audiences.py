@@ -229,8 +229,8 @@ def _signed_url(account: str = ACCOUNT, status: int = 201) -> SimpleNamespace:
         body={
             "owner": f"urn:li:sponsoredAccount:{account}",
             "requestType": "UPLOAD",
-            "uploadType": "MATCHED_AUDIENCE",
-            "contentType": "csv",
+            "uploadType": "AUDIENCE_MATCHING",
+            "contentType": "text/csv",
         },
         restli="create",
         created_id="https://www.linkedin.com/dms-uploads/example",
@@ -244,7 +244,7 @@ def _segment(name: str, *, status: int = 201) -> SimpleNamespace:
         method="POST",
         status=status,
         body={
-            "inputFileName": "example.csv",
+            "inputFileName": "example-list.csv",
             "inputFile": "urn:li:media:example",
             "account": f"urn:li:sponsoredAccount:{ACCOUNT}",
             "name": name,

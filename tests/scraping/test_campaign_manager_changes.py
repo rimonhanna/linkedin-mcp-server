@@ -770,8 +770,9 @@ def test_create_admissions_refuse_sub_paths_actions_and_other_methods():
     assert "action" in _reason(fresh()(action))
     signed_url = {
         "owner": f"urn:li:sponsoredAccount:{ACCOUNT}",
-        "uploadType": "MATCHED_AUDIENCE",
+        "uploadType": "AUDIENCE_MATCHING",
         "requestType": "UPLOAD",
+        "contentType": "text/csv",
     }
 
     def upload(**kwargs: Any) -> Req:
@@ -783,7 +784,9 @@ def test_create_admissions_refuse_sub_paths_actions_and_other_methods():
         )
 
     def lists():
-        return admit_list_upload(account_id=ACCOUNT, name="Example list")
+        return admit_list_upload(
+            account_id=ACCOUNT, name="Example list", file_name="example-list.csv"
+        )
 
     assert lists()(upload(restli=None)) is None
     assert lists()(upload(restli="create")) is None
@@ -817,14 +820,16 @@ def test_creative_create_admission():
 
 
 def test_list_upload_admits_one_of_each():
-    admit = admit_list_upload(account_id=ACCOUNT, name="Example list")
+    admit = admit_list_upload(
+        account_id=ACCOUNT, name="Example list", file_name="example-list.csv"
+    )
     owner = f"urn:li:sponsoredAccount:{ACCOUNT}"
     signed = _req(
         {
             "owner": owner,
             "requestType": "UPLOAD",
-            "uploadType": "MATCHED_AUDIENCE",
-            "contentType": "csv",
+            "uploadType": "AUDIENCE_MATCHING",
+            "contentType": "text/csv",
         },
         resource="campaignManagerAmbrySignedUrl",
         entity_id=None,
@@ -836,6 +841,7 @@ def test_list_upload_admits_one_of_each():
         "sourcePlatform": "LIST_UPLOAD",
         "segmentType": "COMPANY",
         "inputFile": "urn:li:media:x",
+        "inputFileName": "example-list.csv",
     }
     segment = _req(
         segment_body, resource="campaignManagerDmpSegments", entity_id=None, restli=None
@@ -844,7 +850,9 @@ def test_list_upload_admits_one_of_each():
     assert admit(segment) is None
     assert "second" in _reason(admit(segment))
     assert "second" in _reason(admit(signed))
-    fresh = admit_list_upload(account_id=ACCOUNT, name="Example list")
+    fresh = admit_list_upload(
+        account_id=ACCOUNT, name="Example list", file_name="example-list.csv"
+    )
     conversion = _req(
         {**segment_body, "sourceType": "CONVERSION"},
         resource="campaignManagerDmpSegments",

@@ -162,6 +162,14 @@ def _created_number(value: str | None) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _segment_id(payload: Any) -> int | None:
+    """The new audience's id where the upload dialog reads it: ``adSegmentId``."""
+    value = payload.get("adSegmentId") if isinstance(payload, Mapping) else None
+    if isinstance(value, bool):
+        return None
+    return _created_number(str(value)) if value is not None else None
+
+
 def _for_account(response: CmResponse, account_id: str) -> bool:
     return response.call.params.get("accountId") == account_id
 
@@ -568,7 +576,7 @@ class CampaignAudiences:
             account_path = urlparse(campaign_manager_url(account)).path
             async with self._flow.apply(
                 page,
-                admit_list_upload(account_id=account, name=name),
+                admit_list_upload(account_id=account, name=name, file_name=file_name),
                 expected_path=lambda path: path.startswith(f"{account_path}/audiences"),
             ) as window:
                 after = capture.write_count
@@ -591,7 +599,9 @@ class CampaignAudiences:
             if outcome is not None:
                 return outcome
             assert response is not None
-            created = _created_number(response.created_id)
+            created = _created_number(response.created_id) or _segment_id(
+                response.payload
+            )
             after_list = await self._reread(
                 lambda: self._load_matched(capture, account), matched_audiences
             )
