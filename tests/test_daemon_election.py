@@ -1647,15 +1647,24 @@ def real_state_root(tmp_path: Path):
     assert not descriptor.exists()
 
 
-def _run_frontend(profile: Path) -> dict[str, object]:
-    """Elect an owner from a separate interpreter, as a real client would."""
+def _run_frontend(profile: Path, *, home: Path | None = None) -> dict[str, object]:
+    """Elect an owner from a separate interpreter, as a real client would.
+
+    ``home`` replaces the home directory the frontend and its owner see. The
+    election root ignores it (``_account_home`` reads the account, not the
+    environment), so this moves only what is keyed to ``~``, such as the
+    account's pacing ledger.
+    """
     import json
 
+    env = {**os.environ, "PYTHONPATH": str(_REPO_ROOT)}
+    if home is not None:
+        env["HOME"] = env["USERPROFILE"] = str(home)
     result = subprocess.run(
         [sys.executable, "-c", _INSPECT_OWNER, str(profile)],
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": str(_REPO_ROOT)},
+        env=env,
         cwd=_REPO_ROOT,
         timeout=180,
     )
@@ -5366,8 +5375,15 @@ class TestRealOwner:
         # reaches the auth gate at all. Symlinked rather than copied: it is about a
         # gigabyte, and nothing here launches a browser.
         _borrow_the_browser_cache(profile)
+        # And an empty home, for the pacing ledger under `~/.linkedin-mcp/jobs`.
+        # It is account-wide by design, so without this the owner reads the
+        # developer's real one, and on a day they have used the server for an
+        # hour it refuses with "the hourly action cap is reached" before the
+        # tool, and so the auth gate, ever runs.
+        home = profile.parent.parent / "home"
+        home.mkdir()
 
-        result = _run_frontend(profile)
+        result = _run_frontend(profile, home=home)
         try:
             lookup = look_up_owner(profile.parent, profile, _config(profile))
             assert lookup.attachment is not None, lookup.reason
