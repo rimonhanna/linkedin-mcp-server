@@ -276,8 +276,10 @@ left out of lead search results. The result only counts them, under
 `withheld`, so the numbers still add up.
 
 `list_sales_navigator_account_lists` and `get_sales_navigator_account_list`
-read every list and every company in a list, one page of 25 at a time, and
-each page counts as a page load. The companies of a list can be passed, by
+read lists and the companies in a list one page of 25 at a time, and each page
+counts as a page load. One call stops at 1,000 rows, or earlier when its next
+page would not finish within the call's time limit; it then returns what it
+read with `next_page`, and the next call continues from there. The companies of a list can be passed, by
 name, to `create_company_list_audience` to target them in Campaign Manager.
 
 
