@@ -213,6 +213,7 @@ async def test_an_exclusion_button_rendering_no_block_fails_closed(dom_page):  #
         await module.open_block("excludedFacets")
 
     assert stop.value.status == "control_unavailable"
+    assert stop.value.message == "The targeting block did not open."
     assert stop.value.missing is True
 
 
@@ -247,7 +248,7 @@ async def test_the_block_summary_has_counts_and_section_names_only(dom_page):  #
         },
         "close": {"count": 5, "in_block": 5, "visible": 0},
         "articles_in_blocks": 0,
-        "exclude_button": 1,
+        "exclude_button": {"count": 1, "in_block": 0},
         "add_group_button": 1,
         "exclusion_blocks": 0,
         "excluded_location_blocks": 0,
@@ -353,8 +354,51 @@ async def test_live_layout_summary_names_the_open_exclusion(dom_page):  # noqa: 
         },
         "close": {"count": 4, "in_block": 4, "visible": 1},
         "articles_in_blocks": 2,
-        "exclude_button": 0,
+        "exclude_button": {"count": 0, "in_block": 0},
         "add_group_button": 1,
         "exclusion_blocks": 1,
         "excluded_location_blocks": 0,
     }
+
+
+# The inline button inside a block: a layout the bundle does not show, so it
+# is the case that proves the rendered block is chosen by its marker.
+_INLINE_IN_BLOCK = (
+    '<article class="targeting-module__facet-block"><div class="inline">'
+    "<button data-js-targeting-module__inline-add-more-excluded-facets "
+    "onclick=\"this.closest('article').insertAdjacentHTML('afterend', "
+    "document.getElementById('rendered-exclusions').innerHTML); "
+    'this.remove()">Ausschließen</button>'
+    "</div></article>"
+)
+
+
+async def test_the_inline_exclusion_button_never_names_its_own_block(dom_page):  # noqa: F811
+    await _load(dom_page, _INLINE_IN_BLOCK, _exclusions([], open_=True))
+
+    result = await dom_page.evaluate(targeting._OPEN_BLOCK_JS, "excludedFacets")
+
+    assert result == {"state": "clicked", "index": None}
+
+
+async def test_an_inline_button_inside_a_block_opens_the_block_it_renders(dom_page):  # noqa: F811
+    await _load(dom_page, _INLINE_IN_BLOCK, _exclusions([], open_=True))
+    module = _module(dom_page)
+
+    with patch.object(targeting, "_STEP_PAUSE", 0.0):
+        index = await module.open_block("excludedFacets")
+
+    found = await dom_page.evaluate(targeting._RENDERED_BLOCK_JS, "excludedFacets")
+    assert found["found"] == [index]
+    assert await dom_page.evaluate(targeting._BLOCK_STATE_JS, index) == {
+        "open": [index],
+        "pills": 0,
+    }
+
+
+async def test_the_summary_says_whether_the_inline_button_sits_in_a_block(dom_page):  # noqa: F811
+    await _load(dom_page, _INLINE_IN_BLOCK)
+
+    summary = await dom_page.evaluate(targeting._BLOCKS_SUMMARY_JS)
+
+    assert summary["exclude_button"] == {"count": 1, "in_block": 1}

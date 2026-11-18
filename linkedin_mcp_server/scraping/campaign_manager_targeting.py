@@ -149,14 +149,17 @@ _OPEN_BLOCK_JS = (
     const name = 'data-js-targeting-module__edit-facet-block-btn';
     let buttons = [...document.querySelectorAll(EDIT)]
         .filter((button) => button.getAttribute(name) === attr);
+    let inline = false;
     if (buttons.length === 0 && attr === 'excludedFacets') {
         buttons = [...document.querySelectorAll(
             '[data-js-targeting-module__inline-add-more-excluded-facets]'
         )];
+        inline = true;
     }
     if (buttons.length !== 1) return { state: 'missing', count: buttons.length };
     const button = buttons[0];
-    const article = button.closest(ARTICLE);
+    // The inline button never belongs to the block it renders, wherever it sits.
+    const article = inline ? null : button.closest(ARTICLE);
     if (!article && !RENDERED_ON_OPEN[attr]) return { state: 'missing', count: 1 };
     // null: the block is rendered by the click.
     const index = article ? articles.indexOf(article) : null;
@@ -202,6 +205,9 @@ _BLOCKS_SUMMARY_JS = (
     }
     const count = (selector) => document.querySelectorAll(selector).length;
     const closers = [...document.querySelectorAll(CLOSE)];
+    const inlines = [...document.querySelectorAll(
+        '[data-js-targeting-module__inline-add-more-excluded-facets]'
+    )];
     const marking = (marker) => articles.filter((article) => marked(article, marker));
     return {
         blocks: articles.length,
@@ -215,7 +221,10 @@ _BLOCKS_SUMMARY_JS = (
         articles_in_blocks: articles.reduce(
             (sum, article) => sum + article.querySelectorAll('article').length, 0
         ),
-        exclude_button: count('[data-js-targeting-module__inline-add-more-excluded-facets]'),
+        exclude_button: {
+            count: inlines.length,
+            in_block: inlines.filter((el) => el.closest(ARTICLE)).length,
+        },
         add_group_button: count('[data-js-targeting-module__add-more-new-facet-block]'),
         exclusion_blocks: marking(RENDERED_ON_OPEN.excludedFacets).length,
         excluded_location_blocks: marking(RENDERED_ON_OPEN.excludedLocations).length,
@@ -400,8 +409,8 @@ class _Run:
 class _Stop(Exception):
     """A step that cannot run; ``status`` is the tool's word for why.
 
-    ``missing``: a targeting block was not found, so the failure notes get
-    the module's block structure.
+    ``missing``: a targeting block was not found or did not render, so the
+    failure notes get the module's block structure.
     """
 
     def __init__(self, status: str, message: str, *, missing: bool = False) -> None:
@@ -694,8 +703,10 @@ class _TargetingPage:
                 return state["found"][0]
             if time.monotonic() >= stop:
                 logger.debug("Targeting block %s not rendered: %s", attr, state)
-                raise _not_found(
-                    "Opening the targeting block did not show it on the ad set page."
+                raise _Stop(
+                    "control_unavailable",
+                    "The targeting block did not open.",
+                    missing=True,
                 )
             await asyncio.sleep(_POLL)
 
