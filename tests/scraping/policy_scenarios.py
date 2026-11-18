@@ -2373,11 +2373,12 @@ def _cm_matched(*elements: dict[str, Any]) -> ScriptedCmResponse:
 
 def _cm_list_entry(audience_id: int, name: str, status: str) -> dict[str, Any]:
     return {
-        "id": audience_id,
+        "segmentId": audience_id,
         "name": name,
         "segmentType": "COMPANY",
-        "maSegmentType": "BULK",
-        "maSegmentStatus": status,
+        "listAudienceType": "ACCOUNT_LIST",
+        "sourcePlatform": "LIST_UPLOAD",
+        "status": status,
     }
 
 

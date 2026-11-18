@@ -171,10 +171,11 @@
       {
         "id": 100000501,
         "kind": "matched_audience",
-        "listType": "COMPANY",
+        "listType": "ACCOUNT_LIST",
         "name": "Example list",
+        "segmentType": "COMPANY",
         "segmentUrn": "urn:li:adSegment:100000501",
-        "source": "BULK",
+        "source": "LIST_UPLOAD",
         "status": "READY"
       }
     ],
@@ -191,7 +192,7 @@
       "saved_audiences"
     ],
     "sections": {
-      "matched_audiences": "Example list (id 100000501): COMPANY, BULK, READY, urn:li:adSegment:100000501",
+      "matched_audiences": "Example list (id 100000501): COMPANY, ACCOUNT_LIST, LIST_UPLOAD, READY, urn:li:adSegment:100000501",
       "saved_audiences": "Example saved audience (id 100000601): 4000 members"
     },
     "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/audiences/matched"

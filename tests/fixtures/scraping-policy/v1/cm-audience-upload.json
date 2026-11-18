@@ -611,10 +611,11 @@
     "applied": {
       "id": 100000502,
       "kind": "matched_audience",
-      "listType": "COMPANY",
+      "listType": "ACCOUNT_LIST",
       "name": "Example list",
+      "segmentType": "COMPANY",
       "segmentUrn": "urn:li:adSegment:100000502",
-      "source": "BULK",
+      "source": "LIST_UPLOAD",
       "status": "BUILDING"
     },
     "created_id": "100000502",

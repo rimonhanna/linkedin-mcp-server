@@ -73,15 +73,16 @@ class SponsorableContent(TypedDict):
 class MatchedAudience(TypedDict):
     """An uploaded or derived audience.
 
-    ``segmentUrn`` is built as ``urn:li:adSegment:<id>`` from the bundle's
-    segment naming; no account had a matched audience to confirm it live, so
-    treat it as unverified until a typeahead row returns the same URN.
+    ``id`` is the row's ``segmentId`` (live 2026-11-18). ``segmentUrn`` is
+    built as ``urn:li:adSegment:<id>`` from the bundle's segment naming; treat
+    it as unverified until a typeahead row returns the same URN.
     """
 
     kind: Literal["matched_audience"]
     id: int
     segmentUrn: str
     name: str
+    segmentType: NotRequired[str]
     listType: NotRequired[str]
     source: NotRequired[str]
     status: NotRequired[str]
@@ -197,13 +198,17 @@ def content_library_entries(payload: Any) -> list[SponsorableContent] | None:
 
 
 def matched_audiences(payload: Any) -> list[MatchedAudience] | None:
-    """Matched audiences of ``campaignManagerMatchedAudiences?q=account``."""
+    """Matched audiences of ``campaignManagerMatchedAudiences?q=account``.
+
+    A row LinkedIn is still matching carries its ``status`` and may lack a
+    ``count``; it is reported without a size, never dropped.
+    """
     elements = envelope_elements(payload)
     if elements is None:
         return None
     audiences: list[MatchedAudience] = []
     for element in elements:
-        audience_id = _int(element.get("id"))
+        audience_id = _int(element.get("segmentId"))
         name = _str(element.get("name"))
         if audience_id is None or name is None:
             return None
@@ -214,14 +219,15 @@ def matched_audiences(payload: Any) -> list[MatchedAudience] | None:
             "name": name,
         }
         for key, field in (
-            ("segmentType", "listType"),
-            ("maSegmentType", "source"),
-            ("maSegmentStatus", "status"),
+            ("segmentType", "segmentType"),
+            ("listAudienceType", "listType"),
+            ("sourcePlatform", "source"),
+            ("status", "status"),
         ):
             text = _str(element.get(key))
             if text is not None:
                 audience[field] = text  # type: ignore[literal-required]
-        count = _int(element.get("audienceCount"))
+        count = _int(element.get("count"))
         if count is not None:
             audience["audienceCount"] = count
         audiences.append(audience)
@@ -272,6 +278,7 @@ def render_audiences(audiences: Iterable[MatchedAudience | SavedAudience]) -> st
             lines.append(
                 _line(
                     head,
+                    audience.get("segmentType"),
                     audience.get("listType"),
                     audience.get("source"),
                     audience.get("status"),
