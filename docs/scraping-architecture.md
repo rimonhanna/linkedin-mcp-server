@@ -29,7 +29,7 @@ a page-owning collaborator.
 | `campaign_manager_political` | `CLEARED_BY_LINKEDIN`, `CLEARS_DECLARATION`, `DECLARATION_REQUIRED`, `DECLARATION_STATUSES`, `MISMATCH`, `NOT_DECLARED`, `NOT_OFFERED`, `NOT_POLITICAL`, `POLITICAL_INTENT`, `POLITICAL_JS`, `PoliticalQuestion`, `UNANSWERED`, `UNDECLARED_FILL`, `declaration_note()`, `declaration_stop()`, `declared_intent()`, `political_dialog()`, `political_question()`, `question_sentence()`, `refuse_intent()`, `sent_intent()` | `browser-free` |
 | `campaign_manager_results` | `STATUSES`, `SUCCEEDED`, `campaign_action_result()`, `retry_safe_from()` | `browser-free` |
 | `campaign_manager_targeting` | `CampaignTargetingEditor`, `TargetingAdd` | `page-owning` |
-| `campaign_manager_write` | `ANCHORS`, `CampaignWriteFlow`, `WriteLedger`, `record_write_window()`, `tracking_writes()` | `page-owning` |
+| `campaign_manager_write` | `ANCHORS`, `CampaignWriteFlow`, `WriteLedger`, `footer_disabled_reason()`, `record_write_window()`, `tracking_writes()` | `page-owning` |
 | `capture` | `CONTENT_SEARCH_COUNT_JS`, `CONTENT_SEARCH_MAX_SCROLLS`, `CONTENT_SEARCH_SCROLL_BUDGET`, `CaptureMode`, `CapturePlan`, `OverlayRootNotFoundError`, `SectionCapture`, `capture_plan_for_url()` | `page-owning` |
 | `company` | `CompanyScraper` | `browser-free` |
 | `company_parse` | `ParsedJobs`, `has_about_labels()`, `parse_about()`, `parse_job_search()`, `parse_search_results()` | `browser-free` |

@@ -83,6 +83,7 @@ from linkedin_mcp_server.scraping.campaign_manager_results import (
 from linkedin_mcp_server.scraping.campaign_manager_write import (
     ANCHORS,
     CampaignWriteFlow,
+    footer_disabled_reason,
     record_write_window,
 )
 from linkedin_mcp_server.scraping.identifiers import (
@@ -850,7 +851,9 @@ class CampaignManagerEditor:
                 else:
                     stop = (
                         "control_unavailable",
-                        "Save and exit was not found in the layout this tool "
+                        f"{footer_disabled_reason(record)} Nothing was saved."
+                        if self._flow.footer_disabled
+                        else "Save and exit was not found in the layout this tool "
                         "knows, so nothing was saved.",
                     )
                     await self._note_stop(

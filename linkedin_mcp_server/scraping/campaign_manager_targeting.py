@@ -80,6 +80,7 @@ from linkedin_mcp_server.scraping.campaign_manager_results import (
 from linkedin_mcp_server.scraping.campaign_manager_write import (
     ANCHORS,
     CampaignWriteFlow,
+    footer_disabled_reason,
 )
 from linkedin_mcp_server.scraping.identifiers import campaign_manager_url
 from linkedin_mcp_server.scraping.navigation import PageNavigator
@@ -1011,6 +1012,8 @@ class CampaignTargetingEditor:
                     )
                 else:
                     if not await self._flow.save_and_exit(page, draft=draft):
+                        if self._flow.footer_disabled:
+                            raise _unavailable(footer_disabled_reason(run.record))
                         raise _unavailable("The ad set's Save and exit was not found.")
                     saved = await self._footer_save(
                         capture,

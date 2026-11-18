@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -34,7 +35,7 @@ from linkedin_mcp_server.scraping.campaign_manager_api import (
     CmResponse,
     CmWriteResponse,
 )
-from linkedin_mcp_server.scraping.campaign_manager_changes import Refusal
+from linkedin_mcp_server.scraping.campaign_manager_changes import Refusal, ms_to_date
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
     Admission,
     CmWriteRequest,
@@ -78,6 +79,7 @@ ANCHORS = {
     "status_switch": ".campaign-header-status__toggle-container input[role=switch]",
     "objective": 'input[type=radio][name="objective-selection"]',
     "footer": "[data-js-wizard-container-footer-actions]",
+    "footer_disabled": "[data-js-wizard-container-footer-actions] button:disabled",
     "targeting_edit": "[data-js-targeting-module__edit-facet-block-btn]",
     "targeting_first_or": (
         '[data-js-targeting-module__edit-facet-block-btn="includedOrs0"]'
@@ -136,11 +138,11 @@ _FOOTER_JS = """(expected) => {
         candidates.length !== expected ||
         buttons[buttons.length - 2] !== target ||
         !next.matches('[data-live-test-wizard-container__button--next]') ||
-        target.disabled ||
         target.getClientRects().length === 0
     ) {
         return { count: candidates.length, clicked: false };
     }
+    if (target.disabled) return { count: candidates.length, clicked: false, disabled: true };
     target.click();
     return { count: candidates.length, clicked: true };
 }"""
@@ -159,6 +161,35 @@ def _not_found(message: str) -> Refusal:
         "target_not_found",
         f"{message} Nothing was changed. Pass the ad_account_id and campaign_id "
         "exactly as list_campaigns returned them.",
+    )
+
+
+def footer_disabled_reason(record: Mapping[str, Any]) -> str:
+    """Why LinkedIn keeps an ad set's Save and exit disabled, as far as known.
+
+    The classic editor disables it while the ad set fails its own validation
+    (``isTriggerButtonDisabled`` in the app's bundle, 2026-11-18). The one cause
+    the record shows is a start date that has passed on a not yet started ad
+    set: LinkedIn shows that day as its UTC date and then wants it moved.
+    """
+    schedule = record.get("runSchedule")
+    start = schedule.get("start") if isinstance(schedule, Mapping) else None
+    passed = (
+        record.get("status") == "DRAFT"
+        and isinstance(start, int)
+        and not isinstance(start, bool)
+        and ms_to_date(start) < datetime.now(UTC).date()
+    )
+    if passed:
+        return (
+            "LinkedIn will not save this ad set because its start date has "
+            "passed. Set a start date of today or later with update_campaign, "
+            "then try again."
+        )
+    return (
+        "LinkedIn will not save this ad set while one of its fields is "
+        "invalid, so its Save and exit button stayed disabled. Open the ad set "
+        "in Campaign Manager, correct the field it marks, then try again."
     )
 
 
@@ -296,6 +327,8 @@ class CampaignWriteFlow:
         self._pin: _RoutePin | None = None
         # The page path an anchor wait last timed out on.
         self._timed_out_on: str | None = None
+        # Whether the last unclicked Save and exit was there but disabled.
+        self.footer_disabled = False
 
     @asynccontextmanager
     async def capturing(self) -> AsyncIterator[CampaignManagerCapture]:
@@ -462,11 +495,17 @@ class CampaignWriteFlow:
 
         The footer must be the only one, hold exactly the buttons a draft or a
         launched campaign shows, and its last one must be enabled and visible.
+        Unclicked, the page's anchors are recorded and ``footer_disabled`` says
+        whether the button was there but disabled.
         """
         result = await page.evaluate(_FOOTER_JS, _FOOTER_CANDIDATES[draft])
         clicked = isinstance(result, dict) and result.get("clicked") is True
+        self.footer_disabled = (
+            isinstance(result, dict) and result.get("disabled") is True
+        )
         if not clicked:
             logger.debug("Save and exit not clicked: %s", result)
+            await self.record_page_structure(page)
         return clicked
 
     async def saves_by_footer(self, page: Any) -> bool:
