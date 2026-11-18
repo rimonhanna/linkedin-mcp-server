@@ -7,9 +7,8 @@ checkbox id: the table is keyed by ``urn`` (bundle ``@rowIdKey``), so a row id
 naming the post is exact. The table shows a filtered, paged copy of the answer
 (posts already in the ad set dropped, 5 per page), so a row position is taken
 as the answer's position only for index-keyed ids on one page holding exactly
-the answer's posts. The add button is located by structure,
-relative to the library's "Remove from library" control: it is the one visible
-button after that control and outside it, and the control itself never matches.
+the answer's posts. The add button is the footer's sponsor button,
+found by its class, and is never the "Remove from library" control or around it.
 A click that hit anything else still writes nothing, because the write window
 admits only the app's creative create for this ad set and this post.
 
@@ -100,31 +99,31 @@ _URN_ROW = re.compile(r"select-row-urn:li:[A-Za-z]+:[0-9]+-checkbox")
 _INDEX_ROW = re.compile(r"select-row-[0-9]+-checkbox")
 _CREATIVE_URN = "urn:li:sponsoredCreative:"
 
-# Shared by both programs: the rows in id order, and the add button found
-# relative to the library's "Remove from library" trigger. The add button must
-# be the only visible button after the trigger that is neither the trigger, nor
-# inside it, nor around it; any other layout finds nothing.
+# Shared by both programs: the rows in id order, and the add button. The add
+# button is the library footer's sponsor button (bundle class
+# ``sponsored-content-library__sponsor-button``, a sibling of the "Remove from
+# library" wrapper): exactly one, visible, and neither the remove trigger, inside
+# it, nor around it; any other layout finds nothing.
 _LIBRARY_HELPERS = """
     const rowBoxes = () => [...document.querySelectorAll(
         'input[type=checkbox][id^="select-row-"][id$="-checkbox"]'
     )];
     const addButton = () => {
-        const sel = '[data-live-test-confirm-hovercard__button--trigger]';
-        const triggers = [...document.querySelectorAll(sel)];
-        if (triggers.length !== 1 || !triggers[0].parentElement) return null;
-        const trigger = triggers[0];
-        const after = [...trigger.parentElement.querySelectorAll('button')].filter(
-            (b) =>
-                b !== trigger &&
-                !trigger.contains(b) &&
-                !b.contains(trigger) &&
-                !b.closest(sel) &&
-                b.querySelector(sel) === null &&
-                (trigger.compareDocumentPosition(b) &
-                    Node.DOCUMENT_POSITION_FOLLOWING) !== 0 &&
-                b.getClientRects().length > 0
-        );
-        return after.length === 1 ? after[0] : null;
+        const remove = '[data-live-test-confirm-hovercard__button--trigger]';
+        const found = [...document.querySelectorAll(
+            '.sponsored-content-library__sponsor-button'
+        )].map((el) => {
+            if (el.matches('button')) return el;
+            const inner = el.querySelectorAll('button');
+            return inner.length === 1 ? inner[0] : null;
+        });
+        if (found.length !== 1 || found[0] === null) return null;
+        const add = found[0];
+        if (add.getClientRects().length === 0 || add.closest(remove) ||
+                add.querySelector(remove) !== null) {
+            return null;
+        }
+        return add;
     };
     const snapshot = () => {
         const add = addButton();

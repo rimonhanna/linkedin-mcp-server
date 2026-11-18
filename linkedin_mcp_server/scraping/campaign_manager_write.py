@@ -91,6 +91,8 @@ ANCHORS = {
     "create_menu": "#ma-header-actions-create-trigger",
     "library_filter": "#sponsored-content-library__pill-filter-ORGANIC",
     "library_rows": 'input[type=checkbox][id^="select-row-"][id$="-checkbox"]',
+    "library_add": ".sponsored-content-library__sponsor-button",
+    "library_remove": "[data-live-test-confirm-hovercard__button--trigger]",
 }
 # The app shell's loader, by role and element only.
 _LOADER = '[role=progressbar], progress, [aria-busy="true"]'

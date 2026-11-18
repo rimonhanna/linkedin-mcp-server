@@ -60,35 +60,41 @@ def _actions(
     locale: str,
     *,
     wrapped: bool = True,
-    remove_last: bool = False,
-    extra_after: bool = False,
     add_enabled: bool = False,
     add_hidden: bool = False,
-    triggers: int = 1,
+    adds: int = 1,
+    add_class_on_remove: bool = False,
+    add_wraps_remove: bool = False,
 ) -> str:
+    """The library footer as the bundle lays it out: the remove hovercard in
+    its wrapper, then the sponsor (add) button as the wrapper's sibling."""
     remove, add, _ = _LABELS[locale]
-    button = f"<button onclick=\"clicked('remove')\">{remove}</button>"
+    sponsor = "sponsored-content-library__sponsor-button"
+    remove_class = f' class="{sponsor}"' if add_class_on_remove else ""
+    button = f"<button{remove_class} onclick=\"clicked('remove')\">{remove}</button>"
     trigger = (
         f"<span {_TRIGGER}>{button}</span>"
         if wrapped
-        else button.replace("<button ", f"<button {_TRIGGER} ", 1)
+        else button.replace("<button", f"<button {_TRIGGER}", 1)
+    )
+    wrapper = (
+        '<div class="sponsored-content-library__remove-from-library-wrapper">'
+        f"<div>{trigger}</div></div>"
     )
     add_button = (
-        f'<button id="add" aria-label="{add}"'
+        f'<button class="{sponsor}" id="add" aria-label="{add}"'
         + ("" if add_enabled else " disabled")
         + (' style="display:none"' if add_hidden else "")
         + f" onclick=\"clicked('add')\">{add}</button>"
     )
-    extra = "<button onclick=\"clicked('extra')\">More</button>" if extra_after else ""
-    parts = (
-        [add_button, trigger * triggers]
-        if remove_last
-        else [trigger * triggers, extra, add_button]
-    )
+    if add_wraps_remove:
+        return f'<div class="{sponsor}">{wrapper}</div>'
     return (
-        "<div><button onclick=\"clicked('back')\">Back</button>"
-        + "".join(parts)
-        + "</div>"
+        "<footer><button onclick=\"clicked('back')\">Back</button>"
+        + "<span>1 selected</span>"
+        + wrapper
+        + add_button * adds
+        + "</footer>"
     )
 
 
@@ -159,13 +165,19 @@ async def test_add_checks_the_row_then_clicks_add_and_never_remove(
 @pytest.mark.parametrize(
     "actions",
     [
-        {"remove_last": True},
-        {"extra_after": True},
+        {"adds": 2},
         {"add_enabled": True},
         {"add_hidden": True},
-        {"triggers": 2},
+        {"add_class_on_remove": True, "adds": 0},
+        {"add_wraps_remove": True},
     ],
-    ids=["remove-last", "two-after", "add-enabled-early", "add-hidden", "two-triggers"],
+    ids=[
+        "two-add-buttons",
+        "add-enabled-early",
+        "add-hidden",
+        "remove-is-add",
+        "add-wraps-remove",
+    ],
 )
 @pytest.mark.parametrize("locale", sorted(_LABELS))
 async def test_no_click_on_an_unexpected_action_layout(page, locale, actions):
@@ -174,7 +186,7 @@ async def test_no_click_on_an_unexpected_action_layout(page, locale, actions):
     assert await _add(page, 0, 2) == []
 
 
-async def test_without_the_remove_trigger_nothing_is_the_add_button(page):
+async def test_without_the_sponsor_class_nothing_is_the_add_button(page):
     await _load(
         page,
         _rows(2)
