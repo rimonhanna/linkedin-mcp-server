@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 import logging
 import re
 
+from patchright.async_api import Error as PlaywrightError
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
@@ -298,7 +299,12 @@ class CampaignWriteFlow:
 
     @asynccontextmanager
     async def capturing(self) -> AsyncIterator[CampaignManagerCapture]:
-        """One capture spanning the read, apply and verify phases."""
+        """One capture spanning the read, apply and verify phases.
+
+        Each tool call opens one, so a page that timed out in an earlier call
+        gets the full anchor wait again.
+        """
+        self._timed_out_on = None
         async with CampaignManagerCapture(self._session.page) as capture:
             yield capture
 
@@ -374,7 +380,8 @@ class CampaignWriteFlow:
         Once a wait on a page (a path, until the next ``read_campaign``) has
         timed out, later waits there only check once, so a page that never
         renders costs the timeout once. A timeout records the page's anchor
-        structure for the failure notes.
+        structure for the failure notes. A page that navigates during the
+        wait is also False: the caller's own checks decide what that means.
         """
         path = urlparse(page.url).path
         timeout = 1 if path == self._timed_out_on else _ANCHOR_TIMEOUT * 1000
@@ -384,14 +391,24 @@ class CampaignWriteFlow:
             self._timed_out_on = path
             await self.record_page_structure(page)
             return False
+        except PlaywrightError:
+            logger.debug("Anchor wait interrupted", exc_info=True)
+            return False
         return True
 
     async def record_page_structure(self, page: Any) -> None:
-        """Note which known anchors the page has, for the failure notes."""
+        """Note which known anchors the page has, for the failure notes.
+
+        A diagnostic only: a page that navigates meanwhile is not recorded.
+        """
         log = current_log()
-        summary = await page.evaluate(
-            _STRUCTURE_JS, {"anchors": ANCHORS, "loader": _LOADER}
-        )
+        try:
+            summary = await page.evaluate(
+                _STRUCTURE_JS, {"anchors": ANCHORS, "loader": _LOADER}
+            )
+        except PlaywrightError:
+            logger.debug("Page structure not recorded", exc_info=True)
+            return
         if log is None or not isinstance(summary, dict):
             logger.debug("Page structure not recorded: %s", summary)
             return

@@ -28,6 +28,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import urlparse
 
+from patchright.async_api import Error as PlaywrightError
+
 from linkedin_mcp_server.core.exceptions import (
     LinkedInScraperException,
 )
@@ -65,7 +67,9 @@ from linkedin_mcp_server.scraping.campaign_manager_political import (
     DECLARATION_REQUIRED,
     POLITICAL_INTENT,
     UNANSWERED,
+    declaration_note,
     declaration_stop,
+    declared_intent,
     political_dialog,
     political_question,
     question_sentence,
@@ -575,13 +579,22 @@ class CampaignManagerEditor:
                     await page.keyboard.press("Escape")
                     return "declaration" if question == "open" else "unanswered"
             now = loop.time()
-            if dialog_grace is not None and await page.evaluate(_DIALOG_JS) is True:
+            if dialog_grace is not None and await self._dialog_open(page):
                 dialog_since = now if dialog_since is None else dialog_since
                 if now - dialog_since >= dialog_grace:
                     await page.keyboard.press("Escape")
                     return "dialog"
             if now >= deadline:
                 return "timeout"
+
+    @staticmethod
+    async def _dialog_open(page: Any) -> bool:
+        """Whether a dialog shows; a page navigating away (the save went) has none."""
+        try:
+            return await page.evaluate(_DIALOG_JS) is True
+        except PlaywrightError:
+            logger.debug("Dialog check interrupted", exc_info=True)
+            return False
 
     async def _reread(
         self, capture: CampaignManagerCapture, account: str, campaign: str, suffix: str
@@ -655,6 +668,8 @@ class CampaignManagerEditor:
                     _UPDATE, url, status, message, retry_safe=True, target=target
                 )
             planned = _planned_edit(record, plan)
+            if political_ad is not None:
+                planned[POLITICAL_INTENT] = declared_intent(political_ad)
             problem = await self._check_edit_controls(page, record, plan)
             if problem is not None:
                 return campaign_action_result(
@@ -855,12 +870,15 @@ class CampaignManagerEditor:
             )
         after = await self._reread(capture, account, campaign, "/details")
         applied = _edit_values(after, plan) if after is not None else None
+        if applied is not None and after is not None and political_ad is not None:
+            applied[POLITICAL_INTENT] = after.get(POLITICAL_INTENT)
+        note = declaration_note(political_ad, window.admitted, after)
         if stop is not None:
             return campaign_action_result(
                 _UPDATE,
                 url,
                 "partially_applied",
-                f"Only part of the change was saved: {stop[1]}",
+                f"Only part of the change was saved: {stop[1]}{note}",
                 retry_safe=False,
                 target=target,
                 planned=planned,
@@ -873,7 +891,7 @@ class CampaignManagerEditor:
                 url,
                 "save_unverified",
                 "LinkedIn accepted the save, but the ad set read back afterwards "
-                "does not show the planned values. Check it before retrying.",
+                "does not show the planned values. Check it before retrying." + note,
                 retry_safe=False,
                 target=target,
                 planned=planned,
@@ -884,7 +902,7 @@ class CampaignManagerEditor:
             _UPDATE,
             url,
             "updated",
-            "The ad set was updated.",
+            "The ad set was updated." + note,
             retry_safe=False,
             target=_campaign_target(after),
             planned=planned,
@@ -901,12 +919,21 @@ class CampaignManagerEditor:
         step: str,
         outcome: CmWriteResponse | str,
     ) -> None:
-        """Record a stopped change's window and budget inputs for the notes."""
-        inputs = {
-            _FIELDS[name]: await page.evaluate(_INPUT_STATE_JS, _BUDGET_INPUTS[name])
-            for name in plan.order
-            if name in _BUDGET_INPUTS
-        }
+        """Record a stopped change's window and budget inputs for the notes.
+
+        A diagnostic only: an input a navigating page no longer answers for is
+        left out, never raised, so the stop is reported as it happened.
+        """
+        inputs: dict[str, Any] = {}
+        for name in plan.order:
+            if name not in _BUDGET_INPUTS:
+                continue
+            try:
+                inputs[_FIELDS[name]] = await page.evaluate(
+                    _INPUT_STATE_JS, _BUDGET_INPUTS[name]
+                )
+            except PlaywrightError:
+                logger.debug("Input state not recorded", exc_info=True)
         record_write_window(
             window,
             saves=saves,

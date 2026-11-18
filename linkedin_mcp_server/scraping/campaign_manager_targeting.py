@@ -64,7 +64,9 @@ from linkedin_mcp_server.scraping.campaign_manager_political import (
     DECLARATION_STATUSES,
     POLITICAL_INTENT,
     UNANSWERED,
+    declaration_note,
     declaration_stop,
+    declared_intent,
     political_dialog,
     political_question,
     question_sentence,
@@ -801,6 +803,8 @@ class CampaignTargetingEditor:
                 },
                 political_ad=political_ad,
             )
+            if political_ad is not None:
+                run.planned[POLITICAL_INTENT] = declared_intent(political_ad)
             if not confirm_send:
                 # The app asks about the targeting as it will be saved.
                 question = political_question(plan.target)
@@ -1110,20 +1114,22 @@ class CampaignTargetingEditor:
             reread = await self._flow.read_campaign(capture, run.account, run.campaign)
         except LinkedInScraperException:
             reread = None
+        record = reread if isinstance(reread, dict) else None
         keys = (
-            targeting_keys(reread.get("targetingCriteria"))
-            if isinstance(reread, dict)
+            targeting_keys(record.get("targetingCriteria"))
+            if record is not None
             else None
         )
+        note = declaration_note(run.political_ad, window.admitted, record)
         if keys is None:
             return result(
                 "save_unverified",
                 "Campaign Manager accepted a save but the ad set could not be read "
                 "back, so the change is unconfirmed. Check it with get_campaign "
-                "before trying again.",
+                "before trying again." + note,
             )
         before, now = _values(run.plan.original), _values(keys)
-        applied = {
+        applied: dict[str, Any] = {
             "add": [
                 {"urn": urn, "facetUrn": facet, "exclude": exclude}
                 for exclude, facet, urn in sorted(now - before)
@@ -1133,9 +1139,11 @@ class CampaignTargetingEditor:
                 for exclude, facet, urn in sorted(before - now)
             ],
         }
+        if run.political_ad is not None and record is not None:
+            applied[POLITICAL_INTENT] = record.get(POLITICAL_INTENT)
         if frozenset(keys) == run.plan.target and saved is not None and saved.ok:
             return result(
-                "updated", "The ad set's targeting was changed.", applied=applied
+                "updated", "The ad set's targeting was changed." + note, applied=applied
             )
         if stop is not None or saved is None:
             reason = (
@@ -1146,12 +1154,12 @@ class CampaignTargetingEditor:
             return result(
                 "partially_applied",
                 f"{reason} Part of the change may have been saved; applied shows "
-                "what the ad set holds now.",
+                "what the ad set holds now." + note,
                 applied=applied,
             )
         return result(
             "save_unverified",
             "Campaign Manager accepted the save but the ad set's targeting does "
-            "not match the planned change; applied shows what it holds now.",
+            "not match the planned change; applied shows what it holds now." + note,
             applied=applied,
         )

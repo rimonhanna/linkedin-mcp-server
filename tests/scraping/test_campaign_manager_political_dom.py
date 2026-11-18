@@ -1,7 +1,7 @@
 """Browser-DOM tests: the political-ad question is answered by its anchors.
 
 The stand-in is synthetic and a claim about the algorithm only: a dialog with
-the app's heading and checkbox ids and its Cancel then Confirm footer, plus
+the app's heading and checkbox ids and its footer (Cancel carries ``mr2``), plus
 the same checkbox inline on the page, as the app renders it on the details
 step. Nothing reaches LinkedIn; skipped when chromium is not installed.
 """
@@ -30,7 +30,9 @@ def _page_with_question(checked: bool, *, extra_button: bool = False) -> str:
   <button id="close">x</button>
   <h2 id="political-ad-self-declaration-modal">Question</h2>
   <input type="checkbox" id="political-ad-self-declaration" {box}>
-  <footer><button id="cancel">Cancel</button><button id="confirm">Confirm</button>{extra}</footer>
+  <div class="modal-footer--with-buttons">
+    <button class="mr2" id="cancel">Cancel</button><button id="confirm">Confirm</button>{extra}
+  </div>
 </div>
 <script>
 const dialog = document.querySelector('[role=dialog]');

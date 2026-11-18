@@ -12,8 +12,9 @@ so it is never defaulted here: a dialog met without the caller's
 
 Anchors, read from the app's bundle 2026-11-18 (no visible text is read): the
 dialog's heading has the id ``political-ad-self-declaration-modal``, its one
-checkbox the id ``political-ad-self-declaration``, and its footer holds Cancel
-then Confirm after the checkbox. The same checkbox id also renders inline on
+checkbox the id ``political-ad-self-declaration``, and its footer
+(``modal-footer--with-buttons``) holds two buttons: Cancel, which the template
+gives the class ``mr2``, and Confirm, which has none. The same checkbox id also renders inline on
 the details page, so it is only ever looked up inside the dialog. A checked
 box declares the ads not political, an unchecked one political.
 
@@ -27,7 +28,10 @@ these against the caller's declaration and the record's current value.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+import logging
 from typing import Any, Literal
+
+from patchright.async_api import Error as PlaywrightError
 
 from linkedin_mcp_server.scraping.campaign_manager_changes import TargetingKey
 
@@ -84,6 +88,8 @@ _EU_SUBREGIONS = {
     "urn:li:geo:91000009": ("104514075", "100456013", "105117694"),  # Nordics
     "urn:li:geo:91000001": ("106774002",),  # Middle East
 }
+
+logger = logging.getLogger(__name__)
 
 PoliticalQuestion = Literal["will", "may"]
 
@@ -230,8 +236,8 @@ UNANSWERED = (
 
 # ``political`` null only reports whether the dialog is open; true or false
 # sets the checkbox to that declaration (checked = not political) and
-# confirms. The buttons are found by structure: the two after the checkbox
-# are Cancel and Confirm, in that order.
+# confirms. Confirm is the footer's one button outside Cancel's ``mr2``; any
+# other footer is ``layout`` and nothing is clicked.
 POLITICAL_JS = """async ({ political }) => {
     /* linkedin-mcp:cm-editor */
     const dialogs = [...document.querySelectorAll('h2')]
@@ -246,11 +252,20 @@ POLITICAL_JS = """async ({ political }) => {
         .filter((el) => el.id === 'political-ad-self-declaration');
     if (boxes.length !== 1 || boxes[0].disabled) return { state: 'layout' };
     const box = boxes[0];
-    const after = [...dialog.querySelectorAll('button')].filter(
-        (el) => box.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING
-    );
-    if (after.length !== 2) return { state: 'layout', buttons: after.length };
-    const confirm = after[1];
+    const footers = [...dialog.querySelectorAll('.modal-footer--with-buttons')];
+    if (footers.length !== 1) return { state: 'layout', footers: footers.length };
+    const footer = footers[0];
+    const buttons = [...footer.querySelectorAll('button')];
+    const inCancel = (el) => {
+        const holder = el.closest('.mr2');
+        return holder !== null && footer.contains(holder);
+    };
+    const cancels = buttons.filter(inCancel);
+    const confirms = buttons.filter((el) => !inCancel(el));
+    if (buttons.length !== 2 || cancels.length !== 1 || confirms.length !== 1) {
+        return { state: 'layout', buttons: buttons.length };
+    }
+    const confirm = confirms[0];
     if (confirm.disabled || confirm.getClientRects().length === 0) {
         return { state: 'layout' };
     }
@@ -268,7 +283,48 @@ async def political_dialog(page: Any, political_ad: bool | None) -> str | None:
 
     ``absent`` / ``open`` without a declaration; ``answered`` once confirmed;
     ``layout``, ``unset`` or ``ambiguous`` when it is not the dialog this
-    tool knows, which the caller closes unanswered.
+    tool knows, which the caller closes unanswered. A page that navigates
+    during the check (Save and exit leaves once LinkedIn took the save) has no
+    dialog: ``absent``, so the caller keeps waiting for the recorded write.
     """
-    result = await page.evaluate(POLITICAL_JS, {"political": political_ad})
+    try:
+        result = await page.evaluate(POLITICAL_JS, {"political": political_ad})
+    except PlaywrightError:
+        logger.debug("Political-ad check interrupted", exc_info=True)
+        return "absent"
     return result.get("state") if isinstance(result, dict) else None
+
+
+def declaration_note(
+    political_ad: bool | None,
+    admitted: Iterable[Any],
+    record: Mapping[str, Any] | None,
+) -> str:
+    """What became of the caller's declaration, as a sentence for the message.
+
+    Recorded only when a save that left the browser carried the declared
+    ``politicalIntent`` and the ad set read back afterwards holds it.
+    """
+    if political_ad is None:
+        return ""
+    wanted = declared_intent(political_ad)
+    sent = any(sent_intent(request.body) == wanted for request in admitted)
+    held = record is not None and record.get(POLITICAL_INTENT) == wanted
+    if sent and held:
+        return " The political-ad declaration was recorded."
+    if held:
+        return (
+            " Campaign Manager did not ask whether the ads are political, so "
+            "political_ad was not sent; the ad set already holds that declaration."
+        )
+    if sent:
+        return (
+            " The political-ad declaration was sent, but the ad set read back "
+            "afterwards does not show it, so it is not confirmed as recorded. "
+            "Check it in Campaign Manager."
+        )
+    return (
+        " Campaign Manager did not ask whether the ads are political, so "
+        "political_ad was not sent and the declaration is not recorded on the "
+        "ad set."
+    )
