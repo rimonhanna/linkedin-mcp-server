@@ -79,6 +79,7 @@ _ROWS_POLL_SECONDS = 0.25
 _ROWS_POLLS = 20
 _TARGET_KEYS = ("kind", "uiLabel", "id", "accountId", "name", "status")
 _CREATIVE_URN = "urn:li:sponsoredCreative:"
+_ACTIVITY_URN = "urn:li:activity:"
 
 # Shared by both programs: the rows in id order, and the add button found
 # relative to the library's "Remove from library" trigger. The add button must
@@ -290,7 +291,12 @@ class CampaignContentEditor:
                 status, message, planned = found
                 return result(status, message, target=target, planned=planned)
             index, entry, count = found.index, found.entry, found.count
+            # An activity URN names the post's feed update; the ad references
+            # the share or ugcPost URN the library lists for it.
+            requested, post = post, entry["urn"]
             planned = {"postUrn": post, "visibility": entry["visibility"]}
+            if requested != post:
+                planned["requestedUrn"] = requested
             if "contentType" in entry:
                 planned["contentType"] = entry["contentType"]
             if not confirm_send:
@@ -447,9 +453,17 @@ class CampaignContentEditor:
                     "this tool does not recognise. Nothing was changed.",
                     planned,
                 )
-            index = next(
-                (i for i, entry in enumerate(entries) if entry["urn"] == post), None
-            )
+            key = "activityUrn" if post.startswith(_ACTIVITY_URN) else "urn"
+            matches = [i for i, entry in enumerate(entries) if entry.get(key) == post]
+            if key == "activityUrn" and len(matches) > 1:
+                return (
+                    "post_not_found",
+                    "More than one company post in the content library carries "
+                    "that activity id. Pass the post's urn:li:share or "
+                    "urn:li:ugcPost URN instead. Nothing was changed.",
+                    planned,
+                )
+            index = matches[0] if matches else None
             if index is None:
                 page_size = response.call.params.get("count", "")
                 beyond = page_size.isdigit() and len(entries) >= int(page_size)

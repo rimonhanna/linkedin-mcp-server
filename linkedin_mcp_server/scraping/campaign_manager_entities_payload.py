@@ -70,6 +70,7 @@ class SponsorableContent(TypedDict):
     visibility: str
     contentType: NotRequired[str]
     lifecycleState: NotRequired[str]
+    activityUrn: NotRequired[str]
 
 
 class MatchedAudience(TypedDict):
@@ -116,6 +117,23 @@ def _str(value: Any) -> str | None:
 
 def _int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+_ACTIVITY_URN = re.compile(r"^urn:li:activity:([0-9]+)$")
+
+
+def _activity_urn(value: Any) -> str | None:
+    """``urn:li:activity:<n>`` from an ``activityId`` the app sends as a
+    number, a string of digits or the activity URN (bundle post-link matcher)."""
+    number = _int(value)
+    if number is not None:
+        return f"urn:li:activity:{number}" if number > 0 else None
+    if not isinstance(value, str):
+        return None
+    if value.isdigit():
+        return f"urn:li:activity:{int(value)}"
+    match = _ACTIVITY_URN.fullmatch(value)
+    return f"urn:li:activity:{int(match.group(1))}" if match else None
 
 
 def typeahead_entities(payload: Any) -> list[TargetingEntity] | None:
@@ -198,6 +216,9 @@ def content_library_entries(payload: Any) -> list[SponsorableContent] | None:
         )
         if lifecycle is not None:
             entry["lifecycleState"] = lifecycle
+        activity = _activity_urn(entity.get("activityId"))
+        if activity is not None:
+            entry["activityUrn"] = activity
         entries.append(entry)
     return entries
 

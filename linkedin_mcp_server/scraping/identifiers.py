@@ -173,7 +173,7 @@ _CAMPAIGN_GROUP_URN = "urn:li:sponsoredCampaignGroup:"
 _PROFILE_URN_PREFIX = "urn:li:fsd_profile:"
 _PROFILE_URN_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 _TARGETING_URN = re.compile(r"^urn:li:[A-Za-z]+:[A-Za-z0-9_-]+$")
-_POST_URN = re.compile(r"^urn:li:(?:share|ugcPost):[0-9]+$")
+_POST_URN = re.compile(r"^urn:li:(?:share|ugcPost|activity):[0-9]+$")
 _POST_URL_ROUTE = ("feed", "update")
 _WHITESPACE = re.compile(r"\s")
 
@@ -705,7 +705,11 @@ def normalize_targeting_urn(value: str) -> str:
 
 
 def normalize_post_urn(value: str) -> str:
-    """A company post URN, from the URN or from a LinkedIn post link."""
+    """A company post URN, from the URN or from a LinkedIn post link.
+
+    An ``urn:li:activity:`` URN is returned as is; the caller resolves it to
+    the post's share or ugcPost URN.
+    """
     value = value.strip()
     candidate = value
     if _HAS_SCHEME.match(value):
@@ -721,8 +725,9 @@ def normalize_post_urn(value: str) -> str:
             candidate = _decoded(segments[2]) or ""
     if not _POST_URN.fullmatch(candidate):
         raise InvalidReferenceError(
-            "post_urn is not a company post. Pass urn:li:share:<number> or "
-            "urn:li:ugcPost:<number>, or the post's /feed/update/ link."
+            "post_urn is not a company post. Pass urn:li:share:<number>, "
+            "urn:li:ugcPost:<number> or urn:li:activity:<number>, or the post's "
+            "/feed/update/ link."
         )
     return candidate
 

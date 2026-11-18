@@ -33,7 +33,11 @@ from patchright.async_api import Error as PlaywrightError
 from linkedin_mcp_server.core.exceptions import (
     LinkedInScraperException,
 )
-from linkedin_mcp_server.scraping.campaign_manager import _SETUP_PATH
+from linkedin_mcp_server.scraping.campaign_manager import (
+    _SETUP_PATH,
+    _for_account,
+    _resource,
+)
 from linkedin_mcp_server.scraping.campaign_manager_api import (
     CampaignManagerCapture,
     CmResponse,
@@ -1275,8 +1279,8 @@ class CampaignManagerEditor:
             if response.call.resource == "campaignManagerCampaignGroups":
                 record = envelope_record(response.payload)
                 return response.call.entity_id == group and record is not None
-            if response.call.resource == "campaignManagerReportingCampaignGroups":
-                return response.ok and envelope_elements(response.payload) is not None
+            if _is_account_groups(response, account):
+                return envelope_elements(response.payload) is not None
             return False
 
         async with explicit_campaign_write(
@@ -1516,21 +1520,36 @@ class CampaignManagerEditor:
         return _stopped(outcome, window)
 
 
+def _is_account_groups(response: CmResponse, account: str) -> bool:
+    """The account's campaign group list, read as list_campaigns reads it."""
+    return _resource(
+        response, "campaignManagerReportingCampaignGroups", finder="accountId"
+    ) and _for_account(response, account)
+
+
 def _group_record(
     responses: list[CmResponse], account: str, group: str
 ) -> dict[str, Any] | None:
-    """The group, from its own record or the account's reporting list."""
+    """The group, from its own record or the account's reporting list.
+
+    The reporting list's elements carry no ``accountId``; the request's
+    ``accountId`` is what ties them to the account, as in list_campaigns.
+    """
     for response in responses:
         if not response.ok:
             continue
         if response.call.resource == "campaignManagerCampaignGroups":
             record = envelope_record(response.payload)
-            candidates = [record] if record is not None else []
-        else:
-            candidates = envelope_elements(response.payload) or []
-        for candidate in candidates:
-            if same_id(candidate.get("id"), group) and same_id(
-                candidate.get("accountId"), account
+            if (
+                record is not None
+                and same_id(record.get("id"), group)
+                and same_id(record.get("accountId"), account)
             ):
-                return candidate
+                return record
+            continue
+        if not _is_account_groups(response, account):
+            continue
+        for candidate in envelope_elements(response.payload) or []:
+            if same_id(candidate.get("id"), group):
+                return {**candidate, "accountId": int(account)}
     return None

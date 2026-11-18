@@ -767,6 +767,11 @@ class TestWriteIdentifiers:
                 "https://www.linkedin.com/feed/update/urn%3Ali%3AugcPost%3A456/?x=1",
                 "urn:li:ugcPost:456",
             ),
+            ("urn:li:activity:123", "urn:li:activity:123"),
+            (
+                "https://www.linkedin.com/feed/update/urn:li:activity:123/",
+                "urn:li:activity:123",
+            ),
         ],
     )
     def test_post_urn_accepts(self, value, expected):
@@ -778,10 +783,10 @@ class TestWriteIdentifiers:
             "",
             "urn:li:share:",
             "urn:li:share:abc",
-            "urn:li:activity:123",
+            "urn:li:activity:",
+            "urn:li:article:123",
             "https://example.com/feed/update/urn:li:share:123/",
             "https://www.linkedin.com/in/someone/",
-            "https://www.linkedin.com/feed/update/urn:li:activity:123/",
             "https://www.linkedin.com/feed/update/urn:li:share:1/extra",
         ],
     )
