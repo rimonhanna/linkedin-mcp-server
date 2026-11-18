@@ -7,7 +7,9 @@ is the record's value at the same position in its block (the pills follow
 ``targetingCriteria`` order). Nothing here reads visible text or the app's
 internals: blocks are found by their data attributes, rows and pills by
 position, and every position is checked against a count from the response
-first.
+first. Exclusions are one block (LinkedIn's single ``exclude.or``): an added
+exclusion goes into it, opened by its own button even while it is empty,
+never into a new AND group.
 
 A change is resolved in full before anything is clicked: each added value is
 found in a typeahead answer and each removed one in its block. Only then is
@@ -24,6 +26,8 @@ import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, NotRequired, TypedDict
+
+from patchright.async_api import Error as PlaywrightError
 
 from linkedin_mcp_server.core.exceptions import (
     InvalidReferenceError,
@@ -100,9 +104,21 @@ _STEP_PAUSE = 0.6
 # A step left with less than this before the caller's deadline is not started.
 _DEADLINE_MARGIN = 15.0
 
+# A block is the innermost article holding its edit or close button: only the
+# OR blocks carry ``data-js-targeting-module__facet-block``, the location and
+# exclusion blocks do not (read from the app's bundle, 2026-11-18).
 _BLOCK_HELPERS = """
-    const ARTICLE = 'article[data-js-targeting-module__facet-block]';
+    const EDIT = '[data-js-targeting-module__edit-facet-block-btn]';
     const CLOSE = '[data-js-targeting-module__close-facet-block-button]';
+    const ARTICLE = 'article:has(' + EDIT + ', ' + CLOSE + '):not(:has(article))';
+    // An empty exclusion section has no block, only a button outside every
+    // block; clicking it renders the block, open, which this class marks.
+    const RENDERED_ON_OPEN = {
+        excludedFacets: '.js-pills-container__excludedFacet',
+        excludedLocations: '.js-pills-container__excludedLocation',
+    };
+    const marked = (article, marker) =>
+        article.matches(marker) || article.querySelector(marker) !== null;
     const PILLS = '.targeting-module__facet-block-pills-container '
         + 'button:not(.button--unstyled)';
     const visible = (el) => el.getClientRects().length > 0;
@@ -128,17 +144,70 @@ _OPEN_BLOCK_JS = (
     + _BLOCK_HELPERS
     + """
     const name = 'data-js-targeting-module__edit-facet-block-btn';
-    const buttons = [...document.querySelectorAll('[' + name + ']')]
+    let buttons = [...document.querySelectorAll(EDIT)]
         .filter((button) => button.getAttribute(name) === attr);
+    if (buttons.length === 0 && attr === 'excludedFacets') {
+        buttons = [...document.querySelectorAll(
+            '[data-js-targeting-module__inline-add-more-excluded-facets]'
+        )];
+    }
     if (buttons.length !== 1) return { state: 'missing', count: buttons.length };
     const button = buttons[0];
-    const index = articles.indexOf(button.closest(ARTICLE));
-    if (index < 0) return { state: 'missing', count: 1 };
+    const article = button.closest(ARTICLE);
+    if (!article && !RENDERED_ON_OPEN[attr]) return { state: 'missing', count: 1 };
+    // null: the block is rendered by the click.
+    const index = article ? articles.indexOf(article) : null;
     if (open.length) return { state: 'busy', index, open };
     if (button.disabled) return { state: 'disabled', index };
     if (!visible(button)) return { state: 'hidden', index };
     button.click();
     return { state: 'clicked', index };
+}"""
+)
+# The block an outside button rendered: the one block its class marks.
+_RENDERED_BLOCK_JS = (
+    """(attr) => {
+    /* linkedin-mcp:cm-pill */"""
+    + _BLOCK_HELPERS
+    + """
+    const found = [];
+    articles.forEach((article, i) => {
+        if (marked(article, RENDERED_ON_OPEN[attr])) found.push(i);
+    });
+    return { open, found };
+}"""
+)
+# What the module shows of its blocks, for the failure notes: section names
+# and counts only, never a value.
+_BLOCKS_SUMMARY_JS = (
+    """() => {
+    /* linkedin-mcp:cm-pill */"""
+    + _BLOCK_HELPERS
+    + """
+    const name = 'data-js-targeting-module__edit-facet-block-btn';
+    const section = /^(includedOrs\\d+|includedLocations|excludedLocations|excludedFacets|buyerGroups)$/;
+    const edit = {};
+    for (const button of document.querySelectorAll(EDIT)) {
+        const attr = button.getAttribute(name);
+        const key = section.test(attr) ? attr : 'other';
+        const seen = edit[key] || { count: 0, in_block: 0, visible: 0, disabled: 0 };
+        seen.count += 1;
+        seen.in_block += button.closest(ARTICLE) ? 1 : 0;
+        seen.visible += visible(button) ? 1 : 0;
+        seen.disabled += button.disabled ? 1 : 0;
+        edit[key] = seen;
+    }
+    const count = (selector) => document.querySelectorAll(selector).length;
+    return {
+        blocks: articles.length,
+        open,
+        edit,
+        exclude_button: count('[data-js-targeting-module__inline-add-more-excluded-facets]'),
+        add_group_button: count('[data-js-targeting-module__add-more-new-facet-block]'),
+        exclusion_blocks: articles.filter(
+            (article) => marked(article, RENDERED_ON_OPEN.excludedFacets)
+        ).length,
+    };
 }"""
 )
 _CLOSE_BLOCK_JS = (
@@ -317,16 +386,25 @@ class _Run:
 
 
 class _Stop(Exception):
-    """A step that cannot run; ``status`` is the tool's word for why."""
+    """A step that cannot run; ``status`` is the tool's word for why.
 
-    def __init__(self, status: str, message: str) -> None:
+    ``missing``: a targeting block was not found, so the failure notes get
+    the module's block structure.
+    """
+
+    def __init__(self, status: str, message: str, *, missing: bool = False) -> None:
         super().__init__(message)
         self.status = status
         self.message = message
+        self.missing = missing
 
 
 def _unavailable(message: str) -> _Stop:
     return _Stop("control_unavailable", message)
+
+
+def _not_found(message: str) -> _Stop:
+    return _Stop("control_unavailable", message, missing=True)
 
 
 def _check_refused(window: WriteWindow) -> None:
@@ -473,9 +551,16 @@ def _emptied(plan: TargetingPlan) -> set[int]:
 
 
 def _new_sections(plan: TargetingPlan) -> set[str]:
-    """OR blocks the plan creates: none of their values exist yet."""
+    """OR blocks the plan creates: none of their values exist yet.
+
+    An empty exclusion section is not one: its own button opens it.
+    """
     existing = {key[0] for key in plan.original}
-    return {key[0] for key in plan.adds if key[0] not in existing}
+    return {
+        key[0]
+        for key in plan.adds
+        if key[0] not in existing and _or_index(key[0]) is not None
+    }
 
 
 def _count(keys: Sequence[TargetingKey], section: str) -> int:
@@ -571,16 +656,36 @@ class _TargetingPage:
             )
         if result.get("state") != "clicked":
             logger.debug("Targeting block %s not opened: %s", attr, result)
-            raise _unavailable(
+            raise _not_found(
                 "The targeting block to change was not found on the ad set page."
             )
         index = result["index"]
+        if index is None:
+            index = await self._rendered(attr)
         await self._until(
             index, lambda s: s["open"] == [index], "The targeting block did not open."
         )
         self._open = (attr, index)
         await human_pause(_STEP_PAUSE)
         return index
+
+    async def _rendered(self, attr: str) -> int:
+        """The index of the one block the click rendered, open."""
+        stop = time.monotonic() + _DOM_TIMEOUT
+        while True:
+            state = await self.page.evaluate(_RENDERED_BLOCK_JS, attr)
+            if (
+                isinstance(state, dict)
+                and len(state.get("found", [])) == 1
+                and state.get("open") == state["found"]
+            ):
+                return state["found"][0]
+            if time.monotonic() >= stop:
+                logger.debug("Targeting block %s not rendered: %s", attr, state)
+                raise _not_found(
+                    "Opening the targeting block did not show it on the ad set page."
+                )
+            await asyncio.sleep(_POLL)
 
     async def pills(self, index: int) -> int:
         return (await self._state(index))["pills"]
@@ -709,6 +814,7 @@ class CampaignTargetingEditor:
                     rows = await module.search(query, location=False)
                     await module.clear_search(location=False)
                 except _Stop as stop:
+                    await self._note_blocks(page, stop)
                     raise LinkedInScraperException(stop.message) from None
         url = campaign_manager_url(
             str(record["accountId"]), f"/campaigns/{record['id']}/details"
@@ -786,6 +892,7 @@ class CampaignTargetingEditor:
                         deadline,
                     )
             except _Stop as stop:
+                await self._note_blocks(page, stop)
                 return refusal(stop.status, f"{stop.message} Nothing was changed.")
             if not isinstance(plan, TargetingPlan):
                 status, message = plan
@@ -818,6 +925,17 @@ class CampaignTargetingEditor:
                     planned={**run.planned, "politicalAdQuestion": question},
                 )
             return await self._apply(capture, module, run, deadline)
+
+    async def _note_blocks(self, page: Any, stop: _Stop) -> None:
+        """Record the targeting blocks a missing-block stop saw; a diagnostic."""
+        if not stop.missing:
+            return
+        try:
+            summary = await page.evaluate(_BLOCKS_SUMMARY_JS)
+        except PlaywrightError:
+            logger.debug("Targeting blocks not recorded", exc_info=True)
+            return
+        await self._flow.record_page_structure(page, targeting_blocks=summary)
 
     async def _resolve(
         self,
@@ -1028,6 +1146,7 @@ class CampaignTargetingEditor:
                     )
             except _Stop as exc:
                 stop = exc
+                await self._note_blocks(page, stop)
         answers = [write for write in capture.writes[after:] if run.ours(write)]
         if stop is not None or saved is None or window.refused:
             # Only our own unsaved edit is discarded by leaving.

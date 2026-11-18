@@ -141,7 +141,7 @@
       "call": "update_campaign_targeting",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "4079f229b22e",
+      "program_digest": "a737273c248f",
       "section": "update_campaign_targeting__draft"
     },
     {
@@ -149,7 +149,7 @@
       "call": "update_campaign_targeting",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "63122b9bba21",
+      "program_digest": "470169f2f2cc",
       "section": "update_campaign_targeting__draft"
     },
     {
@@ -214,7 +214,7 @@
       "call": "update_campaign_targeting",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "63122b9bba21",
+      "program_digest": "470169f2f2cc",
       "section": "update_campaign_targeting__draft"
     },
     {
@@ -222,7 +222,7 @@
       "call": "update_campaign_targeting",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "63122b9bba21",
+      "program_digest": "470169f2f2cc",
       "section": "update_campaign_targeting__draft"
     },
     {
@@ -244,7 +244,7 @@
       "call": "update_campaign_targeting",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "63122b9bba21",
+      "program_digest": "470169f2f2cc",
       "section": "update_campaign_targeting__draft"
     },
     {
@@ -252,7 +252,7 @@
       "call": "update_campaign_targeting",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "63122b9bba21",
+      "program_digest": "470169f2f2cc",
       "section": "update_campaign_targeting__draft"
     },
     {
@@ -264,7 +264,7 @@
       "call": "update_campaign_targeting",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "e4782fe2a5e4",
+      "program_digest": "4464bd4e94dc",
       "section": "update_campaign_targeting__draft"
     },
     {
@@ -293,7 +293,7 @@
       "call": "update_campaign_targeting",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "63122b9bba21",
+      "program_digest": "470169f2f2cc",
       "section": "update_campaign_targeting__draft"
     },
     {
@@ -308,7 +308,7 @@
       "call": "update_campaign_targeting",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "63122b9bba21",
+      "program_digest": "470169f2f2cc",
       "section": "update_campaign_targeting__draft"
     },
     {
@@ -316,7 +316,7 @@
       "call": "update_campaign_targeting",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "63122b9bba21",
+      "program_digest": "470169f2f2cc",
       "section": "update_campaign_targeting__draft"
     },
     {
@@ -392,7 +392,7 @@
       "call": "update_campaign_targeting",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "63122b9bba21",
+      "program_digest": "470169f2f2cc",
       "section": "update_campaign_targeting__draft"
     },
     {
