@@ -124,7 +124,11 @@ _ACTIVITY_URN = re.compile(r"^urn:li:activity:([0-9]+)$")
 
 def _activity_urn(value: Any) -> str | None:
     """``urn:li:activity:<n>`` from an ``activityId`` the app sends as a
-    number, a string of digits or the activity URN (bundle post-link matcher)."""
+    number, a string of digits or the activity URN (bundle post-link matcher).
+
+    The organicCompanyContent answer seen live (2026-11-18) carries no
+    ``activityId``; then no entry has an ``activityUrn``.
+    """
     number = _int(value)
     if number is not None:
         return f"urn:li:activity:{number}" if number > 0 else None
@@ -189,7 +193,8 @@ def content_library_entries(payload: Any) -> list[SponsorableContent] | None:
             return None
         entity = included[ref]
         sponsorable = entity.get("sponsorable")
-        reasons = entity.get("nonSponsorableReasons", [])
+        # A sponsorable post answers ``null`` (live 2026-11-18).
+        reasons = entity.get("nonSponsorableReasons") or []
         visibility = _str(entity.get("visibility"))
         if (
             not isinstance(sponsorable, bool)

@@ -463,6 +463,15 @@ class CampaignContentEditor:
                     "urn:li:ugcPost URN instead. Nothing was changed.",
                     planned,
                 )
+            if key == "activityUrn" and not any(key in entry for entry in entries):
+                return (
+                    "post_not_found",
+                    "Campaign Manager's list of company posts does not say which "
+                    "activity each post belongs to, so this activity link could "
+                    "not be matched to a post. Pass the post's urn:li:share or "
+                    "urn:li:ugcPost URN instead. Nothing was changed.",
+                    planned,
+                )
             index = matches[0] if matches else None
             if index is None:
                 page_size = response.call.params.get("count", "")
