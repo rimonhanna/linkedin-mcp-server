@@ -777,11 +777,21 @@ def _refuse_target(
     return None
 
 
-def _refuse_create(
-    req: WriteRequest, resource: str, restli: str | None = "create"
-) -> str | None:
+def is_create_method(restli_method: str | None) -> bool:
+    """Whether a POST's Rest.li method header, if any, makes it a create.
+
+    A POST to a bare collection is a Rest.li create with or without the
+    header, and the app sends both (its bundle, 2026-11-18): ``restli.create``
+    sets ``create`` (a creative), while the classic editor's new ad set goes
+    out by a plain ``xhr.post`` with none (also seen live). Any other method
+    is not a create.
+    """
+    return (restli_method or "").lower() in ("", "create")
+
+
+def _refuse_create(req: WriteRequest, resource: str) -> str | None:
     """``_refuse_target`` for a create: the bare collection path, no action."""
-    refusal = _refuse_target(req, resource, None, restli)
+    refusal = _refuse_target(req, resource, None, None)
     if refusal is not None:
         return refusal
     parsed = urlparse(req.url)
@@ -794,7 +804,7 @@ def _refuse_create(
         return f"{resource} write to a sub-path, not a create"
     if "action" in req.call.params:
         return f"{resource} action request, not a create"
-    if _restli(req) not in ("", "create"):
+    if not is_create_method(req.restli_method):
         return f"{resource} {_restli(req)} is not a create"
     return None
 
@@ -945,15 +955,14 @@ def admit_campaign_create(
     Every other field must be one of the page's defaults
     (``_CREATE_DEFAULT_FIELDS``); ``politicalIntent`` is decided by the
     caller against the user's declaration. A DRAFT launches nothing and
-    bills nothing. The classic editor posts to the bare collection with no
-    Rest.li method header. Stateful like ``admit_list_upload``: a second
+    bills nothing. Stateful like ``admit_list_upload``: a second
     create would be a second draft, so only the first matching create passes.
     """
     created = False
 
     def admit(req: WriteRequest) -> str | None:
         nonlocal created
-        refusal = _refuse_create(req, "campaignManagerCampaigns", None)
+        refusal = _refuse_create(req, "campaignManagerCampaigns")
         if refusal is not None:
             return refusal
         if created:
@@ -1114,7 +1123,7 @@ def admit_list_upload(*, account_id: str, name: str, file_name: str) -> Admit:
             "campaignManagerDmpSegments",
         }:
             return f"not a planned write ({req.method} {resource})"
-        refusal = _refuse_create(req, resource, None)
+        refusal = _refuse_create(req, resource)
         if refusal is not None:
             return refusal
         if resource in seen:
@@ -1177,7 +1186,7 @@ def admit_saved_audience(
 
     def admit(req: WriteRequest) -> str | None:
         nonlocal created
-        refusal = _refuse_create(req, "campaignManagerTargetingCriteria", None)
+        refusal = _refuse_create(req, "campaignManagerTargetingCriteria")
         if refusal is not None:
             return refusal
         if created:

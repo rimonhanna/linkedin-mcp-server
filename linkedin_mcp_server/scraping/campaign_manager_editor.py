@@ -50,6 +50,7 @@ from linkedin_mcp_server.scraping.campaign_manager_changes import (
     admit_campaign_patch,
     admit_status_patch,
     format_budget,
+    is_create_method,
     ms_to_date,
     parse_budget,
     plan_campaign_edit,
@@ -487,12 +488,10 @@ def _is_patch(campaign_id: str) -> Callable[[Any], bool]:
 
 
 def _is_create(write: Any) -> bool:
-    # The classic editor's Save and exit posts the new ad set to the bare
-    # collection with no Rest.li method header (observed live 2026-11-18).
     return (
         write.call.resource == "campaignManagerCampaigns"
         and write.call.entity_id is None
-        and (write.restli_method or "").lower() in ("", "create")
+        and is_create_method(write.restli_method)
     )
 
 
