@@ -238,6 +238,9 @@ def locate_row(
 
     A row id keyed by the post's URN is exact. Index-keyed ids name the post's
     answer position only when the table shows the whole answer on one page.
+    Index-keyed ids cannot tell a table still redrawing from a settled one; a
+    row redrawn between this check and the click is still bounded by the write
+    window, which admits only this ad set's creative create for this post.
     """
     ids = [row.get("id") for row in rows]
     own = _row_id(post)
@@ -607,8 +610,8 @@ class CampaignContentEditor:
                 (i for i, entry in enumerate(entries) if entry["urn"] == post), None
             )
             if index is None:
-                page_size = response.call.params.get("count", "")
-                beyond = page_size.isdigit() and len(entries) >= int(page_size)
+                # Only a provably whole library may say the post is not in it.
+                beyond = _truncation(response, len(entries)) is not None
                 return (
                     "post_not_found",
                     (
@@ -630,8 +633,10 @@ class CampaignContentEditor:
                     "planned.reasons says why. Nothing was changed.",
                     {**planned, "reasons": list(entry["nonSponsorableReasons"])},
                 )
-            await self._flow.wait_for_anchor(page, ANCHORS["library_rows"])
-            located = await self._rendered_row(page, post, index, len(entries))
+            anchored = await self._flow.wait_for_anchor(page, ANCHORS["library_rows"])
+            located = await self._rendered_row(
+                page, post, index, len(entries), amend=not anchored
+            )
             if located is None:
                 return (
                     "control_unavailable",
@@ -659,11 +664,12 @@ class CampaignContentEditor:
         return None
 
     async def _rendered_row(
-        self, page: Any, post: str, index: int, count: int
+        self, page: Any, post: str, index: int, count: int, *, amend: bool = False
     ) -> tuple[list[dict[str, Any]], int] | None:
         """The rendered rows and the post's row among them, once the table
         settles unselected with a disabled add button; None after the bound,
-        with the table's structure recorded for the failure notes."""
+        with the table's structure recorded for the failure notes (added to the
+        page's record when ``amend``: the anchor wait already recorded it)."""
         rows: list[dict[str, Any]] | None = None
         add: Any = None
         for attempt in range(_ROWS_POLLS):
@@ -683,6 +689,7 @@ class CampaignContentEditor:
                 await asyncio.sleep(_ROWS_POLL_SECONDS)
         await self._flow.record_page_structure(
             page,
+            amend=amend,
             library_rows={
                 "answer_posts": count,
                 "rows": len(rows) if rows is not None else None,

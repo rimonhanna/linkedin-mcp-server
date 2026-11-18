@@ -201,7 +201,10 @@ class _App:
         if "linkedin-mcp:cm-content-rows" in script:
             return self._state()
         if "linkedin-mcp:cm-content-click" in script:
-            step, index, _count = arg
+            step, index, ids = arg
+            # The program clicks only while the table shows the same row ids.
+            if [row["id"] for row in self._state()["rows"]] != ids:
+                return {"clicked": False, "state": self._state()}
             self.clicks.append((step, index))
             if step == "add":
                 await self.on_add()
