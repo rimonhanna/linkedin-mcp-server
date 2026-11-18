@@ -16,6 +16,7 @@ from typing import Any, NamedTuple, cast
 from urllib.parse import urlparse
 
 import logging
+import re
 
 from linkedin_mcp_server.core.exceptions import (
     InvalidReferenceError,
@@ -41,6 +42,7 @@ from linkedin_mcp_server.scraping.campaign_manager_payload import (
     CmCall,
     Creative,
     DateWindow,
+    _REPORTED_METRICS,
     build_ad_account,
     build_analytics_rows,
     build_boost_account,
@@ -105,6 +107,8 @@ _REPORTING_LISTS = {
 _NEVER_DELIVERED = "DRAFT"
 # What LinkedIn answers for an entity the member cannot open or that is gone.
 _REFUSED_STATUSES = frozenset({403, 404})
+_FIELD_NAME = re.compile(r"[A-Za-z]+")
+_PARTIAL = "partial, not the ad account's total: see section_errors\n"
 
 
 def _error(error_type: str, message: str) -> dict[str, str]:
@@ -787,16 +791,16 @@ class CampaignManagerReader:
             "currencyCode": currency,
             "rows": rows,
         }
-        sections = {"analytics": render_analytics(rows, date_window, currency)}
+        analytics_text = render_analytics(rows, date_window, currency)
+        if section_errors.get("analytics", {}).get("error_type") == "page_limit":
+            analytics_text = _PARTIAL + analytics_text
+        sections = {"analytics": analytics_text}
         if demographic_rows:
             analytics["demographics"] = demographic_rows
             for facet, items in demographic_rows.items():
                 text = render_analytics(items, date_window, currency)
                 if facet in partial_demographics:
-                    text = (
-                        "partial, not the ad account's total: see section_errors\n"
-                        + text
-                    )
+                    text = _PARTIAL + text
                 sections[f"demographics_{facet}"] = text
         result: dict[str, Any] = {
             "url": url,
@@ -846,12 +850,32 @@ def _unmatched_detail(capture: CampaignManagerCapture, pivot: str) -> str | None
     )
 
 
+class _Listed(NamedTuple):
+    """The entities a reporting list showed by id, its largest total, and whether it was filtered."""
+
+    entities: dict[str, dict[str, Any]]
+    total: int | None
+    filtered: bool
+
+
+def _status_filtered(call: CmCall) -> bool:
+    """Whether a reporting list was narrowed by status, so it is not every entity.
+
+    The page sends none today; a projection naming the status field is no filter.
+    """
+    return any(
+        "status" in f"{key}={value}".casefold()
+        for key, value in call.params.items()
+        if key != "fields"
+    )
+
+
 def _reporting_lists(
     capture: CampaignManagerCapture, account_id: str
-) -> dict[str, tuple[dict[str, dict[str, Any]], int | None]]:
+) -> dict[str, _Listed]:
     """Per kind, the entities the page's reporting lists showed by id, and the largest total."""
-    lists: dict[str, tuple[dict[str, dict[str, Any]], int | None]] = {
-        kind: ({}, None) for kind in _REPORTING_LISTS.values()
+    lists: dict[str, _Listed] = {
+        kind: _Listed({}, None, False) for kind in _REPORTING_LISTS.values()
     }
     for response in capture.matching(
         lambda r: (
@@ -859,13 +883,16 @@ def _reporting_lists(
         )
     ):
         kind = _REPORTING_LISTS[response.call.resource]
-        listed, total = lists[kind]
+        listed, total, filtered = lists[kind]
         for element in envelope_elements(response.payload) or []:
             if isinstance(element.get("id"), int):
                 listed.setdefault(str(element["id"]), _listed(kind, element))
         reported = envelope_total(response.payload)
         if reported is not None and (total is None or reported > total):
-            lists[kind] = (listed, reported)
+            total = reported
+        lists[kind] = _Listed(
+            listed, total, filtered or _status_filtered(response.call)
+        )
     return lists
 
 
@@ -894,7 +921,7 @@ def _echoes_account(
     lists = _reporting_lists(capture, account_id)
     return all(
         (ids := restli_list(call.params[key]))
-        and set(ids) <= lists[SCOPE_ID_PARAMS[key]][0].keys()
+        and set(ids) <= lists[SCOPE_ID_PARAMS[key]].entities.keys()
         for key in scoped
     )
 
@@ -914,6 +941,8 @@ class _Gap(NamedTuple):
     required: int
     missing: list[dict[str, Any]]
     unlisted: int
+    # The reporting list was filtered by status, so coverage is unknown.
+    filtered: bool = False
 
 
 def _gaps(
@@ -927,7 +956,7 @@ def _gaps(
     lists = _reporting_lists(capture, account_id)
     gaps = []
     for kind, ids in scoped.items():
-        listed, total = lists[kind]
+        listed, total, filtered = lists[kind]
         unlisted = max(0, (total or 0) - len(listed))
         required = [
             entity
@@ -935,8 +964,10 @@ def _gaps(
             if entity.get("status") != _NEVER_DELIVERED
         ]
         missing = [entity for entity in required if str(entity["id"]) not in ids]
-        if missing or unlisted:
-            gaps.append(_Gap(kind, len(required) + unlisted, missing, unlisted))
+        if missing or unlisted or filtered:
+            gaps.append(
+                _Gap(kind, len(required) + unlisted, missing, unlisted, filtered)
+            )
     return gaps
 
 
@@ -955,6 +986,12 @@ def _gap_error(gaps: list[_Gap], what: str) -> dict[str, str] | None:
     parts = []
     for gap in gaps:
         name = f"{gap.kind.replace('_', ' ')}s"
+        if gap.filtered:
+            parts.append(
+                f"its list of {name} was filtered by status, so whether every one "
+                "that can have delivery was covered is unknown"
+            )
+            continue
         left = len(gap.missing) + gap.unlisted
         part = (
             f"{left} of its {gap.required} {name} that can have delivery "
@@ -985,23 +1022,45 @@ def _range_of(call: CmCall) -> tuple[date, date] | None:
     return restli_date_range(call.params.get("dateRange", ""))
 
 
+def _shape(response: CmResponse) -> tuple[str, ...]:
+    return tuple(restli_list(response.call.params.get("pivots", "")))
+
+
+def _reported(responses: list[CmResponse]) -> set[str]:
+    """The reported metrics a set of replies projects or carries."""
+    names: set[str] = set()
+    for response in responses:
+        names.update(_FIELD_NAME.findall(response.call.params.get("fields", "")))
+        for element in envelope_elements(response.payload) or []:
+            for value in element.values():
+                if isinstance(value, dict):
+                    names.update(value)
+    return names & _REPORTED_METRICS
+
+
 def _merged_level(
     capture: CampaignManagerCapture, responses: list[CmResponse], account_id: str
 ) -> tuple[Any, list[_Gap]]:
     """One period's reporting replies as one payload, and what they leave out.
 
+    The page can ask by the level's pivot alone and with objective type for the
+    same period; mixing them would count an entity twice, so only one shape is
+    read: the one carrying the most reported metrics, then the fewer pivots.
     An account-wide reply holds every entity. Otherwise the page asked for
     the ids its status filter shows, in chunks, so the rows merge by their
     pivot URNs (one element per entity and objective type) and the ids asked
     for are checked against the reporting list. Replies projecting different metrics
     for one row add up to the union of those metrics.
     """
+    shapes: dict[tuple[str, ...], list[CmResponse]] = {}
     for response in responses:
-        if _account_wide(response.call, account_id):
-            return response.payload, []
+        shapes.setdefault(_shape(response), []).append(response)
+    chosen = shapes[min(shapes, key=lambda s: (-len(_reported(shapes[s])), len(s), s))]
     rows: dict[tuple[str, ...], dict[str, Any]] = {}
     scoped: dict[str, set[str]] = {}
-    for response in responses:
+    account_wide = False
+    for response in chosen:
+        account_wide = account_wide or _account_wide(response.call, account_id)
         elements = envelope_elements(response.payload)
         if elements is None:
             raise _unverified("the analytics")
@@ -1024,7 +1083,10 @@ def _merged_level(
                 scoped.setdefault(kind, set()).update(
                     restli_list(response.call.params[key])
                 )
-    return {"elements": list(rows.values())}, _gaps(capture, scoped, account_id)
+    payload = {"elements": list(rows.values())}
+    if account_wide:
+        return payload, []
+    return payload, _gaps(capture, scoped, account_id)
 
 
 async def _level_payload(

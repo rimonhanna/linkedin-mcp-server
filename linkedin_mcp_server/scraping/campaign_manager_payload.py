@@ -76,6 +76,7 @@ _METRIC_GROUPS = (
     ("leadMetrics", _LEAD_METRICS),
 )
 BASE_METRICS = frozenset(_BASE_METRICS)
+_REPORTED_METRICS = frozenset(key for _, keys in _METRIC_GROUPS for key in keys)
 # Counts and costs add up across rows of one entity; a ratio does not, so it
 # is recomputed from the summed numerator and denominator.
 _ADDITIVE_METRICS = (
@@ -588,7 +589,9 @@ def build_analytics_rows(payload: Any, pivot: str) -> list[AnalyticsRow] | None:
     """Rows of a ``campaignManagerAdAnalytics`` reply, or ``None`` on a URN mismatch.
 
     A reply pivoted by ``pivot`` and a second pivot (objective type) holds
-    several elements per entity; they are summed into one row per entity.
+    several elements per entity; they are summed into one row per entity. The
+    elements must come from one query shape, or a pivot-alone row would be
+    summed with that entity's objective-type rows.
     """
     elements = envelope_elements(payload)
     if elements is None:

@@ -5,6 +5,8 @@ LinkedIn actually sent. These records keep exactly that, minus every value:
 strings, numbers and booleans become their type name, a list becomes its length
 and the skeleton of its first element, and a key that is not a plain API field
 name (an id, URN, email or number used as a map key) is dropped and counted.
+A map whose keys read as data (a capitalised word such as a name or skill, or
+many single lowercase words) shows only its size, never its keys.
 Bounded per record and per capture, so a large page cannot bloat the notes.
 
 The notes show the most recent records plus every kept record of the
@@ -41,6 +43,10 @@ _MAX_HEADER = 80
 _FIELD_NAME = re.compile(r"[$*]?[A-Za-z_][A-Za-z0-9_.\-]{0,63}")
 _DIGIT_RUN = re.compile(r"\d{3,}")
 _HEX_RUN = re.compile(r"[0-9a-fA-F\-]{12,}")
+# How an API names a field: lowerCamel or snake case, or a dotted type name.
+_TYPICAL_FIELD = re.compile(r"[$*]?[a-z_][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*")
+# What only a field name has: a camel hump, an underscore, a Rest.li marker, a dot.
+_FIELD_STRUCTURE = re.compile(r"[A-Z_$*.]")
 _ID_KEYS = "<id-like key>"
 _TRUNCATED = "..."
 # Parameters whose value is Rest.li structure (finder, pivots, projection,
@@ -75,6 +81,16 @@ def is_field_name(key: object) -> bool:
     return not (_DIGIT_RUN.search(key) or _HEX_RUN.search(key))
 
 
+def _keyed_by_data(value: dict[Any, Any]) -> bool:
+    """Whether a map's field-name-shaped keys still read as data used as keys."""
+    keys = [key for key in value if is_field_name(key)]
+    if any(not _TYPICAL_FIELD.fullmatch(key) for key in keys):
+        return True
+    return len(keys) > MAX_KEYS and not any(
+        _FIELD_STRUCTURE.search(key) for key in keys
+    )
+
+
 def skeleton(value: Any) -> Any:
     """``value`` with every scalar replaced by its type name, bounded."""
     budget = [MAX_NODES]
@@ -94,7 +110,7 @@ def _skeleton(value: Any, depth: int, budget: list[int]) -> Any:
     if isinstance(value, str):
         return "str"
     if isinstance(value, dict):
-        if depth >= MAX_DEPTH or budget[0] <= 0:
+        if depth >= MAX_DEPTH or budget[0] <= 0 or _keyed_by_data(value):
             return f"dict({len(value)} keys)"
         out: dict[str, Any] = {}
         dropped = 0
