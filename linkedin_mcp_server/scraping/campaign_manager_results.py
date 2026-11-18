@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 from linkedin_mcp_server.scraping.campaign_manager_changes import WriteRequest
 
-# The political-ad declaration stops of the two tools that save by Save and exit.
+# The political-ad declaration stops of the tools whose save can carry one.
 _DECLARATION = frozenset(
     {
         "declaration_required",
@@ -48,6 +48,7 @@ STATUSES: Mapping[str, frozenset[str]] = {
         "deadline",
     },
     "create_campaign_draft": _COMMON
+    | _DECLARATION
     | {"created", "no_campaign_group", "objective_unavailable"},
     "add_post_to_campaign": _COMMON
     | {

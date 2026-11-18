@@ -107,6 +107,7 @@ class Req:
     method: str
     restli_method: str | None
     body: Any
+    method_override: str | None = None
 
 
 def _req(
@@ -737,7 +738,7 @@ def _create(path: str | None = None, params=None, **body: Any) -> Req:
         "accountId": int(ACCOUNT),
         "campaignGroupId": f"urn:li:sponsoredCampaignGroup:{GROUP}",
         "objectiveType": "WEBSITE_VISIT",
-        "name": "",
+        "name": "Example draft",
     }
     base.update(body)
     return _req(base, entity_id=None, restli="create", path=path, params=params)
@@ -746,20 +747,35 @@ def _create(path: str | None = None, params=None, **body: Any) -> Req:
 def test_campaign_create_admission():
     def fresh():
         return admit_campaign_create(
-            account_id=ACCOUNT, group_id=GROUP, objective="WEBSITE_VISIT"
+            account_id=ACCOUNT,
+            group_id=GROUP,
+            objective="WEBSITE_VISIT",
+            name="Example draft",
         )
 
     assert "draft" in _reason(fresh()(_create(status="ACTIVE")))
     assert fresh()(_create(accountId=100000009))
     assert fresh()(_create(campaignGroupId=100000009))
     assert fresh()(_create(objectiveType="LEAD_GENERATION"))
+    assert "name" in _reason(fresh()(_create(name="Untitled")))
+    assert "creatives" in _reason(fresh()(_create(creatives=[])))
+    assert "politicalIntent" in _reason(fresh()(_create(politicalIntent=1)))
+    assert "politicalIntent" in _reason(fresh()(_create(politicalIntent={})))
+    assert fresh()(_create(politicalIntent=None)) is None
+    assert fresh()(_create(dailyBudget={"amount": "10"}, locale={})) is None
     assert fresh()(_create()) is None
+    # The classic Save and exit posts with no Rest.li method header.
+    bare = _create()
+    assert fresh()(_req(bare.body, entity_id=None, restli=None)) is None
 
 
 def test_create_admissions_refuse_sub_paths_actions_and_other_methods():
     def fresh():
         return admit_campaign_create(
-            account_id=ACCOUNT, group_id=GROUP, objective="WEBSITE_VISIT"
+            account_id=ACCOUNT,
+            group_id=GROUP,
+            objective="WEBSITE_VISIT",
+            name="Example draft",
         )
 
     sub_path = _create(path="campaignManagerCampaigns/draft")
@@ -798,7 +814,10 @@ def test_create_admissions_refuse_sub_paths_actions_and_other_methods():
 
 def test_campaign_create_admits_only_one_create():
     admit = admit_campaign_create(
-        account_id=ACCOUNT, group_id=GROUP, objective="WEBSITE_VISIT"
+        account_id=ACCOUNT,
+        group_id=GROUP,
+        objective="WEBSITE_VISIT",
+        name="Example draft",
     )
     # A refused create does not use up the one allowed create.
     assert admit(_create(status="ACTIVE"))

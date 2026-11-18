@@ -21,7 +21,8 @@ box declares the ads not political, an unchecked one political.
 The app also writes ``politicalIntent`` without asking: the classic Save and
 exit sets ``NOT_DECLARED`` whenever the targeting has no EU location, and the
 newer editor (``isIccEnabled`` in the app's code) fills ``NOT_POLITICAL`` on
-EU targeting that carries no declaration. ``refuse_intent`` decides each of
+EU targeting that carries no declaration, as the create of a new ad set may
+(``syncPoliticalIntentWithTargetingCriteria``). ``refuse_intent`` decides each of
 these against the caller's declaration and the record's current value.
 """
 
@@ -134,10 +135,15 @@ MISMATCH = "politicalIntent is not the planned value"
 
 
 def sent_intent(body: Any) -> str | None:
-    """The ``politicalIntent`` a campaign patch sets, if it sets one."""
-    patch = body.get("patch") if isinstance(body, Mapping) else None
-    updates = patch.get("$set") if isinstance(patch, Mapping) else None
-    value = updates.get(POLITICAL_INTENT) if isinstance(updates, Mapping) else None
+    """The ``politicalIntent`` a campaign patch sets or a create carries, if any."""
+    if not isinstance(body, Mapping):
+        return None
+    patch = body.get("patch")
+    if patch is None:
+        value = body.get(POLITICAL_INTENT)
+    else:
+        updates = patch.get("$set") if isinstance(patch, Mapping) else None
+        value = updates.get(POLITICAL_INTENT) if isinstance(updates, Mapping) else None
     return value if isinstance(value, str) else None
 
 

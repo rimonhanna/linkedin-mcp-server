@@ -50,6 +50,7 @@ from linkedin_mcp_server.scraping.campaign_manager_changes import (
     admit_campaign_patch,
     admit_status_patch,
     format_budget,
+    is_create_method,
     ms_to_date,
     parse_budget,
     plan_campaign_edit,
@@ -69,6 +70,7 @@ from linkedin_mcp_server.scraping.campaign_manager_payload import (
 )
 from linkedin_mcp_server.scraping.campaign_manager_political import (
     DECLARATION_REQUIRED,
+    NOT_DECLARED,
     POLITICAL_INTENT,
     UNANSWERED,
     declaration_note,
@@ -86,6 +88,7 @@ from linkedin_mcp_server.scraping.campaign_manager_results import (
 )
 from linkedin_mcp_server.scraping.campaign_manager_write import (
     ANCHORS,
+    with_refused_structure,
     CampaignWriteFlow,
     footer_disabled_reason,
     record_write_window,
@@ -198,7 +201,9 @@ _DIALOG_JS = """() => {
         (el) => el.getClientRects().length > 0
     );
 }"""
-_OBJECTIVE_JS = """({ value, click }) => {
+# Whether the setup page offers the objective; read only. Choosing a tile there
+# sends nothing: it only carries the objective to the details page.
+_OBJECTIVE_JS = """({ value }) => {
     /* linkedin-mcp:cm-editor */
     const radios = [...document.querySelectorAll(
         'input[type=radio][name="objective-selection"]'
@@ -208,7 +213,6 @@ _OBJECTIVE_JS = """({ value, click }) => {
     if (matches.length !== 1 || matches[0].disabled) {
         return { state: 'unavailable', available };
     }
-    if (click) matches[0].click();
     return { state: 'ready', available };
 }"""
 # The one visible date input of ``name``; ``open`` clicks it, which shows its
@@ -488,7 +492,7 @@ def _is_create(write: Any) -> bool:
     return (
         write.call.resource == "campaignManagerCampaigns"
         and write.call.entity_id is None
-        and (write.restli_method or "").lower() == "create"
+        and is_create_method(write.restli_method)
     )
 
 
@@ -544,9 +548,9 @@ def _stopped(outcome: CmWriteResponse | str, window: WriteWindow) -> Refusal:
     if outcome == "dialog":
         return (
             "control_unavailable",
-            "Campaign Manager asked a question in a dialog before saving that "
-            "this tool does not answer, so the dialog was closed and nothing "
-            "was sent. Make this change in Campaign Manager.",
+            "Campaign Manager showed a dialog instead of saving (a question this "
+            "tool does not answer, or an error), so the dialog was closed and "
+            "nothing was sent. Make this change in Campaign Manager.",
         )
     if window.refused:
         return (
@@ -558,6 +562,24 @@ def _stopped(outcome: CmWriteResponse | str, window: WriteWindow) -> Refusal:
         "control_unavailable",
         "Campaign Manager did not send a save for the change, so nothing was sent.",
     )
+
+
+# A new ad set is created as not political (on EU targeting) or not
+# declared; Campaign Manager offers no political choice in the create.
+_POLITICAL_CREATE = (
+    "Campaign Manager creates a new ad set only as not political or with no "
+    "political-ad declaration, so it cannot be created as political here. "
+    "Nothing was created. Create the draft without political_ad, then declare "
+    "it political in Campaign Manager."
+)
+_CREATE_QUESTION = (
+    " On EU targeting Campaign Manager may record the new ad set's ads as not "
+    "political while creating it (EU political advertising rules). That is a "
+    "legal declaration the user makes for the advertiser; this tool never "
+    "chooses it. Pass political_ad false only if the user declared the ads not "
+    "political; a political ad set is created without political_ad and "
+    "declared political in Campaign Manager."
+)
 
 
 class CampaignManagerEditor:
@@ -1200,12 +1222,16 @@ class CampaignManagerEditor:
         objective: str,
         name: str,
         confirm_send: bool,
+        political_ad: bool | None = None,
     ) -> dict[str, Any]:
         """Create a draft ad set with ``objective`` and ``name`` in an existing group.
 
         The draft is created in the chosen campaign group; this never creates
         a group, so an ad account without that group is refused
-        (``no_campaign_group``). The draft is never launched.
+        (``no_campaign_group``). The draft is never launched. ``political_ad``
+        is the user's own declaration whether the ad set's ads are political,
+        for the one Campaign Manager fills in on an EU-targeted new ad set;
+        None never declares it.
         """
         account = normalize_ad_account_id(account_id)
         group = normalize_campaign_group_id(campaign_group_id)
@@ -1217,11 +1243,21 @@ class CampaignManagerEditor:
             return campaign_action_result(
                 _CREATE, url, "invalid_change", invalid, retry_safe=True
             )
+        if political_ad is True:
+            return campaign_action_result(
+                _CREATE,
+                url,
+                "declaration_not_offered",
+                _POLITICAL_CREATE,
+                retry_safe=True,
+            )
         planned: dict[str, Any] = {
             "campaignGroupId": int(group),
             "objectiveType": objective,
             "name": name,
         }
+        if political_ad is not None:
+            planned[POLITICAL_INTENT] = declared_intent(political_ad)
         page = self._session.page
         async with self._flow.capturing() as capture:
             target, problem = await self._open_setup(capture, url, account, group)
@@ -1235,9 +1271,7 @@ class CampaignManagerEditor:
                     planned=planned,
                 )
             await self._flow.wait_for_anchor(page, ANCHORS["objective"])
-            tiles = await _poll(
-                page, _OBJECTIVE_JS, {"value": objective, "click": False}
-            )
+            tiles = await _poll(page, _OBJECTIVE_JS, {"value": objective})
             if _state(tiles) != "ready":
                 available = tiles.get("available") if isinstance(tiles, dict) else []
                 return campaign_action_result(
@@ -1256,13 +1290,25 @@ class CampaignManagerEditor:
                     url,
                     "confirmation_required",
                     "Nothing was created. Call again with confirm_send true to "
-                    "create the draft ad set; it is never launched.",
+                    "create the draft ad set; it is never launched. Which editor "
+                    "creates it is only checked then: an ad account that opens "
+                    "new ad sets in Campaign Manager's newer editor stops with "
+                    "nothing created."
+                    + (_CREATE_QUESTION if political_ad is None else ""),
                     retry_safe=True,
                     target=target,
-                    planned=planned,
+                    planned={**planned, "politicalAdQuestion": "may"},
                 )
             return await self._create(
-                capture, url, account, group, objective, name, target, planned
+                capture,
+                url,
+                account,
+                group,
+                objective,
+                name,
+                target,
+                planned,
+                political_ad,
             )
 
     async def _open_setup(
@@ -1331,6 +1377,47 @@ class CampaignManagerEditor:
             )
         return target, None
 
+    async def _open_new_details(
+        self, capture: CampaignManagerCapture, details: str
+    ) -> Refusal | None:
+        """Open the new ad set's details page with every app write aborted.
+
+        The setup page's Next leads there with the objective and the group in
+        the URL. Only the classic editor is driven: it creates the draft by
+        its footer's Save and exit alone. The newer editor creates it as soon
+        as the page loads, which the read phase refuses.
+        """
+        page = self._session.page
+        async with explicit_campaign_write(page, admit=lambda _request: "read phase"):
+            await self._navigator._navigate_to_page(details)
+            await self._session.check_rate_limit()
+            await self._session.dismiss_modal()
+            opened = urlparse(page.url).path == urlparse(details).path
+            ready = (
+                opened
+                and await self._flow.wait_for_anchor(page, ANCHORS["name_input"])
+                and await self._flow.wait_for_anchor(page, ANCHORS["footer"])
+            )
+            classic = ready and await self._flow.saves_by_footer(page)
+            await capture.settle()
+        if not ready:
+            await self._flow.record_page_structure(page, amend=True, step="details")
+            return (
+                "control_unavailable",
+                "Campaign Manager did not open the new ad set's page in the layout "
+                "this tool knows. Nothing was created.",
+            )
+        if not classic:
+            await self._flow.record_page_structure(page, step="details")
+            return (
+                "control_unavailable",
+                "This ad account opens new ad sets in Campaign Manager's newer "
+                "editor, which creates the draft as soon as its page loads; this "
+                "tool does not drive that editor. Nothing was created. Create the "
+                "draft in Campaign Manager.",
+            )
+        return None
+
     async def _create(
         self,
         capture: CampaignManagerCapture,
@@ -1341,106 +1428,145 @@ class CampaignManagerEditor:
         name: str,
         target: dict[str, Any] | None,
         planned: dict[str, Any],
+        political_ad: bool | None,
     ) -> dict[str, Any]:
+        """Name the new ad set on its details page and create it by Save and exit.
+
+        In the classic editor the setup page's objective tiles and Next only
+        move between pages, and nothing reaches LinkedIn until Save and exit
+        on the details page sends one create carrying every field, the name
+        included (``saveNewCampaign`` in the app's bundle, 2026-11-18). That
+        Save and exit asks no political-ad question for a new ad set, but on
+        EU targeting the app may fill in the declaration itself, which
+        ``refuse_intent`` decides against ``political_ad``.
+        """
         page = self._session.page
-        create = admit_campaign_create(
-            account_id=account, group_id=group, objective=objective
+        details = campaign_manager_url(
+            account,
+            f"/campaigns/new/details?campaignGroupId={group}"
+            f"&initialObjectiveType={objective}",
         )
-        draft: dict[str, Any] = {}
+        problem = await self._open_new_details(capture, details)
+        if problem is not None:
+            await self._flow.leave(page, campaign_manager_url(account, "/campaigns"))
+            return campaign_action_result(
+                _CREATE,
+                url,
+                *problem,
+                retry_safe=True,
+                target=target,
+                planned=planned,
+            )
+        create = admit_campaign_create(
+            account_id=account, group_id=group, objective=objective, name=name
+        )
 
         def admit(request: CmWriteRequest) -> str | None:
-            if request.call.entity_id is None:
-                return create(request)
-            if "record" not in draft:
-                return "write before the new draft was read"
-            return admit_campaign_patch(
-                request,
-                campaign_id=draft["id"],
-                record=draft["record"],
-                allowed={"name": name},
-            )
+            # A new ad set has no declaration to clear, so the app's
+            # "not declared" passes whatever political_ad says; a filled-in
+            # value must be the caller's declaration.
+            sent = sent_intent(request.body)
+            if sent not in (None, NOT_DECLARED) and _is_create(request):
+                refusal = refuse_intent(sent, None, political_ad, newer_editor=False)
+                if refusal is not None:
+                    return refusal
+            return create(request)
 
-        prefix = urlparse(campaign_manager_url(account, "/campaigns/")).path
-
-        def own_draft(path: str) -> bool:
-            head = path.removeprefix(prefix).split("/", 1)[0]
-            return path.startswith(prefix) and _NUMERIC.fullmatch(head) is not None
-
+        created_id: str | None = None
         stop: Refusal | None = None
-        async with self._flow.apply(page, admit, expected_path=own_draft) as window:
+        async with self._flow.apply(page, admit) as window:
             writes, refused = capture.write_count, len(window.refused)
-            responses = len(capture.responses)
-            clicked = await page.evaluate(
-                _OBJECTIVE_JS, {"value": objective, "click": True}
-            )
-            outcome: CmWriteResponse | str = "timeout"
-            if _state(clicked) == "ready":
-                outcome = await self._await_save(
-                    capture, window, _is_create, writes=writes, refused=refused
-                )
-            if not (isinstance(outcome, CmWriteResponse) and outcome.ok):
-                stop = _stopped(outcome, window)
-            elif outcome.created_id is None or not _NUMERIC.fullmatch(
-                outcome.created_id
-            ):
+            admitted = len(window.admitted)
+            outcome: CmWriteResponse | str = "control"
+            if not await set_text(page, _NAME_INPUT, None, name):
                 stop = (
-                    "save_unverified",
-                    "LinkedIn accepted the draft but did not say its id. Check "
-                    "the campaign group before retrying.",
+                    _sent_stop("name input")
+                    if _sent_since(capture, window, writes, admitted)
+                    else (
+                        "control_unavailable",
+                        "The name input was not found in the layout this tool "
+                        "knows. Nothing was created.",
+                    )
                 )
+            elif await self._flow.save_new_and_exit(page):
+                outcome = await self._await_save(
+                    capture,
+                    window,
+                    _is_create,
+                    writes=writes,
+                    refused=refused,
+                    dialog_grace=_DIALOG_GRACE,
+                )
+                if not (isinstance(outcome, CmWriteResponse) and outcome.ok):
+                    stop = _stopped(outcome, window)
+                elif outcome.created_id is None or not _NUMERIC.fullmatch(
+                    outcome.created_id
+                ):
+                    stop = (
+                        "save_unverified",
+                        "LinkedIn accepted the draft but did not say its id. Check "
+                        "the campaign group before retrying.",
+                    )
+                else:
+                    created_id = outcome.created_id
+            elif _sent_since(capture, window, writes, admitted):
+                stop = _sent_stop("Save and exit")
             else:
-                draft["id"] = outcome.created_id
-                stop = await self._rename(
-                    capture, window, account, draft, name, responses
+                stop = (
+                    "control_unavailable",
+                    "LinkedIn will not save this new ad set while one of its "
+                    "fields is invalid, so its Save and exit button stayed "
+                    "disabled. Nothing was created."
+                    if self._flow.footer_disabled
+                    else "Save and exit was not found in the layout this tool "
+                    "knows. Nothing was created.",
                 )
-        created_id = draft.get("id")
+            if stop is not None:
+                record_write_window(
+                    window,
+                    saves="save_and_exit",
+                    step="create",
+                    outcome=(
+                        f"http {outcome.status}"
+                        if isinstance(outcome, CmWriteResponse)
+                        else outcome
+                    ),
+                )
+                await self._flow.record_page_structure(page, amend=True, step="create")
         if stop is not None:
             await self._flow.leave(page, campaign_manager_url(account, "/campaigns"))
-        if stop is not None and created_id is None:
-            return campaign_action_result(
-                _CREATE,
-                url,
-                *stop,
-                retry_safe=stop[0] == "save_failed" or retry_safe_from(window),
-                target=target,
-                planned=planned,
-                refused=window.refused,
+            return with_refused_structure(
+                campaign_action_result(
+                    _CREATE,
+                    url,
+                    *stop,
+                    retry_safe=stop[0] == "save_failed" or retry_safe_from(window),
+                    target=target,
+                    planned=planned,
+                    refused=window.refused,
+                ),
+                window,
             )
-        after = await self._reread(capture, account, str(created_id), "/details")
-        applied = (
-            {
-                key: after.get(key)
-                for key in ("status", "name", "campaignGroupId", "objectiveType")
-            }
-            if after is not None
-            else None
-        )
-        if stop is not None:
-            return campaign_action_result(
-                _CREATE,
-                url,
-                "partially_applied",
-                f"The draft ad set was created but not renamed: {stop[1]}",
-                retry_safe=False,
-                target=target,
-                planned=planned,
-                applied=applied,
-                created_id=created_id,
-                refused=window.refused,
-            )
+        assert created_id is not None
+        after = await self._reread(capture, account, created_id, "/details")
+        keys = ("status", "name", "campaignGroupId", "objectiveType")
+        if political_ad is not None:
+            keys += (POLITICAL_INTENT,)
+        applied = {key: after.get(key) for key in keys} if after is not None else None
+        note = declaration_note(political_ad, window.admitted, after)
         expected = {
             "status": "DRAFT",
             "name": name,
             "campaignGroupId": int(group),
             "objectiveType": objective,
         }
-        if applied != expected:
+        if applied is None or any(applied.get(k) != v for k, v in expected.items()):
             return campaign_action_result(
                 _CREATE,
                 url,
                 "save_unverified",
                 "LinkedIn created the draft, but the ad set read back afterwards "
-                "does not show the planned values. Check it before retrying.",
+                "does not show the planned values. Check it before retrying." + note,
                 retry_safe=False,
                 target=target,
                 planned=planned,
@@ -1452,7 +1578,7 @@ class CampaignManagerEditor:
             _CREATE,
             url,
             "created",
-            "The draft ad set was created. It is not launched.",
+            "The draft ad set was created. It is not launched." + note,
             retry_safe=False,
             target=target,
             planned=planned,
@@ -1460,64 +1586,6 @@ class CampaignManagerEditor:
             created_id=created_id,
             refused=window.refused,
         )
-
-    async def _rename(
-        self,
-        capture: CampaignManagerCapture,
-        window: WriteWindow,
-        account: str,
-        draft: dict[str, Any],
-        name: str,
-        responses: int,
-    ) -> Refusal | None:
-        """Give the new draft ``name`` on its details page, where the input lives."""
-        page = self._session.page
-        campaign = draft["id"]
-        details = campaign_manager_url(account, f"/campaigns/{campaign}/details")
-        if urlparse(page.url).path != urlparse(details).path:
-            await self._flow.leave(page, details)
-
-        def is_draft(response: CmResponse) -> bool:
-            record = envelope_record(response.payload)
-            return (
-                response.ok
-                and response.call.resource == "campaignManagerCampaigns"
-                and response.call.entity_id == campaign
-                and record is not None
-                and same_id(record.get("id"), campaign)
-            )
-
-        try:
-            found = await capture.wait_for(
-                is_draft,
-                after=responses,
-                timeout=_READY_TIMEOUT,
-                wanted=("campaignManagerCampaigns",),
-            )
-        except LinkedInScraperException:
-            return (
-                "control_unavailable",
-                "Campaign Manager did not load the new draft.",
-            )
-        draft["record"] = envelope_record(found.payload) or {}
-        if draft["record"].get("name") == name:
-            return None
-        await self._flow.wait_for_anchor(page, ANCHORS["name_input"])
-        writes, refused = capture.write_count, len(window.refused)
-        admitted = len(window.admitted)
-        if not await set_text(page, _NAME_INPUT, None, name):
-            if _sent_since(capture, window, writes, admitted):
-                return _sent_stop("name input")
-            return (
-                "control_unavailable",
-                "The name input was not found in the layout this tool knows.",
-            )
-        outcome = await self._await_save(
-            capture, window, _is_patch(campaign), writes=writes, refused=refused
-        )
-        if isinstance(outcome, CmWriteResponse) and outcome.ok:
-            return None
-        return _stopped(outcome, window)
 
 
 def _is_account_groups(response: CmResponse, account: str) -> bool:

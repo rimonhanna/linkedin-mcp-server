@@ -22,6 +22,7 @@ class Req:
     restli_method: str | None = None
     body: object = None
     url: str = ""
+    method_override: str | None = None
 
 
 @dataclass

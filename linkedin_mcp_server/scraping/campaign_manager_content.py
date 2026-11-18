@@ -45,6 +45,7 @@ from linkedin_mcp_server.scraping.campaign_manager_changes import (
     Refusal,
     WriteRequest,
     admit_creative_create,
+    is_create_method,
 )
 from linkedin_mcp_server.scraping.campaign_manager_entities_payload import (
     SponsorableContent,
@@ -724,7 +725,8 @@ class CampaignContentEditor:
             body = write.body if isinstance(write.body, dict) else {}
             return (
                 write.call.resource == "campaignManagerCreatives"
-                and (write.restli_method or "").lower() == "create"
+                and write.call.entity_id is None
+                and is_create_method(write.restli_method)
                 and body.get("reference") == post
             )
 

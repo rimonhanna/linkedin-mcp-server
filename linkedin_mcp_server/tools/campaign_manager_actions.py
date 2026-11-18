@@ -433,6 +433,7 @@ def register_campaign_manager_action_tools(
         name: str,
         confirm_send: bool,
         ctx: Context,
+        political_ad: bool | None = None,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -444,7 +445,17 @@ def register_campaign_manager_action_tools(
         the draft and never touches billing.
 
         confirm_send False is a dry run that verifies the target and returns
-        the full planned change.
+        the full planned change, with planned.politicalAdQuestion "may".
+
+        On EU targeting Campaign Manager may fill in on its own that the new
+        ad set's ads are not political. That is a legal declaration the user
+        makes for the advertiser, and the tool never defaults it: the create
+        passes only with political_ad false (declaration_required without it,
+        and nothing is created). A new ad set cannot be created as political:
+        political_ad true stops with declaration_not_offered before anything
+        is opened; create it without political_ad, then declare it political
+        in Campaign Manager. Whether the account's editor can be driven is
+        only checked on the real run.
 
         Args:
             ad_account_id: Numeric ad account id, its URN or account URL.
@@ -455,6 +466,11 @@ def register_campaign_manager_action_tools(
             name: Name of the new ad set, 1 to 255 characters.
             confirm_send: Must be True to create the draft.
             ctx: FastMCP context for progress reporting
+            political_ad: Only when the user has declared it: true if this
+                ad set's ads are political, false if they are not (EU
+                political advertising rules). It is a legal declaration the
+                user makes for the advertiser, so never guess or default it;
+                leave it out until the user answers.
 
         Returns:
             Dict with url, status, message, retry_safe and, when known,
@@ -480,6 +496,7 @@ def register_campaign_manager_action_tools(
                     objective=objective,
                     name=name,
                     confirm_send=confirm_send,
+                    political_ad=political_ad,
                 ),
             )
         except AuthenticationError as e:

@@ -217,6 +217,7 @@ class TestDelegation:
             objective="WEBSITE_VISIT",
             name="Example ad set",
             confirm_send=True,
+            political_ad=None,
         )
 
     async def test_add_post_to_campaign_normalizes_the_post_link(self, pacing):

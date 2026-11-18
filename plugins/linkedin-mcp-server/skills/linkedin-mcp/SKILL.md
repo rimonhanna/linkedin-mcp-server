@@ -31,7 +31,8 @@ work, health checks, or background maintenance.
   upload; say so before confirming. None of them launches a campaign or
   touches billing.
 - On an ad set that targets the EU, saving asks whether its ads are political
-  (`declaration_required`, or `planned.politicalAdQuestion` on a dry run).
+  (`declaration_required`, or `planned.politicalAdQuestion` on a dry run;
+  `create_campaign_draft` too).
   That answer is a legal declaration the user makes for the advertiser: ask
   them, and pass `political_ad` true or false only as they declared it. Never
   choose it yourself.

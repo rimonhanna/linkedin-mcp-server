@@ -24,6 +24,7 @@ from typing import Any, Protocol
 from urllib.parse import urlparse
 
 from linkedin_mcp_server.core.exceptions import InvalidReferenceError
+from linkedin_mcp_server.response_structure import is_field_name
 from linkedin_mcp_server.scraping.campaign_manager_payload import (
     CM_API_PREFIX,
     CmCall,
@@ -75,6 +76,9 @@ class WriteRequest(Protocol):
 
     @property
     def restli_method(self) -> str | None: ...
+
+    @property
+    def method_override(self) -> str | None: ...
 
     @property
     def body(self) -> Any: ...
@@ -776,11 +780,21 @@ def _refuse_target(
     return None
 
 
-def _refuse_create(
-    req: WriteRequest, resource: str, restli: str | None = "create"
-) -> str | None:
+def is_create_method(restli_method: str | None) -> bool:
+    """Whether a POST's Rest.li method header, if any, makes it a create.
+
+    A POST to a bare collection is a Rest.li create with or without the
+    header, and the app sends both (its bundle, 2026-11-18): ``restli.create``
+    sets ``create`` (a creative), while the classic editor's new ad set goes
+    out by a plain ``xhr.post`` with none (also seen live). Any other method
+    is not a create.
+    """
+    return (restli_method or "").lower() in ("", "create")
+
+
+def _refuse_create(req: WriteRequest, resource: str) -> str | None:
     """``_refuse_target`` for a create: the bare collection path, no action."""
-    refusal = _refuse_target(req, resource, None, restli)
+    refusal = _refuse_target(req, resource, None, None)
     if refusal is not None:
         return refusal
     parsed = urlparse(req.url)
@@ -793,8 +807,10 @@ def _refuse_create(
         return f"{resource} write to a sub-path, not a create"
     if "action" in req.call.params:
         return f"{resource} action request, not a create"
-    if _restli(req) not in ("", "create"):
+    if not is_create_method(req.restli_method):
         return f"{resource} {_restli(req)} is not a create"
+    if req.method_override is not None:
+        return f"{resource} write tunnels another method, not a create"
     return None
 
 
@@ -904,11 +920,48 @@ def admit_status_patch(
     return None
 
 
-def admit_campaign_create(*, account_id: str, group_id: str, objective: str) -> Admit:
-    """An admission for one DRAFT create in the planned group with the objective.
+# The fields a new ad set's create carries besides the planned ones: the
+# details page's own defaults, none of them set by the tool. Observed live on
+# the classic editor's Save and exit, 2026-11-18. A create carrying any other
+# field (a creative, a billing reference, ...) is refused, so a layout that
+# sends more shows up in refused_structure instead of leaving.
+_CREATE_DEFAULT_FIELDS = frozenset(
+    {
+        "accountProductType",
+        "adFormats",
+        "audienceExpansionEnabled",
+        "contentTrackingId",
+        "costType",
+        "creativeSelection",
+        "dailyBudget",
+        "lifetimePacingStrategy",
+        "locale",
+        "myNetworkDeliveryEnabled",
+        "offsiteDeliveryEnabled",
+        "offsitePreferences",
+        "optimizationTargetType",
+        "pacingStrategy",
+        "politicalIntent",
+        "runSchedule",
+        "targetingCriteria",
+        "unitCost",
+    }
+)
+_CREATE_PLANNED_FIELDS = frozenset(
+    {"accountId", "campaignGroupId", "objectiveType", "name", "status"}
+)
 
-    Stateful like ``admit_list_upload``: a second create would be a second
-    draft, so only the first matching create passes.
+
+def admit_campaign_create(
+    *, account_id: str, group_id: str, objective: str, name: str
+) -> Admit:
+    """An admission for one DRAFT create in the planned group, objective and name.
+
+    Every other field must be one of the page's defaults
+    (``_CREATE_DEFAULT_FIELDS``); ``politicalIntent`` is decided by the
+    caller against the user's declaration. A DRAFT launches nothing and
+    bills nothing. Stateful like ``admit_list_upload``: a second
+    create would be a second draft, so only the first matching create passes.
     """
     created = False
 
@@ -928,6 +981,19 @@ def admit_campaign_create(*, account_id: str, group_id: str, objective: str) -> 
             return "campaign create in another campaign group"
         if body.get("objectiveType") != objective:
             return "campaign create with another objective"
+        if body.get("name") != name:
+            return "campaign create with another name"
+        intent = body.get("politicalIntent")
+        if intent is not None and not isinstance(intent, str):
+            return "campaign create with a politicalIntent that is not a value"
+        extra = sorted(
+            key
+            for key in body
+            if key not in _CREATE_PLANNED_FIELDS | _CREATE_DEFAULT_FIELDS
+        )
+        if extra:
+            shown = ", ".join(key for key in extra if is_field_name(key))
+            return f"campaign create sets fields beyond the page's defaults: {shown}"
         created = True
         return None
 
@@ -1065,7 +1131,7 @@ def admit_list_upload(*, account_id: str, name: str, file_name: str) -> Admit:
             "campaignManagerDmpSegments",
         }:
             return f"not a planned write ({req.method} {resource})"
-        refusal = _refuse_create(req, resource, None)
+        refusal = _refuse_create(req, resource)
         if refusal is not None:
             return refusal
         if resource in seen:
@@ -1128,7 +1194,7 @@ def admit_saved_audience(
 
     def admit(req: WriteRequest) -> str | None:
         nonlocal created
-        refusal = _refuse_create(req, "campaignManagerTargetingCriteria", None)
+        refusal = _refuse_create(req, "campaignManagerTargetingCriteria")
         if refusal is not None:
             return refusal
         if created:

@@ -28,7 +28,12 @@ from patchright.async_api import Error as PlaywrightError
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
-from linkedin_mcp_server.response_structure import current_log, is_field_name
+from linkedin_mcp_server.response_structure import (
+    current_log,
+    is_field_name,
+    params_shape,
+    skeleton,
+)
 from linkedin_mcp_server.scraping.campaign_manager import _SETUP_PATH, _refusal
 from linkedin_mcp_server.scraping.campaign_manager_api import (
     CampaignManagerCapture,
@@ -80,6 +85,10 @@ ANCHORS = {
     "objective": 'input[type=radio][name="objective-selection"]',
     "footer": "[data-js-wizard-container-footer-actions]",
     "footer_disabled": "[data-js-wizard-container-footer-actions] button:disabled",
+    "footer_new_next": (
+        "[data-js-wizard-container-footer-actions] "
+        "[data-live-test-confirm-hovercard__button--trigger]"
+    ),
     "targeting_edit": "[data-js-targeting-module__edit-facet-block-btn]",
     "targeting_first_or": (
         '[data-js-targeting-module__edit-facet-block-btn="includedOrs0"]'
@@ -147,6 +156,35 @@ _FOOTER_JS = """(expected) => {
     if (target.disabled) return { count: candidates.length, clicked: false, disabled: true };
     target.click();
     return { count: candidates.length, clicked: true };
+}"""
+# A new ad set's footer (the app's bundle, 2026-11-18): Next is a confirm
+# hovercard's trigger, and Save and exit the visible button right before it in
+# the same container; Previous, when shown, sits in another container.
+_NEW_FOOTER_JS = """() => {
+    /* linkedin-mcp:cm-footer */
+    const footers = [...document.querySelectorAll(
+        '[data-js-wizard-container-footer-actions]'
+    )];
+    if (footers.length !== 1) return { count: -footers.length, clicked: false };
+    const buttons = [...footers[0].querySelectorAll('button')]
+        .filter((el) => el.getClientRects().length > 0);
+    const next = buttons[buttons.length - 1];
+    const target = buttons[buttons.length - 2];
+    const triggers = buttons.filter(
+        (el) => el.hasAttribute('data-live-test-confirm-hovercard__button--trigger')
+    );
+    if (
+        !target ||
+        triggers.length !== 1 ||
+        triggers[0] !== next ||
+        !target.parentElement.contains(next) ||
+        footers[0].querySelector('[data-live-test-wizard-container__button--next]')
+    ) {
+        return { count: buttons.length, clicked: false };
+    }
+    if (target.disabled) return { count: buttons.length, clicked: false, disabled: true };
+    target.click();
+    return { count: buttons.length, clicked: true };
 }"""
 # The classic editor's footer. That editor never autosaves, also not a draft:
 # its fields reach LinkedIn only by the footer's Save and exit. Only the newer
@@ -217,6 +255,32 @@ def _request_shape(request: CmWriteRequest) -> dict[str, Any]:
     elif body is not None:
         shape["body_keys"] = sorted(key for key in body if is_field_name(key))
     return shape
+
+
+def request_structure(request: CmWriteRequest, reason: str) -> dict[str, Any]:
+    """A refused request without its values: what the next fix needs to see."""
+    segments = urlparse(request.url).path.split("/")
+    return {
+        "method": request.method,
+        "restli_method": request.restli_method,
+        "resource": request.call.resource,
+        "finder": request.call.finder,
+        "path": "/".join(s if is_field_name(s) else "{id}" for s in segments if s),
+        "params": params_shape(request.call.params),
+        "body": skeleton(request.body),
+        "reason": reason,
+    }
+
+
+def with_refused_structure(
+    result: dict[str, Any], window: WriteWindow
+) -> dict[str, Any]:
+    """``result`` with each refused request's value-free structure, if any."""
+    if window.refused:
+        result["refused_structure"] = [
+            request_structure(request, reason) for request, reason in window.refused
+        ]
+    return result
 
 
 def record_write_window(
@@ -518,7 +582,15 @@ class CampaignWriteFlow:
         Unclicked, the page's anchors are recorded and ``footer_disabled`` says
         whether the button was there but disabled.
         """
-        result = await page.evaluate(_FOOTER_JS, _FOOTER_CANDIDATES[draft])
+        return await self._click_footer(
+            page, await page.evaluate(_FOOTER_JS, _FOOTER_CANDIDATES[draft])
+        )
+
+    async def save_new_and_exit(self, page: Any) -> bool:
+        """``save_and_exit`` on a new ad set's footer, whose Next is a hovercard."""
+        return await self._click_footer(page, await page.evaluate(_NEW_FOOTER_JS))
+
+    async def _click_footer(self, page: Any, result: Any) -> bool:
         clicked = isinstance(result, dict) and result.get("clicked") is True
         self.footer_disabled = (
             isinstance(result, dict) and result.get("disabled") is True

@@ -29,6 +29,13 @@ VALID = {
         "remove": ["urn:li:title:200"],
         "confirm_send": True,
     },
+    "create_campaign_draft": {
+        "ad_account_id": "100000001",
+        "campaign_group_id": "300000003",
+        "objective": "WEBSITE_VISIT",
+        "name": "Example ad set",
+        "confirm_send": True,
+    },
 }
 DECLARING = tuple(VALID)
 

@@ -76,7 +76,7 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `update_campaign` | Change a campaign's (UI "Ad set") daily or lifetime budget amount, or its start and end dates. Never switches the budget or schedule type. `confirm_send` (default false: a dry run) |
 | `set_campaign_status` | Pause an active campaign (UI "Ad set") or resume a paused one. Never launches a draft. `confirm_send` |
 | `update_campaign_targeting` | Add (by URN from `search_targeting_entities`, as an include or an exclude) and remove targeting values on a campaign (UI "Ad set"). `confirm_send` |
-| `create_campaign_draft` | Create a draft campaign (UI "Ad set") with an objective and a name in an existing campaign group (UI "Campaign"). Never creates a group. `confirm_send` |
+| `create_campaign_draft` | Create a draft campaign (UI "Ad set") with an objective and a name in an existing campaign group (UI "Campaign"). Never creates a group. `confirm_send`, `political_ad` |
 | `add_post_to_campaign` | Add a company page post (its share or ugcPost URN, as `list_sponsorable_posts` lists it, or its link) to a draft or paused campaign (UI "Ad set") as a creative (UI "Ad"). A feed activity id is refused: Campaign Manager doesn't link it to the post. `confirm_send` |
 | `create_company_list_audience` | Upload a list of companies (name, and optionally website and LinkedIn page) as a matched audience. Confirming accepts LinkedIn's Ads Agreement for the upload. `confirm_send` |
 | `create_saved_audience` | Save a campaign's (UI "Ad set") targeting as a named saved audience (1 to 25 characters). `confirm_send` |
@@ -230,7 +230,12 @@ Manager keeps no declaration there; nothing is sent either way. The newer
 editor fills in "not political" on its own: that passes only with
 `political_ad` false, stops with `declaration_required` without it and with
 `declaration_not_offered` with true (that editor offers no political choice
-there).
+there). `create_campaign_draft` creates the draft by the new ad set's Save and
+exit, which asks nothing; when that create fills in "not political" on its
+own, it passes only with `political_ad` false and otherwise stops with
+`declaration_required`, creating nothing. A new ad set cannot be created as
+political (`political_ad` true stops with `declaration_not_offered`): create
+it without, then declare it in Campaign Manager.
 `create_company_list_audience` clicks LinkedIn's agree-and-upload button,
 which accepts LinkedIn's Ads Agreement for that upload; the dry run returns
 the terms link as `planned.termsUrl`. Other limits: `create_campaign_draft` never creates a campaign
