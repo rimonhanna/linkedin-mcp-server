@@ -28,6 +28,7 @@ from linkedin_mcp_server.scraping.campaign_manager_api import (
     SCOPE_ID_PARAMS,
     CampaignManagerCapture,
     CmResponse,
+    Refusal,
     analytics_call_matches,
     period_order,
     template_call,
@@ -93,6 +94,23 @@ _BOOST_ACCOUNTS_PATH = "/campaignmanager/boost/boostaccounts/"
 # 2026-11-18). Such an account's results live on the boosted post.
 _BOOST_ACCOUNT_TYPE = "PERSONAL"
 _BOOST_REPORTING_CUTOFF_MS = 1_704_067_200_000
+_BOOST_ACCOUNT = (
+    "This ad account is a personal boost account, the one LinkedIn keeps for "
+    "boosted posts."
+)
+BOOST_READ = (
+    f"{_BOOST_ACCOUNT} Its ads are managed with the boosted post on LinkedIn, "
+    "not in Campaign Manager, so there is nothing to list here."
+)
+BOOST_WRITE = (
+    f"{_BOOST_ACCOUNT} Its ads are managed with the boosted post on LinkedIn, "
+    "not in Campaign Manager, so nothing was changed."
+)
+_BOOST_ANALYTICS = (
+    f"{_BOOST_ACCOUNT} Campaign Manager does not show reporting for it, so "
+    "nothing was reported. A boosted post's results are in that post's own "
+    "analytics on LinkedIn."
+)
 _ACCOUNT_URN = "urn:li:sponsoredAccount:"
 _READY_TIMEOUT = 12.0
 # For a response the page may not send; a miss is no throttle evidence.
@@ -215,6 +233,24 @@ def _boost_without_reporting(record: dict[str, Any]) -> bool:
     )
 
 
+def boost_refusal(message: str) -> Refusal:
+    """Refuse the account the page loads when Campaign Manager refuses its route."""
+
+    def refuse(response: CmResponse) -> LinkedInScraperException | None:
+        record = envelope_record(response.payload)
+        if (
+            _resource(response, "campaignManagerAccounts")
+            and response.call.entity_id is not None
+            and record is not None
+            and same_id(record.get("id"), response.call.entity_id)
+            and _boost_without_reporting(record)
+        ):
+            return InvalidReferenceError(message)
+        return None
+
+    return refuse
+
+
 def _unverified(what: str) -> LinkedInScraperException:
     return LinkedInScraperException(
         f"Campaign Manager returned {what} in a shape this tool does not "
@@ -230,10 +266,13 @@ class CampaignManagerReader:
         self._navigator = navigator
 
     @asynccontextmanager
-    async def _reading(self) -> AsyncIterator[CampaignManagerCapture]:
+    async def _reading(
+        self, boost: str | None = BOOST_READ
+    ) -> AsyncIterator[CampaignManagerCapture]:
         page = self._session.page
+        refuse = boost_refusal(boost) if boost is not None else None
         async with without_campaign_manager_writes(page):
-            async with CampaignManagerCapture(page) as capture:
+            async with CampaignManagerCapture(page, refuse=refuse) as capture:
                 yield capture
 
     async def _route_to(self, path: str) -> None:
@@ -344,7 +383,7 @@ class CampaignManagerReader:
                 response, "campaignManagerAccounts", finder="memberBoostAccounts"
             )
 
-        async with self._reading() as capture:
+        async with self._reading(boost=None) as capture:
             listed = await self._open(
                 capture,
                 url,
@@ -656,7 +695,7 @@ class CampaignManagerReader:
         partial_demographics: set[str] = set()
         uncovered: dict[tuple[str, int], dict[str, Any]] = {}
 
-        async with self._reading() as capture:
+        async with self._reading(boost=_BOOST_ANALYTICS) as capture:
 
             def echoes(call: CmCall) -> bool:
                 return _echoes_account(capture, call, account)
@@ -670,22 +709,12 @@ class CampaignManagerReader:
                     and echoes(response.call)
                 )
 
-            def is_boost(response: CmResponse) -> bool:
-                record = envelope_record(response.payload)
-                return (
-                    _resource(response, "campaignManagerAccounts")
-                    and response.call.entity_id == account
-                    and record is not None
-                    and same_id(record.get("id"), account)
-                    and _boost_without_reporting(record)
-                )
-
             try:
                 found = await self._open(
                     capture,
                     url,
                     tab_path=urlparse(url).path,
-                    ready=lambda r: is_level(r) or is_boost(r),
+                    ready=is_level,
                     refused=_refusal(account),
                     wanted=("campaignManagerAdAnalytics",),
                 )
@@ -695,13 +724,6 @@ class CampaignManagerReader:
                 if type(exc) is not LinkedInScraperException or unmatched is None:
                     raise
                 raise unmatched from exc
-            if found is not None and is_boost(found) and not capture.matching(is_level):
-                raise LinkedInScraperException(
-                    "This ad account is a personal boost account, the one "
-                    "LinkedIn keeps for boosted posts. Campaign Manager does not "
-                    "show reporting for it, so nothing was reported. A boosted "
-                    "post's results are in that post's own analytics on LinkedIn."
-                )
             if found is None:
                 unmatched = _unmatched_analytics(capture, pivot)
                 if unmatched is not None:

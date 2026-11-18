@@ -426,7 +426,7 @@ class CampaignAudiences:
         account = normalize_ad_account_id(account_id)
         url = campaign_manager_url(account, _MATCHED_SUFFIX)
         section_errors: dict[str, dict[str, str]] = {}
-        async with self._flow.capturing() as capture:
+        async with self._flow.capturing(reads=True) as capture:
             matched_response = await self._load_matched(capture, account)
             saved_response = (
                 await self._load_saved(capture, account)

@@ -17,8 +17,8 @@ a page-owning collaborator.
 | --- | --- | --- |
 | `__init__` | _(no public definitions)_ | `browser-free` |
 | `api_capture` | `ApiCall`, `ApiResponseCapture`, `CapturedResponse` | `browser-free` |
-| `campaign_manager` | `CampaignManagerReader` | `page-owning` |
-| `campaign_manager_api` | `CampaignManagerCapture`, `CmWriteResponse`, `DEMOGRAPHIC_PIVOTS`, `LEVEL_PIVOTS`, `SCOPE_ID_PARAMS`, `analytics_call_matches()`, `period_order()`, `template_call()` | `browser-free` |
+| `campaign_manager` | `BOOST_READ`, `BOOST_WRITE`, `CampaignManagerReader`, `boost_refusal()` | `page-owning` |
+| `campaign_manager_api` | `CampaignManagerCapture`, `CmWriteResponse`, `DEMOGRAPHIC_PIVOTS`, `LEVEL_PIVOTS`, `Refusal`, `SCOPE_ID_PARAMS`, `analytics_call_matches()`, `period_order()`, `template_call()` | `browser-free` |
 | `campaign_manager_audiences` | `CampaignAudiences` | `page-owning` |
 | `campaign_manager_changes` | `Admit`, `CampaignEditPlan`, `DAY_MS`, `EDITABLE_STATUSES`, `LIST_AUDIENCE_NAME_MAX`, `SAVED_AUDIENCE_NAME_MAX`, `TargetingPlan`, `WriteRequest`, `admit_campaign_create()`, `admit_campaign_patch()`, `admit_creative_create()`, `admit_list_upload()`, `admit_saved_audience()`, `admit_status_patch()`, `format_budget()`, `is_create_method()`, `ms_to_date()`, `parse_budget()`, `pill_index()`, `plan_campaign_edit()`, `plan_targeting()`, `planned_end_ms()`, `refuse_invalid_audience_name()`, `refuse_invalid_campaign_edit()`, `refuse_invalid_draft()`, `refuse_invalid_targeting_change()`, `saved_audience_omitted()`, `targeting_keys()` | `browser-free` |
 | `campaign_manager_content` | `CampaignContentEditor`, `TOOL`, `click_library()`, `library_rows()`, `locate_row()`, `select_organic()` | `page-owning` |

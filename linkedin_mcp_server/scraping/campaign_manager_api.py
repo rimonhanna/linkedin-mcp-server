@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -87,6 +87,8 @@ _FIELD_NAME = re.compile(r"[A-Za-z]+")
 
 
 CmResponse = CapturedResponse[CmCall]
+# What ends every wait at once: an exception for a response the tool cannot go on past.
+Refusal = Callable[[CmResponse], LinkedInScraperException | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,8 +167,10 @@ class CampaignManagerCapture(ApiResponseCapture[CmCall]):
 
     label = "Campaign Manager"
 
-    def __init__(self, page: Any):
+    def __init__(self, page: Any, *, refuse: Refusal | None = None):
         super().__init__(page)
+        self._refuse = refuse
+        self._refused: LinkedInScraperException | None = None
         self.writes: list[CmWriteResponse] = []
         self._templates: dict[tuple[str, ...], _AnalyticsTemplate] = {}
         self._service_worker_seen = False
@@ -181,12 +185,64 @@ class CampaignManagerCapture(ApiResponseCapture[CmCall]):
 
     async def __aexit__(self, exc_type: object, *_exc: object) -> None:
         await super().__aexit__(exc_type, *_exc)
+        refused = self._refusal()
+        # A caller may have taken the wait's refusal for a miss; it still wins,
+        # but never over a cancellation.
+        if refused is not None and (
+            exc_type is None
+            or (
+                isinstance(exc_type, type)
+                and issubclass(exc_type, Exception)
+                and _exc[0] is not refused
+            )
+        ):
+            raise refused
         if self._service_worker_seen and exc_type is None:
             # The write guard's route cannot see what a service worker serves.
             raise LinkedInScraperException(
                 "Campaign Manager answered through a service worker, which this "
                 "tool's write protection cannot see, so nothing was reported."
             )
+
+    def _refusal(self) -> LinkedInScraperException | None:
+        if self._refused is None and self._refuse is not None:
+            for response in self.responses:
+                self._refused = self._refuse(response)
+                if self._refused is not None:
+                    break
+        return self._refused
+
+    async def wait_for(
+        self,
+        predicate: Callable[[CmResponse], bool],
+        *,
+        after: int = 0,
+        timeout: float = 12.0,
+        throttle: bool = True,
+        wanted: Iterable[str] = (),
+    ) -> CmResponse:
+        """As the base wait, but a response ``refuse`` names raises at once."""
+        refuse = self._refuse
+        if refuse is None:
+            return await super().wait_for(
+                predicate,
+                after=after,
+                timeout=timeout,
+                throttle=throttle,
+                wanted=wanted,
+            )
+        if (refused := self._refusal()) is not None:
+            raise refused
+        found = await super().wait_for(
+            lambda r: predicate(r) or refuse(r) is not None,
+            after=after,
+            timeout=timeout,
+            throttle=throttle,
+            wanted=wanted,
+        )
+        if (refused := self._refusal()) is not None:
+            raise refused
+        return found
 
     def _parse(self, response: Any) -> CmCall | None:
         if not urlparse(response.url).path.startswith(CM_API_PREFIX):

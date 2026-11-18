@@ -25,7 +25,7 @@ _GONE = "Execution context was destroyed, most likely because of a navigation"
 
 
 class _Capture:
-    def __init__(self, page: Any) -> None:
+    def __init__(self, page: Any, **_options: Any) -> None:
         pass
 
     async def __aenter__(self) -> _Capture:

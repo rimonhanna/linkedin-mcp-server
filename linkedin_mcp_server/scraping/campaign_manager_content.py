@@ -519,7 +519,7 @@ class CampaignContentEditor:
             f"/campaignmanager/accounts/{account}/campaigns/{campaign}{_LIBRARY_SUFFIX}"
         )
         url = campaign_manager_url(account, f"/campaigns/{campaign}{_LIBRARY_SUFFIX}")
-        async with self._flow.capturing() as capture:
+        async with self._flow.capturing(reads=True) as capture:
             record = await self._flow.read_campaign(capture, account, campaign)
             if isinstance(record, tuple):
                 raise InvalidReferenceError(record[1])
