@@ -451,7 +451,11 @@ def register_campaign_manager_action_tools(
         ad set's ads are not political. That is a legal declaration the user
         makes for the advertiser, and the tool never defaults it: the create
         passes only with political_ad false (declaration_required without it,
-        and nothing is created).
+        and nothing is created). A new ad set cannot be created as political:
+        political_ad true stops with declaration_not_offered before anything
+        is opened; create it without political_ad, then declare it political
+        in Campaign Manager. Whether the account's editor can be driven is
+        only checked on the real run.
 
         Args:
             ad_account_id: Numeric ad account id, its URN or account URL.

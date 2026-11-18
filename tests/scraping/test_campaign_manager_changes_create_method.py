@@ -7,6 +7,7 @@ the app's ``restli.create`` sends ``create`` (a creative), its plain
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -22,13 +23,14 @@ from .test_campaign_manager_changes import ACCOUNT, CAMPAIGN, GROUP, _req
 POST = "urn:li:share:100000005"
 
 
-def _creative(**kwargs: Any) -> str | None:
+def _creative(override: str | None = None, **kwargs: Any) -> str | None:
     body = {"campaignId": int(CAMPAIGN), "reference": POST, "status": "ACTIVE"}
     req = _req(body, resource="campaignManagerCreatives", entity_id=None, **kwargs)
+    req = replace(req, method_override=override)
     return admit_creative_create(req, campaign_id=CAMPAIGN, reference=POST)
 
 
-def _campaign(**kwargs: Any) -> str | None:
+def _campaign(override: str | None = None, **kwargs: Any) -> str | None:
     body = {
         "status": "DRAFT",
         "accountId": int(ACCOUNT),
@@ -42,7 +44,9 @@ def _campaign(**kwargs: Any) -> str | None:
         objective="WEBSITE_VISIT",
         name="Example draft",
     )
-    return admit(_req(body, entity_id=None, **kwargs))
+    return admit(
+        replace(_req(body, entity_id=None, **kwargs), method_override=override)
+    )
 
 
 @pytest.mark.parametrize("admit", [_creative, _campaign])
@@ -85,3 +89,10 @@ def test_the_rule_itself():
     assert not any(
         is_create_method(m) for m in ("partial_update", "batch_create", "action", "get")
     )
+
+
+@pytest.mark.parametrize("admit", [_creative, _campaign])
+@pytest.mark.parametrize("override", ["PUT", "DELETE", "POST", ""])
+def test_a_tunnelled_method_is_never_a_create(admit, override):
+    reason = admit(override=override, restli=None)
+    assert reason is not None and "tunnels another method" in reason

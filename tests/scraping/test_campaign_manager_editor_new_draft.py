@@ -223,3 +223,30 @@ async def test_a_field_beyond_the_page_defaults_is_refused_with_its_structure(
     )
     assert "billingReferenceId" in structure["body"]
     assert "urn:li:example:1" not in str(structure)
+
+
+async def test_not_declared_passes_with_a_declaration_and_is_reported_unrecorded(
+    mock_page,
+):
+    app = _NewDraftApp(mock_page)
+    # No EU location: the app sends "not declared" whatever the caller declared.
+    app.create_extra = {"politicalIntent": "NOT_DECLARED"}
+
+    result = await _create(mock_page, app, political_ad=False)
+
+    assert result["status"] == "created", result["message"]
+    assert app.sent == [("campaignManagerCampaigns", "fallback")]
+    assert "declaration is not recorded" in result["message"]
+
+
+async def test_political_true_is_refused_before_the_browser(mock_page):
+    app = _NewDraftApp(mock_page)
+
+    for confirm in (False, True):
+        result = await _create(mock_page, app, political_ad=True, confirm_send=confirm)
+
+        assert result["status"] == "declaration_not_offered"
+        assert result["retry_safe"] is True
+        assert "declare it political in Campaign Manager" in result["message"]
+    assert app.navigated == []
+    assert app.sent == []

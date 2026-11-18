@@ -576,7 +576,10 @@ async def test_create_dry_run_creates_nothing(mock_page):
     assert result["status"] == "confirmation_required"
     assert result["target"]["kind"] == "campaign_group"
     assert result["planned"]["politicalAdQuestion"] == "may"
+    assert "newer editor" in result["message"]
     assert app.navigated == [SETUP]
+    assert app.typed == []
+    assert all(name not in ("input", "new_footer") for name, _ in app.calls)
 
 
 async def test_campaign_group_id_must_be_numeric(mock_page):

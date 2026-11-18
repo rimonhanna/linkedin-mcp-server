@@ -78,6 +78,9 @@ class WriteRequest(Protocol):
     def restli_method(self) -> str | None: ...
 
     @property
+    def method_override(self) -> str | None: ...
+
+    @property
     def body(self) -> Any: ...
 
 
@@ -806,6 +809,8 @@ def _refuse_create(req: WriteRequest, resource: str) -> str | None:
         return f"{resource} action request, not a create"
     if not is_create_method(req.restli_method):
         return f"{resource} {_restli(req)} is not a create"
+    if req.method_override is not None:
+        return f"{resource} write tunnels another method, not a create"
     return None
 
 
@@ -978,6 +983,9 @@ def admit_campaign_create(
             return "campaign create with another objective"
         if body.get("name") != name:
             return "campaign create with another name"
+        intent = body.get("politicalIntent")
+        if intent is not None and not isinstance(intent, str):
+            return "campaign create with a politicalIntent that is not a value"
         extra = sorted(
             key
             for key in body

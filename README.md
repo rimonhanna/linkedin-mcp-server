@@ -233,7 +233,9 @@ editor fills in "not political" on its own: that passes only with
 there). `create_campaign_draft` creates the draft by the new ad set's Save and
 exit, which asks nothing; when that create fills in "not political" on its
 own, it passes only with `political_ad` false and otherwise stops with
-`declaration_required`, creating nothing.
+`declaration_required`, creating nothing. A new ad set cannot be created as
+political (`political_ad` true stops with `declaration_not_offered`): create
+it without, then declare it in Campaign Manager.
 `create_company_list_audience` clicks LinkedIn's agree-and-upload button,
 which accepts LinkedIn's Ads Agreement for that upload; the dry run returns
 the terms link as `planned.termsUrl`. Other limits: `create_campaign_draft` never creates a campaign

@@ -107,6 +107,7 @@ class Req:
     method: str
     restli_method: str | None
     body: Any
+    method_override: str | None = None
 
 
 def _req(
@@ -758,6 +759,9 @@ def test_campaign_create_admission():
     assert fresh()(_create(objectiveType="LEAD_GENERATION"))
     assert "name" in _reason(fresh()(_create(name="Untitled")))
     assert "creatives" in _reason(fresh()(_create(creatives=[])))
+    assert "politicalIntent" in _reason(fresh()(_create(politicalIntent=1)))
+    assert "politicalIntent" in _reason(fresh()(_create(politicalIntent={})))
+    assert fresh()(_create(politicalIntent=None)) is None
     assert fresh()(_create(dailyBudget={"amount": "10"}, locale={})) is None
     assert fresh()(_create()) is None
     # The classic Save and exit posts with no Rest.li method header.

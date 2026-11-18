@@ -72,6 +72,8 @@ class CmWriteRequest:
     restli_method: str | None
     # The JSON-decoded body; None when absent or not JSON.
     body: Any
+    # ``X-HTTP-Method-Override``: the method a POST tunnels, if any.
+    method_override: str | None = None
 
 
 @dataclass(slots=True)
@@ -129,6 +131,7 @@ class _PageGuard:
             method=method,
             restli_method=headers.get("x-restli-method"),
             body=_json_body(request),
+            method_override=headers.get("x-http-method-override"),
         )
         try:
             reason = admit(write)

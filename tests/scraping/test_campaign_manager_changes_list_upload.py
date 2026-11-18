@@ -28,6 +28,7 @@ class Req:
     method: str
     restli_method: str | None
     body: Any
+    method_override: str | None = None
 
 
 def _req(resource: str, body: Any) -> Req:

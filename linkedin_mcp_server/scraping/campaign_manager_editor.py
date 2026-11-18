@@ -70,6 +70,7 @@ from linkedin_mcp_server.scraping.campaign_manager_payload import (
 )
 from linkedin_mcp_server.scraping.campaign_manager_political import (
     DECLARATION_REQUIRED,
+    NOT_DECLARED,
     POLITICAL_INTENT,
     UNANSWERED,
     declaration_note,
@@ -561,6 +562,24 @@ def _stopped(outcome: CmWriteResponse | str, window: WriteWindow) -> Refusal:
         "control_unavailable",
         "Campaign Manager did not send a save for the change, so nothing was sent.",
     )
+
+
+# A new ad set is created as not political (on EU targeting) or not
+# declared; Campaign Manager offers no political choice in the create.
+_POLITICAL_CREATE = (
+    "Campaign Manager creates a new ad set only as not political or with no "
+    "political-ad declaration, so it cannot be created as political here. "
+    "Nothing was created. Create the draft without political_ad, then declare "
+    "it political in Campaign Manager."
+)
+_CREATE_QUESTION = (
+    " On EU targeting Campaign Manager may record the new ad set's ads as not "
+    "political while creating it (EU political advertising rules). That is a "
+    "legal declaration the user makes for the advertiser; this tool never "
+    "chooses it. Pass political_ad false only if the user declared the ads not "
+    "political; a political ad set is created without political_ad and "
+    "declared political in Campaign Manager."
+)
 
 
 class CampaignManagerEditor:
@@ -1224,6 +1243,14 @@ class CampaignManagerEditor:
             return campaign_action_result(
                 _CREATE, url, "invalid_change", invalid, retry_safe=True
             )
+        if political_ad is True:
+            return campaign_action_result(
+                _CREATE,
+                url,
+                "declaration_not_offered",
+                _POLITICAL_CREATE,
+                retry_safe=True,
+            )
         planned: dict[str, Any] = {
             "campaignGroupId": int(group),
             "objectiveType": objective,
@@ -1263,8 +1290,11 @@ class CampaignManagerEditor:
                     url,
                     "confirmation_required",
                     "Nothing was created. Call again with confirm_send true to "
-                    "create the draft ad set; it is never launched."
-                    + (question_sentence("may") if political_ad is None else ""),
+                    "create the draft ad set; it is never launched. Which editor "
+                    "creates it is only checked then: an ad account that opens "
+                    "new ad sets in Campaign Manager's newer editor stops with "
+                    "nothing created."
+                    + (_CREATE_QUESTION if political_ad is None else ""),
                     retry_safe=True,
                     target=target,
                     planned={**planned, "politicalAdQuestion": "may"},
@@ -1432,8 +1462,11 @@ class CampaignManagerEditor:
         )
 
         def admit(request: CmWriteRequest) -> str | None:
+            # A new ad set has no declaration to clear, so the app's
+            # "not declared" passes whatever political_ad says; a filled-in
+            # value must be the caller's declaration.
             sent = sent_intent(request.body)
-            if sent is not None and _is_create(request):
+            if sent not in (None, NOT_DECLARED) and _is_create(request):
                 refusal = refuse_intent(sent, None, political_ad, newer_editor=False)
                 if refusal is not None:
                     return refusal
