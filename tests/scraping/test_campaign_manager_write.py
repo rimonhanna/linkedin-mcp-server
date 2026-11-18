@@ -114,7 +114,7 @@ def _flow(page: Any) -> CampaignWriteFlow:
 async def _read(page: Any, browser: _Browser, flow: CampaignWriteFlow | None = None):
     flow = flow or _flow(page)
     with browser.running():
-        async with flow.capturing() as capture:
+        async with flow.capturing(ACCOUNT) as capture:
             return await flow.read_campaign(capture, ACCOUNT, CAMPAIGN)
 
 
@@ -188,7 +188,7 @@ async def test_reread_ignores_the_record_from_before_it(mock_page):
     flow = _flow(mock_page)
 
     with browser.running():
-        async with flow.capturing() as capture:
+        async with flow.capturing(ACCOUNT) as capture:
             first = await flow.read_campaign(capture, ACCOUNT, CAMPAIGN)
             second = await flow.read_campaign(capture, ACCOUNT, CAMPAIGN)
 
@@ -203,7 +203,7 @@ async def test_reread_without_a_fresh_record_raises_instead_of_reusing(mock_page
     flow = _flow(mock_page)
 
     with browser.running():
-        async with flow.capturing() as capture:
+        async with flow.capturing(ACCOUNT) as capture:
             await flow.read_campaign(capture, ACCOUNT, CAMPAIGN)
             with pytest.raises(LinkedInScraperException):
                 await flow.read_campaign(capture, ACCOUNT, CAMPAIGN)
@@ -314,7 +314,7 @@ async def test_wait_saved_ignores_answers_before_after(mock_page):
     def is_save(write: Any) -> bool:
         return write.call.resource == "campaignManagerCampaigns"
 
-    async with flow.capturing() as capture:
+    async with flow.capturing(ACCOUNT) as capture:
         _emit(mock_page, [save("Before")])
         await capture.settle()
         after = capture.write_count

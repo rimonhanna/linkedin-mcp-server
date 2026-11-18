@@ -408,7 +408,7 @@ class CampaignWriteFlow:
 
     @asynccontextmanager
     async def capturing(
-        self, *, reads: bool = False
+        self, account_id: str, *, reads: bool = False
     ) -> AsyncIterator[CampaignManagerCapture]:
         """One capture spanning the read, apply and verify phases.
 
@@ -417,7 +417,7 @@ class CampaignWriteFlow:
         a boost account's refusal says nothing to list, not nothing changed.
         """
         self._timed_out_on = None
-        refuse = boost_refusal(BOOST_READ if reads else BOOST_WRITE)
+        refuse = boost_refusal(account_id, BOOST_READ if reads else BOOST_WRITE)
         async with CampaignManagerCapture(self._session.page, refuse=refuse) as capture:
             yield capture
 

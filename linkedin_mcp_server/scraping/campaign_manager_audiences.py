@@ -426,7 +426,7 @@ class CampaignAudiences:
         account = normalize_ad_account_id(account_id)
         url = campaign_manager_url(account, _MATCHED_SUFFIX)
         section_errors: dict[str, dict[str, str]] = {}
-        async with self._flow.capturing(reads=True) as capture:
+        async with self._flow.capturing(account, reads=True) as capture:
             matched_response = await self._load_matched(capture, account)
             saved_response = (
                 await self._load_saved(capture, account)
@@ -497,7 +497,7 @@ class CampaignAudiences:
         }
         page = self._session.page
 
-        async with self._flow.capturing() as capture:
+        async with self._flow.capturing(account) as capture:
             try:
                 before = await self._load_matched(capture, account)
             except InvalidReferenceError as exc:
@@ -661,7 +661,7 @@ class CampaignAudiences:
             )
         page = self._session.page
 
-        async with self._flow.capturing() as capture:
+        async with self._flow.capturing(account) as capture:
             record = await self._flow.read_campaign(capture, account, campaign)
             if isinstance(record, tuple):
                 # read_campaign refuses only with target_not_found.

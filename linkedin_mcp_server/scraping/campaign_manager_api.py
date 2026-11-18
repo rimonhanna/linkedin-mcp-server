@@ -187,16 +187,13 @@ class CampaignManagerCapture(ApiResponseCapture[CmCall]):
         await super().__aexit__(exc_type, *_exc)
         refused = self._refusal()
         # A caller may have taken the wait's refusal for a miss; it still wins,
-        # but never over a cancellation.
-        if refused is not None and (
-            exc_type is None
-            or (
-                isinstance(exc_type, type)
-                and issubclass(exc_type, Exception)
-                and _exc[0] is not refused
-            )
-        ):
-            raise refused
+        # but never over a cancellation or a write LinkedIn answered.
+        if refused is not None and not self.writes:
+            if exc_type is None:
+                raise refused
+            error = _exc[0]
+            if isinstance(error, Exception) and error is not refused:
+                raise refused from error
         if self._service_worker_seen and exc_type is None:
             # The write guard's route cannot see what a service worker serves.
             raise LinkedInScraperException(

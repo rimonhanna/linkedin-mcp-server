@@ -233,16 +233,17 @@ def _boost_without_reporting(record: dict[str, Any]) -> bool:
     )
 
 
-def boost_refusal(message: str) -> Refusal:
-    """Refuse the account the page loads when Campaign Manager refuses its route."""
+def boost_refusal(account_id: str, message: str) -> Refusal:
+    """Refuse ``account_id`` once its record shows Campaign Manager refuses its route."""
+    account = normalize_ad_account_id(account_id)
 
     def refuse(response: CmResponse) -> LinkedInScraperException | None:
         record = envelope_record(response.payload)
         if (
             _resource(response, "campaignManagerAccounts")
-            and response.call.entity_id is not None
+            and response.call.entity_id == account
             and record is not None
-            and same_id(record.get("id"), response.call.entity_id)
+            and same_id(record.get("id"), account)
             and _boost_without_reporting(record)
         ):
             return InvalidReferenceError(message)
@@ -267,10 +268,11 @@ class CampaignManagerReader:
 
     @asynccontextmanager
     async def _reading(
-        self, boost: str | None = BOOST_READ
+        self, account: str | None, boost: str = BOOST_READ
     ) -> AsyncIterator[CampaignManagerCapture]:
+        """A latched capture; ``account`` None checks no account's record."""
         page = self._session.page
-        refuse = boost_refusal(boost) if boost is not None else None
+        refuse = boost_refusal(account, boost) if account is not None else None
         async with without_campaign_manager_writes(page):
             async with CampaignManagerCapture(page, refuse=refuse) as capture:
                 yield capture
@@ -383,7 +385,7 @@ class CampaignManagerReader:
                 response, "campaignManagerAccounts", finder="memberBoostAccounts"
             )
 
-        async with self._reading(boost=None) as capture:
+        async with self._reading(None) as capture:
             listed = await self._open(
                 capture,
                 url,
@@ -470,7 +472,7 @@ class CampaignManagerReader:
                 and response.call.params.get("count") != "0"
             )
 
-        async with self._reading() as capture:
+        async with self._reading(account) as capture:
             listed = await self._open(
                 capture,
                 url,
@@ -577,7 +579,7 @@ class CampaignManagerReader:
                 campaign_ref
             ]
 
-        async with self._reading() as capture:
+        async with self._reading(account) as capture:
             found = await self._open(
                 capture,
                 url,
@@ -695,7 +697,7 @@ class CampaignManagerReader:
         partial_demographics: set[str] = set()
         uncovered: dict[tuple[str, int], dict[str, Any]] = {}
 
-        async with self._reading(boost=_BOOST_ANALYTICS) as capture:
+        async with self._reading(account, _BOOST_ANALYTICS) as capture:
 
             def echoes(call: CmCall) -> bool:
                 return _echoes_account(capture, call, account)
