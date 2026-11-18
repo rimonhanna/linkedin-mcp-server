@@ -202,7 +202,12 @@ def _page_limit(name: str, total: int, read: int, why: str) -> dict[str, str]:
 def _read_paging(
     first_page: int, read: int, total: int, next_page: int | None
 ) -> dict[str, Any]:
-    """Where a multi-page read started, how many rows it returned, what remains."""
+    """Where a multi-page read started, how many rows it returned, what remains.
+
+    ``more`` true with ``next_page`` None means the read stopped early (see
+    ``section_errors``). Unlike search paging there is no resultCap/capped:
+    a list is read on with ``next_page`` past 1,000 rows.
+    """
     start = (first_page - 1) * PAGE_SIZE
     return {
         "page": first_page,
@@ -332,9 +337,10 @@ class SalesNavigatorReader:
         Page N is LinkedIn's own Nth page: the URL carries ``page=N`` and only
         the response that starts at ``(N - 1) * 25`` is read. Reads at most
         ``MAX_PAGE`` pages; a longer table stops with a ``page_limit`` error
-        and the page to continue from. Also stops with a ``page_limit`` error
-        when a page does not arrive, the reported total changes between pages
-        or a row repeats one of an earlier page. The last value is LinkedIn's
+        and the page to continue from; so does a page that does not arrive
+        (the page to retry). Also stops with a ``page_limit`` error and no page
+        to continue from when the reported total changes between pages or a
+        row repeats one of an earlier page. The last value is LinkedIn's
         ``paging.total``.
         """
         if first_page < 1:
@@ -374,8 +380,13 @@ class SalesNavigatorReader:
             if found is None:
                 return (
                     rows,
-                    _page_limit(name, total, len(rows), f"page {page} did not load"),
-                    None,
+                    _page_limit(
+                        name,
+                        total,
+                        len(rows),
+                        f"page {page} did not load (pass next_page={page} to retry)",
+                    ),
+                    page,
                     total,
                 )
             built = _first_built(capture.matching(ready), builder)
