@@ -86,6 +86,7 @@ from linkedin_mcp_server.scraping.campaign_manager_results import (
 )
 from linkedin_mcp_server.scraping.campaign_manager_write import (
     ANCHORS,
+    with_refused_structure,
     CampaignWriteFlow,
     footer_disabled_reason,
     record_write_window,
@@ -486,10 +487,12 @@ def _is_patch(campaign_id: str) -> Callable[[Any], bool]:
 
 
 def _is_create(write: Any) -> bool:
+    # The classic editor's Save and exit posts the new ad set to the bare
+    # collection with no Rest.li method header (observed live 2026-11-18).
     return (
         write.call.resource == "campaignManagerCampaigns"
         and write.call.entity_id is None
-        and (write.restli_method or "").lower() == "create"
+        and (write.restli_method or "").lower() in ("", "create")
     )
 
 
@@ -545,9 +548,9 @@ def _stopped(outcome: CmWriteResponse | str, window: WriteWindow) -> Refusal:
     if outcome == "dialog":
         return (
             "control_unavailable",
-            "Campaign Manager asked a question in a dialog before saving that "
-            "this tool does not answer, so the dialog was closed and nothing "
-            "was sent. Make this change in Campaign Manager.",
+            "Campaign Manager showed a dialog instead of saving (a question this "
+            "tool does not answer, or an error), so the dialog was closed and "
+            "nothing was sent. Make this change in Campaign Manager.",
         )
     if window.refused:
         return (
@@ -1500,14 +1503,17 @@ class CampaignManagerEditor:
                 await self._flow.record_page_structure(page, amend=True, step="create")
         if stop is not None:
             await self._flow.leave(page, campaign_manager_url(account, "/campaigns"))
-            return campaign_action_result(
-                _CREATE,
-                url,
-                *stop,
-                retry_safe=stop[0] == "save_failed" or retry_safe_from(window),
-                target=target,
-                planned=planned,
-                refused=window.refused,
+            return with_refused_structure(
+                campaign_action_result(
+                    _CREATE,
+                    url,
+                    *stop,
+                    retry_safe=stop[0] == "save_failed" or retry_safe_from(window),
+                    target=target,
+                    planned=planned,
+                    refused=window.refused,
+                ),
+                window,
             )
         assert created_id is not None
         after = await self._reread(capture, account, created_id, "/details")

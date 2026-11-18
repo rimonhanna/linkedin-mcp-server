@@ -41,6 +41,7 @@ class _NewDraftApp(_App):
         # What the new ad set's footer does: "save", "disabled" or "layout".
         self.footer = "save"
         self.create_extra: dict[str, Any] = {}
+        self.create_restli: str | None = "create"
         self.programs[write_module._NEW_FOOTER_JS] = "new_footer"
         self.programs[write_module._STRUCTURE_JS] = "structure"
 
@@ -65,7 +66,7 @@ class _NewDraftApp(_App):
             **self.create_extra,
         }
         sent = await self.send(
-            "campaignManagerCampaigns", body, "create", created_id=NEW
+            "campaignManagerCampaigns", body, self.create_restli, created_id=NEW
         )
         if sent and 200 <= self.save_status < 300:
             self.records[NEW] = _campaign(
@@ -165,3 +166,60 @@ async def test_the_declared_political_fill_is_created_and_reported(mock_page):
     assert result["applied"]["politicalIntent"] == "NOT_POLITICAL"
     assert result["message"].endswith("The political-ad declaration was recorded.")
     assert app.sent == [("campaignManagerCampaigns", "fallback")]
+
+
+# The page's own defaults a live classic Save and exit sent with the planned
+# fields (key names observed 2026-11-18; the values are synthetic).
+_PAGE_DEFAULTS = {
+    "accountProductType": "EXAMPLE",
+    "adFormats": ["EXAMPLE"],
+    "audienceExpansionEnabled": False,
+    "contentTrackingId": "example",
+    "costType": "EXAMPLE",
+    "creativeSelection": "EXAMPLE",
+    "dailyBudget": {"amount": "10", "currencyCode": "EUR"},
+    "lifetimePacingStrategy": "EXAMPLE",
+    "locale": {"country": "US", "language": "en"},
+    "myNetworkDeliveryEnabled": False,
+    "offsiteDeliveryEnabled": False,
+    "offsitePreferences": {},
+    "optimizationTargetType": "EXAMPLE",
+    "pacingStrategy": "EXAMPLE",
+    "politicalIntent": "NOT_POLITICAL",
+    "runSchedule": {"start": 1},
+    "targetingCriteria": {"include": {"and": []}},
+    "unitCost": {"amount": "1", "currencyCode": "EUR"},
+}
+
+
+async def test_the_live_create_without_a_restli_header_is_admitted(mock_page):
+    app = _NewDraftApp(mock_page)
+    app.create_restli = None
+    app.create_extra = dict(_PAGE_DEFAULTS)
+
+    result = await _create(mock_page, app, political_ad=False)
+
+    assert result["status"] == "created", result["message"]
+    assert result["created_id"] == NEW
+    assert app.sent == [("campaignManagerCampaigns", "fallback")]
+    assert "refused_structure" not in result
+
+
+async def test_a_field_beyond_the_page_defaults_is_refused_with_its_structure(
+    mock_page,
+):
+    app = _NewDraftApp(mock_page)
+    app.create_restli = None
+    app.create_extra = {**_PAGE_DEFAULTS, "billingReferenceId": "urn:li:example:1"}
+
+    result = await _create(mock_page, app, political_ad=False)
+
+    assert result["status"] == "change_blocked", result["message"]
+    assert result["retry_safe"] is True
+    assert app.sent == [("campaignManagerCampaigns", "abort")]
+    [structure] = result["refused_structure"]
+    assert structure["reason"] == (
+        "campaign create sets fields beyond the page's defaults: billingReferenceId"
+    )
+    assert "billingReferenceId" in structure["body"]
+    assert "urn:li:example:1" not in str(structure)

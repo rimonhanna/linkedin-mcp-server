@@ -192,7 +192,7 @@ class _App:
         self,
         path: str,
         body: dict,
-        restli: str,
+        restli: str | None,
         *,
         created_id: str | None = None,
     ) -> bool:

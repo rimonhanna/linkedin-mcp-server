@@ -757,7 +757,12 @@ def test_campaign_create_admission():
     assert fresh()(_create(campaignGroupId=100000009))
     assert fresh()(_create(objectiveType="LEAD_GENERATION"))
     assert "name" in _reason(fresh()(_create(name="Untitled")))
+    assert "creatives" in _reason(fresh()(_create(creatives=[])))
+    assert fresh()(_create(dailyBudget={"amount": "10"}, locale={})) is None
     assert fresh()(_create()) is None
+    # The classic Save and exit posts with no Rest.li method header.
+    bare = _create()
+    assert fresh()(_req(bare.body, entity_id=None, restli=None)) is None
 
 
 def test_create_admissions_refuse_sub_paths_actions_and_other_methods():
