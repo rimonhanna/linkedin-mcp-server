@@ -8,6 +8,7 @@ LinkedIn not to share data with third-party tools is left out and counted.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar, cast
@@ -331,6 +332,7 @@ class SalesNavigatorReader:
         name: str,
         refused: _Refusal | None = None,
         on_first: Callable[[SalesNavigatorCapture], Awaitable[None]] | None = None,
+        deadline: float | None = None,
     ) -> tuple[list[_Row], dict[str, str] | None, int | None, int]:
         """The rows of a paged table from ``first_page``, one load per 25 rows.
 
@@ -338,7 +340,10 @@ class SalesNavigatorReader:
         the response that starts at ``(N - 1) * 25`` is read. Reads at most
         ``MAX_PAGE`` pages; a longer table stops with a ``page_limit`` error
         and the page to continue from; so does a page that does not arrive
-        (the page to retry). Also stops with a ``page_limit`` error and no page
+        (the page to retry), and a read whose next page would not finish
+        before ``deadline`` (a ``time.monotonic()`` instant), judged by the
+        slowest page so far, pacing wait included. The first page is always
+        read. Also stops with a ``page_limit`` error and no page
         to continue from when the reported total changes between pages or a
         row repeats one of an earlier page. The last value is LinkedIn's
         ``paging.total``.
@@ -348,9 +353,11 @@ class SalesNavigatorReader:
         rows: list[_Row] = []
         seen: set[str | None] = set()
         total = 0
+        slowest = 0.0
         page = first_page - 1
         while page < first_page or page * PAGE_SIZE < total:
-            if page - first_page + 1 == MAX_PAGE:
+            read_pages = page - first_page + 1
+            if read_pages == MAX_PAGE:
                 return (
                     rows,
                     _page_limit(
@@ -363,7 +370,25 @@ class SalesNavigatorReader:
                     page + 1,
                     total,
                 )
+            if (
+                deadline is not None
+                and read_pages > 0
+                and time.monotonic() + slowest > deadline
+            ):
+                return (
+                    rows,
+                    _page_limit(
+                        name,
+                        total,
+                        len(rows),
+                        f"this call ran out of time after {read_pages} pages (pass "
+                        f"next_page={page + 1} to continue)",
+                    ),
+                    page + 1,
+                    total,
+                )
             page += 1
+            began = time.monotonic()
             first = page == first_page
             ready = rows_at((page - 1) * PAGE_SIZE)
             async with self._capture(*resources) as capture:
@@ -422,6 +447,7 @@ class SalesNavigatorReader:
                 )
             seen.update(ids)
             rows.extend(items)
+            slowest = max(slowest, time.monotonic() - began)
         if len(rows) < total - (first_page - 1) * PAGE_SIZE:
             return (
                 rows,
@@ -696,8 +722,13 @@ class SalesNavigatorReader:
             result["section_errors"] = section_errors
         return result
 
-    async def list_account_lists(self, page: int = 1) -> dict[str, Any]:
-        """The member's account lists from ``page``, up to 1,000 per call."""
+    async def list_account_lists(
+        self, page: int = 1, *, deadline: float | None = None
+    ) -> dict[str, Any]:
+        """The member's account lists from ``page``, up to 1,000 per call.
+
+        Fewer when the next page would not finish before ``deadline``.
+        """
         url = SALES_ACCOUNT_LISTS_URL
 
         def rows_at(start: int) -> Callable[[SnResponse], bool]:
@@ -718,6 +749,7 @@ class SalesNavigatorReader:
             rows_at=rows_at,
             builder=build_account_list,
             name="account lists",
+            deadline=deadline,
         )
         result: dict[str, Any] = {"url": url, "sections": {}, "account_lists": lists}
         if text := render_account_lists(lists):
@@ -729,8 +761,13 @@ class SalesNavigatorReader:
             result["next_page"] = next_page
         return result
 
-    async def get_account_list(self, list_id: str, page: int = 1) -> dict[str, Any]:
-        """One account list and its accounts from ``page``, up to 1,000 per call."""
+    async def get_account_list(
+        self, list_id: str, page: int = 1, *, deadline: float | None = None
+    ) -> dict[str, Any]:
+        """One account list and its accounts from ``page``, up to 1,000 per call.
+
+        Fewer when the next page would not finish before ``deadline``.
+        """
         list_ref = normalize_sales_list_id(list_id)
         url = sales_account_list_url(list_ref)
         metadata: list[SnResponse] = []
@@ -763,6 +800,7 @@ class SalesNavigatorReader:
             name="accounts",
             refused=_Refusal("list_id", frozenset({_LISTS, _ACCOUNT_TABLE}), list_ref),
             on_first=read_metadata,
+            deadline=deadline,
         )
         account_list = (
             build_account_list(envelope_record(metadata[0].payload))

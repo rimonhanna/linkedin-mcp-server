@@ -176,13 +176,14 @@ class TestDelegation:
         extractor = _extractor()
         fn = await _fn("list_sales_navigator_account_lists")
         assert await fn(mock_context, extractor=extractor) == RESULT
-        extractor.list_sales_navigator_account_lists.assert_awaited_once_with(1)
+        extractor.list_sales_navigator_account_lists.assert_awaited_once()
+        assert extractor.list_sales_navigator_account_lists.call_args.args == (1,)
 
     async def test_list_account_lists_passes_the_start_page(self, mock_context):
         extractor = _extractor()
         fn = await _fn("list_sales_navigator_account_lists")
         await fn(mock_context, page=41, extractor=extractor)
-        extractor.list_sales_navigator_account_lists.assert_awaited_once_with(41)
+        assert extractor.list_sales_navigator_account_lists.call_args.args == (41,)
 
     @pytest.mark.parametrize(
         "value",
@@ -197,16 +198,19 @@ class TestDelegation:
         extractor = _extractor()
         fn = await _fn("get_sales_navigator_account_list")
         await fn(value, mock_context, extractor=extractor)
-        extractor.get_sales_navigator_account_list.assert_awaited_once_with(
-            "100000001", 1
+        extractor.get_sales_navigator_account_list.assert_awaited_once()
+        assert extractor.get_sales_navigator_account_list.call_args.args == (
+            "100000001",
+            1,
         )
 
     async def test_get_account_list_passes_the_start_page(self, mock_context):
         extractor = _extractor()
         fn = await _fn("get_sales_navigator_account_list")
         await fn("100000001", mock_context, page=41, extractor=extractor)
-        extractor.get_sales_navigator_account_list.assert_awaited_once_with(
-            "100000001", 41
+        assert extractor.get_sales_navigator_account_list.call_args.args == (
+            "100000001",
+            41,
         )
 
 

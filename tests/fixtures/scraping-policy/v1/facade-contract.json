@@ -78,7 +78,7 @@
       },
       "get_sales_navigator_account_list": {
         "coroutine": true,
-        "signature": "(self, list_id: 'str', page: 'int' = 1) -> 'dict[str, Any]'"
+        "signature": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
       "get_saved_jobs": {
         "coroutine": true,
@@ -102,7 +102,7 @@
       },
       "list_sales_navigator_account_lists": {
         "coroutine": true,
-        "signature": "(self, page: 'int' = 1) -> 'dict[str, Any]'"
+        "signature": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
       "list_sponsorable_posts": {
         "coroutine": true,

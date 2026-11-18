@@ -45,6 +45,7 @@ from linkedin_mcp_server.server_role import (
     process_role,
     set_process_role,
 )
+from linkedin_mcp_server.tool_failure_middleware import ToolFailureMiddleware
 from linkedin_mcp_server.update_check import UpdateNoticeMiddleware
 from linkedin_mcp_server.tools.campaign_manager import register_campaign_manager_tools
 from linkedin_mcp_server.tools.campaign_manager_actions import (
@@ -309,6 +310,9 @@ def create_mcp_server(
     # actually needs it waiting for one held by a caller that never uses it.
     if role.drives_browser:
         mcp.add_middleware(SequentialToolExecutionMiddleware())
+        # Only where the tools run: a proxy's masked errors are the owner's
+        # loss, which `daemon_proxy` classifies by their cause.
+        mcp.add_middleware(ToolFailureMiddleware())
     # The notice is appended to one tool result per process, so it belongs
     # wherever a user reads results. On a shared owner it would reach whichever
     # client happened to call first and nobody after that, however many clients

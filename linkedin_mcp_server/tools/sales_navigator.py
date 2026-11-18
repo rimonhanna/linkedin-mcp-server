@@ -7,6 +7,7 @@ and never open a lead page, so no profile view is registered.
 """
 
 import logging
+import time
 from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
@@ -17,6 +18,7 @@ from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
 from linkedin_mcp_server.core.exceptions import AuthenticationError
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
+from linkedin_mcp_server.pacing import request_arrived_at
 from linkedin_mcp_server.scraping.contracts import FilterValidationError
 from linkedin_mcp_server.scraping.identifiers import (
     normalize_sales_company_id,
@@ -27,9 +29,22 @@ from linkedin_mcp_server.scraping.search_urls import (
     company_size_letters,
     industry_ids,
 )
+from linkedin_mcp_server.tools.enrichment import DEADLINE_FRACTION
 from linkedin_mcp_server.tools.person import StrList
 
 logger = logging.getLogger(__name__)
+
+
+def _deadline(tool_timeout: float) -> float:
+    """When a multi-page read stops starting pages, inside the tool timeout.
+
+    From arrival at the middleware, as the bulk tools do: a call queued behind
+    another spends its wait before its own timeout starts.
+    """
+    arrived = request_arrived_at.get()
+    return (
+        time.monotonic() if arrived is None else arrived
+    ) + tool_timeout * DEADLINE_FRACTION
 
 
 def register_sales_navigator_tools(
@@ -318,10 +333,11 @@ def register_sales_navigator_tools(
         List the Sales Navigator account lists of the signed-in member.
         Read-only. Needs a Sales Navigator seat. This reads up to 1,000
         entries per call; pass next_page to continue. It loads one page of 25
-        lists at a time until all are read or the 1,000 are reached, and every
-        page counts against the pacing budget. section_errors.account_lists is
-        set when the result is partial: a page did not load, or there are more
-        lists than one call reads (then next_page is set).
+        lists at a time until all are read, the 1,000 are reached or the
+        call's time limit is near, and every page counts against the pacing
+        budget. section_errors.account_lists is set when the result is
+        partial: a page did not load, or there are more lists than one call
+        reads or has time for (then next_page is set).
 
         Args:
             ctx: FastMCP context for progress reporting
@@ -338,6 +354,7 @@ def register_sales_navigator_tools(
             early; see section_errors.
         """
         try:
+            deadline = _deadline(tool_timeout)
             extractor = extractor or await get_ready_extractor(
                 ctx, tool_name="list_sales_navigator_account_lists"
             )
@@ -347,7 +364,9 @@ def register_sales_navigator_tools(
                 progress=0, total=100, message="Loading account lists"
             )
 
-            result = await extractor.list_sales_navigator_account_lists(page)
+            result = await extractor.list_sales_navigator_account_lists(
+                page, deadline=deadline
+            )
 
             await ctx.report_progress(progress=100, total=100, message="Complete")
 
@@ -378,11 +397,12 @@ def register_sales_navigator_tools(
         Get one Sales Navigator account list and its accounts. Read-only.
         Needs a Sales Navigator seat. This reads up to 1,000 entries per call;
         pass next_page to continue. It loads one page of 25 accounts at a time
-        until the list is covered or the 1,000 are reached, and every page
-        counts against the pacing budget, so a long list takes several
-        navigations. section_errors.accounts is set when the result is
-        partial: a page did not load, the list changed while it was read, or
-        the list is longer than one call reads (then next_page is set).
+        until the list is covered, the 1,000 are reached or the call's time
+        limit is near, and every page counts against the pacing budget, so a
+        long list takes several navigations and often several calls.
+        section_errors.accounts is set when the result is partial: a page did
+        not load, the list changed while it was read, or the list is longer
+        than one call reads or has time for (then next_page is set).
         Display-text fields are in the member's UI language. The accounts can
         be passed, by name, as the companies of create_company_list_audience.
 
@@ -406,6 +426,7 @@ def register_sales_navigator_tools(
             stopped early; see section_errors.
         """
         try:
+            deadline = _deadline(tool_timeout)
             list_id = normalize_sales_list_id(list_id)
             extractor = extractor or await get_ready_extractor(
                 ctx, tool_name="get_sales_navigator_account_list"
@@ -416,7 +437,9 @@ def register_sales_navigator_tools(
                 progress=0, total=100, message="Loading account list"
             )
 
-            result = await extractor.get_sales_navigator_account_list(list_id, page)
+            result = await extractor.get_sales_navigator_account_list(
+                list_id, page, deadline=deadline
+            )
 
             await ctx.report_progress(progress=100, total=100, message="Complete")
 
