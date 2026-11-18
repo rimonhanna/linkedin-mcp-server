@@ -224,6 +224,9 @@ _DATE_INPUT_JS = """({ name, open }) => {
 }"""
 # Every calendar is pre-rendered, hidden; only the open one has a box. A day
 # of a neighbouring month carries ``<d>-shadow`` and is never counted or used.
+# The calendar selects a day on ``mouseup`` and then closes itself; a bare
+# ``click()`` sends no mouseup, so the day is pressed as a user presses it
+# (``hue-web-calendar`` in the app's vendor bundle, 2026-11-18).
 _CALENDAR_JS = """async ({ mode, days, day, forward }) => {
     /* linkedin-mcp:cm-calendar */
     const roots = [...document.querySelectorAll('[data-calendar-root]')].filter((el) => {
@@ -249,7 +252,12 @@ _CALENDAR_JS = """async ({ mode, days, day, forward }) => {
     if (mode === 'check') return { ok: true };
     const targets = real.filter((el) => el.getAttribute('data-daynum') === String(day));
     if (targets.length !== 1 || targets[0].disabled) return { ok: false, reason: 'day' };
-    targets[0].click();
+    const press = (type) => targets[0].dispatchEvent(new MouseEvent(type, {
+        bubbles: true, cancelable: true, view: window, button: 0, detail: 1,
+    }));
+    press('mousedown');
+    press('mouseup');
+    press('click');
     return { ok: true };
 }"""
 
@@ -326,10 +334,12 @@ async def check_calendar(page: Any, name: str, month: date) -> bool:
 
 
 async def pick_date(page: Any, name: str, origin: date, target: date) -> bool:
-    """Open the calendar on ``origin``'s month, move to ``target``'s, click its day.
+    """Open the calendar on ``origin``'s month, move to ``target``'s, press its day.
 
-    Each month step and the day click check the open calendar first: one
-    visible calendar, a day count equal to the month's, one enabled day.
+    Each month step and the day press check the open calendar first: one
+    visible calendar, a day count equal to the month's, one enabled day. The
+    calendar closes itself once it took the day; one still open did not take
+    it, so it is closed unchanged and the pick fails.
     """
     opened = await page.evaluate(_DATE_INPUT_JS, {"name": name, "open": True})
     if _state(opened) != "ready":
@@ -356,8 +366,10 @@ async def pick_date(page: Any, name: str, origin: date, target: date) -> bool:
     if not _ok(picked):
         await page.keyboard.press("Escape")
         return False
-    if not _ok(await page.evaluate(_CALENDAR_JS, {"mode": "closed"})):
+    closed = await _poll(page, _CALENDAR_JS, {"mode": "closed"})
+    if not _ok(closed):
         await page.keyboard.press("Escape")
+        return False
     return True
 
 
@@ -849,9 +861,12 @@ class CampaignManagerEditor:
                             page, window, plan, saves, "footer", outcome
                         )
                 else:
+                    reason = footer_disabled_reason(
+                        record, start_moved=plan.start is not None
+                    )
                     stop = (
                         "control_unavailable",
-                        f"{footer_disabled_reason(record)} Nothing was saved."
+                        f"{reason} Nothing was saved."
                         if self._flow.footer_disabled
                         else "Save and exit was not found in the layout this tool "
                         "knows, so nothing was saved.",

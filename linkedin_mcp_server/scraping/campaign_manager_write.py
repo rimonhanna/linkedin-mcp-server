@@ -164,18 +164,22 @@ def _not_found(message: str) -> Refusal:
     )
 
 
-def footer_disabled_reason(record: Mapping[str, Any]) -> str:
+def footer_disabled_reason(
+    record: Mapping[str, Any], *, start_moved: bool = False
+) -> str:
     """Why LinkedIn keeps an ad set's Save and exit disabled, as far as known.
 
     The classic editor disables it while the ad set fails its own validation
     (``isTriggerButtonDisabled`` in the app's bundle, 2026-11-18). The one cause
     the record shows is a start date that has passed on a not yet started ad
     set: LinkedIn shows that day as its UTC date and then wants it moved.
+    ``start_moved`` says the edit already moved it, so it is not the cause.
     """
     schedule = record.get("runSchedule")
     start = schedule.get("start") if isinstance(schedule, Mapping) else None
     passed = (
-        record.get("status") == "DRAFT"
+        not start_moved
+        and record.get("status") == "DRAFT"
         and isinstance(start, int)
         and not isinstance(start, bool)
         and ms_to_date(start) < datetime.now(UTC).date()
