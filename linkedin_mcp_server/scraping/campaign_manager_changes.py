@@ -1041,8 +1041,10 @@ def admit_saved_audience(
         sent_name = body.get("name")
         if not isinstance(sent_name, str) or html.unescape(sent_name) != name:
             return "saved audience is not the planned one"
-        if body.get("ownership", "ACCOUNT") != "ACCOUNT" or not isinstance(
-            body.get("description", ""), str
+        # The tool never sets a description; the app sends it empty.
+        if (
+            body.get("ownership", "ACCOUNT") != "ACCOUNT"
+            or body.get("description", "") != ""
         ):
             return "saved audience is not the planned one"
         keys = targeting_keys(
@@ -1057,3 +1059,15 @@ def admit_saved_audience(
         return None
 
     return admit
+
+
+def saved_audience_omitted(
+    body: Any, target_keys: Collection[TargetingKey]
+) -> list[str]:
+    """The ad set's targeting sections an admitted saved audience create left out."""
+    record = _mapping(body) or {}
+    sent = targeting_keys(
+        {"include": record.get("include"), "exclude": record.get("exclude")}
+    )
+    sent_sections = {key[0] for key in sent or ()}
+    return sorted({key[0] for key in target_keys} - sent_sections)

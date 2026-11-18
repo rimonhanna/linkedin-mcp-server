@@ -53,6 +53,7 @@ from linkedin_mcp_server.scraping.campaign_manager_changes import (
     admit_list_upload,
     admit_saved_audience,
     refuse_invalid_audience_name,
+    saved_audience_omitted,
     targeting_keys,
 )
 from linkedin_mcp_server.scraping.campaign_manager_entities_payload import (
@@ -100,6 +101,13 @@ _MATCHED_RESOURCE = "campaignManagerMatchedAudiences"
 _SAVED_RESOURCE = "campaignManagerTargetingCriteria"
 _SIGNED_URL_RESOURCE = "campaignManagerAmbrySignedUrl"
 _SEGMENT_RESOURCE = "campaignManagerDmpSegments"
+_LANGUAGE = "include_language"
+# The app leaves the profile language out of a saved audience unless the
+# account has LinkedIn's locale-saving flag, which the tool cannot see.
+_LANGUAGE_MAY_BE_OMITTED = (
+    "LinkedIn may save it without the profile-language targeting, which it "
+    "decides for this ad account; the result says so if it does. "
+)
 _REFUSED_STATUSES = frozenset({403, 404})
 _READY_TIMEOUT = 12.0
 _UI_TIMEOUT = 5.0
@@ -713,7 +721,12 @@ class CampaignAudiences:
                         "confirmation_required",
                         f"Ready to save this ad set's targeting "
                         f"({len(keys)} values) as the saved audience {name!r}. "
-                        "Call again with confirm_send true to save it.",
+                        + (
+                            _LANGUAGE_MAY_BE_OMITTED
+                            if any(key[0] == _LANGUAGE for key in keys)
+                            else ""
+                        )
+                        + "Call again with confirm_send true to save it.",
                         retry_safe=True,
                         target=target,
                         planned=planned,
@@ -761,12 +774,23 @@ class CampaignAudiences:
                 planned=planned,
                 created_id=response.created_id,
             )
-        return campaign_action_result(
+        omitted = saved_audience_omitted(response.body, keys)
+        if _LANGUAGE in omitted:
+            message = (
+                f"Saved the saved audience {name!r} (id {created}), but LinkedIn "
+                "saved it without this ad set's profile-language targeting, so "
+                "it reaches a broader audience than the ad set."
+            )
+        else:
+            message = (
+                f"Saved this ad set's targeting as the saved audience {name!r} "
+                f"(id {created})."
+            )
+        result = campaign_action_result(
             _SAVED_TOOL,
             url,
             "audience_created",
-            f"Saved this ad set's targeting as the saved audience {name!r} "
-            f"(id {created}).",
+            message,
             retry_safe=retry_safe_from(window),
             target=target,
             planned=planned,
@@ -774,6 +798,9 @@ class CampaignAudiences:
             created_id=str(created),
             refused=window.refused,
         )
+        if omitted:
+            result["omitted_sections"] = omitted
+        return result
 
     async def _saved_after_matched(
         self, capture: CampaignManagerCapture, account_id: str

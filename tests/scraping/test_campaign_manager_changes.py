@@ -27,6 +27,7 @@ from linkedin_mcp_server.scraping.campaign_manager_changes import (
     refuse_invalid_campaign_edit,
     refuse_invalid_draft,
     refuse_invalid_targeting_change,
+    saved_audience_omitted,
     targeting_keys,
 )
 from linkedin_mcp_server.scraping.campaign_manager_payload import CmCall
@@ -953,3 +954,37 @@ def test_saved_audience_admits_the_apps_real_create():
     ands = merged["include"]["and"]
     ands[2]["or"] += ands.pop(3)["or"]
     assert "differs" in _reason(admit(_app_saved_audience_body(**merged)))
+
+
+def test_saved_audience_admits_only_an_empty_description():
+    keys = targeting_keys(_criteria())
+    assert keys is not None
+
+    def admit(body: dict) -> str | None:
+        req = _req(
+            body,
+            resource="campaignManagerTargetingCriteria",
+            entity_id=None,
+            restli=None,
+        )
+        return admit_saved_audience(
+            account_id=ACCOUNT, name="Example & audience", target_keys=keys
+        )(req)
+
+    assert admit(_app_saved_audience_body()) is None
+    without = _app_saved_audience_body()
+    del without["description"]
+    assert admit(without) is None
+    for description in ("Example description", " ", None):
+        assert "not the planned" in _reason(
+            admit(_app_saved_audience_body(description=description))
+        )
+
+
+def test_saved_audience_omitted_names_the_dropped_language_block():
+    keys = targeting_keys(_criteria())
+    assert keys is not None
+    assert saved_audience_omitted(_app_saved_audience_body(), keys) == [
+        "include_language"
+    ]
+    assert saved_audience_omitted(_app_saved_audience_body(**_criteria()), keys) == []

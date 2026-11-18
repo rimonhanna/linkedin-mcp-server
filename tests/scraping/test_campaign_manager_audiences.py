@@ -866,3 +866,68 @@ async def test_blocked_saved_audience_reports_the_refused_structure(mock_page):
     shown = json.dumps(structure)
     for value in ("Example saved", ACCOUNT, "100000777", "urn:li:", "100000901"):
         assert value not in shown
+
+
+LANGUAGE = "urn:li:adTargetingFacet:interfaceLocales"
+LANGUAGE_BLOCK = {
+    "or": [{"facet": {"urn": LANGUAGE}, "segments": [{"urn": "urn:li:locale:en_US"}]}]
+}
+WITH_LANGUAGE = {
+    "include": {"and": [*TARGETING["include"]["and"], LANGUAGE_BLOCK]},
+    "exclude": TARGETING["exclude"],
+}
+
+
+async def test_saved_audience_dry_run_says_the_language_may_be_left_out(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads[DETAILS] = [[_campaign(WITH_LANGUAGE)]]
+
+    with browser.running(), _dialog(mock_page):
+        result = await _audiences(mock_page).create_saved_audience(
+            ACCOUNT, CAMPAIGN, "Example saved", confirm_send=False
+        )
+
+    assert result["status"] == "confirmation_required"
+    assert "without the profile-language targeting" in result["message"]
+
+
+async def test_saved_audience_dry_run_without_language_says_nothing_of_it(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads[DETAILS] = [[_campaign()]]
+
+    with browser.running(), _dialog(mock_page):
+        result = await _audiences(mock_page).create_saved_audience(
+            ACCOUNT, CAMPAIGN, "Example saved", confirm_send=False
+        )
+
+    assert "profile-language" not in result["message"]
+
+
+@pytest.mark.parametrize(
+    ("sent", "omitted"),
+    [(TARGETING, ["include_language"]), (WITH_LANGUAGE, None)],
+)
+async def test_saved_audience_result_reports_a_dropped_language(
+    mock_page, sent, omitted
+):
+    browser = _Browser(mock_page)
+    browser.loads[DETAILS] = [[_campaign(WITH_LANGUAGE)]]
+    browser.loads[MATCHED] = [[_matched()]]
+    browser.tab_waves = [[_saved(_saved_entry(int(NEW_ID), "Example saved"))]]
+
+    with (
+        browser.running(),
+        _dialog(mock_page, sends=[_saved_create("Example saved", sent)]) as calls,
+    ):
+        result = await _audiences(mock_page).create_saved_audience(
+            ACCOUNT, CAMPAIGN, "Example saved", confirm_send=True
+        )
+
+    assert calls.admitted == [True]
+    assert result["status"] == "audience_created"
+    assert result.get("omitted_sections") == omitted
+    if omitted:
+        assert "without this ad set's profile-language targeting" in result["message"]
+        assert "broader audience" in result["message"]
+    else:
+        assert result["message"].startswith("Saved this ad set's targeting")
