@@ -23,7 +23,11 @@ import asyncio
 import logging
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
-from linkedin_mcp_server.scraping.campaign_manager import _LINKEDIN, _ROUTE_SCRIPT
+from linkedin_mcp_server.scraping.campaign_manager import (
+    _LINKEDIN,
+    _ROUTE_SCRIPT,
+    _error,
+)
 from linkedin_mcp_server.scraping.campaign_manager_api import (
     CampaignManagerCapture,
     CmResponse,
@@ -37,6 +41,7 @@ from linkedin_mcp_server.scraping.campaign_manager_changes import (
 from linkedin_mcp_server.scraping.campaign_manager_entities_payload import (
     SponsorableContent,
     content_library_entries,
+    render_sponsorable_posts,
 )
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
     WriteWindow,
@@ -46,6 +51,7 @@ from linkedin_mcp_server.scraping.campaign_manager_payload import (
     build_campaign,
     build_creative,
     envelope_elements,
+    envelope_total,
     restli_list,
 )
 from linkedin_mcp_server.scraping.campaign_manager_results import (
@@ -56,7 +62,6 @@ from linkedin_mcp_server.scraping.campaign_manager_write import (
     ANCHORS,
     CampaignWriteFlow,
 )
-from linkedin_mcp_server.scraping.feed_update_post import resolve_activity_post
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
     normalize_ad_account_id,
@@ -80,7 +85,6 @@ _ROWS_POLL_SECONDS = 0.25
 _ROWS_POLLS = 20
 _TARGET_KEYS = ("kind", "uiLabel", "id", "accountId", "name", "status")
 _CREATIVE_URN = "urn:li:sponsoredCreative:"
-_ACTIVITY_URN = "urn:li:activity:"
 
 # Shared by both programs: the rows in id order, and the add button found
 # relative to the library's "Remove from library" trigger. The add button must
@@ -277,15 +281,6 @@ class CampaignContentEditor:
             kwargs.setdefault("retry_safe", True)
             return campaign_action_result(TOOL, url, status, message, **kwargs)
 
-        requested = post
-        if post.startswith(_ACTIVITY_URN):
-            # The ad references the post, not its feed activity. Read before
-            # Campaign Manager opens: the library is reached by in-app route.
-            resolved = await resolve_activity_post(self._session, self._navigator, post)
-            if isinstance(resolved, tuple):
-                return result(*resolved, planned={"requestedUrn": requested})
-            post = resolved
-
         async with self._flow.capturing() as capture:
             record = await self._flow.read_campaign(capture, account, campaign)
             if isinstance(record, tuple):
@@ -302,8 +297,6 @@ class CampaignContentEditor:
                 return result(status, message, target=target, planned=planned)
             index, entry, count = found.index, found.entry, found.count
             planned = {"postUrn": post, "visibility": entry["visibility"]}
-            if requested != post:
-                planned["requestedUrn"] = requested
             if "contentType" in entry:
                 planned["contentType"] = entry["contentType"]
             if not confirm_send:
@@ -410,6 +403,107 @@ class CampaignContentEditor:
                 **common,
             )
 
+    async def list_sponsorable_posts(
+        self, account_id: str, campaign_id: str
+    ) -> dict[str, Any]:
+        """The company posts this ad set's content library offers, as listed.
+
+        Reads the same library answer ``add_post_to_campaign`` reads, so each
+        ``urn`` is a value that tool accepts. Read-only: Campaign Manager's
+        writes are held back throughout.
+        """
+        account = normalize_ad_account_id(account_id)
+        campaign = normalize_campaign_id(campaign_id)
+        library_path = (
+            f"/campaignmanager/accounts/{account}/campaigns/{campaign}{_LIBRARY_SUFFIX}"
+        )
+        url = campaign_manager_url(account, f"/campaigns/{campaign}{_LIBRARY_SUFFIX}")
+        async with self._flow.capturing() as capture:
+            record = await self._flow.read_campaign(capture, account, campaign)
+            if isinstance(record, tuple):
+                raise LinkedInScraperException(record[1])
+            async with without_campaign_manager_writes(self._session.page):
+                loaded = await self._load_library(capture, library_path)
+            if len(loaded) == 2:
+                raise LinkedInScraperException(loaded[1])
+            response, entries, _after = loaded
+
+        built = build_campaign(record) or {}
+        result: dict[str, Any] = {
+            "url": url,
+            "sections": {},
+            "target": {key: built[key] for key in _TARGET_KEYS if key in built},
+            "sponsorable_posts": entries,
+        }
+        if text := render_sponsorable_posts(entries):
+            result["sections"]["sponsorable_posts"] = text
+        total = envelope_total(response.payload)
+        page_size = response.call.params.get("count", "")
+        if total is not None and total > len(entries):
+            message = (
+                f"Campaign Manager reported {total} company posts and returned "
+                f"{len(entries)} on its first page; the rest were not read."
+            )
+        elif total is None and page_size.isdigit() and len(entries) >= int(page_size):
+            message = (
+                f"Campaign Manager returned a full first page of {len(entries)} "
+                "company posts; more may exist and were not read."
+            )
+        else:
+            message = None
+        if message is not None:
+            result["section_errors"] = {
+                "sponsorable_posts": _error("page_limit", message)
+            }
+        return result
+
+    async def _load_library(
+        self, capture: CampaignManagerCapture, library_path: str
+    ) -> tuple[CmResponse, list[SponsorableContent], int] | tuple[str, str]:
+        """Open the ad set's content library on its company posts filter.
+
+        Returns the answer the table renders, its entries and where this
+        load's answers start in the capture, or ``(status, message)``. Call it
+        with Campaign Manager's writes held back.
+        """
+        page = self._session.page
+        await capture.settle()
+        after = len(capture.responses)
+        self._navigator._charge_navigation(f"{_LINKEDIN}{library_path}")
+        await page.evaluate(_ROUTE_SCRIPT, library_path)
+        await capture.wait_for(
+            _is_library, after=after, timeout=_READY_TIMEOUT, wanted=_LIBRARY
+        )
+        if urlparse(page.url).path != urlparse(library_path).path:
+            return (
+                "control_unavailable",
+                "Campaign Manager did not open this ad set's content library.",
+            )
+        await self._flow.wait_for_anchor(page, ANCHORS["library_filter"])
+        pill = await self._organic_pill(page)
+        if pill is None:
+            return (
+                "control_unavailable",
+                "The content library's company posts filter is not available.",
+            )
+        if pill == "clicked":
+            await capture.settle()
+            before = len(capture.responses)
+            await capture.wait_for(
+                _is_library, after=before, timeout=_READY_TIMEOUT, wanted=_LIBRARY
+            )
+        await capture.settle()
+        # The latest answer is the one the table renders.
+        response = capture.matching(_is_library, after)[-1]
+        entries = content_library_entries(response.payload)
+        if entries is None:
+            return (
+                "control_unavailable",
+                "Campaign Manager returned the content library in a shape this "
+                "tool does not recognise.",
+            )
+        return response, entries, after
+
     async def _find_post(
         self, capture: CampaignManagerCapture, library_path: str, post: str
     ) -> _Row | tuple[str, str, dict[str, Any]]:
@@ -420,46 +514,11 @@ class CampaignContentEditor:
         page = self._session.page
         planned: dict[str, Any] = {"postUrn": post}
         async with without_campaign_manager_writes(page):
-            await capture.settle()
-            after = len(capture.responses)
-            self._navigator._charge_navigation(f"{_LINKEDIN}{library_path}")
-            await page.evaluate(_ROUTE_SCRIPT, library_path)
-            await capture.wait_for(
-                _is_library, after=after, timeout=_READY_TIMEOUT, wanted=_LIBRARY
-            )
-            if urlparse(page.url).path != urlparse(library_path).path:
-                return (
-                    "control_unavailable",
-                    "Campaign Manager did not open this ad set's content "
-                    "library. Nothing was changed.",
-                    planned,
-                )
-            await self._flow.wait_for_anchor(page, ANCHORS["library_filter"])
-            pill = await self._organic_pill(page)
-            if pill is None:
-                return (
-                    "control_unavailable",
-                    "The content library's company posts filter is not "
-                    "available. Nothing was changed.",
-                    planned,
-                )
-            if pill == "clicked":
-                await capture.settle()
-                before = len(capture.responses)
-                await capture.wait_for(
-                    _is_library, after=before, timeout=_READY_TIMEOUT, wanted=_LIBRARY
-                )
-            await capture.settle()
-            # The latest answer is the one the table renders.
-            response = capture.matching(_is_library, after)[-1]
-            entries = content_library_entries(response.payload)
-            if entries is None:
-                return (
-                    "control_unavailable",
-                    "Campaign Manager returned the content library in a shape "
-                    "this tool does not recognise. Nothing was changed.",
-                    planned,
-                )
+            loaded = await self._load_library(capture, library_path)
+            if len(loaded) == 2:
+                status, message = loaded
+                return status, f"{message} Nothing was changed.", planned
+            response, entries, after = loaded
             index = next(
                 (i for i, entry in enumerate(entries) if entry["urn"] == post), None
             )

@@ -23,7 +23,7 @@ a page-owning collaborator.
 | `campaign_manager_changes` | `Admit`, `CampaignEditPlan`, `DAY_MS`, `EDITABLE_STATUSES`, `LIST_AUDIENCE_NAME_MAX`, `SAVED_AUDIENCE_NAME_MAX`, `TargetingPlan`, `WriteRequest`, `admit_campaign_create()`, `admit_campaign_patch()`, `admit_creative_create()`, `admit_list_upload()`, `admit_saved_audience()`, `admit_status_patch()`, `format_budget()`, `ms_to_date()`, `parse_budget()`, `pill_index()`, `plan_campaign_edit()`, `plan_targeting()`, `planned_end_ms()`, `refuse_invalid_audience_name()`, `refuse_invalid_campaign_edit()`, `refuse_invalid_draft()`, `refuse_invalid_targeting_change()`, `saved_audience_omitted()`, `targeting_keys()` | `browser-free` |
 | `campaign_manager_content` | `CampaignContentEditor`, `TOOL`, `click_library()`, `library_rows()`, `select_organic()` | `page-owning` |
 | `campaign_manager_editor` | `CampaignManagerEditor`, `check_calendar()`, `pick_date()`, `set_text()`, `toggle_status()` | `page-owning` |
-| `campaign_manager_entities_payload` | `ACCOUNT_TEMPLATE_HEADERS`, `CompanyRow`, `MAX_COMPANY_ROWS`, `MAX_CSV_BYTES`, `MatchedAudience`, `SavedAudience`, `SponsorableContent`, `TargetingEntity`, `company_list_csv()`, `content_library_entries()`, `matched_audiences()`, `render_audiences()`, `render_entities()`, `saved_audiences()`, `typeahead_entities()` | `browser-free` |
+| `campaign_manager_entities_payload` | `ACCOUNT_TEMPLATE_HEADERS`, `CompanyRow`, `MAX_COMPANY_ROWS`, `MAX_CSV_BYTES`, `MatchedAudience`, `SavedAudience`, `SponsorableContent`, `TargetingEntity`, `company_list_csv()`, `content_library_entries()`, `matched_audiences()`, `render_audiences()`, `render_entities()`, `render_sponsorable_posts()`, `saved_audiences()`, `typeahead_entities()` | `browser-free` |
 | `campaign_manager_guard` | `Admission`, `CmWriteRequest`, `READ_ONLY_POST_RESOURCES`, `WriteWindow`, `explicit_campaign_write()`, `is_campaign_manager_read()`, `register_campaign_manager_routes()`, `without_campaign_manager_writes()` | `browser-free` |
 | `campaign_manager_payload` | `AdAccount`, `AnalyticsEntity`, `AnalyticsRow`, `BASE_METRICS`, `CM_API_PREFIX`, `Campaign`, `CampaignGroup`, `CmCall`, `Creative`, `DateWindow`, `Money`, `RunSchedule`, `Targeting`, `TargetingFacet`, `TargetingInclude`, `TargetingSegment`, `build_ad_account()`, `build_analytics_rows()`, `build_boost_account()`, `build_campaign()`, `build_campaign_group()`, `build_creative()`, `build_targeting()`, `format_restli_date_range()`, `merge_by_id()`, `parse_cm_call()`, `render_accounts()`, `render_analytics()`, `render_campaign()`, `render_campaigns()`, `restli_date_range()` | `browser-free` |
 | `campaign_manager_political` | `CLEARED_BY_LINKEDIN`, `CLEARS_DECLARATION`, `DECLARATION_REQUIRED`, `DECLARATION_STATUSES`, `MISMATCH`, `NOT_DECLARED`, `NOT_OFFERED`, `NOT_POLITICAL`, `POLITICAL_INTENT`, `POLITICAL_JS`, `PoliticalQuestion`, `UNANSWERED`, `UNDECLARED_FILL`, `declaration_note()`, `declaration_stop()`, `declared_intent()`, `political_dialog()`, `political_question()`, `question_sentence()`, `refuse_intent()`, `sent_intent()` | `browser-free` |
@@ -42,7 +42,6 @@ a page-owning collaborator.
 | `facets` | `FacetResolver`, `GEO_ID_PATTERN`, `LOCATION_BOX_SELECTOR`, `SUGGESTION_SETTLE_INTERVAL`, `SUGGESTION_SETTLE_READS`, `TYPEAHEAD_TIMEOUT_MS`, `TYPEAHEAD_URL` | `page-owning` |
 | `feed` | `FeedScraper` | `page-owning` |
 | `feed_payload` | `POST_SLUG_URL_RE`, `build_feed_references()`, `is_feed_payload_response()` | `browser-free` |
-| `feed_update_post` | `FeedUpdateCapture`, `VOYAGER_API_PREFIX`, `VoyagerCall`, `parse_voyager_call()`, `post_urns_for_activity()`, `resolve_activity_post()` | `browser-free` |
 | `fields` | `COMPANY_SECTIONS`, `PERSON_SECTIONS`, `parse_company_sections()`, `parse_person_sections()` | `browser-free` |
 | `identifiers` | `CAMPAIGN_MANAGER_ACCOUNTS_URL`, `SALES_ACCOUNT_LISTS_URL`, `campaign_manager_date_range()`, `campaign_manager_url()`, `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_ad_account_id()`, `normalize_campaign_group_id()`, `normalize_campaign_id()`, `normalize_company_identifier()`, `normalize_company_page_url()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_person_identifier()`, `normalize_post_urn()`, `normalize_profile_urn()`, `normalize_sales_company_id()`, `normalize_sales_list_id()`, `normalize_targeting_urn()`, `normalize_thread_id()`, `normalize_website()`, `person_profile_url()`, `sales_account_list_url()`, `sales_company_url()` | `browser-free` |
 | `invitation_withdrawal` | `InvitationWithdrawer`, `MAX_WITHDRAWALS_LIMIT`, `age_text()`, `normalize_exclusions()`, `parse_age_days()`, `plan_withdrawals()`, `username_from_href()` | `browser-free` |
@@ -77,7 +76,7 @@ a page-owning collaborator.
 - `campaign_manager_api` -> `api_capture`, `campaign_manager_guard`, `campaign_manager_payload`
 - `campaign_manager_audiences` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
 - `campaign_manager_changes` -> `campaign_manager_payload`, `identifiers`
-- `campaign_manager_content` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `feed_update_post`, `identifiers`, `navigation`, `session`
+- `campaign_manager_content` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
 - `campaign_manager_editor` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_political`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
 - `campaign_manager_entities_payload` -> `campaign_manager_payload`, `identifiers`
 - `campaign_manager_guard` -> `campaign_manager_payload`
@@ -98,7 +97,6 @@ a page-owning collaborator.
 - `facets` -> `capture`, `company_parse`, `contracts`, `identifiers`, `job_policy`, `link_metadata`, `navigation`, `session`
 - `feed` -> `content`, `contracts`, `feed_payload`, `navigation`, `session`, `text`
 - `feed_payload` -> `link_metadata`
-- `feed_update_post` -> `api_capture`, `navigation`, `session`
 - `fields` -> `capture`
 - `identifiers` -> _(none)_
 - `invitation_withdrawal` -> `identifiers`
@@ -150,6 +148,7 @@ a page-owning collaborator.
 - `list_audiences`
 - `list_campaigns`
 - `list_sales_navigator_account_lists`
+- `list_sponsorable_posts`
 - `reply_to_conversation`
 - `scrape_company`
 - `scrape_job`

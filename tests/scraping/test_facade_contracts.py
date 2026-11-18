@@ -72,6 +72,7 @@ TOOL_DELEGATES = {
     "update_campaign_targeting": "update_campaign_targeting",
     "create_campaign_draft": "create_campaign_draft",
     "add_post_to_campaign": "add_post_to_campaign",
+    "list_sponsorable_posts": "list_sponsorable_posts",
     "list_audiences": "list_audiences",
     "create_company_list_audience": "create_company_list_audience",
     "create_saved_audience": "create_saved_audience",
@@ -158,9 +159,9 @@ async def test_registered_tools_and_extractor_delegates_are_counted_separately()
     tools = await create_mcp_server().list_tools()
     tool_names = {tool.name for tool in tools}
 
-    assert len(tool_names) == 46
+    assert len(tool_names) == 47
     assert tool_names == {*TOOL_DELEGATES, *ENRICHMENT_TOOL_DELEGATES, "close_session"}
-    assert len(TOOL_DELEGATES) == 38
+    assert len(TOOL_DELEGATES) == 39
     assert len(ENRICHMENT_TOOL_DELEGATES) == 7
     assert TOOL_DELEGATES.keys().isdisjoint(ENRICHMENT_TOOL_DELEGATES)
     assert set(TOOL_DELEGATES.values()) == TOOL_FACADE_METHODS
@@ -530,7 +531,7 @@ def test_facade_methods_are_exactly_the_frozen_coroutine_surface():
     }
 
     assert actual == expected
-    assert len(TOOL_FACADE_METHODS) == 38
+    assert len(TOOL_FACADE_METHODS) == 39
     assert len(COMPATIBILITY_METHODS) == 2
 
 

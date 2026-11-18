@@ -91,8 +91,10 @@ instances, clear profiles, or replace the user's browser session.
 - Content: `get_feed` and `search_posts`.
 - Messages: `get_inbox`, `get_conversation`, and `search_conversations`.
 - Campaign Manager (read-only): `list_ad_accounts`, `list_campaigns`,
-  `get_campaign`, `get_campaign_analytics`, `search_targeting_entities` and
-  `list_audiences`. An API campaign group is the UI's "Campaign", an API
+  `get_campaign`, `get_campaign_analytics`, `search_targeting_entities`,
+  `list_audiences` and `list_sponsorable_posts` (the post URNs
+  `add_post_to_campaign` takes; a feed activity id is not one). An API
+  campaign group is the UI's "Campaign", an API
   campaign its "Ad set" and a creative its "Ad".
 - Sales Navigator (read-only, needs a Sales Navigator seat):
   `search_sales_navigator_accounts`, `search_sales_navigator_leads`,

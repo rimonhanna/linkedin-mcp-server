@@ -431,3 +431,67 @@ def register_campaign_manager_tools(
                 raise_tool_error(relogin_exc, "list_audiences")
         except Exception as e:
             raise_tool_error(e, "list_audiences")  # NoReturn
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="List Sponsorable Posts",
+        annotations={"readOnlyHint": True, "openWorldHint": True},
+        tags={"campaign_manager", "scraping"},
+        exclude_args=["extractor"],
+    )
+    async def list_sponsorable_posts(
+        ad_account_id: str,
+        campaign_id: str,
+        ctx: Context,
+        extractor: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        Terminology: API campaign group = "Campaign" in Campaign Manager's UI,
+        API campaign = "Ad set", API creative = "Ad".
+
+        List the company posts an API campaign's (UI "Ad set") content library
+        offers, as Campaign Manager lists them. Each urn is the value
+        add_post_to_campaign takes; a feed activity id is not one. Read-only.
+
+        Args:
+            ad_account_id: Numeric ad account id, its URN or account URL.
+            campaign_id: Numeric campaign id, its URN or campaign URL.
+            ctx: FastMCP context for progress reporting
+
+        Returns:
+            Dict with url, sections, target (the ad set) and sponsorable_posts:
+            urn (urn:li:share or urn:li:ugcPost), excerpt (the post's opening
+            text as LinkedIn returns it, shortened), contentType,
+            lifecycleState, lastModifiedAt (epoch ms), visibility, sponsorable
+            and nonSponsorableReasons. section_errors.sponsorable_posts is a
+            page_limit when more posts may exist than were read.
+        """
+        try:
+            ad_account_id = normalize_ad_account_id(ad_account_id)
+            campaign_id = normalize_campaign_id(campaign_id)
+            extractor = extractor or await get_ready_extractor(
+                ctx, tool_name="list_sponsorable_posts"
+            )
+            logger.info(
+                "Listing sponsorable posts for ad set %s of ad account %s",
+                campaign_id,
+                ad_account_id,
+            )
+
+            await ctx.report_progress(
+                progress=0, total=100, message="Loading the content library"
+            )
+
+            result = await extractor.list_sponsorable_posts(ad_account_id, campaign_id)
+
+            await ctx.report_progress(progress=100, total=100, message="Complete")
+
+            return result
+
+        except AuthenticationError as e:
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "list_sponsorable_posts")
+        except Exception as e:
+            raise_tool_error(e, "list_sponsorable_posts")  # NoReturn

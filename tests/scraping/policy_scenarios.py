@@ -1970,6 +1970,7 @@ TOOL_FACADE_METHODS = {
     "update_campaign_targeting",
     "create_campaign_draft",
     "add_post_to_campaign",
+    "list_sponsorable_posts",
     "list_audiences",
     "create_company_list_audience",
     "create_saved_audience",
@@ -2362,6 +2363,60 @@ async def _cm_add_post_scenario() -> dict[str, Any]:
             _CM_ACCOUNT, _CM_CAMPAIGN, _CM_POST, confirm_send=True
         ),
     )
+
+
+async def _cm_list_sponsorable_posts_scenario() -> dict[str, Any]:
+    """The content library as LinkedIn answers it: null reasons, a text excerpt."""
+    page = _cm_write_page("list_sponsorable_posts__listed")
+    library_path = (
+        f"/campaignmanager/accounts/{_CM_ACCOUNT}/campaigns/{_CM_CAMPAIGN}"
+        "/creatives/sponsorable-contents?businessId=personal"
+    )
+    library = _cm_response(
+        "campaignManagerContentLibraryEntities?q=organicCompanyContent"
+        "&count=100&start=0",
+        {
+            "data": {
+                "elements": [{"content": {"*sponsoredUpdateContent": _CM_POST}}],
+                "paging": {"count": 100, "start": 0, "links": []},
+            },
+            "included": [
+                {
+                    "entityUrn": _CM_POST,
+                    "lastModifiedAt": 1893456000000,
+                    "nonSponsorableReasons": None,
+                    "sponsorable": True,
+                    "state": {"lifecycleState": "PUBLISHED"},
+                    "userGeneratedAdContent": {
+                        "contentType": "TEXT",
+                        "introductoryText": {"text": "Example company post"},
+                    },
+                    "visibility": "ORGANIC",
+                }
+            ],
+        },
+    )
+
+    def opened() -> bool:
+        page.url = page.main_frame.url = "https://www.linkedin.com" + library_path
+        _cm_emit(page, [library])
+        return True
+
+    page.script("goto", lambda: _cm_emit(page, [_cm_campaign_record()]))
+    page.script("evaluate:cm_route", opened)
+    page.script(
+        "evaluate:cm_content_pill", {"found": True, "checked": True, "clicked": False}
+    )
+    trace = await _cm_write_run(
+        page,
+        "list_sponsorable_posts",
+        {"account_id": _CM_ACCOUNT, "campaign_id": _CM_CAMPAIGN},
+        lambda extractor: extractor.list_sponsorable_posts(_CM_ACCOUNT, _CM_CAMPAIGN),
+    )
+    trace["result"] = _complete_mapping_result(
+        trace["result"], section_names=list(trace["result"]["sections"])
+    )
+    return trace
 
 
 def _cm_matched(*elements: dict[str, Any]) -> ScriptedCmResponse:
@@ -2905,6 +2960,7 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "cm-create-draft.json": await _cm_create_draft_scenario(),
         "cm-add-post.json": await _cm_add_post_scenario(),
         "cm-list-audiences.json": await _cm_list_audiences_scenario(),
+        "cm-list-sponsorable-posts.json": await _cm_list_sponsorable_posts_scenario(),
         "cm-audience-upload.json": await _cm_audience_upload_scenario(),
         "cm-saved-audience.json": await _cm_saved_audience_scenario(),
         "sn-account-search.json": await _sn_account_search_scenario(),

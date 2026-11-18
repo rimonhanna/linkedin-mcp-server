@@ -266,7 +266,7 @@ class TestRefusedBeforeTheBrowser:
             ("update_campaign", {"ad_account_id": "not-an-id"}),
             ("set_campaign_status", {"campaign_id": "../1"}),
             ("set_campaign_status", {"status": "DRAFT"}),
-            ("add_post_to_campaign", {"post_urn": "urn:li:article:1"}),
+            ("add_post_to_campaign", {"post_urn": "urn:li:activity:1"}),
             ("create_company_list_audience", {"ad_account_id": "abc"}),
             ("create_saved_audience", {"campaign_id": "x"}),
             ("create_campaign_draft", {"campaign_group_id": "example"}),

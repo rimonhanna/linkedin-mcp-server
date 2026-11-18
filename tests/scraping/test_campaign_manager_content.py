@@ -524,7 +524,7 @@ async def test_an_invalid_post_urn_raises_before_the_browser(mock_page, app):
 
     with app.running(), pytest.raises(Exception, match="post_urn"):
         await editor.add_post_to_campaign(
-            ACCOUNT, CAMPAIGN, "urn:li:article:1", confirm_send=True
+            ACCOUNT, CAMPAIGN, "urn:li:activity:1", confirm_send=True
         )
 
     assert app.navigated == []

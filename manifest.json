@@ -153,6 +153,10 @@
       "description": "List an ad account's matched audiences (uploaded lists, retargeting) and saved audiences with their status (read-only)"
     },
     {
+      "name": "list_sponsorable_posts",
+      "description": "List the company posts a campaign's (UI 'Ad set') content library offers, with the post URN add_post_to_campaign takes, an excerpt and whether each can be sponsored (read-only)"
+    },
+    {
       "name": "update_campaign",
       "description": "Change a campaign's (UI 'Ad set') budget amount or schedule dates after a dry run; never switches the budget type, never launches it and never touches billing"
     },
