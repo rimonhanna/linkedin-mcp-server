@@ -34,7 +34,13 @@ from linkedin_mcp_server.response_structure import (
     params_shape,
     skeleton,
 )
-from linkedin_mcp_server.scraping.campaign_manager import _SETUP_PATH, _refusal
+from linkedin_mcp_server.scraping.campaign_manager import (
+    _SETUP_PATH,
+    BOOST_READ,
+    BOOST_WRITE,
+    _refusal,
+    boost_refusal,
+)
 from linkedin_mcp_server.scraping.campaign_manager_api import (
     CampaignManagerCapture,
     CmResponse,
@@ -401,14 +407,18 @@ class CampaignWriteFlow:
         self.footer_disabled = False
 
     @asynccontextmanager
-    async def capturing(self) -> AsyncIterator[CampaignManagerCapture]:
+    async def capturing(
+        self, account_id: str, *, reads: bool = False
+    ) -> AsyncIterator[CampaignManagerCapture]:
         """One capture spanning the read, apply and verify phases.
 
         Each tool call opens one, so a page that timed out in an earlier call
-        gets the full anchor wait again.
+        gets the full anchor wait again. ``reads`` is for a read-only tool, so
+        a boost account's refusal says nothing to list, not nothing changed.
         """
         self._timed_out_on = None
-        async with CampaignManagerCapture(self._session.page) as capture:
+        refuse = boost_refusal(account_id, BOOST_READ if reads else BOOST_WRITE)
+        async with CampaignManagerCapture(self._session.page, refuse=refuse) as capture:
             yield capture
 
     async def read_campaign(

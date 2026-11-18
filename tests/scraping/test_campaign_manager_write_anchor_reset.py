@@ -25,7 +25,7 @@ _GONE = "Execution context was destroyed, most likely because of a navigation"
 
 
 class _Capture:
-    def __init__(self, page: Any) -> None:
+    def __init__(self, page: Any, **_options: Any) -> None:
         pass
 
     async def __aenter__(self) -> _Capture:
@@ -52,9 +52,9 @@ async def test_a_new_tool_call_waits_the_full_time_on_a_page_that_timed_out():
     flow = _flow(page)
 
     with patch.object(write_module, "CampaignManagerCapture", _Capture):
-        async with flow.capturing():
+        async with flow.capturing("1"):
             assert await flow.wait_for_anchor(page, ANCHORS["footer"]) is False
-        async with flow.capturing():
+        async with flow.capturing("1"):
             assert await flow.wait_for_anchor(page, ANCHORS["footer"]) is True
 
     timeouts = [
@@ -69,7 +69,7 @@ async def test_the_same_tool_call_checks_a_timed_out_page_only_once_more():
     flow = _flow(page)
 
     with patch.object(write_module, "CampaignManagerCapture", _Capture):
-        async with flow.capturing():
+        async with flow.capturing("1"):
             await flow.wait_for_anchor(page, ANCHORS["footer"])
             await flow.wait_for_anchor(page, ANCHORS["footer"])
 

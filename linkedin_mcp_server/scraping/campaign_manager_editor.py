@@ -702,7 +702,7 @@ class CampaignManagerEditor:
                 _UPDATE, url, "invalid_change", invalid, retry_safe=True
             )
         page = self._session.page
-        async with self._flow.capturing() as capture:
+        async with self._flow.capturing(account) as capture:
             record = await self._flow.read_campaign(capture, account, campaign)
             if isinstance(record, tuple):
                 return campaign_action_result(_UPDATE, url, *record, retry_safe=True)
@@ -1068,7 +1068,7 @@ class CampaignManagerEditor:
                 retry_safe=True,
             )
         page = self._session.page
-        async with self._flow.capturing() as capture:
+        async with self._flow.capturing(account) as capture:
             record = await self._flow.read_campaign(
                 capture, account, campaign, suffix="/summary"
             )
@@ -1259,7 +1259,7 @@ class CampaignManagerEditor:
         if political_ad is not None:
             planned[POLITICAL_INTENT] = declared_intent(political_ad)
         page = self._session.page
-        async with self._flow.capturing() as capture:
+        async with self._flow.capturing(account) as capture:
             target, problem = await self._open_setup(capture, url, account, group)
             if problem is not None:
                 return campaign_action_result(

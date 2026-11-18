@@ -382,7 +382,7 @@ class CampaignContentEditor:
             kwargs.setdefault("retry_safe", True)
             return campaign_action_result(TOOL, url, status, message, **kwargs)
 
-        async with self._flow.capturing() as capture:
+        async with self._flow.capturing(account) as capture:
             record = await self._flow.read_campaign(capture, account, campaign)
             if isinstance(record, tuple):
                 return result(*record)
@@ -519,7 +519,7 @@ class CampaignContentEditor:
             f"/campaignmanager/accounts/{account}/campaigns/{campaign}{_LIBRARY_SUFFIX}"
         )
         url = campaign_manager_url(account, f"/campaigns/{campaign}{_LIBRARY_SUFFIX}")
-        async with self._flow.capturing() as capture:
+        async with self._flow.capturing(account, reads=True) as capture:
             record = await self._flow.read_campaign(capture, account, campaign)
             if isinstance(record, tuple):
                 raise InvalidReferenceError(record[1])

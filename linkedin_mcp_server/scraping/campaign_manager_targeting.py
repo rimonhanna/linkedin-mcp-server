@@ -825,7 +825,7 @@ class CampaignTargetingEditor:
         block lets the value be selected.
         """
         page = self._session.page
-        async with self._flow.capturing() as capture:
+        async with self._flow.capturing(account_id, reads=True) as capture:
             record = await self._flow.read_campaign(capture, account_id, campaign_id)
             if isinstance(record, tuple):
                 raise InvalidReferenceError(record[1])
@@ -875,7 +875,7 @@ class CampaignTargetingEditor:
             for item in add or []
         ]
         page = self._session.page
-        async with self._flow.capturing() as capture:
+        async with self._flow.capturing(account_id) as capture:
             record = await self._flow.read_campaign(capture, account_id, campaign_id)
             if isinstance(record, tuple):
                 status, message = record
