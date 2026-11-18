@@ -599,15 +599,14 @@ class CampaignAudiences:
             if outcome is not None:
                 return outcome
             assert response is not None
-            created = _created_number(response.created_id) or _segment_id(
-                response.payload
-            )
+            source_id = _created_number(response.created_id)
+            segment_id = _segment_id(response.payload)
             after_list = await self._reread(
                 lambda: self._load_matched(capture, account), matched_audiences
             )
 
-        found = _with_id(after_list, created)
-        if created is None or found is None:
+        found = _created_audience(after_list, segment_id, source_id)
+        if found is None:
             return campaign_action_result(
                 _LIST_TOOL,
                 url,
@@ -621,18 +620,25 @@ class CampaignAudiences:
                 planned=planned,
                 created_id=response.created_id,
             )
+        source = found.get("sourceId")
+        source_note = (
+            f", list source id {source}"
+            if source is not None and source != found["id"]
+            else ""
+        )
         return campaign_action_result(
             _LIST_TOOL,
             url,
             "audience_created",
-            f"Uploaded the company list audience {name!r} (id {created}); "
-            "LinkedIn matches it to companies over the next hours. The LinkedIn "
-            f"Ads Agreement ({terms}) was accepted for this ad account.",
+            f"Uploaded the company list audience {name!r} (id {found['id']}"
+            f"{source_note}); LinkedIn matches it to companies over the next "
+            f"hours. The LinkedIn Ads Agreement ({terms}) was accepted for this "
+            "ad account.",
             retry_safe=retry_safe_from(window),
             target=target,
             planned=planned,
             applied=found,
-            created_id=str(created),
+            created_id=str(found["id"]),
             refused=window.refused,
         )
 
@@ -831,6 +837,25 @@ class CampaignAudiences:
             logger.debug("Audience re-read failed", exc_info=True)
             return None
         return parse(response.payload) if response is not None else None
+
+
+def _created_audience(
+    audiences: Sequence[MatchedAudience] | None,
+    segment_id: int | None,
+    source_id: int | None,
+) -> MatchedAudience | None:
+    """The listed audience a list upload created, never matched by name.
+
+    The create answers with the DMP segment id in ``x-restli-id`` (the listed
+    row's ``sourceId``) and may carry ``adSegmentId`` (the row's ``segmentId``),
+    as the bundle's unarchive and list-create flows use them.
+    """
+    for audience in audiences or ():
+        if segment_id is not None and audience["id"] == segment_id:
+            return audience
+        if source_id is not None and audience.get("sourceId") == source_id:
+            return audience
+    return None
 
 
 def _with_id(

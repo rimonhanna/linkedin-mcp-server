@@ -176,6 +176,7 @@
         "segmentType": "COMPANY",
         "segmentUrn": "urn:li:adSegment:100000501",
         "source": "LIST_UPLOAD",
+        "sourceId": 100000590,
         "status": "READY"
       }
     ],

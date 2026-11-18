@@ -401,9 +401,9 @@ def register_campaign_manager_tools(
 
         Returns:
             Dict with url, sections, matched_audiences (id, segmentUrn, name,
-            segmentType, listType, source, status, audienceCount; a list
-            LinkedIn is still matching has its status and no audienceCount
-            yet) and saved_audiences (id, name, description, audienceCount).
+            segmentType, listType, source, status, sourceId, audienceCount;
+            a list LinkedIn is still matching (BUILDING) has its status and
+            no audienceCount yet) and saved_audiences (id, name, description, audienceCount).
             section_errors is present when a list could not be read or has
             more entries than were loaded.
         """

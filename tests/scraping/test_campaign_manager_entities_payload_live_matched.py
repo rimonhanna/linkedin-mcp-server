@@ -55,6 +55,7 @@ def test_live_row_is_read_by_its_segment_id():
             "listType": "ACCOUNT_LIST",
             "source": "LIST_UPLOAD",
             "status": "READY",
+            "sourceId": 900000001,
             "audienceCount": 1500,
         }
     ]

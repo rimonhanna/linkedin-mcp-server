@@ -38,7 +38,7 @@ async def test_upload_read_back_finds_the_processing_audience(mock_page):
     browser = _Browser(mock_page)
     browser.loads[MATCHED] = [
         [_matched()],
-        [_matched(_row(int(NEW_ID), "Example list", "PROCESSING"))],
+        [_matched(_row(700000201, "Example list", "PROCESSING", sourceId=int(NEW_ID)))],
     ]
     sends = [_signed_url(), _segment("Example list")]
 
@@ -48,5 +48,6 @@ async def test_upload_read_back_finds_the_processing_audience(mock_page):
         )
 
     assert result["status"] == "audience_created", result["message"]
-    assert result["created_id"] == NEW_ID
+    assert result["created_id"] == "700000201"
+    assert result["applied"]["sourceId"] == int(NEW_ID)
     assert result["applied"]["status"] == "PROCESSING"

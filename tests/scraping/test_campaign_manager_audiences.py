@@ -113,6 +113,7 @@ def _saved(*elements: dict):
 def _list_entry(audience_id: int, name: str, status: str = "BUILDING") -> dict:
     return {
         "segmentId": audience_id,
+        "sourceId": audience_id,
         "name": name,
         "segmentType": "COMPANY",
         "listAudienceType": "ACCOUNT_LIST",

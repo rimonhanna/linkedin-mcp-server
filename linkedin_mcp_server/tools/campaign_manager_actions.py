@@ -594,8 +594,11 @@ def register_campaign_manager_action_tools(
         Returns:
             Dict with url, status, message, retry_safe and, when known,
             target, planned, created_id and refused. retry_safe is True only
-            when LinkedIn did not apply anything. A new audience is BUILDING
-            until LinkedIn has matched it; list_audiences shows its status.
+            when LinkedIn did not apply anything. created_id is the listed
+            audience's id (its segmentId, as list_audiences reports it);
+            applied.sourceId is the uploaded list behind it. A new audience is
+            BUILDING, with no member count, until LinkedIn has matched it;
+            list_audiences shows its status.
         """
         try:
             ad_account_id = normalize_ad_account_id(ad_account_id)

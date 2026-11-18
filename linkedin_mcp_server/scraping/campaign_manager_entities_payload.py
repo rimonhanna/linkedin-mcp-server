@@ -51,6 +51,8 @@ MAX_CSV_BYTES = 20 * 1024 * 1024
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _FORMULA_PREFIXES = ("=", "+", "-", "@")
+# The one status the app shows no size for (bundle AUDIENCE_STATUSES).
+_BUILDING = "BUILDING"
 
 
 class TargetingEntity(TypedDict):
@@ -75,7 +77,9 @@ class MatchedAudience(TypedDict):
 
     ``id`` is the row's ``segmentId`` (live 2026-11-18). ``segmentUrn`` is
     built as ``urn:li:adSegment:<id>`` from the bundle's segment naming; treat
-    it as unverified until a typeahead row returns the same URN.
+    it as unverified until a typeahead row returns the same URN. ``sourceId``
+    is the DMP segment behind it, the id a ``campaignManagerDmpSegments``
+    create answers with in ``x-restli-id``.
     """
 
     kind: Literal["matched_audience"]
@@ -86,6 +90,7 @@ class MatchedAudience(TypedDict):
     listType: NotRequired[str]
     source: NotRequired[str]
     status: NotRequired[str]
+    sourceId: NotRequired[int]
     audienceCount: NotRequired[int]
 
 
@@ -201,7 +206,9 @@ def matched_audiences(payload: Any) -> list[MatchedAudience] | None:
     """Matched audiences of ``campaignManagerMatchedAudiences?q=account``.
 
     A row LinkedIn is still matching carries its ``status`` and may lack a
-    ``count``; it is reported without a size, never dropped.
+    ``count``; it is reported without a size, never dropped. A ``BUILDING``
+    row's ``count`` is ignored: the app shows no size for it, and LinkedIn
+    serves 0 before matching.
     """
     elements = envelope_elements(payload)
     if elements is None:
@@ -227,8 +234,11 @@ def matched_audiences(payload: Any) -> list[MatchedAudience] | None:
             text = _str(element.get(key))
             if text is not None:
                 audience[field] = text  # type: ignore[literal-required]
+        source_id = _int(element.get("sourceId"))
+        if source_id is not None:
+            audience["sourceId"] = source_id
         count = _int(element.get("count"))
-        if count is not None:
+        if count is not None and audience.get("status") != _BUILDING:
             audience["audienceCount"] = count
         audiences.append(audience)
     return audiences
@@ -275,6 +285,8 @@ def render_audiences(audiences: Iterable[MatchedAudience | SavedAudience]) -> st
         size = f"{count} members" if count is not None else None
         head = f"{audience['name']} (id {audience['id']})"
         if audience["kind"] == "matched_audience":
+            if audience.get("status") == _BUILDING:
+                size = "not matched yet"
             lines.append(
                 _line(
                     head,

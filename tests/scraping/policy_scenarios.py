@@ -2371,9 +2371,12 @@ def _cm_matched(*elements: dict[str, Any]) -> ScriptedCmResponse:
     )
 
 
-def _cm_list_entry(audience_id: int, name: str, status: str) -> dict[str, Any]:
+def _cm_list_entry(
+    audience_id: int, name: str, status: str, source_id: int = 100000590
+) -> dict[str, Any]:
     return {
         "segmentId": audience_id,
+        "sourceId": source_id,
         "name": name,
         "segmentType": "COMPANY",
         "listAudienceType": "ACCOUNT_LIST",
@@ -2481,7 +2484,7 @@ async def _cm_audience_upload_scenario() -> dict[str, Any]:
             page,
             [
                 _cm_matched(
-                    _cm_list_entry(100000502, "Example list", "BUILDING"),
+                    _cm_list_entry(100000512, "Example list", "BUILDING", 100000502),
                     _cm_list_entry(100000501, "Older list", "READY"),
                 )
             ],
