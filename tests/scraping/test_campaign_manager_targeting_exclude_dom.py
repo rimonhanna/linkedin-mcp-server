@@ -233,28 +233,128 @@ async def test_the_block_summary_has_counts_and_section_names_only(dom_page):  #
 
     summary = await dom_page.evaluate(targeting._BLOCKS_SUMMARY_JS)
 
+    in_block = {"count": 1, "in_block": 1, "visible": 1, "disabled": 0}
     assert summary == {
         "blocks": 5,
         "open": [],
         "edit": {
-            **{
-                name: {"count": 1, "in_block": 1, "visible": 1, "disabled": 0}
-                for name in [
-                    "includedLocations",
-                    "includedOrs0",
-                    "includedOrs1",
-                    "includedOrs2",
-                    "includedOrs3",
-                ]
-            },
-            "excludedLocations": {
-                "count": 1,
-                "in_block": 0,
-                "visible": 1,
-                "disabled": 0,
-            },
+            "includedLocations": in_block,
+            "includedOrs0": in_block,
+            "includedOrs1": in_block,
+            "includedOrs2": in_block,
+            "includedOrs3": in_block,
+            "excludedLocations": {**in_block, "in_block": 0},
         },
+        "close": {"count": 5, "in_block": 5, "visible": 0},
+        "articles_in_blocks": 0,
         "exclude_button": 1,
         "add_group_button": 1,
         "exclusion_blocks": 0,
+        "excluded_location_blocks": 0,
+    }
+
+
+# --- the live layout of 2026-11-18 ---------------------------------------------
+# Locations, an empty location exclusion, the profile language, buyer groups
+# (a section, not an article), two OR blocks and one facet exclusion of four
+# values. Opening the exclusion swaps its edit button for close and, a moment
+# later, renders its search inside it, with articles of its own.
+
+_LIVE_EXCLUSION = (
+    '<article class="targeting-module__facet-block js-pills-container__excludedFacet">'
+    f'<button {EDIT}="excludedFacets" onclick="openExclusion(this)">Bearbeiten</button>'
+    '<div class="targeting-module__facet-block-facet-section">'
+    '<div class="targeting-module__facet-block-pills-container">'
+    f"{_pills(4)}</div></div></article>"
+)
+_LIVE = (
+    _locations()
+    + _EMPTY_LOCATION_EXCLUSIONS
+    + '<article class="targeting-module__facet-block targeting-module__language-block">'
+    "<select><option>Deutsch</option></select></article>"
+    + '<section class="targeting-module__facet-block js-pills-container__includedFacet-1">'
+    f'<button {EDIT}="buyerGroups">Hinzufügen</button></section>'
+    + _or_block(0, 8)
+    + _or_block(1, 1)
+    + '<button data-js-targeting-module__add-more-new-facet-block="">+</button>'
+    + _LIVE_EXCLUSION
+)
+_LIVE_SCRIPT = """<script>
+function openExclusion(button) {
+  const article = button.closest('article');
+  button.insertAdjacentHTML('afterend',
+    '<button data-js-targeting-module__close-facet-block-button="true">Schließen</button>');
+  article.querySelectorAll('.targeting-module__facet-block-pills-container')
+    .forEach((row) => row.insertAdjacentHTML('beforeend',
+      '<button type="button" class="button--unstyled">+</button>'));
+  button.remove();
+  setTimeout(() => article.insertAdjacentHTML('beforeend',
+    '<div class="facet-browser"><input id="facet-browser__search-input">'
+    + '<article class="card">Zielgruppen</article>'
+    + '<article class="card">Merkmale</article></div>'), 50);
+}
+</script>"""
+
+
+async def _load_live(page: Any) -> None:
+    html = (
+        '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>'
+        f"<main>{_LIVE}</main>{_LIVE_SCRIPT}</body></html>"
+    )
+
+    async def handle(route: Any) -> None:
+        if route.request.url == URL:
+            await route.fulfill(content_type="text/html; charset=utf-8", body=html)
+        else:
+            await route.abort()
+
+    await page.route("**/*", handle)
+    await page.goto(URL)
+
+
+async def test_live_layout_the_open_exclusion_stays_its_block_once_its_search_renders(
+    dom_page,  # noqa: F811
+):
+    await _load_live(dom_page)
+    module = _module(dom_page)
+
+    with patch.object(targeting, "_STEP_PAUSE", 0.0):
+        index = await module.open_block("excludedFacets")
+        await module.expect_pills(index, 4)
+        await dom_page.wait_for_selector("main article article")
+        # The section loop opens it again: still the one open block.
+        again = await module.open_block("excludedFacets")
+
+    # Locations, language, two OR blocks, then the exclusion.
+    assert index == again == 4
+    assert await dom_page.evaluate(targeting._BLOCK_STATE_JS, index) == {
+        "open": [4],
+        "pills": 4,
+    }
+
+
+async def test_live_layout_summary_names_the_open_exclusion(dom_page):  # noqa: F811
+    await _load_live(dom_page)
+    await dom_page.evaluate(targeting._OPEN_BLOCK_JS, "excludedFacets")
+    await dom_page.wait_for_selector("main article article")
+
+    summary = await dom_page.evaluate(targeting._BLOCKS_SUMMARY_JS)
+
+    in_block = {"count": 1, "in_block": 1, "visible": 1, "disabled": 0}
+    assert summary == {
+        "blocks": 5,
+        "open": [4],
+        "edit": {
+            "includedLocations": in_block,
+            "includedOrs0": in_block,
+            "includedOrs1": in_block,
+            "excludedLocations": {**in_block, "in_block": 0},
+            "buyerGroups": {**in_block, "in_block": 0},
+        },
+        "close": {"count": 4, "in_block": 4, "visible": 1},
+        "articles_in_blocks": 2,
+        "exclude_button": 0,
+        "add_group_button": 1,
+        "exclusion_blocks": 1,
+        "excluded_location_blocks": 0,
     }

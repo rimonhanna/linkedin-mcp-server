@@ -132,7 +132,7 @@
       "call": "search_targeting_entities",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "a737273c248f",
+      "program_digest": "53580fbb63ca",
       "section": "search_targeting_entities__titles"
     },
     {
@@ -140,7 +140,7 @@
       "call": "search_targeting_entities",
       "kind": "evaluate",
       "operation": "cm_pill",
-      "program_digest": "470169f2f2cc",
+      "program_digest": "c26369a56076",
       "section": "search_targeting_entities__titles"
     },
     {

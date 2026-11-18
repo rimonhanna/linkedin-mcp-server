@@ -104,13 +104,16 @@ _STEP_PAUSE = 0.6
 # A step left with less than this before the caller's deadline is not started.
 _DEADLINE_MARGIN = 15.0
 
-# A block is the innermost article holding its edit or close button: only the
-# OR blocks carry ``data-js-targeting-module__facet-block``, the location and
-# exclusion blocks do not (read from the app's bundle, 2026-11-18).
+# Every block is an ``article.targeting-module__facet-block``; only the OR
+# blocks also carry ``data-js-targeting-module__facet-block`` (read from the
+# app's bundle, 2026-11-18). An open exclusion block holds its own search,
+# which renders further articles inside it (live, 2026-11-18), so a block is
+# never told apart by what it contains.
 _BLOCK_HELPERS = """
     const EDIT = '[data-js-targeting-module__edit-facet-block-btn]';
     const CLOSE = '[data-js-targeting-module__close-facet-block-button]';
-    const ARTICLE = 'article:has(' + EDIT + ', ' + CLOSE + '):not(:has(article))';
+    const ARTICLE = 'article.targeting-module__facet-block, '
+        + 'article[data-js-targeting-module__facet-block]';
     // An empty exclusion section has no block, only a button outside every
     // block; clicking it renders the block, open, which this class marks.
     const RENDERED_ON_OPEN = {
@@ -198,15 +201,24 @@ _BLOCKS_SUMMARY_JS = (
         edit[key] = seen;
     }
     const count = (selector) => document.querySelectorAll(selector).length;
+    const closers = [...document.querySelectorAll(CLOSE)];
+    const marking = (marker) => articles.filter((article) => marked(article, marker));
     return {
         blocks: articles.length,
         open,
         edit,
+        close: {
+            count: closers.length,
+            in_block: closers.filter((el) => el.closest(ARTICLE)).length,
+            visible: closers.filter(visible).length,
+        },
+        articles_in_blocks: articles.reduce(
+            (sum, article) => sum + article.querySelectorAll('article').length, 0
+        ),
         exclude_button: count('[data-js-targeting-module__inline-add-more-excluded-facets]'),
         add_group_button: count('[data-js-targeting-module__add-more-new-facet-block]'),
-        exclusion_blocks: articles.filter(
-            (article) => marked(article, RENDERED_ON_OPEN.excludedFacets)
-        ).length,
+        exclusion_blocks: marking(RENDERED_ON_OPEN.excludedFacets).length,
+        excluded_location_blocks: marking(RENDERED_ON_OPEN.excludedLocations).length,
     };
 }"""
 )
