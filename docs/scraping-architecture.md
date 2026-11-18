@@ -42,6 +42,7 @@ a page-owning collaborator.
 | `facets` | `FacetResolver`, `GEO_ID_PATTERN`, `LOCATION_BOX_SELECTOR`, `SUGGESTION_SETTLE_INTERVAL`, `SUGGESTION_SETTLE_READS`, `TYPEAHEAD_TIMEOUT_MS`, `TYPEAHEAD_URL` | `page-owning` |
 | `feed` | `FeedScraper` | `page-owning` |
 | `feed_payload` | `POST_SLUG_URL_RE`, `build_feed_references()`, `is_feed_payload_response()` | `browser-free` |
+| `feed_update_post` | `FeedUpdateCapture`, `VOYAGER_API_PREFIX`, `VoyagerCall`, `parse_voyager_call()`, `post_urns_for_activity()`, `resolve_activity_post()` | `browser-free` |
 | `fields` | `COMPANY_SECTIONS`, `PERSON_SECTIONS`, `parse_company_sections()`, `parse_person_sections()` | `browser-free` |
 | `identifiers` | `CAMPAIGN_MANAGER_ACCOUNTS_URL`, `SALES_ACCOUNT_LISTS_URL`, `campaign_manager_date_range()`, `campaign_manager_url()`, `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_ad_account_id()`, `normalize_campaign_group_id()`, `normalize_campaign_id()`, `normalize_company_identifier()`, `normalize_company_page_url()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_person_identifier()`, `normalize_post_urn()`, `normalize_profile_urn()`, `normalize_sales_company_id()`, `normalize_sales_list_id()`, `normalize_targeting_urn()`, `normalize_thread_id()`, `normalize_website()`, `person_profile_url()`, `sales_account_list_url()`, `sales_company_url()` | `browser-free` |
 | `invitation_withdrawal` | `InvitationWithdrawer`, `MAX_WITHDRAWALS_LIMIT`, `age_text()`, `normalize_exclusions()`, `parse_age_days()`, `plan_withdrawals()`, `username_from_href()` | `browser-free` |
@@ -76,7 +77,7 @@ a page-owning collaborator.
 - `campaign_manager_api` -> `api_capture`, `campaign_manager_guard`, `campaign_manager_payload`
 - `campaign_manager_audiences` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
 - `campaign_manager_changes` -> `campaign_manager_payload`, `identifiers`
-- `campaign_manager_content` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
+- `campaign_manager_content` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `feed_update_post`, `identifiers`, `navigation`, `session`
 - `campaign_manager_editor` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_political`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
 - `campaign_manager_entities_payload` -> `campaign_manager_payload`, `identifiers`
 - `campaign_manager_guard` -> `campaign_manager_payload`
@@ -97,6 +98,7 @@ a page-owning collaborator.
 - `facets` -> `capture`, `company_parse`, `contracts`, `identifiers`, `job_policy`, `link_metadata`, `navigation`, `session`
 - `feed` -> `content`, `contracts`, `feed_payload`, `navigation`, `session`, `text`
 - `feed_payload` -> `link_metadata`
+- `feed_update_post` -> `api_capture`, `navigation`, `session`
 - `fields` -> `capture`
 - `identifiers` -> _(none)_
 - `invitation_withdrawal` -> `identifiers`

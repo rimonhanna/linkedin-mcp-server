@@ -98,14 +98,3 @@ async def test_the_live_library_shape_is_read(mock_page):
     assert result["status"] == "confirmation_required", result["message"]
     assert result["planned"]["postUrn"] == POST
     assert app.clicks == []
-
-
-async def test_an_activity_without_library_activity_ids_is_refused_plainly(mock_page):
-    app = _LiveApp(mock_page)
-
-    result = await _run(mock_page, app, "urn:li:activity:100000801")
-
-    assert result["status"] == "post_not_found"
-    assert result["retry_safe"] is True
-    assert "urn:li:share or urn:li:ugcPost" in result["message"]
-    assert app.clicks == []

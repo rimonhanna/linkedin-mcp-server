@@ -56,6 +56,7 @@ from linkedin_mcp_server.scraping.campaign_manager_write import (
     ANCHORS,
     CampaignWriteFlow,
 )
+from linkedin_mcp_server.scraping.feed_update_post import resolve_activity_post
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
     normalize_ad_account_id,
@@ -276,6 +277,15 @@ class CampaignContentEditor:
             kwargs.setdefault("retry_safe", True)
             return campaign_action_result(TOOL, url, status, message, **kwargs)
 
+        requested = post
+        if post.startswith(_ACTIVITY_URN):
+            # The ad references the post, not its feed activity. Read before
+            # Campaign Manager opens: the library is reached by in-app route.
+            resolved = await resolve_activity_post(self._session, self._navigator, post)
+            if isinstance(resolved, tuple):
+                return result(*resolved, planned={"requestedUrn": requested})
+            post = resolved
+
         async with self._flow.capturing() as capture:
             record = await self._flow.read_campaign(capture, account, campaign)
             if isinstance(record, tuple):
@@ -291,9 +301,6 @@ class CampaignContentEditor:
                 status, message, planned = found
                 return result(status, message, target=target, planned=planned)
             index, entry, count = found.index, found.entry, found.count
-            # An activity URN names the post's feed update; the ad references
-            # the share or ugcPost URN the library lists for it.
-            requested, post = post, entry["urn"]
             planned = {"postUrn": post, "visibility": entry["visibility"]}
             if requested != post:
                 planned["requestedUrn"] = requested
@@ -453,26 +460,9 @@ class CampaignContentEditor:
                     "this tool does not recognise. Nothing was changed.",
                     planned,
                 )
-            key = "activityUrn" if post.startswith(_ACTIVITY_URN) else "urn"
-            matches = [i for i, entry in enumerate(entries) if entry.get(key) == post]
-            if key == "activityUrn" and len(matches) > 1:
-                return (
-                    "post_not_found",
-                    "More than one company post in the content library carries "
-                    "that activity id. Pass the post's urn:li:share or "
-                    "urn:li:ugcPost URN instead. Nothing was changed.",
-                    planned,
-                )
-            if key == "activityUrn" and not any(key in entry for entry in entries):
-                return (
-                    "post_not_found",
-                    "Campaign Manager's list of company posts does not say which "
-                    "activity each post belongs to, so this activity link could "
-                    "not be matched to a post. Pass the post's urn:li:share or "
-                    "urn:li:ugcPost URN instead. Nothing was changed.",
-                    planned,
-                )
-            index = matches[0] if matches else None
+            index = next(
+                (i for i, entry in enumerate(entries) if entry["urn"] == post), None
+            )
             if index is None:
                 page_size = response.call.params.get("count", "")
                 beyond = page_size.isdigit() and len(entries) >= int(page_size)

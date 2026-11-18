@@ -522,11 +522,10 @@ def register_campaign_manager_action_tools(
             campaign_id: Numeric campaign id, its URN or campaign URL.
             post_urn: urn:li:share:<n>, urn:li:ugcPost:<n> or
                 urn:li:activity:<n> (as get_company_posts returns it), or the
-                post's /feed/update/ link. An activity URN is used only when
-                Campaign Manager's content library names the post's activity;
-                otherwise it is refused (post_not_found) and the share or
-                ugcPost URN is needed. Only the 100 most recent company posts
-                can be found.
+                post's /feed/update/ link. An activity URN costs one more page
+                load: its /feed/update/ page is read for the post's share or
+                ugcPost URN, which planned.postUrn then shows. Only the 100
+                most recent company posts can be found.
             confirm_send: Must be True to add the post.
             ctx: FastMCP context for progress reporting
 

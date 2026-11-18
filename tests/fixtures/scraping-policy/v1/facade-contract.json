@@ -231,7 +231,7 @@
               "type": "boolean"
             },
             "post_urn": {
-              "description": "urn:li:share:<n>, urn:li:ugcPost:<n> or\nurn:li:activity:<n> (as get_company_posts returns it), or the\npost's /feed/update/ link. An activity URN is used only when\nCampaign Manager's content library names the post's activity;\notherwise it is refused (post_not_found) and the share or\nugcPost URN is needed. Only the 100 most recent company posts\ncan be found.",
+              "description": "urn:li:share:<n>, urn:li:ugcPost:<n> or\nurn:li:activity:<n> (as get_company_posts returns it), or the\npost's /feed/update/ link. An activity URN costs one more page\nload: its /feed/update/ page is read for the post's share or\nugcPost URN, which planned.postUrn then shows. Only the 100\nmost recent company posts can be found.",
               "type": "string"
             }
           },
