@@ -51,6 +51,8 @@ MAX_CSV_BYTES = 20 * 1024 * 1024
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _FORMULA_PREFIXES = ("=", "+", "-", "@")
+# A listed post's excerpt: enough to recognise it, not its full text.
+_EXCERPT_CHARS = 160
 # The one status the app shows no size for (bundle AUDIENCE_STATUSES).
 _BUILDING = "BUILDING"
 
@@ -70,6 +72,8 @@ class SponsorableContent(TypedDict):
     visibility: str
     contentType: NotRequired[str]
     lifecycleState: NotRequired[str]
+    excerpt: NotRequired[str]
+    lastModifiedAt: NotRequired[int]
 
 
 class MatchedAudience(TypedDict):
@@ -147,6 +151,29 @@ def typeahead_entities(payload: Any) -> list[TargetingEntity] | None:
     return entities
 
 
+def _excerpt(text: str) -> str:
+    """The post's opening words, as LinkedIn returns them, on one line."""
+    flat = " ".join(text.split())
+    if len(flat) <= _EXCERPT_CHARS:
+        return flat
+    return flat[: _EXCERPT_CHARS - 3].rstrip() + "..."
+
+
+def render_sponsorable_posts(entries: Iterable[SponsorableContent]) -> str:
+    lines = []
+    for entry in entries:
+        kind = entry.get("contentType")
+        head = f"{entry['urn']} [{kind}]" if kind else entry["urn"]
+        if entry["sponsorable"]:
+            verdict = "sponsorable"
+        else:
+            reasons = ", ".join(entry["nonSponsorableReasons"])
+            verdict = f"not sponsorable ({reasons})" if reasons else "not sponsorable"
+        excerpt = entry.get("excerpt")
+        lines.append(f"{head}: {verdict}" + (f': "{excerpt}"' if excerpt else ""))
+    return "\n".join(lines)
+
+
 def content_library_entries(payload: Any) -> list[SponsorableContent] | None:
     """Entries of a content library answer, in the order the app lists them.
 
@@ -171,7 +198,8 @@ def content_library_entries(payload: Any) -> list[SponsorableContent] | None:
             return None
         entity = included[ref]
         sponsorable = entity.get("sponsorable")
-        reasons = entity.get("nonSponsorableReasons", [])
+        # A sponsorable post answers ``null`` (live 2026-11-18).
+        reasons = entity.get("nonSponsorableReasons") or []
         visibility = _str(entity.get("visibility"))
         if (
             not isinstance(sponsorable, bool)
@@ -198,6 +226,15 @@ def content_library_entries(payload: Any) -> list[SponsorableContent] | None:
         )
         if lifecycle is not None:
             entry["lifecycleState"] = lifecycle
+        text = (
+            generated.get("introductoryText") if isinstance(generated, dict) else None
+        )
+        excerpt = _str(text.get("text")) if isinstance(text, dict) else None
+        if excerpt is not None:
+            entry["excerpt"] = _excerpt(excerpt)
+        modified = _int(entity.get("lastModifiedAt"))
+        if modified is not None:
+            entry["lastModifiedAt"] = modified
         entries.append(entry)
     return entries
 

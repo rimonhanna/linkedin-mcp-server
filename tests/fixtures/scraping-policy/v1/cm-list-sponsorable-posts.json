@@ -1,0 +1,205 @@
+{
+  "call": {
+    "arguments": {
+      "account_id": "100000001",
+      "campaign_id": "100000301"
+    },
+    "method": "list_sponsorable_posts"
+  },
+  "events": [
+    {
+      "call": "list_sponsorable_posts",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "callback_id": "callback-3",
+      "kind": "route.add",
+      "pattern": "**/campaign-manager-api/**",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "extra": {
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "requested_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "section": "list_sponsorable_posts__listed",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "kind": "wait_for_load_state",
+      "section": "list_sponsorable_posts__listed",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "description": "goto https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/details",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "kind": "boundary.rate_limit",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "arg": "/campaignmanager/accounts/100000001/campaigns/100000301/creatives/sponsorable-contents?businessId=personal",
+      "call": "list_sponsorable_posts",
+      "kind": "evaluate",
+      "operation": "cm_route",
+      "program_digest": "919386b7a793",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "count": 1,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "arg": "#sponsored-content-library__pill-filter-ORGANIC",
+      "call": "list_sponsorable_posts",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "list_sponsorable_posts__listed",
+      "timeout_ms": 15000.0
+    },
+    {
+      "arg": "#sponsored-content-library__pill-filter-ORGANIC",
+      "call": "list_sponsorable_posts",
+      "kind": "evaluate",
+      "operation": "cm_content_pill",
+      "program_digest": "a3da00c513ab",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "list_sponsorable_posts__listed"
+    },
+    {
+      "call": "list_sponsorable_posts",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "list_sponsorable_posts__listed"
+    }
+  ],
+  "result": {
+    "section_names": [
+      "sponsorable_posts"
+    ],
+    "sections": {
+      "sponsorable_posts": "urn:li:share:100000701 [TEXT]: sponsorable: \"Example company post\""
+    },
+    "sponsorable_posts": [
+      {
+        "contentType": "TEXT",
+        "excerpt": "Example company post",
+        "lastModifiedAt": 1893456000000,
+        "lifecycleState": "PUBLISHED",
+        "nonSponsorableReasons": [],
+        "sponsorable": true,
+        "urn": "urn:li:share:100000701",
+        "visibility": "ORGANIC"
+      }
+    ],
+    "target": {
+      "accountId": 100000001,
+      "id": 100000301,
+      "kind": "campaign",
+      "name": "Example ad set",
+      "status": "DRAFT",
+      "uiLabel": "Ad set"
+    },
+    "url": "https://www.linkedin.com/campaignmanager/accounts/100000001/campaigns/100000301/creatives/sponsorable-contents?businessId=personal"
+  },
+  "scenario": "list_sponsorable_posts__listed",
+  "schema_version": 1
+}

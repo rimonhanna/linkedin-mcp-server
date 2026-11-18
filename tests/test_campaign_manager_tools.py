@@ -21,6 +21,7 @@ TOOLS = (
     "get_campaign_analytics",
     "search_targeting_entities",
     "list_audiences",
+    "list_sponsorable_posts",
 )
 RESULT = {"url": "https://www.linkedin.com/campaignmanager/accounts", "sections": {}}
 
@@ -220,6 +221,7 @@ class TestAuthError:
                 {"ad_account_id": "1", "campaign_id": "2", "query": "engineer"},
             ),
             ("list_audiences", {"ad_account_id": "100000001"}),
+            ("list_sponsorable_posts", {"ad_account_id": "1", "campaign_id": "2"}),
         ],
     )
     async def test_auth_error_triggers_relogin(self, name, args):

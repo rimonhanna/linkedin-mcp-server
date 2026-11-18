@@ -467,6 +467,14 @@ class LinkedInExtractor:
             account_id, campaign_id, post_urn, confirm_send=confirm_send
         )
 
+    async def list_sponsorable_posts(
+        self, account_id: str, campaign_id: str
+    ) -> dict[str, Any]:
+        """List the company posts an ad set's content library offers."""
+        return await self._campaign_content.list_sponsorable_posts(
+            account_id, campaign_id
+        )
+
     async def list_audiences(self, account_id: str) -> dict[str, Any]:
         """List an ad account's matched and saved audiences."""
         return await self._audiences.list_audiences(account_id)

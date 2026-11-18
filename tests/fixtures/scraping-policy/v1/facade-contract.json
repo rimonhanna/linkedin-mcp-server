@@ -104,6 +104,10 @@
         "coroutine": true,
         "signature": "(self, page: 'int' = 1) -> 'dict[str, Any]'"
       },
+      "list_sponsorable_posts": {
+        "coroutine": true,
+        "signature": "(self, account_id: 'str', campaign_id: 'str') -> 'dict[str, Any]'"
+      },
       "reply_to_conversation": {
         "coroutine": true,
         "signature": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'"
@@ -195,6 +199,7 @@
       "list_audiences",
       "list_campaigns",
       "list_sales_navigator_account_lists",
+      "list_sponsorable_posts",
       "reply_to_conversation",
       "scrape_company",
       "scrape_job",
@@ -231,7 +236,7 @@
               "type": "boolean"
             },
             "post_urn": {
-              "description": "urn:li:share:<n> or urn:li:ugcPost:<n>, or the post's\n/feed/update/ link. Only the 100 most recent company posts\ncan be found.",
+              "description": "urn:li:share:<n> or urn:li:ugcPost:<n>, as\nlist_sponsorable_posts lists it, or the post's /feed/update/\nlink. A feed activity id (urn:li:activity:<n>) is refused:\nCampaign Manager does not link it to the post. Only the 100\nmost recent company posts can be found.",
               "type": "string"
             }
           },
@@ -1070,6 +1075,30 @@
               "type": "integer"
             }
           },
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "list_sponsorable_posts": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "ad_account_id": {
+              "description": "Numeric ad account id, its URN or account URL.",
+              "type": "string"
+            },
+            "campaign_id": {
+              "description": "Numeric campaign id, its URN or campaign URL.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ad_account_id",
+            "campaign_id"
+          ],
           "type": "object"
         },
         "output": {

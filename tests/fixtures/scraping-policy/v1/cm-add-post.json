@@ -171,7 +171,7 @@
       "call": "add_post_to_campaign",
       "kind": "evaluate",
       "operation": "cm_content_rows",
-      "program_digest": "4c3c53699c71",
+      "program_digest": "03aa46e3469a",
       "section": "add_post_to_campaign__added"
     },
     {
@@ -185,24 +185,28 @@
       "arg": [
         "row",
         0,
-        1
+        [
+          "select-row-0-checkbox"
+        ]
       ],
       "call": "add_post_to_campaign",
       "kind": "evaluate",
       "operation": "cm_content_click",
-      "program_digest": "591d6b870bca",
+      "program_digest": "98c2504d2b4f",
       "section": "add_post_to_campaign__added"
     },
     {
       "arg": [
         "add",
         0,
-        1
+        [
+          "select-row-0-checkbox"
+        ]
       ],
       "call": "add_post_to_campaign",
       "kind": "evaluate",
       "operation": "cm_content_click",
-      "program_digest": "591d6b870bca",
+      "program_digest": "98c2504d2b4f",
       "section": "add_post_to_campaign__added"
     },
     {

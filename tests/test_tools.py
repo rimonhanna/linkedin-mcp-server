@@ -96,6 +96,7 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
     mock.get_campaign_analytics = AsyncMock(return_value=scrape_result)
     mock.search_targeting_entities = AsyncMock(return_value=scrape_result)
     mock.list_audiences = AsyncMock(return_value=scrape_result)
+    mock.list_sponsorable_posts = AsyncMock(return_value=scrape_result)
     for name in (
         "update_campaign",
         "set_campaign_status",
@@ -2912,6 +2913,7 @@ class TestToolTimeouts:
             "get_campaign_analytics",
             "search_targeting_entities",
             "list_audiences",
+            "list_sponsorable_posts",
             "update_campaign",
             "set_campaign_status",
             "create_campaign_draft",
@@ -2967,6 +2969,7 @@ class TestToolTimeouts:
             "get_campaign_analytics",
             "search_targeting_entities",
             "list_audiences",
+            "list_sponsorable_posts",
             "update_campaign",
             "set_campaign_status",
             "create_campaign_draft",

@@ -91,6 +91,8 @@ ANCHORS = {
     "create_menu": "#ma-header-actions-create-trigger",
     "library_filter": "#sponsored-content-library__pill-filter-ORGANIC",
     "library_rows": 'input[type=checkbox][id^="select-row-"][id$="-checkbox"]',
+    "library_add": ".sponsored-content-library__sponsor-button",
+    "library_remove": "[data-live-test-confirm-hovercard__button--trigger]",
 }
 # The app shell's loader, by role and element only.
 _LOADER = '[role=progressbar], progress, [aria-busy="true"]'
@@ -433,12 +435,26 @@ class CampaignWriteFlow:
             return False
         return True
 
-    async def record_page_structure(self, page: Any) -> None:
+    async def record_page_structure(
+        self, page: Any, *, amend: bool = False, **extra: Any
+    ) -> None:
         """Note which known anchors the page has, for the failure notes.
 
-        A diagnostic only: a page that navigates meanwhile is not recorded.
+        ``extra`` adds a caller's own value-free summary. With ``amend`` it is
+        added to this page's latest record instead, so one stop is recorded
+        once. A diagnostic only: a page that navigates meanwhile is not
+        recorded.
         """
         log = current_log()
+        path = _DIGITS.sub("N", urlparse(page.url).path)
+        if (
+            amend
+            and log is not None
+            and log.pages
+            and log.pages[-1].get("path") == path
+        ):
+            log.pages[-1].update(extra)
+            return
         try:
             summary = await page.evaluate(
                 _STRUCTURE_JS, {"anchors": ANCHORS, "loader": _LOADER}
@@ -449,7 +465,7 @@ class CampaignWriteFlow:
         if log is None or not isinstance(summary, dict):
             logger.debug("Page structure not recorded: %s", summary)
             return
-        log.add_page({"path": _DIGITS.sub("N", urlparse(page.url).path), **summary})
+        log.add_page({"path": path, **summary, **extra})
 
     @asynccontextmanager
     async def apply(

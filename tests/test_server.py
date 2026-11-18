@@ -1015,6 +1015,7 @@ class TestWhatTheToolsPromise:
             "get_campaign_analytics",
             "search_targeting_entities",
             "list_audiences",
+            "list_sponsorable_posts",
         }
         claiming = set()
         for name in reads:

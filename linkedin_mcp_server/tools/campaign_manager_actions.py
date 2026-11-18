@@ -520,9 +520,11 @@ def register_campaign_manager_action_tools(
         Args:
             ad_account_id: Numeric ad account id, its URN or account URL.
             campaign_id: Numeric campaign id, its URN or campaign URL.
-            post_urn: urn:li:share:<n> or urn:li:ugcPost:<n>, or the post's
-                /feed/update/ link. Only the 100 most recent company posts
-                can be found.
+            post_urn: urn:li:share:<n> or urn:li:ugcPost:<n>, as
+                list_sponsorable_posts lists it, or the post's /feed/update/
+                link. A feed activity id (urn:li:activity:<n>) is refused:
+                Campaign Manager does not link it to the post. Only the 100
+                most recent company posts can be found.
             confirm_send: Must be True to add the post.
             ctx: FastMCP context for progress reporting
 

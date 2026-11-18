@@ -21,9 +21,9 @@ a page-owning collaborator.
 | `campaign_manager_api` | `CampaignManagerCapture`, `CmWriteResponse`, `DEMOGRAPHIC_PIVOTS`, `LEVEL_PIVOTS`, `SCOPE_ID_PARAMS`, `analytics_call_matches()`, `period_order()`, `template_call()` | `browser-free` |
 | `campaign_manager_audiences` | `CampaignAudiences` | `page-owning` |
 | `campaign_manager_changes` | `Admit`, `CampaignEditPlan`, `DAY_MS`, `EDITABLE_STATUSES`, `LIST_AUDIENCE_NAME_MAX`, `SAVED_AUDIENCE_NAME_MAX`, `TargetingPlan`, `WriteRequest`, `admit_campaign_create()`, `admit_campaign_patch()`, `admit_creative_create()`, `admit_list_upload()`, `admit_saved_audience()`, `admit_status_patch()`, `format_budget()`, `ms_to_date()`, `parse_budget()`, `pill_index()`, `plan_campaign_edit()`, `plan_targeting()`, `planned_end_ms()`, `refuse_invalid_audience_name()`, `refuse_invalid_campaign_edit()`, `refuse_invalid_draft()`, `refuse_invalid_targeting_change()`, `saved_audience_omitted()`, `targeting_keys()` | `browser-free` |
-| `campaign_manager_content` | `CampaignContentEditor`, `TOOL`, `click_library()`, `library_rows()`, `select_organic()` | `page-owning` |
+| `campaign_manager_content` | `CampaignContentEditor`, `TOOL`, `click_library()`, `library_rows()`, `locate_row()`, `select_organic()` | `page-owning` |
 | `campaign_manager_editor` | `CampaignManagerEditor`, `check_calendar()`, `pick_date()`, `set_text()`, `toggle_status()` | `page-owning` |
-| `campaign_manager_entities_payload` | `ACCOUNT_TEMPLATE_HEADERS`, `CompanyRow`, `MAX_COMPANY_ROWS`, `MAX_CSV_BYTES`, `MatchedAudience`, `SavedAudience`, `SponsorableContent`, `TargetingEntity`, `company_list_csv()`, `content_library_entries()`, `matched_audiences()`, `render_audiences()`, `render_entities()`, `saved_audiences()`, `typeahead_entities()` | `browser-free` |
+| `campaign_manager_entities_payload` | `ACCOUNT_TEMPLATE_HEADERS`, `CompanyRow`, `MAX_COMPANY_ROWS`, `MAX_CSV_BYTES`, `MatchedAudience`, `SavedAudience`, `SponsorableContent`, `TargetingEntity`, `company_list_csv()`, `content_library_entries()`, `matched_audiences()`, `render_audiences()`, `render_entities()`, `render_sponsorable_posts()`, `saved_audiences()`, `typeahead_entities()` | `browser-free` |
 | `campaign_manager_guard` | `Admission`, `CmWriteRequest`, `READ_ONLY_POST_RESOURCES`, `WriteWindow`, `explicit_campaign_write()`, `is_campaign_manager_read()`, `register_campaign_manager_routes()`, `without_campaign_manager_writes()` | `browser-free` |
 | `campaign_manager_payload` | `AdAccount`, `AnalyticsEntity`, `AnalyticsRow`, `BASE_METRICS`, `CM_API_PREFIX`, `Campaign`, `CampaignGroup`, `CmCall`, `Creative`, `DateWindow`, `Money`, `RunSchedule`, `Targeting`, `TargetingFacet`, `TargetingInclude`, `TargetingSegment`, `build_ad_account()`, `build_analytics_rows()`, `build_boost_account()`, `build_campaign()`, `build_campaign_group()`, `build_creative()`, `build_targeting()`, `format_restli_date_range()`, `merge_by_id()`, `parse_cm_call()`, `render_accounts()`, `render_analytics()`, `render_campaign()`, `render_campaigns()`, `restli_date_range()` | `browser-free` |
 | `campaign_manager_political` | `CLEARED_BY_LINKEDIN`, `CLEARS_DECLARATION`, `DECLARATION_REQUIRED`, `DECLARATION_STATUSES`, `MISMATCH`, `NOT_DECLARED`, `NOT_OFFERED`, `NOT_POLITICAL`, `POLITICAL_INTENT`, `POLITICAL_JS`, `PoliticalQuestion`, `UNANSWERED`, `UNDECLARED_FILL`, `declaration_note()`, `declaration_stop()`, `declared_intent()`, `political_dialog()`, `political_question()`, `question_sentence()`, `refuse_intent()`, `sent_intent()` | `browser-free` |
@@ -76,7 +76,7 @@ a page-owning collaborator.
 - `campaign_manager_api` -> `api_capture`, `campaign_manager_guard`, `campaign_manager_payload`
 - `campaign_manager_audiences` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
 - `campaign_manager_changes` -> `campaign_manager_payload`, `identifiers`
-- `campaign_manager_content` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
+- `campaign_manager_content` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_entities_payload`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `restli`, `session`
 - `campaign_manager_editor` -> `campaign_manager`, `campaign_manager_api`, `campaign_manager_changes`, `campaign_manager_guard`, `campaign_manager_payload`, `campaign_manager_political`, `campaign_manager_results`, `campaign_manager_write`, `identifiers`, `navigation`, `session`
 - `campaign_manager_entities_payload` -> `campaign_manager_payload`, `identifiers`
 - `campaign_manager_guard` -> `campaign_manager_payload`
@@ -148,6 +148,7 @@ a page-owning collaborator.
 - `list_audiences`
 - `list_campaigns`
 - `list_sales_navigator_account_lists`
+- `list_sponsorable_posts`
 - `reply_to_conversation`
 - `scrape_company`
 - `scrape_job`

@@ -778,10 +778,12 @@ class TestWriteIdentifiers:
             "",
             "urn:li:share:",
             "urn:li:share:abc",
+            "urn:li:activity:",
+            "urn:li:article:123",
             "urn:li:activity:123",
+            "https://www.linkedin.com/feed/update/urn:li:activity:123/",
             "https://example.com/feed/update/urn:li:share:123/",
             "https://www.linkedin.com/in/someone/",
-            "https://www.linkedin.com/feed/update/urn:li:activity:123/",
             "https://www.linkedin.com/feed/update/urn:li:share:1/extra",
         ],
     )
