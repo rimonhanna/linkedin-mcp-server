@@ -218,9 +218,12 @@ class CampaignManagerCapture(ApiResponseCapture[CmCall]):
         throttle: bool = True,
         wanted: Iterable[str] = (),
     ) -> CmResponse:
-        """As the base wait, but a response ``refuse`` names raises at once."""
+        """As the base wait, but a response ``refuse`` names raises at once.
+
+        Not once a write was answered: that write's result stands.
+        """
         refuse = self._refuse
-        if refuse is None:
+        if refuse is None or self.writes:
             return await super().wait_for(
                 predicate,
                 after=after,
@@ -231,13 +234,13 @@ class CampaignManagerCapture(ApiResponseCapture[CmCall]):
         if (refused := self._refusal()) is not None:
             raise refused
         found = await super().wait_for(
-            lambda r: predicate(r) or refuse(r) is not None,
+            lambda r: predicate(r) or (not self.writes and refuse(r) is not None),
             after=after,
             timeout=timeout,
             throttle=throttle,
             wanted=wanted,
         )
-        if (refused := self._refusal()) is not None:
+        if not self.writes and (refused := self._refusal()) is not None:
             raise refused
         return found
 

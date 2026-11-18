@@ -72,3 +72,15 @@ async def test_an_answered_write_keeps_its_result_over_the_boost_refusal(mock_pa
 async def test_with_no_write_the_capture_raises_the_boost_refusal_at_close(mock_page):
     with pytest.raises(InvalidReferenceError, match="nothing was changed"):
         await _close_with(mock_page, wrote=False)
+
+
+async def test_a_wait_after_an_answered_write_does_not_raise_the_refusal(mock_page):
+    refuse = boost_refusal(ACCOUNT, BOOST_WRITE)
+    async with CampaignManagerCapture(mock_page, refuse=refuse) as capture:
+        capture.writes.append(_answered_write())
+        boost = _boost_record()
+        capture.responses.append(boost)
+        # Already seen, so a refusing wait would raise before matching it.
+        found = await capture.wait_for(lambda r: r is boost, timeout=0.1)
+
+    assert found is boost
