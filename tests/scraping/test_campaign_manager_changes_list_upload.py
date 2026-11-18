@@ -91,7 +91,8 @@ def test_signed_url_mismatches_name_the_field_without_its_id():
         "owner: urn of type sponsoredAccount for this ad account expected, "
         "urn of type sponsoredAccount for another ad account seen"
     ) in reason
-    assert "contentType: text/csv expected, csv seen" in reason
+    assert "contentType: text/csv expected, another constant seen" in reason
+    assert "csv seen" not in reason
     assert "100000099" not in reason
     org = _reason(_admit()(_signed(owner="urn:li:organization:100000099")))
     assert "urn of type organization seen" in org
@@ -123,5 +124,7 @@ def test_segment_is_tied_to_this_account_list_and_file():
     assert "inputFile: urn of type media expected" in refused(
         inputFile="https://example.com/x"
     )
-    assert "segmentType: COMPANY expected, MEMBER seen" in refused(segmentType="MEMBER")
+    member = refused(segmentType="MEMBER")
+    assert "segmentType: COMPANY expected, another constant seen" in member
+    assert "MEMBER" not in member
     assert "sourceType: not sent by the app" in refused(sourceType="CONVERSION")

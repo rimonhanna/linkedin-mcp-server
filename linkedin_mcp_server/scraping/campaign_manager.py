@@ -108,6 +108,8 @@ _NEVER_DELIVERED = "DRAFT"
 # What LinkedIn answers for an entity the member cannot open or that is gone.
 _REFUSED_STATUSES = frozenset({403, 404})
 _FIELD_NAME = re.compile(r"[A-Za-z]+")
+_STATUS_PARAM = re.compile(r"(?:search\.)?status(?:es|v2)?(?:[.\[].*)?", re.IGNORECASE)
+_STATUS_SEARCH = re.compile(r"[(,]\s*status(?:v2)?\s*:", re.IGNORECASE)
 _PARTIAL = "partial, not the ad account's total: see section_errors\n"
 
 
@@ -861,12 +863,14 @@ class _Listed(NamedTuple):
 def _status_filtered(call: CmCall) -> bool:
     """Whether a reporting list was narrowed by status, so it is not every entity.
 
-    The page sends none today; a projection naming the status field is no filter.
+    The page sends none today. A status param (``statuses=List(ACTIVE)``,
+    ``search.status.values[0]=ACTIVE``) or a ``status:`` key in a Rest.li
+    ``search`` filters; a projection or sort naming the field does not.
     """
     return any(
-        "status" in f"{key}={value}".casefold()
+        _STATUS_PARAM.fullmatch(key) is not None
+        or (key.casefold() == "search" and _STATUS_SEARCH.search(value) is not None)
         for key, value in call.params.items()
-        if key != "fields"
     )
 
 

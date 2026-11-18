@@ -488,6 +488,22 @@ def _is_create(write: Any) -> bool:
     )
 
 
+def _sent_since(
+    capture: CampaignManagerCapture, window: WriteWindow, writes: int, admitted: int
+) -> bool:
+    """Whether a write left the browser since a step began."""
+    return capture.write_count > writes or len(window.admitted) > admitted
+
+
+def _sent_stop(control: str) -> Refusal:
+    return (
+        "save_unverified",
+        f"The {control} did not behave as expected, so the edit stopped there, "
+        "but Campaign Manager had already sent a save. Check the ad set before "
+        "retrying.",
+    )
+
+
 def _stopped(outcome: CmWriteResponse | str, window: WriteWindow) -> Refusal:
     """Why a save the plan waited for did not succeed, in the common vocabulary."""
     if outcome == "refused":
@@ -819,15 +835,25 @@ class CampaignManagerEditor:
 
         saves = "autosave" if autosaves else "save_and_exit"
         saved = 0
+        # A step that failed after one of its writes left: the ad set is read
+        # back, since whatever left may have been kept.
+        sent = False
         stop: Refusal | None = None
         async with self._flow.apply(page, admit) as window:
             for step in plan.order:
                 writes, refused = capture.write_count, len(window.refused)
+                admitted = len(window.admitted)
                 if not await self._apply_step(page, step, record, plan):
+                    sent = _sent_since(capture, window, writes, admitted)
                     stop = (
-                        "control_unavailable",
-                        f"The {_FIELDS[step]} control did not behave as expected, "
-                        "so the edit stopped there and nothing of it was sent.",
+                        _sent_stop(f"{_FIELDS[step]} control")
+                        if sent
+                        else (
+                            "control_unavailable",
+                            f"The {_FIELDS[step]} control did not behave as "
+                            "expected, so the edit stopped there and nothing of "
+                            "it was sent.",
+                        )
                     )
                     await self._note_stop(page, window, plan, saves, step, "control")
                     break
@@ -837,11 +863,15 @@ class CampaignManagerEditor:
                     )
                     if not (isinstance(outcome, CmWriteResponse) and outcome.ok):
                         stop = _stopped(outcome, window)
+                        sent = stop[0] != "save_failed" and _sent_since(
+                            capture, window, writes, admitted
+                        )
                         await self._note_stop(page, window, plan, saves, step, outcome)
                         break
                     saved += 1
             if stop is None and not autosaves:
                 writes, refused = capture.write_count, len(window.refused)
+                admitted = len(window.admitted)
                 if await self._flow.save_and_exit(page, draft=draft):
                     outcome = await self._await_save(
                         capture,
@@ -857,9 +887,18 @@ class CampaignManagerEditor:
                         saved += 1
                     else:
                         stop = _stopped(outcome, window)
+                        sent = stop[0] != "save_failed" and _sent_since(
+                            capture, window, writes, admitted
+                        )
                         await self._note_stop(
                             page, window, plan, saves, "footer", outcome
                         )
+                elif _sent_since(capture, window, writes, admitted):
+                    sent = True
+                    stop = _sent_stop("Save and exit")
+                    await self._note_stop(
+                        page, window, plan, saves, "footer", "control"
+                    )
                 else:
                     reason = footer_disabled_reason(
                         record, start_moved=plan.start is not None
@@ -876,7 +915,7 @@ class CampaignManagerEditor:
                     )
         if stop is not None:
             await self._flow.leave(page, url)
-        if stop is not None and not saved:
+        if stop is not None and not saved and not sent:
             return campaign_action_result(
                 _UPDATE,
                 url,
@@ -891,6 +930,18 @@ class CampaignManagerEditor:
         if applied is not None and after is not None and political_ad is not None:
             applied[POLITICAL_INTENT] = after.get(POLITICAL_INTENT)
         note = declaration_note(political_ad, window.admitted, after)
+        if stop is not None and not saved:
+            return campaign_action_result(
+                _UPDATE,
+                url,
+                "save_unverified",
+                f"{stop[1]} applied shows what the ad set holds now.{note}",
+                retry_safe=False,
+                target=target,
+                planned=planned,
+                applied=applied,
+                refused=window.refused,
+            )
         if stop is not None:
             return campaign_action_result(
                 _UPDATE,
@@ -1070,7 +1121,7 @@ class CampaignManagerEditor:
                     outcome = "timeout"
             if not (isinstance(outcome, CmWriteResponse) and outcome.ok):
                 await self._flow.leave(page, url)
-                if outcome == "dialog":
+                if outcome == "dialog" and not window.admitted:
                     return campaign_action_result(
                         _STATUS,
                         url,
@@ -1084,6 +1135,21 @@ class CampaignManagerEditor:
                         refused=window.refused,
                     )
                 stop = _stopped(outcome, window)
+                if window.admitted and stop[0] != "save_failed":
+                    after = await self._reread(capture, account, campaign, "/summary")
+                    return campaign_action_result(
+                        _STATUS,
+                        url,
+                        "save_unverified",
+                        f"{stop[1]} applied shows what the ad set holds now.",
+                        retry_safe=False,
+                        target=target,
+                        planned=planned,
+                        applied={"status": after.get("status")}
+                        if after is not None
+                        else None,
+                        refused=window.refused,
+                    )
                 return campaign_action_result(
                     _STATUS,
                     url,
@@ -1336,18 +1402,6 @@ class CampaignManagerEditor:
                 planned=planned,
                 refused=window.refused,
             )
-        if stop is not None:
-            return campaign_action_result(
-                _CREATE,
-                url,
-                "partially_applied",
-                f"The draft ad set was created but not renamed: {stop[1]}",
-                retry_safe=False,
-                target=target,
-                planned=planned,
-                created_id=created_id,
-                refused=window.refused,
-            )
         after = await self._reread(capture, account, str(created_id), "/details")
         applied = (
             {
@@ -1357,6 +1411,19 @@ class CampaignManagerEditor:
             if after is not None
             else None
         )
+        if stop is not None:
+            return campaign_action_result(
+                _CREATE,
+                url,
+                "partially_applied",
+                f"The draft ad set was created but not renamed: {stop[1]}",
+                retry_safe=False,
+                target=target,
+                planned=planned,
+                applied=applied,
+                created_id=created_id,
+                refused=window.refused,
+            )
         expected = {
             "status": "DRAFT",
             "name": name,
@@ -1433,7 +1500,10 @@ class CampaignManagerEditor:
             return None
         await self._flow.wait_for_anchor(page, ANCHORS["name_input"])
         writes, refused = capture.write_count, len(window.refused)
+        admitted = len(window.admitted)
         if not await set_text(page, _NAME_INPUT, None, name):
+            if _sent_since(capture, window, writes, admitted):
+                return _sent_stop("name input")
             return (
                 "control_unavailable",
                 "The name input was not found in the layout this tool knows.",

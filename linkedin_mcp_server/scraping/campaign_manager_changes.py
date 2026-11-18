@@ -963,27 +963,37 @@ _LIST_SEGMENT_FIELDS = frozenset(
 )
 _MEDIA_URN = "urn:li:media:"
 _URN_TYPE_RE = re.compile(r"^urn:li:([A-Za-z]+):")
-# A seen value is shown only when it is a word-like constant: no digits, so
-# never an id, and short enough not to be free text.
+# The only seen values a refusal repeats: the app's own constants per field.
+# MATCHED_AUDIENCE is the upload type an earlier rule guessed; the app sent
+# AUDIENCE_MATCHING. Anything else is described by its shape.
+_KNOWN_CONSTANTS: Mapping[str, frozenset[str]] = {
+    "requestType": frozenset({"UPLOAD"}),
+    "uploadType": frozenset({"AUDIENCE_MATCHING", "MATCHED_AUDIENCE"}),
+    "contentType": frozenset({"text/csv"}),
+    "sourcePlatform": frozenset({"LIST_UPLOAD"}),
+    "segmentType": frozenset({"COMPANY"}),
+}
 _TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z_./+-]{0,39}$")
 
 
-def _value_shape(value: Any) -> str:
-    """What a refused field held, without its value unless it is a constant."""
+def _value_shape(field: str, value: Any) -> str:
+    """What a refused field held, without its value unless it is a known constant."""
     if value is None:
         return "nothing"
     if isinstance(value, str):
         urn = _URN_TYPE_RE.match(value)
         if urn:
             return f"urn of type {urn.group(1)}"
-        return value if _TOKEN_RE.fullmatch(value) else "other text"
+        if value in _KNOWN_CONSTANTS.get(field, ()):
+            return value
+        return "another constant" if _TOKEN_RE.fullmatch(value) else "other text"
     return type(value).__name__
 
 
 def _account_mismatch(field: str, value: Any, owner: str) -> str | None:
     if value == owner:
         return None
-    seen = _value_shape(value)
+    seen = _value_shape(field, value)
     if seen == "urn of type sponsoredAccount":
         seen += " for another ad account"
     return (
@@ -1017,7 +1027,7 @@ def admit_list_upload(*, account_id: str, name: str, file_name: str) -> Admit:
         if owner_miss is not None:
             found.append(owner_miss)
         found.extend(
-            f"{field}: {expected} expected, {_value_shape(body.get(field))} seen"
+            f"{field}: {expected} expected, {_value_shape(field, body.get(field))} seen"
             for field, expected in _SIGNED_URL_REQUEST.items()
             if body.get(field) != expected
         )
@@ -1035,7 +1045,7 @@ def admit_list_upload(*, account_id: str, name: str, file_name: str) -> Admit:
             if body.get(field) != expected:
                 found.append(
                     f"{field}: {expected} expected, "
-                    f"{_value_shape(body.get(field))} seen"
+                    f"{_value_shape(field, body.get(field))} seen"
                 )
         if body.get("name") != name:
             found.append("name: the planned name expected, another seen")
@@ -1044,7 +1054,7 @@ def admit_list_upload(*, account_id: str, name: str, file_name: str) -> Admit:
         media = body.get("inputFile")
         if not isinstance(media, str) or not media.startswith(_MEDIA_URN):
             found.append(
-                f"inputFile: urn of type media expected, {_value_shape(media)} seen"
+                f"inputFile: urn of type media expected, {_value_shape('inputFile', media)} seen"
             )
         return found
 
