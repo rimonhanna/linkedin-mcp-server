@@ -125,6 +125,15 @@
       "section": "create_company_list_audience__uploaded"
     },
     {
+      "arg": "#ma-header-actions-create-trigger",
+      "call": "create_company_list_audience",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "create_company_list_audience__uploaded",
+      "timeout_ms": 15000.0
+    },
+    {
       "call": "create_company_list_audience",
       "kind": "locator.create",
       "locator": "cm_create_trigger",
@@ -600,16 +609,18 @@
   ],
   "result": {
     "applied": {
-      "id": 100000502,
+      "id": 100000512,
       "kind": "matched_audience",
-      "listType": "COMPANY",
+      "listType": "ACCOUNT_LIST",
       "name": "Example list",
-      "segmentUrn": "urn:li:adSegment:100000502",
-      "source": "BULK",
+      "segmentType": "COMPANY",
+      "segmentUrn": "urn:li:adSegment:100000512",
+      "source": "LIST_UPLOAD",
+      "sourceId": 100000502,
       "status": "BUILDING"
     },
-    "created_id": "100000502",
-    "message": "Uploaded the company list audience 'Example list' (id 100000502); LinkedIn matches it to companies over the next hours. The LinkedIn Ads Agreement (https://www.linkedin.com/legal/sas-terms) was accepted for this ad account.",
+    "created_id": "100000512",
+    "message": "Uploaded the company list audience 'Example list' (id 100000512, list source id 100000502); LinkedIn matches it to companies over the next hours. The LinkedIn Ads Agreement (https://www.linkedin.com/legal/sas-terms) was accepted for this ad account.",
     "planned": {
       "acceptsAdsAgreement": true,
       "companies": 1,

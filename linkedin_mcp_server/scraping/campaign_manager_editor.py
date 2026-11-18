@@ -28,6 +28,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import urlparse
 
+from patchright.async_api import Error as PlaywrightError
+
 from linkedin_mcp_server.core.exceptions import (
     LinkedInScraperException,
 )
@@ -49,6 +51,7 @@ from linkedin_mcp_server.scraping.campaign_manager_changes import (
     plan_campaign_edit,
     refuse_invalid_campaign_edit,
     refuse_invalid_draft,
+    targeting_keys,
 )
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
     CmWriteRequest,
@@ -56,14 +59,33 @@ from linkedin_mcp_server.scraping.campaign_manager_guard import (
     explicit_campaign_write,
 )
 from linkedin_mcp_server.scraping.campaign_manager_payload import (
-    normalized_record,
-    plain_elements,
+    envelope_elements,
+    envelope_record,
+    same_id,
+)
+from linkedin_mcp_server.scraping.campaign_manager_political import (
+    DECLARATION_REQUIRED,
+    POLITICAL_INTENT,
+    UNANSWERED,
+    declaration_note,
+    declaration_stop,
+    declared_intent,
+    political_dialog,
+    political_question,
+    question_sentence,
+    refuse_intent,
+    sent_intent,
 )
 from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
     retry_safe_from,
 )
-from linkedin_mcp_server.scraping.campaign_manager_write import CampaignWriteFlow
+from linkedin_mcp_server.scraping.campaign_manager_write import (
+    ANCHORS,
+    CampaignWriteFlow,
+    footer_disabled_reason,
+    record_write_window,
+)
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
     normalize_ad_account_id,
@@ -99,10 +121,18 @@ _FIELDS = {
     "end": "endDate",
 }
 _NUMERIC = re.compile(r"\d{1,20}")
+_STEP_ANCHORS = {
+    "daily": ANCHORS["daily_budget"],
+    "lifetime": ANCHORS["total_budget"],
+    "start": ANCHORS["start_date"],
+    "end": ANCHORS["end_date"],
+}
 
 # One text input by id, optionally inside ``scope``; focusing selects its
-# whole value so one inserted text replaces it.
-_INPUT_JS = """({ id, scope, focus }) => {
+# whole value so one inserted text replaces it. The app re-renders a budget
+# input on focus (its formatted amount becomes the raw number), which moves the
+# caret after the old value, so the selection is made once that render landed.
+_INPUT_JS = """async ({ id, scope, focus }) => {
     /* linkedin-mcp:cm-editor */
     const inputs = [...document.querySelectorAll('input')].filter((el) => el.id === id);
     if (inputs.length !== 1) return { state: inputs.length ? 'ambiguous' : 'missing' };
@@ -112,15 +142,39 @@ _INPUT_JS = """({ id, scope, focus }) => {
     if (input.getClientRects().length === 0) return { state: 'hidden' };
     if (!focus) return { state: 'ready' };
     input.focus();
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    if (document.activeElement !== input) return { state: 'unfocused' };
     input.select();
-    return { state: document.activeElement === input ? 'ready' : 'unfocused' };
+    const whole = input.selectionStart === 0 && input.selectionEnd === input.value.length;
+    return { state: whole ? 'ready' : 'unselected' };
 }"""
+# Whether the focused input holds exactly ``text``; answers no value.
+_TYPED_JS = """({ id, text }) => {
+    /* linkedin-mcp:cm-editor */
+    const input = document.activeElement;
+    if (!input || input.id !== id) return { state: 'unfocused' };
+    return { state: input.value === text ? 'typed' : 'mismatch' };
+}"""
+# Run after Tab: blurs the input only if Tab left it focused.
 _BLUR_JS = """(id) => {
     /* linkedin-mcp:cm-editor */
     const input = document.activeElement;
-    if (!input || input.id !== id) return { blurred: false };
-    input.blur();
-    return { blurred: true };
+    if (input && input.id === id) input.blur();
+    const left = document.activeElement;
+    return { blurred: !left || left.id !== id };
+}"""
+# The input's state for the failure notes: counts and flags, never its value.
+_INPUT_STATE_JS = """(id) => {
+    /* linkedin-mcp:cm-editor */
+    const inputs = [...document.querySelectorAll('input')].filter((el) => el.id === id);
+    const input = inputs[0];
+    return {
+        count: inputs.length,
+        attached: Boolean(input && input.isConnected),
+        focused: Boolean(input && document.activeElement === input),
+        empty: !input || input.value === '',
+        disabled: Boolean(input && input.disabled),
+    };
 }"""
 _SWITCH_JS = """({ checked, click }) => {
     /* linkedin-mcp:cm-editor */
@@ -170,6 +224,9 @@ _DATE_INPUT_JS = """({ name, open }) => {
 }"""
 # Every calendar is pre-rendered, hidden; only the open one has a box. A day
 # of a neighbouring month carries ``<d>-shadow`` and is never counted or used.
+# The calendar selects a day on ``mouseup`` and then closes itself; a bare
+# ``click()`` sends no mouseup, so the day is pressed as a user presses it
+# (``hue-web-calendar`` in the app's vendor bundle, 2026-11-18).
 _CALENDAR_JS = """async ({ mode, days, day, forward }) => {
     /* linkedin-mcp:cm-calendar */
     const roots = [...document.querySelectorAll('[data-calendar-root]')].filter((el) => {
@@ -195,7 +252,12 @@ _CALENDAR_JS = """async ({ mode, days, day, forward }) => {
     if (mode === 'check') return { ok: true };
     const targets = real.filter((el) => el.getAttribute('data-daynum') === String(day));
     if (targets.length !== 1 || targets[0].disabled) return { ok: false, reason: 'day' };
-    targets[0].click();
+    const press = (type) => targets[0].dispatchEvent(new MouseEvent(type, {
+        bubbles: true, cancelable: true, view: window, button: 0, detail: 1,
+    }));
+    press('mousedown');
+    press('mouseup');
+    press('click');
     return { ok: true };
 }"""
 
@@ -234,10 +296,13 @@ async def _poll(page: Any, script: str, arg: Mapping[str, Any]) -> Any:
 
 
 async def set_text(page: Any, input_id: str, scope: str | None, text: str) -> bool:
-    """Replace an input's value with ``text`` in one insertion, then blur it.
+    """Replace an input's value with ``text`` in one insertion, then Tab away.
 
     Focus selects the whole value, so the app sees one input event carrying
-    the final text and never an intermediate value it could autosave.
+    the final text and never an intermediate value it could save. The value is
+    checked before the input loses focus: the app commits a budget only on the
+    ``change`` that leaving the input fires, so an input holding anything but
+    ``text`` is left focused and uncommitted, and the caller leaves the page.
     """
     focused = await page.evaluate(
         _INPUT_JS, {"id": input_id, "scope": scope, "focus": True}
@@ -246,6 +311,11 @@ async def set_text(page: Any, input_id: str, scope: str | None, text: str) -> bo
         logger.debug("Input %s not focused: %s", input_id, focused)
         return False
     await page.keyboard.insert_text(text)
+    typed = await page.evaluate(_TYPED_JS, {"id": input_id, "text": text})
+    if _state(typed) != "typed":
+        logger.debug("Input %s not typed: %s", input_id, typed)
+        return False
+    await page.keyboard.press("Tab")
     blurred = await page.evaluate(_BLUR_JS, input_id)
     return isinstance(blurred, dict) and blurred.get("blurred") is True
 
@@ -264,10 +334,12 @@ async def check_calendar(page: Any, name: str, month: date) -> bool:
 
 
 async def pick_date(page: Any, name: str, origin: date, target: date) -> bool:
-    """Open the calendar on ``origin``'s month, move to ``target``'s, click its day.
+    """Open the calendar on ``origin``'s month, move to ``target``'s, press its day.
 
-    Each month step and the day click check the open calendar first: one
-    visible calendar, a day count equal to the month's, one enabled day.
+    Each month step and the day press check the open calendar first: one
+    visible calendar, a day count equal to the month's, one enabled day. The
+    calendar closes itself once it took the day; one still open did not take
+    it, so it is closed unchanged and the pick fails.
     """
     opened = await page.evaluate(_DATE_INPUT_JS, {"name": name, "open": True})
     if _state(opened) != "ready":
@@ -294,8 +366,10 @@ async def pick_date(page: Any, name: str, origin: date, target: date) -> bool:
     if not _ok(picked):
         await page.keyboard.press("Escape")
         return False
-    if not _ok(await page.evaluate(_CALENDAR_JS, {"mode": "closed"})):
+    closed = await _poll(page, _CALENDAR_JS, {"mode": "closed"})
+    if not _ok(closed):
         await page.keyboard.press("Escape")
+        return False
     return True
 
 
@@ -414,9 +488,28 @@ def _is_create(write: Any) -> bool:
     )
 
 
+def _sent_since(
+    capture: CampaignManagerCapture, window: WriteWindow, writes: int, admitted: int
+) -> bool:
+    """Whether a write left the browser since a step began."""
+    return capture.write_count > writes or len(window.admitted) > admitted
+
+
+def _sent_stop(control: str) -> Refusal:
+    return (
+        "save_unverified",
+        f"The {control} did not behave as expected, so the edit stopped there, "
+        "but Campaign Manager had already sent a save. Check the ad set before "
+        "retrying.",
+    )
+
+
 def _stopped(outcome: CmWriteResponse | str, window: WriteWindow) -> Refusal:
     """Why a save the plan waited for did not succeed, in the common vocabulary."""
     if outcome == "refused":
+        declaration = declaration_stop(window.refused)
+        if declaration is not None:
+            return declaration
         return (
             "change_blocked",
             "Campaign Manager tried to save a value that is not the planned one, "
@@ -440,9 +533,26 @@ def _stopped(outcome: CmWriteResponse | str, window: WriteWindow) -> Refusal:
             "The change was sent but LinkedIn's answer did not arrive. Check the "
             "ad set before retrying.",
         )
+    if outcome == "declaration":
+        return ("declaration_required", DECLARATION_REQUIRED)
+    if outcome == "unanswered":
+        return ("control_unavailable", UNANSWERED)
+    if outcome == "dialog":
+        return (
+            "control_unavailable",
+            "Campaign Manager asked a question in a dialog before saving that "
+            "this tool does not answer, so the dialog was closed and nothing "
+            "was sent. Make this change in Campaign Manager.",
+        )
+    if window.refused:
+        return (
+            "control_unavailable",
+            "Campaign Manager did not send the save of this change; the other "
+            "changes it tried were stopped (see refused), so nothing was sent.",
+        )
     return (
         "control_unavailable",
-        "Campaign Manager did not save the change; nothing was sent.",
+        "Campaign Manager did not send a save for the change, so nothing was sent.",
     )
 
 
@@ -463,13 +573,18 @@ class CampaignManagerEditor:
         writes: int,
         refused: int,
         dialog_grace: float | None = None,
+        asks_political: bool = False,
+        political_ad: bool | None = None,
     ) -> CmWriteResponse | str:
         """LinkedIn's answer to the planned save, or why it never came.
 
         ``"refused"``: the guard aborted the app's save of this entity as off
         plan. ``"dialog"``: a dialog stayed open ``dialog_grace`` seconds
         without a save; it was closed with Escape, never by its buttons.
-        ``"timeout"``: nothing came.
+        ``"timeout"``: nothing came. With ``asks_political`` the political-ad
+        question is answered with ``political_ad``, the caller's declaration;
+        without one it is closed with Escape (``"declaration"``), and one
+        that is not the known dialog is closed unanswered (``"unanswered"``).
         """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + _SAVE_TIMEOUT
@@ -483,14 +598,32 @@ class CampaignManagerEditor:
             )
             if answer is not None:
                 return answer
+            if asks_political:
+                question = await political_dialog(page, political_ad)
+                if question == "answered":
+                    asks_political = False
+                    dialog_since = None
+                    continue
+                if question not in ("absent", None):
+                    await page.keyboard.press("Escape")
+                    return "declaration" if question == "open" else "unanswered"
             now = loop.time()
-            if dialog_grace is not None and await page.evaluate(_DIALOG_JS) is True:
+            if dialog_grace is not None and await self._dialog_open(page):
                 dialog_since = now if dialog_since is None else dialog_since
                 if now - dialog_since >= dialog_grace:
                     await page.keyboard.press("Escape")
                     return "dialog"
             if now >= deadline:
                 return "timeout"
+
+    @staticmethod
+    async def _dialog_open(page: Any) -> bool:
+        """Whether a dialog shows; a page navigating away (the save went) has none."""
+        try:
+            return await page.evaluate(_DIALOG_JS) is True
+        except PlaywrightError:
+            logger.debug("Dialog check interrupted", exc_info=True)
+            return False
 
     async def _reread(
         self, capture: CampaignManagerCapture, account: str, campaign: str, suffix: str
@@ -516,11 +649,16 @@ class CampaignManagerEditor:
         start_date: date | None = None,
         end_date: date | None = None,
         confirm_send: bool,
+        political_ad: bool | None = None,
     ) -> dict[str, Any]:
         """Change an ad set's budget amount or schedule dates.
 
-        The budget and schedule types never switch. A draft saves each field
-        as it is edited; a launched ad set saves once, by its Save and exit.
+        The budget and schedule types never switch. A draft in the editor
+        that autosaves saves each field as it is edited; any other ad set,
+        a draft in the classic editor included, saves once, by Save and exit.
+        ``political_ad`` is the user's own declaration whether the ad set's
+        ads are political, for the question Save and exit asks on EU
+        targeting; None never answers it.
         """
         account = normalize_ad_account_id(account_id)
         campaign = normalize_campaign_id(campaign_id)
@@ -559,6 +697,8 @@ class CampaignManagerEditor:
                     _UPDATE, url, status, message, retry_safe=True, target=target
                 )
             planned = _planned_edit(record, plan)
+            if political_ad is not None:
+                planned[POLITICAL_INTENT] = declared_intent(political_ad)
             problem = await self._check_edit_controls(page, record, plan)
             if problem is not None:
                 return campaign_action_result(
@@ -570,18 +710,30 @@ class CampaignManagerEditor:
                     planned=planned,
                 )
             if not confirm_send:
+                question = political_question(
+                    targeting_keys(record.get("targetingCriteria"))
+                )
                 return campaign_action_result(
                     _UPDATE,
                     url,
                     "confirmation_required",
                     "Nothing was changed. Call again with confirm_send true to "
-                    "apply the planned change.",
+                    "apply the planned change."
+                    + (question_sentence(question) if political_ad is None else ""),
                     retry_safe=True,
                     target=target,
-                    planned=planned,
+                    planned={**planned, "politicalAdQuestion": question},
                 )
             return await self._apply_edit(
-                capture, url, account, campaign, record, plan, target, planned
+                capture,
+                url,
+                account,
+                campaign,
+                record,
+                plan,
+                target,
+                planned,
+                political_ad,
             )
 
     async def _check_edit_controls(
@@ -589,6 +741,7 @@ class CampaignManagerEditor:
     ) -> Refusal | None:
         """Every control the plan needs is there, unique and enabled; no edit."""
         for step in plan.order:
+            await self._flow.wait_for_anchor(page, _STEP_ANCHORS[step])
             if step in _BUDGET_INPUTS:
                 state = _state(
                     await page.evaluate(
@@ -649,60 +802,120 @@ class CampaignManagerEditor:
         plan: CampaignEditPlan,
         target: dict[str, Any],
         planned: dict[str, Any],
+        political_ad: bool | None,
     ) -> dict[str, Any]:
         page = self._session.page
         draft = record.get("status") == "DRAFT"
         allowed, path = _edit_admission(record, plan)
         is_save = _is_patch(campaign)
+        # A draft autosaves each field, except in the classic editor, which
+        # saves a draft like a launched ad set: once, by Save and exit.
+        newer_editor = not await self._flow.saves_by_footer(page)
+        autosaves = draft and newer_editor
 
         def admit(request: CmWriteRequest) -> str | None:
-            return admit_campaign_patch(
+            sent = sent_intent(request.body)
+            refusal = admit_campaign_patch(
                 request,
                 campaign_id=campaign,
                 record=record,
-                allowed=allowed,
+                allowed=allowed
+                if sent is None
+                else {**allowed, POLITICAL_INTENT: sent},
                 path_fields=path,
             )
+            if refusal is not None or sent is None:
+                return refusal
+            return refuse_intent(
+                sent,
+                record.get(POLITICAL_INTENT),
+                political_ad,
+                newer_editor=newer_editor,
+            )
 
+        saves = "autosave" if autosaves else "save_and_exit"
         saved = 0
+        # A step that failed after one of its writes left: the ad set is read
+        # back, since whatever left may have been kept.
+        sent = False
         stop: Refusal | None = None
         async with self._flow.apply(page, admit) as window:
             for step in plan.order:
                 writes, refused = capture.write_count, len(window.refused)
+                admitted = len(window.admitted)
                 if not await self._apply_step(page, step, record, plan):
+                    sent = _sent_since(capture, window, writes, admitted)
                     stop = (
-                        "control_unavailable",
-                        f"The {_FIELDS[step]} control did not behave as expected, "
-                        "so the edit stopped there.",
+                        _sent_stop(f"{_FIELDS[step]} control")
+                        if sent
+                        else (
+                            "control_unavailable",
+                            f"The {_FIELDS[step]} control did not behave as "
+                            "expected, so the edit stopped there and nothing of "
+                            "it was sent.",
+                        )
                     )
+                    await self._note_stop(page, window, plan, saves, step, "control")
                     break
-                if draft:
+                if autosaves:
                     outcome = await self._await_save(
                         capture, window, is_save, writes=writes, refused=refused
                     )
                     if not (isinstance(outcome, CmWriteResponse) and outcome.ok):
                         stop = _stopped(outcome, window)
+                        sent = stop[0] != "save_failed" and _sent_since(
+                            capture, window, writes, admitted
+                        )
+                        await self._note_stop(page, window, plan, saves, step, outcome)
                         break
                     saved += 1
-            if stop is None and not draft:
+            if stop is None and not autosaves:
                 writes, refused = capture.write_count, len(window.refused)
-                if await self._flow.save_and_exit(page, draft=False):
+                admitted = len(window.admitted)
+                if await self._flow.save_and_exit(page, draft=draft):
                     outcome = await self._await_save(
-                        capture, window, is_save, writes=writes, refused=refused
+                        capture,
+                        window,
+                        is_save,
+                        writes=writes,
+                        refused=refused,
+                        dialog_grace=_DIALOG_GRACE,
+                        asks_political=True,
+                        political_ad=political_ad,
                     )
                     if isinstance(outcome, CmWriteResponse) and outcome.ok:
                         saved += 1
                     else:
                         stop = _stopped(outcome, window)
+                        sent = stop[0] != "save_failed" and _sent_since(
+                            capture, window, writes, admitted
+                        )
+                        await self._note_stop(
+                            page, window, plan, saves, "footer", outcome
+                        )
+                elif _sent_since(capture, window, writes, admitted):
+                    sent = True
+                    stop = _sent_stop("Save and exit")
+                    await self._note_stop(
+                        page, window, plan, saves, "footer", "control"
+                    )
                 else:
+                    reason = footer_disabled_reason(
+                        record, start_moved=plan.start is not None
+                    )
                     stop = (
                         "control_unavailable",
-                        "Save and exit was not found in the layout this tool "
+                        f"{reason} Nothing was saved."
+                        if self._flow.footer_disabled
+                        else "Save and exit was not found in the layout this tool "
                         "knows, so nothing was saved.",
+                    )
+                    await self._note_stop(
+                        page, window, plan, saves, "footer", "control"
                     )
         if stop is not None:
             await self._flow.leave(page, url)
-        if stop is not None and not saved:
+        if stop is not None and not saved and not sent:
             return campaign_action_result(
                 _UPDATE,
                 url,
@@ -714,12 +927,27 @@ class CampaignManagerEditor:
             )
         after = await self._reread(capture, account, campaign, "/details")
         applied = _edit_values(after, plan) if after is not None else None
+        if applied is not None and after is not None and political_ad is not None:
+            applied[POLITICAL_INTENT] = after.get(POLITICAL_INTENT)
+        note = declaration_note(political_ad, window.admitted, after)
+        if stop is not None and not saved:
+            return campaign_action_result(
+                _UPDATE,
+                url,
+                "save_unverified",
+                f"{stop[1]} applied shows what the ad set holds now.{note}",
+                retry_safe=False,
+                target=target,
+                planned=planned,
+                applied=applied,
+                refused=window.refused,
+            )
         if stop is not None:
             return campaign_action_result(
                 _UPDATE,
                 url,
                 "partially_applied",
-                f"Only part of the change was saved: {stop[1]}",
+                f"Only part of the change was saved: {stop[1]}{note}",
                 retry_safe=False,
                 target=target,
                 planned=planned,
@@ -732,7 +960,7 @@ class CampaignManagerEditor:
                 url,
                 "save_unverified",
                 "LinkedIn accepted the save, but the ad set read back afterwards "
-                "does not show the planned values. Check it before retrying.",
+                "does not show the planned values. Check it before retrying." + note,
                 retry_safe=False,
                 target=target,
                 planned=planned,
@@ -743,12 +971,48 @@ class CampaignManagerEditor:
             _UPDATE,
             url,
             "updated",
-            "The ad set was updated.",
+            "The ad set was updated." + note,
             retry_safe=False,
             target=_campaign_target(after),
             planned=planned,
             applied=applied,
             refused=window.refused,
+        )
+
+    async def _note_stop(
+        self,
+        page: Any,
+        window: WriteWindow,
+        plan: CampaignEditPlan,
+        saves: str,
+        step: str,
+        outcome: CmWriteResponse | str,
+    ) -> None:
+        """Record a stopped change's window and budget inputs for the notes.
+
+        A diagnostic only: an input a navigating page no longer answers for is
+        left out, never raised, so the stop is reported as it happened.
+        """
+        inputs: dict[str, Any] = {}
+        for name in plan.order:
+            if name not in _BUDGET_INPUTS:
+                continue
+            try:
+                inputs[_FIELDS[name]] = await page.evaluate(
+                    _INPUT_STATE_JS, _BUDGET_INPUTS[name]
+                )
+            except PlaywrightError:
+                logger.debug("Input state not recorded", exc_info=True)
+        record_write_window(
+            window,
+            saves=saves,
+            step=_FIELDS.get(step, step),
+            outcome=(
+                f"http {outcome.status}"
+                if isinstance(outcome, CmWriteResponse)
+                else outcome
+            ),
+            inputs=inputs,
         )
 
     # set_campaign_status -----------------------------------------------------
@@ -808,6 +1072,7 @@ class CampaignManagerEditor:
                     target=target,
                 )
             checked = current == "ACTIVE"
+            await self._flow.wait_for_anchor(page, ANCHORS["status_switch"])
             state = await toggle_status(page, checked=checked, click=False)
             if state != "ready":
                 return campaign_action_result(
@@ -856,7 +1121,7 @@ class CampaignManagerEditor:
                     outcome = "timeout"
             if not (isinstance(outcome, CmWriteResponse) and outcome.ok):
                 await self._flow.leave(page, url)
-                if outcome == "dialog":
+                if outcome == "dialog" and not window.admitted:
                     return campaign_action_result(
                         _STATUS,
                         url,
@@ -870,6 +1135,21 @@ class CampaignManagerEditor:
                         refused=window.refused,
                     )
                 stop = _stopped(outcome, window)
+                if window.admitted and stop[0] != "save_failed":
+                    after = await self._reread(capture, account, campaign, "/summary")
+                    return campaign_action_result(
+                        _STATUS,
+                        url,
+                        "save_unverified",
+                        f"{stop[1]} applied shows what the ad set holds now.",
+                        retry_safe=False,
+                        target=target,
+                        planned=planned,
+                        applied={"status": after.get("status")}
+                        if after is not None
+                        else None,
+                        refused=window.refused,
+                    )
                 return campaign_action_result(
                     _STATUS,
                     url,
@@ -950,6 +1230,7 @@ class CampaignManagerEditor:
                     target=target,
                     planned=planned,
                 )
+            await self._flow.wait_for_anchor(page, ANCHORS["objective"])
             tiles = await _poll(
                 page, _OBJECTIVE_JS, {"value": objective, "click": False}
             )
@@ -992,10 +1273,10 @@ class CampaignManagerEditor:
 
         def is_group(response: CmResponse) -> bool:
             if response.call.resource == "campaignManagerCampaignGroups":
-                record = normalized_record(response.payload) or response.payload
-                return response.call.entity_id == group and isinstance(record, dict)
+                record = envelope_record(response.payload)
+                return response.call.entity_id == group and record is not None
             if response.call.resource == "campaignManagerReportingCampaignGroups":
-                return response.ok and plain_elements(response.payload) is not None
+                return response.ok and envelope_elements(response.payload) is not None
             return False
 
         async with explicit_campaign_write(
@@ -1006,7 +1287,15 @@ class CampaignManagerEditor:
             await self._session.check_rate_limit()
             await self._session.dismiss_modal()
             try:
-                await capture.wait_for(is_group, after=after, timeout=_READY_TIMEOUT)
+                await capture.wait_for(
+                    is_group,
+                    after=after,
+                    timeout=_READY_TIMEOUT,
+                    wanted=(
+                        "campaignManagerCampaignGroups",
+                        "campaignManagerReportingCampaignGroups",
+                    ),
+                )
             except LinkedInScraperException:
                 logger.debug("No campaign group response on setup")
             await capture.settle()
@@ -1113,18 +1402,6 @@ class CampaignManagerEditor:
                 planned=planned,
                 refused=window.refused,
             )
-        if stop is not None:
-            return campaign_action_result(
-                _CREATE,
-                url,
-                "partially_applied",
-                f"The draft ad set was created but not renamed: {stop[1]}",
-                retry_safe=False,
-                target=target,
-                planned=planned,
-                created_id=created_id,
-                refused=window.refused,
-            )
         after = await self._reread(capture, account, str(created_id), "/details")
         applied = (
             {
@@ -1134,6 +1411,19 @@ class CampaignManagerEditor:
             if after is not None
             else None
         )
+        if stop is not None:
+            return campaign_action_result(
+                _CREATE,
+                url,
+                "partially_applied",
+                f"The draft ad set was created but not renamed: {stop[1]}",
+                retry_safe=False,
+                target=target,
+                planned=planned,
+                applied=applied,
+                created_id=created_id,
+                refused=window.refused,
+            )
         expected = {
             "status": "DRAFT",
             "name": name,
@@ -1184,29 +1474,36 @@ class CampaignManagerEditor:
             await self._flow.leave(page, details)
 
         def is_draft(response: CmResponse) -> bool:
-            record = normalized_record(response.payload)
+            record = envelope_record(response.payload)
             return (
                 response.ok
                 and response.call.resource == "campaignManagerCampaigns"
                 and response.call.entity_id == campaign
                 and record is not None
-                and record.get("id") == int(campaign)
+                and same_id(record.get("id"), campaign)
             )
 
         try:
             found = await capture.wait_for(
-                is_draft, after=responses, timeout=_READY_TIMEOUT
+                is_draft,
+                after=responses,
+                timeout=_READY_TIMEOUT,
+                wanted=("campaignManagerCampaigns",),
             )
         except LinkedInScraperException:
             return (
                 "control_unavailable",
                 "Campaign Manager did not load the new draft.",
             )
-        draft["record"] = normalized_record(found.payload) or {}
+        draft["record"] = envelope_record(found.payload) or {}
         if draft["record"].get("name") == name:
             return None
+        await self._flow.wait_for_anchor(page, ANCHORS["name_input"])
         writes, refused = capture.write_count, len(window.refused)
+        admitted = len(window.admitted)
         if not await set_text(page, _NAME_INPUT, None, name):
+            if _sent_since(capture, window, writes, admitted):
+                return _sent_stop("name input")
             return (
                 "control_unavailable",
                 "The name input was not found in the layout this tool knows.",
@@ -1227,13 +1524,13 @@ def _group_record(
         if not response.ok:
             continue
         if response.call.resource == "campaignManagerCampaignGroups":
-            record = normalized_record(response.payload) or response.payload
-            candidates = [record] if isinstance(record, dict) else []
+            record = envelope_record(response.payload)
+            candidates = [record] if record is not None else []
         else:
-            candidates = plain_elements(response.payload) or []
+            candidates = envelope_elements(response.payload) or []
         for candidate in candidates:
-            if candidate.get("id") == int(group) and candidate.get("accountId") == int(
-                account
+            if same_id(candidate.get("id"), group) and same_id(
+                candidate.get("accountId"), account
             ):
                 return candidate
     return None

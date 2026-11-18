@@ -23,8 +23,10 @@ from linkedin_mcp_server.config.schema import (
 from linkedin_mcp_server.core.exceptions import (
     AuthenticationError,
     InvalidReferenceError,
+    LinkedInScraperException,
 )
 from linkedin_mcp_server.debug_trace import retain_trace_for_failed_action
+from linkedin_mcp_server.error_diagnostics import build_issue_diagnostics
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
 from linkedin_mcp_server.pacing import (
@@ -114,6 +116,17 @@ async def _apply(
     retain_trace_for_failed_action(
         tool, result.get("status"), succeeded=SUCCEEDED[tool]
     )
+    # A returned control_unavailable gets the same notes an error does, with
+    # the API responses and page structure the capture recorded.
+    if result.get("status") == "control_unavailable":
+        notes = build_issue_diagnostics(
+            LinkedInScraperException(str(result.get("message"))), context=tool
+        )
+        logger.warning(
+            "%s: control unavailable; notes at %s",
+            tool,
+            notes.get("issue_template_path"),
+        )
 
     await ctx.report_progress(progress=100, total=100, message="Complete")
 
@@ -147,6 +160,7 @@ def register_campaign_manager_action_tools(
         lifetime_budget: str | None = None,
         start_date: date | None = None,
         end_date: date | None = None,
+        political_ad: bool | None = None,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -158,7 +172,19 @@ def register_campaign_manager_action_tools(
         never switched. Never launches the ad set and never touches billing.
 
         confirm_send False is a dry run that verifies the target and returns
-        the full planned change.
+        the full planned change, with planned.politicalAdQuestion "will" when
+        the save will ask whether the ads are political, else "may".
+
+        On EU targeting the save first asks whether the ad set's ads are
+        political. That answer is a legal declaration the user makes for the
+        advertiser: pass political_ad only as the user declared it; the tool
+        never defaults it. Saving targeting with no EU location makes Campaign
+        Manager clear an existing declaration: that save stops with
+        declaration_would_clear, or declaration_cleared_by_linkedin when
+        political_ad was given, and sends nothing. In the newer editor the
+        save may fill in "not political" itself: it passes only with
+        political_ad false (declaration_required without it,
+        declaration_not_offered with true).
 
         Args:
             ad_account_id: Numeric ad account id, its URN or account URL.
@@ -171,6 +197,13 @@ def register_campaign_manager_action_tools(
                 lifetime budget.
             start_date: New start date (YYYY-MM-DD), not in the past.
             end_date: New end date (YYYY-MM-DD), only when the ad set has one.
+            political_ad: Only when the user has declared it: true if this
+                ad set's ads are political, false if they are not. Campaign
+                Manager asks this on save for an ad set that targets the EU
+                (EU political advertising rules). It is a legal declaration
+                the user makes for the advertiser, so never guess or default
+                it; leave it out until the user answers. Without it, a save
+                that asks stops with declaration_required and sends nothing.
 
         Returns:
             Dict with url, status, message, retry_safe and, when known,
@@ -207,6 +240,7 @@ def register_campaign_manager_action_tools(
                     start_date=start_date,
                     end_date=end_date,
                     confirm_send=confirm_send,
+                    political_ad=political_ad,
                 ),
             )
         except AuthenticationError as e:
@@ -294,6 +328,7 @@ def register_campaign_manager_action_tools(
         ctx: Context,
         add: list[TargetingAdd] | None = None,
         remove: list[str] | None = None,
+        political_ad: bool | None = None,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -304,7 +339,20 @@ def register_campaign_manager_action_tools(
         10 in total. Never launches the ad set and never touches billing.
 
         confirm_send False is a dry run that verifies the target and returns
-        the full planned change.
+        the full planned change, with planned.politicalAdQuestion "will" when
+        the save will ask whether the ads are political (the targeting after
+        the change includes an EU location), else "may".
+
+        On EU targeting the save first asks whether the ad set's ads are
+        political. That answer is a legal declaration the user makes for the
+        advertiser: pass political_ad only as the user declared it; the tool
+        never defaults it. Saving targeting with no EU location makes Campaign
+        Manager clear an existing declaration: that save stops with
+        declaration_would_clear, or declaration_cleared_by_linkedin when
+        political_ad was given, and sends nothing. In the newer editor the
+        save may fill in "not political" itself: it passes only with
+        political_ad false (declaration_required without it,
+        declaration_not_offered with true).
 
         Args:
             ad_account_id: Numeric ad account id, its URN or account URL.
@@ -315,6 +363,13 @@ def register_campaign_manager_action_tools(
                 query exactly as search_targeting_entities took and returned
                 them; exclude true adds it to the exclusions.
             remove: URNs of values the ad set targets now, to remove.
+            political_ad: Only when the user has declared it: true if this
+                ad set's ads are political, false if they are not. Campaign
+                Manager asks this on save for an ad set that targets the EU
+                (EU political advertising rules). It is a legal declaration
+                the user makes for the advertiser, so never guess or default
+                it; leave it out until the user answers. Without it, a save
+                that asks stops with declaration_required and sends nothing.
 
         Returns:
             Dict with url, status, message, retry_safe and, when known,
@@ -353,6 +408,7 @@ def register_campaign_manager_action_tools(
                     remove=removes or None,
                     confirm_send=confirm_send,
                     deadline=deadline,
+                    political_ad=political_ad,
                 ),
             )
         except AuthenticationError as e:
@@ -538,8 +594,11 @@ def register_campaign_manager_action_tools(
         Returns:
             Dict with url, status, message, retry_safe and, when known,
             target, planned, created_id and refused. retry_safe is True only
-            when LinkedIn did not apply anything. A new audience is BUILDING
-            until LinkedIn has matched it; list_audiences shows its status.
+            when LinkedIn did not apply anything. created_id is the listed
+            audience's id (its segmentId, as list_audiences reports it);
+            applied.sourceId is the uploaded list behind it. A new audience is
+            BUILDING, with no member count, until LinkedIn has matched it;
+            list_audiences shows its status.
         """
         try:
             ad_account_id = normalize_ad_account_id(ad_account_id)

@@ -128,6 +128,15 @@
       "section": "update_campaign_targeting__draft"
     },
     {
+      "arg": "[data-js-targeting-module__edit-facet-block-btn]",
+      "call": "update_campaign_targeting",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "update_campaign_targeting__draft",
+      "timeout_ms": 15000.0
+    },
+    {
       "arg": "includedOrs0",
       "call": "update_campaign_targeting",
       "kind": "evaluate",
@@ -214,6 +223,13 @@
       "kind": "evaluate",
       "operation": "cm_pill",
       "program_digest": "63122b9bba21",
+      "section": "update_campaign_targeting__draft"
+    },
+    {
+      "call": "update_campaign_targeting",
+      "kind": "evaluate",
+      "operation": "cm_footer",
+      "program_digest": "e4333f693237",
       "section": "update_campaign_targeting__draft"
     },
     {

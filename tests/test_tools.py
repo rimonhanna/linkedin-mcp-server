@@ -104,6 +104,11 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
         "add_post_to_campaign",
         "create_company_list_audience",
         "create_saved_audience",
+        "search_sales_navigator_accounts",
+        "search_sales_navigator_leads",
+        "get_sales_navigator_account",
+        "list_sales_navigator_account_lists",
+        "get_sales_navigator_account_list",
     ):
         setattr(mock, name, AsyncMock(return_value=scrape_result))
     mock.extract_page = AsyncMock(
@@ -290,6 +295,18 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
             },
             "campaign_id is not a LinkedIn id",
         ),
+        (
+            "sales_navigator",
+            "get_sales_navigator_account",
+            {"company_id": "https://www.linkedin.com/company/example/"},
+            "company_id is not a LinkedIn company id",
+        ),
+        (
+            "sales_navigator",
+            "get_sales_navigator_account_list",
+            {"list_id": "abc"},
+            "list_id is not a LinkedIn list id",
+        ),
     ],
 )
 async def test_invalid_reference_is_rejected_before_extractor(
@@ -306,6 +323,9 @@ async def test_invalid_reference_is_rejected_before_extractor(
     from linkedin_mcp_server.tools.messaging import register_messaging_tools
     from linkedin_mcp_server.tools.person import register_person_tools
     from linkedin_mcp_server.tools.post import register_post_tools
+    from linkedin_mcp_server.tools.sales_navigator import (
+        register_sales_navigator_tools,
+    )
 
     register_by_module = {
         "campaign_manager": register_campaign_manager_tools,
@@ -315,6 +335,7 @@ async def test_invalid_reference_is_rejected_before_extractor(
         "messaging": register_messaging_tools,
         "person": register_person_tools,
         "post": register_post_tools,
+        "sales_navigator": register_sales_navigator_tools,
     }
     mcp = FastMCP("test")
     register_by_module[module_name](mcp)
@@ -2896,6 +2917,11 @@ class TestToolTimeouts:
             "create_campaign_draft",
             "add_post_to_campaign",
             "create_saved_audience",
+            "search_sales_navigator_accounts",
+            "search_sales_navigator_leads",
+            "get_sales_navigator_account",
+            "list_sales_navigator_account_lists",
+            "get_sales_navigator_account_list",
             "start_enrichment_job",
             "run_enrichment_bunch",
             "get_enrichment_status",
@@ -2946,6 +2972,11 @@ class TestToolTimeouts:
             "create_campaign_draft",
             "add_post_to_campaign",
             "create_saved_audience",
+            "search_sales_navigator_accounts",
+            "search_sales_navigator_leads",
+            "get_sales_navigator_account",
+            "list_sales_navigator_account_lists",
+            "get_sales_navigator_account_list",
             "start_enrichment_job",
             "run_enrichment_bunch",
             "get_enrichment_status",

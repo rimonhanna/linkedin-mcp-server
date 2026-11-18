@@ -120,6 +120,15 @@
       "section": "update_campaign__draft"
     },
     {
+      "arg": "[data-live-test-bid-and-budget] #bid-and-budget__daily-budget",
+      "call": "update_campaign",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "update_campaign__draft",
+      "timeout_ms": 15000.0
+    },
+    {
       "arg": {
         "focus": false,
         "id": "bid-and-budget__daily-budget",
@@ -128,7 +137,14 @@
       "call": "update_campaign",
       "kind": "evaluate",
       "operation": "cm_editor",
-      "program_digest": "5f367be55a01",
+      "program_digest": "e7117f971603",
+      "section": "update_campaign__draft"
+    },
+    {
+      "call": "update_campaign",
+      "kind": "evaluate",
+      "operation": "cm_footer",
+      "program_digest": "e4333f693237",
       "section": "update_campaign__draft"
     },
     {
@@ -147,7 +163,7 @@
       "call": "update_campaign",
       "kind": "evaluate",
       "operation": "cm_editor",
-      "program_digest": "5f367be55a01",
+      "program_digest": "e7117f971603",
       "section": "update_campaign__draft"
     },
     {
@@ -157,11 +173,28 @@
       "text": "12.5"
     },
     {
+      "arg": {
+        "id": "bid-and-budget__daily-budget",
+        "text": "12.5"
+      },
+      "call": "update_campaign",
+      "kind": "evaluate",
+      "operation": "cm_editor",
+      "program_digest": "399a88314b21",
+      "section": "update_campaign__draft"
+    },
+    {
+      "call": "update_campaign",
+      "key": "Tab",
+      "kind": "keyboard.press",
+      "section": "update_campaign__draft"
+    },
+    {
       "arg": "bid-and-budget__daily-budget",
       "call": "update_campaign",
       "kind": "evaluate",
       "operation": "cm_editor",
-      "program_digest": "16ef7a28c1ee",
+      "program_digest": "bd42c7d6f512",
       "section": "update_campaign__draft"
     },
     {

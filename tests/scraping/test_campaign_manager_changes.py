@@ -27,6 +27,7 @@ from linkedin_mcp_server.scraping.campaign_manager_changes import (
     refuse_invalid_campaign_edit,
     refuse_invalid_draft,
     refuse_invalid_targeting_change,
+    saved_audience_omitted,
     targeting_keys,
 )
 from linkedin_mcp_server.scraping.campaign_manager_payload import CmCall
@@ -769,8 +770,9 @@ def test_create_admissions_refuse_sub_paths_actions_and_other_methods():
     assert "action" in _reason(fresh()(action))
     signed_url = {
         "owner": f"urn:li:sponsoredAccount:{ACCOUNT}",
-        "uploadType": "MATCHED_AUDIENCE",
+        "uploadType": "AUDIENCE_MATCHING",
         "requestType": "UPLOAD",
+        "contentType": "text/csv",
     }
 
     def upload(**kwargs: Any) -> Req:
@@ -782,7 +784,9 @@ def test_create_admissions_refuse_sub_paths_actions_and_other_methods():
         )
 
     def lists():
-        return admit_list_upload(account_id=ACCOUNT, name="Example list")
+        return admit_list_upload(
+            account_id=ACCOUNT, name="Example list", file_name="example-list.csv"
+        )
 
     assert lists()(upload(restli=None)) is None
     assert lists()(upload(restli="create")) is None
@@ -816,14 +820,16 @@ def test_creative_create_admission():
 
 
 def test_list_upload_admits_one_of_each():
-    admit = admit_list_upload(account_id=ACCOUNT, name="Example list")
+    admit = admit_list_upload(
+        account_id=ACCOUNT, name="Example list", file_name="example-list.csv"
+    )
     owner = f"urn:li:sponsoredAccount:{ACCOUNT}"
     signed = _req(
         {
             "owner": owner,
             "requestType": "UPLOAD",
-            "uploadType": "MATCHED_AUDIENCE",
-            "contentType": "csv",
+            "uploadType": "AUDIENCE_MATCHING",
+            "contentType": "text/csv",
         },
         resource="campaignManagerAmbrySignedUrl",
         entity_id=None,
@@ -835,6 +841,7 @@ def test_list_upload_admits_one_of_each():
         "sourcePlatform": "LIST_UPLOAD",
         "segmentType": "COMPANY",
         "inputFile": "urn:li:media:x",
+        "inputFileName": "example-list.csv",
     }
     segment = _req(
         segment_body, resource="campaignManagerDmpSegments", entity_id=None, restli=None
@@ -843,7 +850,9 @@ def test_list_upload_admits_one_of_each():
     assert admit(segment) is None
     assert "second" in _reason(admit(segment))
     assert "second" in _reason(admit(signed))
-    fresh = admit_list_upload(account_id=ACCOUNT, name="Example list")
+    fresh = admit_list_upload(
+        account_id=ACCOUNT, name="Example list", file_name="example-list.csv"
+    )
     conversion = _req(
         {**segment_body, "sourceType": "CONVERSION"},
         resource="campaignManagerDmpSegments",
@@ -895,3 +904,95 @@ def test_patch_schedule_compares_utc_dates():
     # 23:45 UTC read in a zone east of UTC is the next day; the UTC date rules.
     next_day = _patch(runSchedule={"$set": {"end": _ms(date(2026, 3, 26))}})
     assert _admit(next_day, record, allowed=end_only)
+
+
+def _app_saved_audience_body(**overrides: Any) -> dict:
+    """The save audience modal's create as the app bundle builds it.
+
+    No ``ownership``, an HTML-encoded name and an empty description; the
+    profile language block is left out (LinkedIn's locale-saving flag off),
+    and the AND blocks arrive in another order.
+    """
+    criteria = _criteria()
+    ands = [
+        block
+        for block in criteria["include"]["and"]
+        if block["or"][0]["facet"]["urn"] != LANG
+    ]
+    body = {
+        "name": "Example &amp; audience",
+        "description": "",
+        "include": {"and": list(reversed(ands))},
+        "exclude": criteria["exclude"],
+        "account": f"urn:li:sponsoredAccount:{ACCOUNT}",
+    }
+    body.update(overrides)
+    return body
+
+
+def test_saved_audience_admits_the_apps_real_create():
+    keys = targeting_keys(_criteria())
+    assert keys is not None
+
+    def admit(body: dict) -> str | None:
+        req = _req(
+            body,
+            resource="campaignManagerTargetingCriteria",
+            entity_id=None,
+            restli=None,
+        )
+        return admit_saved_audience(
+            account_id=ACCOUNT, name="Example & audience", target_keys=keys
+        )(req)
+
+    assert admit(_app_saved_audience_body()) is None
+    with_language = _app_saved_audience_body(**_criteria())
+    assert admit(with_language) is None
+    assert admit(_app_saved_audience_body(ownership="ACCOUNT")) is None
+
+    assert "fields outside" in _reason(admit(_app_saved_audience_body(audienceCount=1)))
+    assert "not the planned" in _reason(
+        admit(_app_saved_audience_body(ownership="MEMBER"))
+    )
+    assert "not the planned" in _reason(admit(_app_saved_audience_body(name="Other")))
+    other_language = _criteria()
+    other_language["include"]["and"][1] = {"or": [_facet(LANG, "urn:li:locale:de_DE")]}
+    assert "differs" in _reason(admit(_app_saved_audience_body(**other_language)))
+    merged = _criteria()
+    ands = merged["include"]["and"]
+    ands[2]["or"] += ands.pop(3)["or"]
+    assert "differs" in _reason(admit(_app_saved_audience_body(**merged)))
+
+
+def test_saved_audience_admits_only_an_empty_description():
+    keys = targeting_keys(_criteria())
+    assert keys is not None
+
+    def admit(body: dict) -> str | None:
+        req = _req(
+            body,
+            resource="campaignManagerTargetingCriteria",
+            entity_id=None,
+            restli=None,
+        )
+        return admit_saved_audience(
+            account_id=ACCOUNT, name="Example & audience", target_keys=keys
+        )(req)
+
+    assert admit(_app_saved_audience_body()) is None
+    without = _app_saved_audience_body()
+    del without["description"]
+    assert admit(without) is None
+    for description in ("Example description", " ", None):
+        assert "not the planned" in _reason(
+            admit(_app_saved_audience_body(description=description))
+        )
+
+
+def test_saved_audience_omitted_names_the_dropped_language_block():
+    keys = targeting_keys(_criteria())
+    assert keys is not None
+    assert saved_audience_omitted(_app_saved_audience_body(), keys) == [
+        "include_language"
+    ]
+    assert saved_audience_omitted(_app_saved_audience_body(**_criteria()), keys) == []

@@ -126,7 +126,8 @@ class TestContentLibrary:
 
     def test_empty_and_wrong_shapes(self):
         assert content_library_entries(_library([], [])) == []
-        assert content_library_entries({"elements": []}) is None
+        assert content_library_entries({"elements": []}) == []
+        assert content_library_entries({"data": {"paging": {}}}) is None
         assert content_library_entries("x") is None
         unresolved = _library(
             [{"content": {"*sponsoredUpdateContent": "urn:li:share:9"}}], []
@@ -144,14 +145,15 @@ class TestAudiences:
         payload = {
             "elements": [
                 {
-                    "id": 700000001,
+                    "segmentId": 700000001,
                     "name": "Example list",
                     "segmentType": "COMPANY",
-                    "maSegmentType": "BULK",
-                    "maSegmentStatus": "READY",
-                    "audienceCount": 1200,
+                    "listAudienceType": "ACCOUNT_LIST",
+                    "sourcePlatform": "LIST_UPLOAD",
+                    "status": "READY",
+                    "count": 1200,
                 },
-                {"id": 700000002, "name": "Bare"},
+                {"segmentId": 700000002, "name": "Bare"},
             ]
         }
         audiences = matched_audiences(payload)
@@ -161,8 +163,9 @@ class TestAudiences:
                 "id": 700000001,
                 "segmentUrn": "urn:li:adSegment:700000001",
                 "name": "Example list",
-                "listType": "COMPANY",
-                "source": "BULK",
+                "segmentType": "COMPANY",
+                "listType": "ACCOUNT_LIST",
+                "source": "LIST_UPLOAD",
                 "status": "READY",
                 "audienceCount": 1200,
             },

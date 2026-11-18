@@ -119,6 +119,15 @@
       "section": "search_targeting_entities__titles"
     },
     {
+      "arg": "[data-js-targeting-module__edit-facet-block-btn=\"includedOrs0\"]",
+      "call": "search_targeting_entities",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "search_targeting_entities__titles",
+      "timeout_ms": 15000.0
+    },
+    {
       "arg": "includedOrs0",
       "call": "search_targeting_entities",
       "kind": "evaluate",

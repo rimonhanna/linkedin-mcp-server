@@ -1,0 +1,153 @@
+{
+  "call": {
+    "arguments": {
+      "company_id": "100000001"
+    },
+    "method": "get_sales_navigator_account"
+  },
+  "events": [
+    {
+      "call": "get_sales_navigator_account",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/company/100000001",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/company/100000001",
+      "requested_url": "https://www.linkedin.com/sales/company/100000001",
+      "section": "account",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "kind": "wait_for_load_state",
+      "section": "account",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "description": "goto https://www.linkedin.com/sales/company/100000001",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/company/100000001",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "kind": "boundary.rate_limit",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "account"
+    },
+    {
+      "call": "get_sales_navigator_account",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "account"
+    }
+  ],
+  "result": {
+    "account": {
+      "employeeCount": 42,
+      "employeeDisplayCount": "42",
+      "id": "100000001",
+      "name": "Example Company",
+      "salesNavigatorUrl": "https://www.linkedin.com/sales/company/100000001",
+      "website": "https://example.com"
+    },
+    "section_names": [
+      "account"
+    ],
+    "sections": {
+      "account": "Example Company (id 100000001): 42, https://example.com"
+    },
+    "url": "https://www.linkedin.com/sales/company/100000001"
+  },
+  "scenario": "get_sales_navigator_account__both_decorations",
+  "schema_version": 1
+}

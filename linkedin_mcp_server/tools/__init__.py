@@ -15,6 +15,7 @@ Available Tools:
 - Post tools: Global post/content search
 - Campaign Manager tools: ad accounts, campaign groups, campaigns, analytics,
   targeting values, audiences, and confirm-gated ad account changes
+- Sales Navigator tools: account and lead search, accounts, account lists
 
 Architecture:
 - FastMCP integration for MCP-compliant tool registration

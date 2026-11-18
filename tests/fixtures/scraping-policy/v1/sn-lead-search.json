@@ -1,0 +1,178 @@
+{
+  "call": {
+    "arguments": {
+      "location": [
+        "urn:li:geo:100000099"
+      ],
+      "seniority": [
+        "cxo"
+      ]
+    },
+    "method": "search_sales_navigator_leads"
+  },
+  "events": [
+    {
+      "call": "search_sales_navigator_leads",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ASENIORITY_LEVEL,values%3AList((id%3A310,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED)))))",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ASENIORITY_LEVEL,values%3AList((id%3A310,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED)))))",
+      "requested_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ASENIORITY_LEVEL,values%3AList((id%3A310,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED)))))",
+      "section": "lead_search",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "kind": "wait_for_load_state",
+      "section": "lead_search",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "description": "goto https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ASENIORITY_LEVEL,values%3AList((id%3A310,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED)))))",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ASENIORITY_LEVEL,values%3AList((id%3A310,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED)))))",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "kind": "boundary.rate_limit",
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "lead_search"
+    },
+    {
+      "call": "search_sales_navigator_leads",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "lead_search"
+    }
+  ],
+  "result": {
+    "leads": [
+      {
+        "currentPositions": [
+          {
+            "companyId": "100000001",
+            "companyName": "Example Company",
+            "current": true,
+            "title": "Example title"
+          }
+        ],
+        "fullName": "Example Person",
+        "geoRegion": "Example region",
+        "id": "ACwAAA0001",
+        "memberUrn": "urn:li:member:100000011",
+        "seniority": [
+          {
+            "id": "310",
+            "name": "CXO"
+          }
+        ]
+      }
+    ],
+    "paging": {
+      "capped": false,
+      "count": 25,
+      "more": false,
+      "page": 1,
+      "resultCap": 1000,
+      "start": 0,
+      "total": 2
+    },
+    "section_names": [
+      "leads"
+    ],
+    "sections": {
+      "leads": "Example Person (id ACwAAA0001): Example title, Example Company, Example region"
+    },
+    "url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ASENIORITY_LEVEL,values%3AList((id%3A310,selectionType%3AINCLUDED))),(type%3AREGION,values%3AList((id%3A100000099,selectionType%3AINCLUDED)))))",
+    "withheld": {
+      "count": 1,
+      "reason": "These members asked LinkedIn not to share their data with third-party tools."
+    }
+  },
+  "scenario": "search_sales_navigator_leads__one_withheld",
+  "schema_version": 1
+}

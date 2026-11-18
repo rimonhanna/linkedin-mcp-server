@@ -30,6 +30,16 @@ work, health checks, or background maintenance.
   `create_company_list_audience` accepts LinkedIn's Ads Agreement for the
   upload; say so before confirming. None of them launches a campaign or
   touches billing.
+- On an ad set that targets the EU, saving asks whether its ads are political
+  (`declaration_required`, or `planned.politicalAdQuestion` on a dry run).
+  That answer is a legal declaration the user makes for the advertiser: ask
+  them, and pass `political_ad` true or false only as they declared it. Never
+  choose it yourself.
+- `declaration_would_clear`, `declaration_cleared_by_linkedin` and
+  `declaration_not_offered` mean Campaign Manager would have changed that
+  declaration on its own (it clears it for targeting without an EU location;
+  its newer editor only saves "not political"). Nothing was sent; tell the
+  user what the message says instead of retrying.
 - Do not retry a failed write action unless the result proves it was not sent.
 
 ## Browser and authentication
@@ -84,6 +94,10 @@ instances, clear profiles, or replace the user's browser session.
   `get_campaign`, `get_campaign_analytics`, `search_targeting_entities` and
   `list_audiences`. An API campaign group is the UI's "Campaign", an API
   campaign its "Ad set" and a creative its "Ad".
+- Sales Navigator (read-only, needs a Sales Navigator seat):
+  `search_sales_navigator_accounts`, `search_sales_navigator_leads`,
+  `get_sales_navigator_account`, `list_sales_navigator_account_lists` and
+  `get_sales_navigator_account_list`.
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
   InMail included, by its thread ID) and `connect_with_person`, and the
   Campaign Manager writes (`update_campaign`, `set_campaign_status`,

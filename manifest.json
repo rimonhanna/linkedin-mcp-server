@@ -181,6 +181,26 @@
       "description": "Save a campaign's (UI 'Ad set') targeting as a named saved audience after a dry run"
     },
     {
+      "name": "search_sales_navigator_accounts",
+      "description": "Search Sales Navigator accounts (companies) by keywords, industry, location, headcount and headcount growth, one page of 25 per call; needs a Sales Navigator seat (read-only)"
+    },
+    {
+      "name": "search_sales_navigator_leads",
+      "description": "Search Sales Navigator leads (people) by keywords, title, seniority, current company, location and industry, one page of 25 per call; leads who opted out of third-party data sharing are left out and counted (read-only)"
+    },
+    {
+      "name": "get_sales_navigator_account",
+      "description": "Get one company's Sales Navigator account page: description, industry, website, headquarters, revenue range and headcount (read-only)"
+    },
+    {
+      "name": "list_sales_navigator_account_lists",
+      "description": "List every Sales Navigator account list of the member (read-only)"
+    },
+    {
+      "name": "get_sales_navigator_account_list",
+      "description": "Get one Sales Navigator account list and every company in it (read-only)"
+    },
+    {
       "name": "close_session",
       "description": "Properly close browser session and clean up resources"
     },

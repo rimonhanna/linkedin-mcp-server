@@ -112,11 +112,13 @@ def _saved(*elements: dict):
 
 def _list_entry(audience_id: int, name: str, status: str = "BUILDING") -> dict:
     return {
-        "id": audience_id,
+        "segmentId": audience_id,
+        "sourceId": audience_id,
         "name": name,
         "segmentType": "COMPANY",
-        "maSegmentType": "BULK",
-        "maSegmentStatus": status,
+        "listAudienceType": "ACCOUNT_LIST",
+        "sourcePlatform": "LIST_UPLOAD",
+        "status": status,
     }
 
 
@@ -229,8 +231,8 @@ def _signed_url(account: str = ACCOUNT, status: int = 201) -> SimpleNamespace:
         body={
             "owner": f"urn:li:sponsoredAccount:{account}",
             "requestType": "UPLOAD",
-            "uploadType": "MATCHED_AUDIENCE",
-            "contentType": "csv",
+            "uploadType": "AUDIENCE_MATCHING",
+            "contentType": "text/csv",
         },
         restli="create",
         created_id="https://www.linkedin.com/dms-uploads/example",
@@ -244,7 +246,7 @@ def _segment(name: str, *, status: int = 201) -> SimpleNamespace:
         method="POST",
         status=status,
         body={
-            "inputFileName": "example.csv",
+            "inputFileName": "example-list.csv",
             "inputFile": "urn:li:media:example",
             "account": f"urn:li:sponsoredAccount:{ACCOUNT}",
             "name": name,
@@ -799,3 +801,135 @@ def test_created_number(value, expected):
 )
 def test_file_name(name, expected):
     assert audiences._file_name(name) == expected
+
+
+def _app_saved_create(name: str, **extra: Any) -> SimpleNamespace:
+    """The save audience modal's create as the app bundle builds it."""
+    return _response(
+        "campaignManagerTargetingCriteria",
+        None,
+        method="POST",
+        status=201,
+        body={
+            "name": name,
+            "description": "",
+            "include": TARGETING["include"],
+            "exclude": TARGETING["exclude"],
+            "account": f"urn:li:sponsoredAccount:{ACCOUNT}",
+            **extra,
+        },
+        created_id=NEW_ID,
+    )
+
+
+async def test_saved_audience_admits_the_apps_create_without_ownership(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads[DETAILS] = [[_campaign()]]
+    browser.loads[MATCHED] = [[_matched()]]
+    browser.tab_waves = [[_saved(_saved_entry(int(NEW_ID), "Example saved"))]]
+
+    with (
+        browser.running(),
+        _dialog(mock_page, sends=[_app_saved_create("Example saved")]) as calls,
+    ):
+        result = await _audiences(mock_page).create_saved_audience(
+            ACCOUNT, CAMPAIGN, "Example saved", confirm_send=True
+        )
+
+    assert calls.admitted == [True]
+    assert result["status"] == "audience_created"
+
+
+async def test_blocked_saved_audience_reports_the_refused_structure(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads[DETAILS] = [[_campaign()]]
+    sends = [_app_saved_create("Example saved", audienceCount=100000777)]
+
+    with browser.running(), _dialog(mock_page, sends=sends) as calls:
+        result = await _audiences(mock_page).create_saved_audience(
+            ACCOUNT, CAMPAIGN, "Example saved", confirm_send=True
+        )
+
+    assert calls.admitted == [False]
+    assert result["status"] == "change_blocked"
+    [structure] = result["refused_structure"]
+    assert structure["path"] == "campaign-manager-api/campaignManagerTargetingCriteria"
+    assert structure["method"] == "POST"
+    assert structure["restli_method"] is None
+    assert set(structure["body"]) == {
+        "name",
+        "description",
+        "include",
+        "exclude",
+        "account",
+        "audienceCount",
+    }
+    assert structure["reason"] == "saved audience carries fields outside the plan"
+    shown = json.dumps(structure)
+    for value in ("Example saved", ACCOUNT, "100000777", "urn:li:", "100000901"):
+        assert value not in shown
+
+
+LANGUAGE = "urn:li:adTargetingFacet:interfaceLocales"
+LANGUAGE_BLOCK = {
+    "or": [{"facet": {"urn": LANGUAGE}, "segments": [{"urn": "urn:li:locale:en_US"}]}]
+}
+WITH_LANGUAGE = {
+    "include": {"and": [*TARGETING["include"]["and"], LANGUAGE_BLOCK]},
+    "exclude": TARGETING["exclude"],
+}
+
+
+async def test_saved_audience_dry_run_says_the_language_may_be_left_out(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads[DETAILS] = [[_campaign(WITH_LANGUAGE)]]
+
+    with browser.running(), _dialog(mock_page):
+        result = await _audiences(mock_page).create_saved_audience(
+            ACCOUNT, CAMPAIGN, "Example saved", confirm_send=False
+        )
+
+    assert result["status"] == "confirmation_required"
+    assert "without the profile-language targeting" in result["message"]
+
+
+async def test_saved_audience_dry_run_without_language_says_nothing_of_it(mock_page):
+    browser = _Browser(mock_page)
+    browser.loads[DETAILS] = [[_campaign()]]
+
+    with browser.running(), _dialog(mock_page):
+        result = await _audiences(mock_page).create_saved_audience(
+            ACCOUNT, CAMPAIGN, "Example saved", confirm_send=False
+        )
+
+    assert "profile-language" not in result["message"]
+
+
+@pytest.mark.parametrize(
+    ("sent", "omitted"),
+    [(TARGETING, ["include_language"]), (WITH_LANGUAGE, None)],
+)
+async def test_saved_audience_result_reports_a_dropped_language(
+    mock_page, sent, omitted
+):
+    browser = _Browser(mock_page)
+    browser.loads[DETAILS] = [[_campaign(WITH_LANGUAGE)]]
+    browser.loads[MATCHED] = [[_matched()]]
+    browser.tab_waves = [[_saved(_saved_entry(int(NEW_ID), "Example saved"))]]
+
+    with (
+        browser.running(),
+        _dialog(mock_page, sends=[_saved_create("Example saved", sent)]) as calls,
+    ):
+        result = await _audiences(mock_page).create_saved_audience(
+            ACCOUNT, CAMPAIGN, "Example saved", confirm_send=True
+        )
+
+    assert calls.admitted == [True]
+    assert result["status"] == "audience_created"
+    assert result.get("omitted_sections") == omitted
+    if omitted:
+        assert "without this ad set's profile-language targeting" in result["message"]
+        assert "broader audience" in result["message"]
+    else:
+        assert result["message"].startswith("Saved this ad set's targeting")

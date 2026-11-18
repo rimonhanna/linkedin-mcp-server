@@ -120,6 +120,15 @@
       "section": "set_campaign_status__pause"
     },
     {
+      "arg": ".campaign-header-status__toggle-container input[role=switch]",
+      "call": "set_campaign_status",
+      "kind": "wait_for_function",
+      "operation": "cm_anchor",
+      "program_digest": "53bb7b9500fb",
+      "section": "set_campaign_status__pause",
+      "timeout_ms": 15000.0
+    },
+    {
       "arg": {
         "checked": true,
         "click": false

@@ -5,7 +5,7 @@ the guard asks the admission rules here whether a request the app is about to
 send matches that plan. Nothing here reads a page: every input is a record or a
 request body the caller already holds.
 
-``record`` is always a campaign as ``normalized_record`` returns it from
+``record`` is always a campaign as ``envelope_record`` returns it from
 ``campaignManagerCampaigns/{id}``: raw field names, money as
 ``{amount, currencyCode}``, ``runSchedule`` in epoch milliseconds and the
 decorated ``targetingCriteria``.
@@ -13,6 +13,7 @@ decorated ``targetingCriteria``.
 
 from __future__ import annotations
 
+import html
 import re
 from collections import Counter
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
@@ -948,14 +949,114 @@ def admit_creative_create(
     return None
 
 
-def admit_list_upload(*, account_id: str, name: str) -> Admit:
+# The company list upload dialog's two requests (app bundle, 2026-11:
+# ``ambry.uploadCsvFileToAmbry`` and ``create-ma-list-panel``'s
+# ``createListAudienceTask``). The file itself goes to the signed URL in between,
+# on a host outside the guard's pattern.
+_SIGNED_URL_REQUEST = {
+    "requestType": "UPLOAD",
+    "uploadType": "AUDIENCE_MATCHING",
+    "contentType": "text/csv",
+}
+_LIST_SEGMENT_FIELDS = frozenset(
+    {"inputFileName", "inputFile", "account", "name", "sourcePlatform", "segmentType"}
+)
+_MEDIA_URN = "urn:li:media:"
+_URN_TYPE_RE = re.compile(r"^urn:li:([A-Za-z]+):")
+# The only seen values a refusal repeats: the app's own constants per field.
+# MATCHED_AUDIENCE is the upload type an earlier rule guessed; the app sent
+# AUDIENCE_MATCHING. Anything else is described by its shape.
+_KNOWN_CONSTANTS: Mapping[str, frozenset[str]] = {
+    "requestType": frozenset({"UPLOAD"}),
+    "uploadType": frozenset({"AUDIENCE_MATCHING", "MATCHED_AUDIENCE"}),
+    "contentType": frozenset({"text/csv"}),
+    "sourcePlatform": frozenset({"LIST_UPLOAD"}),
+    "segmentType": frozenset({"COMPANY"}),
+}
+_TOKEN_RE = re.compile(r"^[A-Za-z][A-Za-z_./+-]{0,39}$")
+
+
+def _value_shape(field: str, value: Any) -> str:
+    """What a refused field held, without its value unless it is a known constant."""
+    if value is None:
+        return "nothing"
+    if isinstance(value, str):
+        urn = _URN_TYPE_RE.match(value)
+        if urn:
+            return f"urn of type {urn.group(1)}"
+        if value in _KNOWN_CONSTANTS.get(field, ()):
+            return value
+        return "another constant" if _TOKEN_RE.fullmatch(value) else "other text"
+    return type(value).__name__
+
+
+def _account_mismatch(field: str, value: Any, owner: str) -> str | None:
+    if value == owner:
+        return None
+    seen = _value_shape(field, value)
+    if seen == "urn of type sponsoredAccount":
+        seen += " for another ad account"
+    return (
+        f"{field}: urn of type sponsoredAccount for this ad account expected, "
+        f"{seen} seen"
+    )
+
+
+def _extra_fields(body: Mapping[str, Any], allowed: Collection[str]) -> list[str]:
+    return [f"{key}: not sent by the app" for key in sorted(set(body) - set(allowed))]
+
+
+def _refused_because(reason: str, mismatches: Sequence[str]) -> str:
+    return f"{reason} ({'; '.join(mismatches)})"
+
+
+def admit_list_upload(*, account_id: str, name: str, file_name: str) -> Admit:
     """An admission for one company list upload: one signed URL, one segment.
 
     Returns a stateful rule because the second of either request would be a
-    second upload or a second audience.
+    second upload or a second audience, and the segment must follow its signed
+    URL. A refusal names each field that differed and how, never its value
+    unless that is one of the app's constants.
     """
     owner = _ACCOUNT_URN + account_id
     seen: set[str] = set()
+
+    def signed_url_mismatches(body: Mapping[str, Any]) -> list[str]:
+        found = _extra_fields(body, {"owner", *_SIGNED_URL_REQUEST})
+        owner_miss = _account_mismatch("owner", body.get("owner"), owner)
+        if owner_miss is not None:
+            found.append(owner_miss)
+        found.extend(
+            f"{field}: {expected} expected, {_value_shape(field, body.get(field))} seen"
+            for field, expected in _SIGNED_URL_REQUEST.items()
+            if body.get(field) != expected
+        )
+        return found
+
+    def segment_mismatches(body: Mapping[str, Any]) -> list[str]:
+        found = _extra_fields(body, _LIST_SEGMENT_FIELDS)
+        account_miss = _account_mismatch("account", body.get("account"), owner)
+        if account_miss is not None:
+            found.append(account_miss)
+        for field, expected in (
+            ("sourcePlatform", "LIST_UPLOAD"),
+            ("segmentType", "COMPANY"),
+        ):
+            if body.get(field) != expected:
+                found.append(
+                    f"{field}: {expected} expected, "
+                    f"{_value_shape(field, body.get(field))} seen"
+                )
+        if body.get("name") != name:
+            found.append("name: the planned name expected, another seen")
+        if body.get("inputFileName") != file_name:
+            found.append("inputFileName: the planned file expected, another seen")
+        media = body.get("inputFile")
+        if not isinstance(media, str) or not media.startswith(_MEDIA_URN):
+            found.append(
+                f"inputFile: urn of type media expected, {_value_shape('inputFile', media)} seen"
+            )
+        return found
 
     def admit(req: WriteRequest) -> str | None:
         resource = req.call.resource
@@ -971,24 +1072,39 @@ def admit_list_upload(*, account_id: str, name: str) -> Admit:
             return f"second {resource} request"
         body = _mapping(req.body) or {}
         if resource == "campaignManagerAmbrySignedUrl":
-            if (
-                body.get("owner") != owner
-                or body.get("uploadType") != "MATCHED_AUDIENCE"
-                or body.get("requestType") != "UPLOAD"
-            ):
-                return "upload URL request is not this ad account's list upload"
-        elif (
-            body.get("account") != owner
-            or body.get("name") != name
-            or body.get("sourcePlatform") != "LIST_UPLOAD"
-            or body.get("segmentType") != "COMPANY"
-            or "sourceType" in body
-        ):
-            return "audience create is not the planned company list"
+            mismatches = signed_url_mismatches(body)
+            if mismatches:
+                return _refused_because(
+                    "upload URL request is not this ad account's list upload",
+                    mismatches,
+                )
+        else:
+            if "campaignManagerAmbrySignedUrl" not in seen:
+                return "audience create before its upload URL request"
+            mismatches = segment_mismatches(body)
+            if mismatches:
+                return _refused_because(
+                    "audience create is not the planned company list", mismatches
+                )
         seen.add(resource)
         return None
 
     return admit
+
+
+# The save audience modal's create body (app bundle, 2026-11): ``name`` and
+# ``description`` HTML-encoded, ``include``/``exclude`` from
+# ``toJSforAccountTemplates`` and ``account``; ``ownership`` is set only by
+# other entry points.
+_SAVED_AUDIENCE_FIELDS = frozenset(
+    {"name", "description", "include", "exclude", "account", "ownership"}
+)
+
+
+def _audience_shape(keys: Iterable[TargetingKey]) -> tuple[Any, ...]:
+    """Targeting compared as the AND of its blocks, which is order-free."""
+    sections, ors = _blocks(keys)
+    return frozenset(sections.items()), Counter(ors)
 
 
 def admit_saved_audience(
@@ -1000,9 +1116,15 @@ def admit_saved_audience(
     """An admission for one saved audience create with the ad set's own targeting.
 
     Stateful like ``admit_campaign_create``: a second create would be a second
-    audience, so only the first matching create passes.
+    audience, so only the first matching create passes. Unless the account has
+    LinkedIn's locale-saving flag, the app leaves the profile language out of a
+    saved audience, so the targeting may lack exactly that block.
     """
     created = False
+    with_language = _audience_shape(target_keys)
+    without_language = _audience_shape(
+        key for key in target_keys if key[0] != "include_language"
+    )
 
     def admit(req: WriteRequest) -> str | None:
         nonlocal created
@@ -1012,16 +1134,40 @@ def admit_saved_audience(
         if created:
             return "second saved audience create"
         body = _mapping(req.body) or {}
+        if set(body) - _SAVED_AUDIENCE_FIELDS:
+            return "saved audience carries fields outside the plan"
         if body.get("account") != _ACCOUNT_URN + account_id:
             return "saved audience for another ad account"
-        if body.get("name") != name or body.get("ownership") != "ACCOUNT":
+        sent_name = body.get("name")
+        if not isinstance(sent_name, str) or html.unescape(sent_name) != name:
+            return "saved audience is not the planned one"
+        # The tool never sets a description; the app sends it empty.
+        if (
+            body.get("ownership", "ACCOUNT") != "ACCOUNT"
+            or body.get("description", "") != ""
+        ):
             return "saved audience is not the planned one"
         keys = targeting_keys(
             {"include": body.get("include"), "exclude": body.get("exclude")}
         )
-        if keys is None or frozenset(keys) != frozenset(target_keys):
+        if keys is None or _audience_shape(keys) not in (
+            with_language,
+            without_language,
+        ):
             return "saved audience targeting differs from the ad set's"
         created = True
         return None
 
     return admit
+
+
+def saved_audience_omitted(
+    body: Any, target_keys: Collection[TargetingKey]
+) -> list[str]:
+    """The ad set's targeting sections an admitted saved audience create left out."""
+    record = _mapping(body) or {}
+    sent = targeting_keys(
+        {"include": record.get("include"), "exclude": record.get("exclude")}
+    )
+    sent_sections = {key[0] for key in sent or ()}
+    return sorted({key[0] for key in target_keys} - sent_sections)

@@ -72,6 +72,14 @@
         "coroutine": true,
         "signature": "(self) -> 'str'"
       },
+      "get_sales_navigator_account": {
+        "coroutine": true,
+        "signature": "(self, company_id: 'str') -> 'dict[str, Any]'"
+      },
+      "get_sales_navigator_account_list": {
+        "coroutine": true,
+        "signature": "(self, list_id: 'str', page: 'int' = 1) -> 'dict[str, Any]'"
+      },
       "get_saved_jobs": {
         "coroutine": true,
         "signature": "(self, max_pages: 'int' = 3, stage: 'JobsTrackerStage' = 'saved') -> 'dict[str, Any]'"
@@ -91,6 +99,10 @@
       "list_campaigns": {
         "coroutine": true,
         "signature": "(self, account_id: 'str') -> 'dict[str, Any]'"
+      },
+      "list_sales_navigator_account_lists": {
+        "coroutine": true,
+        "signature": "(self, page: 'int' = 1) -> 'dict[str, Any]'"
       },
       "reply_to_conversation": {
         "coroutine": true,
@@ -128,6 +140,14 @@
         "coroutine": true,
         "signature": "(self, keywords: 'str', date_posted: 'str | None' = None, max_posts: 'int' = 10, content_type: 'str | None' = None) -> 'dict[str, Any]'"
       },
+      "search_sales_navigator_accounts": {
+        "coroutine": true,
+        "signature": "(self, *, keywords: 'str | None' = None, industry: 'Sequence[str] | None' = None, hq_location: 'Sequence[str] | None' = None, size: 'Sequence[str] | None' = None, headcount_growth_min: 'int | None' = None, headcount_growth_max: 'int | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
+      },
+      "search_sales_navigator_leads": {
+        "coroutine": true,
+        "signature": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
+      },
       "search_targeting_entities": {
         "coroutine": true,
         "signature": "(self, account_id: 'str', campaign_id: 'str', query: 'str') -> 'dict[str, Any]'"
@@ -142,11 +162,11 @@
       },
       "update_campaign": {
         "coroutine": true,
-        "signature": "(self, account_id: 'str', campaign_id: 'str', *, daily_budget: 'str | None' = None, lifetime_budget: 'str | None' = None, start_date: 'date | None' = None, end_date: 'date | None' = None, confirm_send: 'bool') -> 'dict[str, Any]'"
+        "signature": "(self, account_id: 'str', campaign_id: 'str', *, daily_budget: 'str | None' = None, lifetime_budget: 'str | None' = None, start_date: 'date | None' = None, end_date: 'date | None' = None, confirm_send: 'bool', political_ad: 'bool | None' = None) -> 'dict[str, Any]'"
       },
       "update_campaign_targeting": {
         "coroutine": true,
-        "signature": "(self, account_id: 'str', campaign_id: 'str', *, add: 'Sequence[TargetingAdd] | None' = None, remove: 'Sequence[str] | None' = None, confirm_send: 'bool', deadline: 'float | None' = None) -> 'dict[str, Any]'"
+        "signature": "(self, account_id: 'str', campaign_id: 'str', *, add: 'Sequence[TargetingAdd] | None' = None, remove: 'Sequence[str] | None' = None, confirm_send: 'bool', deadline: 'float | None' = None, political_ad: 'bool | None' = None) -> 'dict[str, Any]'"
       },
       "withdraw_invitations": {
         "coroutine": true,
@@ -167,11 +187,14 @@
       "get_conversation",
       "get_inbox",
       "get_my_profile",
+      "get_sales_navigator_account",
+      "get_sales_navigator_account_list",
       "get_saved_jobs",
       "get_sidebar_profiles",
       "list_ad_accounts",
       "list_audiences",
       "list_campaigns",
+      "list_sales_navigator_account_lists",
       "reply_to_conversation",
       "scrape_company",
       "scrape_job",
@@ -181,6 +204,8 @@
       "search_jobs",
       "search_people",
       "search_posts",
+      "search_sales_navigator_accounts",
+      "search_sales_navigator_leads",
       "search_targeting_entities",
       "send_message",
       "set_campaign_status",
@@ -892,6 +917,50 @@
           "type": "object"
         }
       },
+      "get_sales_navigator_account": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "company_id": {
+              "description": "Numeric company id, as the account search returned it.\nA urn:li:organization or urn:li:fs_salesCompany URN or a\nSales Navigator company URL is accepted too.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "company_id"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "get_sales_navigator_account_list": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "list_id": {
+              "description": "Numeric list id, as list_sales_navigator_account_lists\nreturned it. A Sales Navigator list URL carrying listId is\naccepted too.",
+              "type": "string"
+            },
+            "page": {
+              "default": 1,
+              "description": "1-based page of 25 accounts to start from (default 1); pass\na previous result's next_page to continue.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "list_id"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "get_saved_jobs": {
         "input": {
           "additionalProperties": false,
@@ -983,6 +1052,24 @@
           "required": [
             "ad_account_id"
           ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "list_sales_navigator_account_lists": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "page": {
+              "default": 1,
+              "description": "1-based page of 25 lists to start from (default 1); pass a\nprevious result's next_page to continue.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
           "type": "object"
         },
         "output": {
@@ -1601,6 +1688,224 @@
           "type": "object"
         }
       },
+      "search_sales_navigator_accounts": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "headcount_growth_max": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Maximum headcount growth, percent."
+            },
+            "headcount_growth_min": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Minimum headcount growth, percent."
+            },
+            "hq_location": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of headquarters locations, numeric geo\nids, urn:li:geo URNs or names."
+            },
+            "industry": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of industries, numeric ids or names."
+            },
+            "keywords": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Free-text keywords."
+            },
+            "page": {
+              "default": 1,
+              "description": "Result page, 1 to 40 (25 results each).",
+              "maximum": 40,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "size": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of company headcount buckets or facet letters\n(A to I)."
+            }
+          },
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "search_sales_navigator_leads": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "current_company": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of current companies, numeric\ncompany ids, urn:li:organization URNs or names."
+            },
+            "industry": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of industries, numeric ids or names."
+            },
+            "keywords": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Free-text keywords."
+            },
+            "location": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of locations, numeric geo ids,\nurn:li:geo URNs or names."
+            },
+            "page": {
+              "default": 1,
+              "description": "Result page, 1 to 40 (25 results each).",
+              "maximum": 40,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "seniority": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "in_training",
+                      "entry_level",
+                      "senior",
+                      "strategic",
+                      "entry_level_manager",
+                      "experienced_manager",
+                      "director",
+                      "vice_president",
+                      "cxo",
+                      "owner_partner"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of seniority levels: in_training,\nentry_level, senior, strategic, entry_level_manager,\nexperienced_manager, director, vice_president, cxo,\nowner_partner."
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of current job titles (free text)."
+            }
+          },
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "search_targeting_entities": {
         "input": {
           "additionalProperties": false,
@@ -1814,6 +2119,18 @@
               "default": null,
               "description": "New lifetime budget, same format. Only for a\nlifetime budget."
             },
+            "political_ad": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Only when the user has declared it: true if this\nad set's ads are political, false if they are not. Campaign\nManager asks this on save for an ad set that targets the EU\n(EU political advertising rules). It is a legal declaration\nthe user makes for the advertiser, so never guess or default\nit; leave it out until the user answers. Without it, a save\nthat asks stops with declaration_required and sends nothing."
+            },
             "start_date": {
               "anyOf": [
                 {
@@ -1886,6 +2203,18 @@
             "confirm_send": {
               "description": "Must be True to save the change.",
               "type": "boolean"
+            },
+            "political_ad": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Only when the user has declared it: true if this\nad set's ads are political, false if they are not. Campaign\nManager asks this on save for an ad set that targets the EU\n(EU political advertising rules). It is a legal declaration\nthe user makes for the advertiser, so never guess or default\nit; leave it out until the user answers. Without it, a save\nthat asks stops with declaration_required and sends nothing."
             },
             "remove": {
               "anyOf": [

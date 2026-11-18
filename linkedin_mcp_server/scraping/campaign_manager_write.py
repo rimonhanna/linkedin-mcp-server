@@ -14,22 +14,28 @@ container attribute and position.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
 import logging
+import re
+
+from patchright.async_api import Error as PlaywrightError
+from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+from linkedin_mcp_server.response_structure import current_log, is_field_name
 from linkedin_mcp_server.scraping.campaign_manager import _SETUP_PATH, _refusal
 from linkedin_mcp_server.scraping.campaign_manager_api import (
     CampaignManagerCapture,
     CmResponse,
     CmWriteResponse,
 )
-from linkedin_mcp_server.scraping.campaign_manager_changes import Refusal
+from linkedin_mcp_server.scraping.campaign_manager_changes import Refusal, ms_to_date
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
     Admission,
     CmWriteRequest,
@@ -37,7 +43,10 @@ from linkedin_mcp_server.scraping.campaign_manager_guard import (
     explicit_campaign_write,
     without_campaign_manager_writes,
 )
-from linkedin_mcp_server.scraping.campaign_manager_payload import normalized_record
+from linkedin_mcp_server.scraping.campaign_manager_payload import (
+    envelope_record,
+    same_id,
+)
 from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
 )
@@ -53,6 +62,63 @@ logger = logging.getLogger(__name__)
 
 _READY_TIMEOUT = 12.0
 _SAVE_TIMEOUT = 20.0
+# The editor renders after the record arrives (the app shell shows a loader
+# until then).
+_ANCHOR_TIMEOUT = 15.0
+_DIGITS = re.compile(r"\d+")
+
+# Every editor anchor the write tools use, observed 2026-11-17. A control
+# that never renders records which of these the page had.
+ANCHORS = {
+    "budget_block": "[data-live-test-bid-and-budget]",
+    "daily_budget": "[data-live-test-bid-and-budget] #bid-and-budget__daily-budget",
+    "total_budget": "[data-live-test-bid-and-budget] #bid-and-budget__total-budget",
+    "start_date": 'input[data-datepicker-input][name="start"]',
+    "end_date": 'input[data-datepicker-input][name="end"]',
+    "name_input": "#campaign-name",
+    "status_switch": ".campaign-header-status__toggle-container input[role=switch]",
+    "objective": 'input[type=radio][name="objective-selection"]',
+    "footer": "[data-js-wizard-container-footer-actions]",
+    "footer_disabled": "[data-js-wizard-container-footer-actions] button:disabled",
+    "targeting_edit": "[data-js-targeting-module__edit-facet-block-btn]",
+    "targeting_first_or": (
+        '[data-js-targeting-module__edit-facet-block-btn="includedOrs0"]'
+    ),
+    "targeting_or_blocks": "[data-live-test-facet-block-included-ors]",
+    "facet_search": "#facet-browser__search-input",
+    "location_search": 'input[id^="targeting-entities-typeahead__search-input-"]',
+    "save_audience": "#targeting-module-save-audience-button",
+    "create_menu": "#ma-header-actions-create-trigger",
+    "library_filter": "#sponsored-content-library__pill-filter-ORGANIC",
+    "library_rows": 'input[type=checkbox][id^="select-row-"][id$="-checkbox"]',
+}
+# The app shell's loader, by role and element only.
+_LOADER = '[role=progressbar], progress, [aria-busy="true"]'
+
+# Read only: an anchor rendered off screen is scrolled to, never focused,
+# clicked or typed into, so a dry run waiting here cannot trigger an autosave.
+_ANCHOR_JS = """(selector) => {
+    /* linkedin-mcp:cm-anchor */
+    const shown = [...document.querySelectorAll(selector)]
+        .filter((el) => el.getClientRects().length > 0);
+    if (shown.length === 0) return false;
+    const box = shown[0].getBoundingClientRect();
+    if (box.bottom < 0 || box.top > window.innerHeight) {
+        shown[0].scrollIntoView({ block: 'center' });
+    }
+    return true;
+}"""
+# Counts and visibility per anchor; no text, no values.
+_STRUCTURE_JS = """({ anchors, loader }) => {
+    /* linkedin-mcp:cm-anchor */
+    const visible = (el) => el.getClientRects().length > 0;
+    const out = {};
+    for (const [name, selector] of Object.entries(anchors)) {
+        const found = [...document.querySelectorAll(selector)];
+        out[name] = { count: found.length, visible: found.filter(visible).length };
+    }
+    return { anchors: out, loading: [...document.querySelectorAll(loader)].some(visible) };
+}"""
 # Save and exit is the footer button right before Next: after Previous on a
 # draft, alone on a launched campaign (observed 2026-11).
 _FOOTER_CANDIDATES = {True: 2, False: 1}
@@ -72,13 +138,21 @@ _FOOTER_JS = """(expected) => {
         candidates.length !== expected ||
         buttons[buttons.length - 2] !== target ||
         !next.matches('[data-live-test-wizard-container__button--next]') ||
-        target.disabled ||
         target.getClientRects().length === 0
     ) {
         return { count: candidates.length, clicked: false };
     }
+    if (target.disabled) return { count: candidates.length, clicked: false, disabled: true };
     target.click();
     return { count: candidates.length, clicked: true };
+}"""
+# The classic editor's footer. That editor never autosaves, also not a draft:
+# its fields reach LinkedIn only by the footer's Save and exit. Only the newer
+# editor (``icc`` in the app's code, its own footer) autosaves a draft's fields
+# (read from the app's bundle, 2026-11-17).
+_CLASSIC_FOOTER_JS = """() => {
+    /* linkedin-mcp:cm-footer */
+    return document.querySelectorAll('[data-js-wizard-container-footer-actions]').length;
 }"""
 
 
@@ -88,6 +162,99 @@ def _not_found(message: str) -> Refusal:
         f"{message} Nothing was changed. Pass the ad_account_id and campaign_id "
         "exactly as list_campaigns returned them.",
     )
+
+
+def footer_disabled_reason(
+    record: Mapping[str, Any], *, start_moved: bool = False
+) -> str:
+    """Why LinkedIn keeps an ad set's Save and exit disabled, as far as known.
+
+    The classic editor disables it while the ad set fails its own validation
+    (``isTriggerButtonDisabled`` in the app's bundle, 2026-11-18). The one cause
+    the record shows is a start date that has passed on a not yet started ad
+    set: LinkedIn shows that day as its UTC date and then wants it moved.
+    ``start_moved`` says the edit already moved it, so it is not the cause.
+    """
+    schedule = record.get("runSchedule")
+    start = schedule.get("start") if isinstance(schedule, Mapping) else None
+    passed = (
+        not start_moved
+        and record.get("status") == "DRAFT"
+        and isinstance(start, int)
+        and not isinstance(start, bool)
+        and ms_to_date(start) < datetime.now(UTC).date()
+    )
+    if passed:
+        return (
+            "LinkedIn will not save this ad set because its start date has "
+            "passed. Set a start date of today or later with update_campaign, "
+            "then try again."
+        )
+    return (
+        "LinkedIn will not save this ad set while one of its fields is "
+        "invalid, so its Save and exit button stayed disabled. Open the ad set "
+        "in Campaign Manager, correct the field it marks, then try again."
+    )
+
+
+def _request_shape(request: CmWriteRequest) -> dict[str, Any]:
+    """A write request's structure: field names and flags, never a value."""
+    shape: dict[str, Any] = {
+        "method": request.method,
+        "resource": request.call.resource,
+        "restli_method": request.restli_method,
+        "entity_id": request.call.entity_id is not None,
+    }
+    body = request.body if isinstance(request.body, dict) else None
+    patch = body.get("patch") if body is not None else None
+    if isinstance(patch, dict):
+        shape["patch_keys"] = sorted(key for key in patch if is_field_name(key))
+        updates = patch.get("$set")
+        if isinstance(updates, dict):
+            shape["set_keys"] = sorted(key for key in updates if is_field_name(key))
+    elif body is not None:
+        shape["body_keys"] = sorted(key for key in body if is_field_name(key))
+    return shape
+
+
+def record_write_window(
+    window: WriteWindow,
+    *,
+    saves: str,
+    step: str,
+    outcome: str,
+    inputs: Mapping[str, Any] | None = None,
+) -> None:
+    """Note what a stopped change's window let through and refused, value-free.
+
+    ``saves`` is how the editor saves (``autosave`` or ``save_and_exit``),
+    ``outcome`` what the wait ended on, ``inputs`` each planned input's
+    state by field: only its counts and flags are kept.
+    """
+    log = current_log()
+    if log is None:
+        return
+    summary: dict[str, Any] = {
+        "saves": saves,
+        "step": step,
+        "outcome": outcome,
+        "admitted": [_request_shape(request) for request in window.admitted],
+        "refused": [
+            {**_request_shape(request), "reason": reason}
+            for request, reason in window.refused
+        ],
+    }
+    if inputs:
+        summary["inputs"] = {
+            field: {
+                key: value
+                for key, value in state.items()
+                if isinstance(value, bool | int) and is_field_name(key)
+            }
+            for field, state in inputs.items()
+            if isinstance(state, dict)
+        }
+    log.add_write(summary)
 
 
 class WriteLedger:
@@ -162,10 +329,19 @@ class CampaignWriteFlow:
         self._session = session
         self._navigator = navigator
         self._pin: _RoutePin | None = None
+        # The page path an anchor wait last timed out on.
+        self._timed_out_on: str | None = None
+        # Whether the last unclicked Save and exit was there but disabled.
+        self.footer_disabled = False
 
     @asynccontextmanager
     async def capturing(self) -> AsyncIterator[CampaignManagerCapture]:
-        """One capture spanning the read, apply and verify phases."""
+        """One capture spanning the read, apply and verify phases.
+
+        Each tool call opens one, so a page that timed out in an earlier call
+        gets the full anchor wait again.
+        """
+        self._timed_out_on = None
         async with CampaignManagerCapture(self._session.page) as capture:
             yield capture
 
@@ -190,14 +366,14 @@ class CampaignWriteFlow:
         refused = _refusal(account, campaign)
 
         def is_campaign(response: CmResponse) -> bool:
-            record = normalized_record(response.payload)
+            record = envelope_record(response.payload)
             return (
                 response.ok
                 and response.call.resource == "campaignManagerCampaigns"
                 and response.call.finder is None
                 and response.call.entity_id == campaign
                 and record is not None
-                and record.get("id") == int(campaign)
+                and same_id(record.get("id"), campaign)
             )
 
         page = self._session.page
@@ -216,14 +392,16 @@ class CampaignWriteFlow:
                 lambda r: is_campaign(r) or refused(r) is not None,
                 after=after,
                 timeout=_READY_TIMEOUT,
+                wanted=("campaignManagerCampaigns",),
             )
             await capture.settle()
+        self._timed_out_on = None
         field = refused(response)
         if field is not None:
             return _not_found(
                 f"Campaign Manager refused that {field} (HTTP {response.status})."
             )
-        record = normalized_record(response.payload) or {}
+        record = envelope_record(response.payload) or {}
         if not isinstance(record.get("accountId"), int):
             raise LinkedInScraperException(
                 "Campaign Manager returned the ad set in a shape this tool does "
@@ -232,6 +410,46 @@ class CampaignWriteFlow:
         if record["accountId"] != int(account):
             return _not_found("That ad set does not belong to that ad account.")
         return record
+
+    async def wait_for_anchor(self, page: Any, selector: str) -> bool:
+        """Whether ``selector`` is attached and visible within ``_ANCHOR_TIMEOUT``.
+
+        Once a wait on a page (a path, until the next ``read_campaign``) has
+        timed out, later waits there only check once, so a page that never
+        renders costs the timeout once. A timeout records the page's anchor
+        structure for the failure notes. A page that navigates during the
+        wait is also False: the caller's own checks decide what that means.
+        """
+        path = urlparse(page.url).path
+        timeout = 1 if path == self._timed_out_on else _ANCHOR_TIMEOUT * 1000
+        try:
+            await page.wait_for_function(_ANCHOR_JS, arg=selector, timeout=timeout)
+        except PlaywrightTimeoutError:
+            self._timed_out_on = path
+            await self.record_page_structure(page)
+            return False
+        except PlaywrightError:
+            logger.debug("Anchor wait interrupted", exc_info=True)
+            return False
+        return True
+
+    async def record_page_structure(self, page: Any) -> None:
+        """Note which known anchors the page has, for the failure notes.
+
+        A diagnostic only: a page that navigates meanwhile is not recorded.
+        """
+        log = current_log()
+        try:
+            summary = await page.evaluate(
+                _STRUCTURE_JS, {"anchors": ANCHORS, "loader": _LOADER}
+            )
+        except PlaywrightError:
+            logger.debug("Page structure not recorded", exc_info=True)
+            return
+        if log is None or not isinstance(summary, dict):
+            logger.debug("Page structure not recorded: %s", summary)
+            return
+        log.add_page({"path": _DIGITS.sub("N", urlparse(page.url).path), **summary})
 
     @asynccontextmanager
     async def apply(
@@ -281,12 +499,22 @@ class CampaignWriteFlow:
 
         The footer must be the only one, hold exactly the buttons a draft or a
         launched campaign shows, and its last one must be enabled and visible.
+        Unclicked, the page's anchors are recorded and ``footer_disabled`` says
+        whether the button was there but disabled.
         """
         result = await page.evaluate(_FOOTER_JS, _FOOTER_CANDIDATES[draft])
         clicked = isinstance(result, dict) and result.get("clicked") is True
+        self.footer_disabled = (
+            isinstance(result, dict) and result.get("disabled") is True
+        )
         if not clicked:
             logger.debug("Save and exit not clicked: %s", result)
+            await self.record_page_structure(page)
         return clicked
+
+    async def saves_by_footer(self, page: Any) -> bool:
+        """Whether the page is the classic editor, which saves only by its footer."""
+        return await page.evaluate(_CLASSIC_FOOTER_JS) == 1
 
     async def wait_saved(
         self,

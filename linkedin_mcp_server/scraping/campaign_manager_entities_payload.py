@@ -18,7 +18,8 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 from linkedin_mcp_server.scraping.campaign_manager_payload import (
-    plain_elements,
+    envelope_elements,
+    included_by_urn,
 )
 from linkedin_mcp_server.scraping.identifiers import (
     normalize_company_page_url,
@@ -50,6 +51,8 @@ MAX_CSV_BYTES = 20 * 1024 * 1024
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _FORMULA_PREFIXES = ("=", "+", "-", "@")
+# The one status the app shows no size for (bundle AUDIENCE_STATUSES).
+_BUILDING = "BUILDING"
 
 
 class TargetingEntity(TypedDict):
@@ -72,18 +75,22 @@ class SponsorableContent(TypedDict):
 class MatchedAudience(TypedDict):
     """An uploaded or derived audience.
 
-    ``segmentUrn`` is built as ``urn:li:adSegment:<id>`` from the bundle's
-    segment naming; no account had a matched audience to confirm it live, so
-    treat it as unverified until a typeahead row returns the same URN.
+    ``id`` is the row's ``segmentId`` (live 2026-11-18). ``segmentUrn`` is
+    built as ``urn:li:adSegment:<id>`` from the bundle's segment naming; treat
+    it as unverified until a typeahead row returns the same URN. ``sourceId``
+    is the DMP segment behind it, the id a ``campaignManagerDmpSegments``
+    create answers with in ``x-restli-id``.
     """
 
     kind: Literal["matched_audience"]
     id: int
     segmentUrn: str
     name: str
+    segmentType: NotRequired[str]
     listType: NotRequired[str]
     source: NotRequired[str]
     status: NotRequired[str]
+    sourceId: NotRequired[int]
     audienceCount: NotRequired[int]
 
 
@@ -112,12 +119,12 @@ def _int(value: Any) -> int | None:
 
 
 def typeahead_entities(payload: Any) -> list[TargetingEntity] | None:
-    """Rows of a targeting typeahead answer (plain ``elements``).
+    """Rows of a targeting typeahead answer, in either envelope.
 
     A row without ``targetable`` is reported as not targetable, so a caller
     never selects what the app has not declared selectable.
     """
-    elements = plain_elements(payload)
+    elements = envelope_elements(payload)
     if elements is None:
         return None
     entities: list[TargetingEntity] = []
@@ -143,23 +150,18 @@ def typeahead_entities(payload: Any) -> list[TargetingEntity] | None:
 def content_library_entries(payload: Any) -> list[SponsorableContent] | None:
     """Entries of a content library answer, in the order the app lists them.
 
-    Each ``data.elements[].content["*sponsoredUpdateContent"]`` URN is resolved
+    Each element's ``content["*sponsoredUpdateContent"]`` URN is resolved
     against ``included``. ``sponsorable`` is the server's verdict only: the app
     also applies client-side checks (landing page, objective) that no payload
     carries.
     """
-    record = payload if isinstance(payload, dict) else None
-    data = record.get("data") if record is not None else None
-    elements = data.get("elements") if isinstance(data, dict) else None
-    if not isinstance(elements, list) or record is None:
+    elements = envelope_elements(payload)
+    if elements is None:
         return None
-    included: dict[str, dict[str, Any]] = {}
-    for entity in record.get("included") or []:
-        if isinstance(entity, dict) and isinstance(entity.get("entityUrn"), str):
-            included[entity["entityUrn"]] = entity
+    included = included_by_urn(payload)
     entries: list[SponsorableContent] = []
     for element in elements:
-        content = element.get("content") if isinstance(element, dict) else None
+        content = element.get("content")
         ref = (
             content.get("*sponsoredUpdateContent")
             if isinstance(content, dict)
@@ -201,13 +203,19 @@ def content_library_entries(payload: Any) -> list[SponsorableContent] | None:
 
 
 def matched_audiences(payload: Any) -> list[MatchedAudience] | None:
-    """Matched audiences of ``campaignManagerMatchedAudiences?q=account``."""
-    elements = plain_elements(payload)
+    """Matched audiences of ``campaignManagerMatchedAudiences?q=account``.
+
+    A row LinkedIn is still matching carries its ``status`` and may lack a
+    ``count``; it is reported without a size, never dropped. A ``BUILDING``
+    row's ``count`` is ignored: the app shows no size for it, and LinkedIn
+    serves 0 before matching.
+    """
+    elements = envelope_elements(payload)
     if elements is None:
         return None
     audiences: list[MatchedAudience] = []
     for element in elements:
-        audience_id = _int(element.get("id"))
+        audience_id = _int(element.get("segmentId"))
         name = _str(element.get("name"))
         if audience_id is None or name is None:
             return None
@@ -218,15 +226,19 @@ def matched_audiences(payload: Any) -> list[MatchedAudience] | None:
             "name": name,
         }
         for key, field in (
-            ("segmentType", "listType"),
-            ("maSegmentType", "source"),
-            ("maSegmentStatus", "status"),
+            ("segmentType", "segmentType"),
+            ("listAudienceType", "listType"),
+            ("sourcePlatform", "source"),
+            ("status", "status"),
         ):
             text = _str(element.get(key))
             if text is not None:
                 audience[field] = text  # type: ignore[literal-required]
-        count = _int(element.get("audienceCount"))
-        if count is not None:
+        source_id = _int(element.get("sourceId"))
+        if source_id is not None:
+            audience["sourceId"] = source_id
+        count = _int(element.get("count"))
+        if count is not None and audience.get("status") != _BUILDING:
             audience["audienceCount"] = count
         audiences.append(audience)
     return audiences
@@ -234,7 +246,7 @@ def matched_audiences(payload: Any) -> list[MatchedAudience] | None:
 
 def saved_audiences(payload: Any) -> list[SavedAudience] | None:
     """The account's own saved audiences; LinkedIn's templates are skipped."""
-    elements = plain_elements(payload)
+    elements = envelope_elements(payload)
     if elements is None:
         return None
     audiences: list[SavedAudience] = []
@@ -273,9 +285,12 @@ def render_audiences(audiences: Iterable[MatchedAudience | SavedAudience]) -> st
         size = f"{count} members" if count is not None else None
         head = f"{audience['name']} (id {audience['id']})"
         if audience["kind"] == "matched_audience":
+            if audience.get("status") == _BUILDING:
+                size = "not matched yet"
             lines.append(
                 _line(
                     head,
+                    audience.get("segmentType"),
                     audience.get("listType"),
                     audience.get("source"),
                     audience.get("status"),

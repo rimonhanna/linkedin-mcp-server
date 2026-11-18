@@ -37,7 +37,11 @@ from linkedin_mcp_server.scraping.campaign_manager import (
     _SETUP_PATH,
     _error,
     _page_limit,
-    _total,
+)
+from linkedin_mcp_server.response_structure import (
+    is_field_name,
+    params_shape,
+    skeleton,
 )
 from linkedin_mcp_server.scraping.campaign_manager_api import (
     CampaignManagerCapture,
@@ -49,6 +53,7 @@ from linkedin_mcp_server.scraping.campaign_manager_changes import (
     admit_list_upload,
     admit_saved_audience,
     refuse_invalid_audience_name,
+    saved_audience_omitted,
     targeting_keys,
 )
 from linkedin_mcp_server.scraping.campaign_manager_entities_payload import (
@@ -61,19 +66,24 @@ from linkedin_mcp_server.scraping.campaign_manager_entities_payload import (
     saved_audiences,
 )
 from linkedin_mcp_server.scraping.campaign_manager_guard import (
+    CmWriteRequest,
     WriteWindow,
     without_campaign_manager_writes,
 )
 from linkedin_mcp_server.scraping.campaign_manager_payload import (
     build_ad_account,
     build_campaign,
-    plain_elements,
+    envelope_elements,
+    envelope_total,
 )
 from linkedin_mcp_server.scraping.campaign_manager_results import (
     campaign_action_result,
     retry_safe_from,
 )
-from linkedin_mcp_server.scraping.campaign_manager_write import CampaignWriteFlow
+from linkedin_mcp_server.scraping.campaign_manager_write import (
+    ANCHORS,
+    CampaignWriteFlow,
+)
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
     normalize_ad_account_id,
@@ -91,6 +101,13 @@ _MATCHED_RESOURCE = "campaignManagerMatchedAudiences"
 _SAVED_RESOURCE = "campaignManagerTargetingCriteria"
 _SIGNED_URL_RESOURCE = "campaignManagerAmbrySignedUrl"
 _SEGMENT_RESOURCE = "campaignManagerDmpSegments"
+_LANGUAGE = "include_language"
+# The app leaves the profile language out of a saved audience unless the
+# account has LinkedIn's locale-saving flag, which the tool cannot see.
+_LANGUAGE_MAY_BE_OMITTED = (
+    "LinkedIn may save it without the profile-language targeting, which it "
+    "decides for this ad account; the result says so if it does. "
+)
 _REFUSED_STATUSES = frozenset({403, 404})
 _READY_TIMEOUT = 12.0
 _UI_TIMEOUT = 5.0
@@ -143,6 +160,14 @@ def _row_count(text: str) -> int:
 def _created_number(value: str | None) -> int | None:
     match = _CREATED_ID_RE.fullmatch(value or "")
     return int(match.group(1)) if match else None
+
+
+def _segment_id(payload: Any) -> int | None:
+    """The new audience's id where the upload dialog reads it: ``adSegmentId``."""
+    value = payload.get("adSegmentId") if isinstance(payload, Mapping) else None
+    if isinstance(value, bool):
+        return None
+    return _created_number(str(value)) if value is not None else None
 
 
 def _for_account(response: CmResponse, account_id: str) -> bool:
@@ -357,6 +382,7 @@ class CampaignAudiences:
                     lambda r: is_list(r) or refused(r),
                     after=after,
                     timeout=_READY_TIMEOUT,
+                    wanted=(_MATCHED_RESOURCE,),
                 )
             except LinkedInScraperException:
                 return None
@@ -389,6 +415,7 @@ class CampaignAudiences:
                     after=after,
                     timeout=_READY_TIMEOUT,
                     throttle=False,
+                    wanted=(_SAVED_RESOURCE,),
                 )
             except LinkedInScraperException:
                 return None
@@ -424,13 +451,13 @@ class CampaignAudiences:
                 )
                 continue
             audiences = parse(response.payload)
-            elements = plain_elements(response.payload)
+            elements = envelope_elements(response.payload)
             if audiences is None or elements is None:
                 raise _unverified(f"the {label}")
             result[name] = audiences
             if text := render_audiences(audiences):
                 result["sections"][name] = text
-            total = _total(response.payload)
+            total = envelope_total(response.payload)
             if total is not None and total > len(elements):
                 section_errors[name] = _page_limit(label, total, len(elements))
         if section_errors:
@@ -497,6 +524,7 @@ class CampaignAudiences:
                     target=target,
                     planned=planned,
                 )
+            await self._flow.wait_for_anchor(page, ANCHORS["create_menu"])
             async with without_campaign_manager_writes(page):
                 dialog = await _open_upload_dialog(page)
                 terms = await _upload_terms_url(dialog) if dialog else None
@@ -548,7 +576,7 @@ class CampaignAudiences:
             account_path = urlparse(campaign_manager_url(account)).path
             async with self._flow.apply(
                 page,
-                admit_list_upload(account_id=account, name=name),
+                admit_list_upload(account_id=account, name=name, file_name=file_name),
                 expected_path=lambda path: path.startswith(f"{account_path}/audiences"),
             ) as window:
                 after = capture.write_count
@@ -571,13 +599,14 @@ class CampaignAudiences:
             if outcome is not None:
                 return outcome
             assert response is not None
-            created = _created_number(response.created_id)
+            source_id = _created_number(response.created_id)
+            segment_id = _segment_id(response.payload)
             after_list = await self._reread(
                 lambda: self._load_matched(capture, account), matched_audiences
             )
 
-        found = _with_id(after_list, created)
-        if created is None or found is None:
+        found = _created_audience(after_list, segment_id, source_id)
+        if found is None:
             return campaign_action_result(
                 _LIST_TOOL,
                 url,
@@ -591,18 +620,25 @@ class CampaignAudiences:
                 planned=planned,
                 created_id=response.created_id,
             )
+        source = found.get("sourceId")
+        source_note = (
+            f", list source id {source}"
+            if source is not None and source != found["id"]
+            else ""
+        )
         return campaign_action_result(
             _LIST_TOOL,
             url,
             "audience_created",
-            f"Uploaded the company list audience {name!r} (id {created}); "
-            "LinkedIn matches it to companies over the next hours. The LinkedIn "
-            f"Ads Agreement ({terms}) was accepted for this ad account.",
+            f"Uploaded the company list audience {name!r} (id {found['id']}"
+            f"{source_note}); LinkedIn matches it to companies over the next "
+            f"hours. The LinkedIn Ads Agreement ({terms}) was accepted for this "
+            "ad account.",
             retry_safe=retry_safe_from(window),
             target=target,
             planned=planned,
             applied=found,
-            created_id=str(created),
+            created_id=str(found["id"]),
             refused=window.refused,
         )
 
@@ -655,6 +691,7 @@ class CampaignAudiences:
                     target=target,
                 )
             planned = {"name": name, "targeting": _targeting(keys)}
+            await self._flow.wait_for_anchor(page, ANCHORS["save_audience"])
             async with without_campaign_manager_writes(page):
                 dialog = await _open_save_dialog(page)
                 if dialog is False:
@@ -700,7 +737,12 @@ class CampaignAudiences:
                         "confirmation_required",
                         f"Ready to save this ad set's targeting "
                         f"({len(keys)} values) as the saved audience {name!r}. "
-                        "Call again with confirm_send true to save it.",
+                        + (
+                            _LANGUAGE_MAY_BE_OMITTED
+                            if any(key[0] == _LANGUAGE for key in keys)
+                            else ""
+                        )
+                        + "Call again with confirm_send true to save it.",
                         retry_safe=True,
                         target=target,
                         planned=planned,
@@ -748,12 +790,23 @@ class CampaignAudiences:
                 planned=planned,
                 created_id=response.created_id,
             )
-        return campaign_action_result(
+        omitted = saved_audience_omitted(response.body, keys)
+        if _LANGUAGE in omitted:
+            message = (
+                f"Saved the saved audience {name!r} (id {created}), but LinkedIn "
+                "saved it without this ad set's profile-language targeting, so "
+                "it reaches a broader audience than the ad set."
+            )
+        else:
+            message = (
+                f"Saved this ad set's targeting as the saved audience {name!r} "
+                f"(id {created})."
+            )
+        result = campaign_action_result(
             _SAVED_TOOL,
             url,
             "audience_created",
-            f"Saved this ad set's targeting as the saved audience {name!r} "
-            f"(id {created}).",
+            message,
             retry_safe=retry_safe_from(window),
             target=target,
             planned=planned,
@@ -761,6 +814,9 @@ class CampaignAudiences:
             created_id=str(created),
             refused=window.refused,
         )
+        if omitted:
+            result["omitted_sections"] = omitted
+        return result
 
     async def _saved_after_matched(
         self, capture: CampaignManagerCapture, account_id: str
@@ -783,6 +839,25 @@ class CampaignAudiences:
         return parse(response.payload) if response is not None else None
 
 
+def _created_audience(
+    audiences: Sequence[MatchedAudience] | None,
+    segment_id: int | None,
+    source_id: int | None,
+) -> MatchedAudience | None:
+    """The listed audience a list upload created, never matched by name.
+
+    The create answers with the DMP segment id in ``x-restli-id`` (the listed
+    row's ``sourceId``) and may carry ``adSegmentId`` (the row's ``segmentId``),
+    as the bundle's unarchive and list-create flows use them.
+    """
+    for audience in audiences or ():
+        if segment_id is not None and audience["id"] == segment_id:
+            return audience
+        if source_id is not None and audience.get("sourceId") == source_id:
+            return audience
+    return None
+
+
 def _with_id(
     audiences: Sequence[MatchedAudience | SavedAudience] | None, audience_id: int | None
 ) -> Any:
@@ -799,6 +874,29 @@ def _targeting(keys: Sequence[TargetingKey]) -> list[dict[str, str]]:
     ]
 
 
+def _request_structure(request: CmWriteRequest, reason: str) -> dict[str, Any]:
+    """A refused request without its values: what the next fix needs to see."""
+    segments = urlparse(request.url).path.split("/")
+    return {
+        "method": request.method,
+        "restli_method": request.restli_method,
+        "resource": request.call.resource,
+        "finder": request.call.finder,
+        "path": "/".join(s if is_field_name(s) else "{id}" for s in segments if s),
+        "params": params_shape(request.call.params),
+        "body": skeleton(request.body),
+        "reason": reason,
+    }
+
+
+def _with_structure(result: dict[str, Any], window: WriteWindow) -> dict[str, Any]:
+    if window.refused:
+        result["refused_structure"] = [
+            _request_structure(request, reason) for request, reason in window.refused
+        ]
+    return result
+
+
 def _write_outcome(
     tool: str,
     url: str,
@@ -810,17 +908,20 @@ def _write_outcome(
     """The result of a create that did not succeed; None when LinkedIn accepted it."""
     retry_safe = retry_safe_from(window)
     if response is None and window.refused:
-        return campaign_action_result(
-            tool,
-            url,
-            "change_blocked",
-            "Campaign Manager tried to send a change outside the plan, which "
-            "was stopped before it left the browser."
-            + ("" if retry_safe else " Part of the plan was already sent."),
-            retry_safe=retry_safe,
-            target=target,
-            planned=planned,
-            refused=window.refused,
+        return _with_structure(
+            campaign_action_result(
+                tool,
+                url,
+                "change_blocked",
+                "Campaign Manager tried to send a change outside the plan, which "
+                "was stopped before it left the browser."
+                + ("" if retry_safe else " Part of the plan was already sent."),
+                retry_safe=retry_safe,
+                target=target,
+                planned=planned,
+                refused=window.refused,
+            ),
+            window,
         )
     if response is None and retry_safe:
         return campaign_action_result(

@@ -54,15 +54,22 @@ PUBLIC_SIGNATURES = {
     "search_people": "(self, keywords: 'str | None' = None, location: 'str | None' = None, network: 'list[str] | None' = None, current_company: 'str | list[str] | None' = None, max_pages: 'int' = 1, *, title: 'str | None' = None, past_company: 'str | list[str] | None' = None, industry: 'str | list[str] | None' = None, school: 'str | None' = None, first_name: 'str | None' = None, last_name: 'str | None' = None, profile_language: 'str | list[str] | None' = None) -> 'dict[str, Any]'",
     "search_posts": "(self, keywords: 'str', date_posted: 'str | None' = None, max_posts: 'int' = 10, content_type: 'str | None' = None) -> 'dict[str, Any]'",
     "withdraw_invitations": "(self, older_than_days: 'int', *, exclude_usernames: 'list[str] | None' = None, max_withdrawals: 'int' = 20, dry_run: 'bool' = True, deadline: 'float | None' = None) -> 'dict[str, Any]'",
-    "update_campaign": "(self, account_id: 'str', campaign_id: 'str', *, daily_budget: 'str | None' = None, lifetime_budget: 'str | None' = None, start_date: 'date | None' = None, end_date: 'date | None' = None, confirm_send: 'bool') -> 'dict[str, Any]'",
+    "update_campaign": "(self, account_id: 'str', campaign_id: 'str', *, daily_budget: 'str | None' = None, lifetime_budget: 'str | None' = None, start_date: 'date | None' = None, end_date: 'date | None' = None, confirm_send: 'bool', political_ad: 'bool | None' = None) -> 'dict[str, Any]'",
     "set_campaign_status": "(self, account_id: 'str', campaign_id: 'str', *, status: 'str', confirm_send: 'bool') -> 'dict[str, Any]'",
     "search_targeting_entities": "(self, account_id: 'str', campaign_id: 'str', query: 'str') -> 'dict[str, Any]'",
-    "update_campaign_targeting": "(self, account_id: 'str', campaign_id: 'str', *, add: 'Sequence[TargetingAdd] | None' = None, remove: 'Sequence[str] | None' = None, confirm_send: 'bool', deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "update_campaign_targeting": "(self, account_id: 'str', campaign_id: 'str', *, add: 'Sequence[TargetingAdd] | None' = None, remove: 'Sequence[str] | None' = None, confirm_send: 'bool', deadline: 'float | None' = None, political_ad: 'bool | None' = None) -> 'dict[str, Any]'",
     "create_campaign_draft": "(self, account_id: 'str', campaign_group_id: 'str', *, objective: 'str', name: 'str', confirm_send: 'bool') -> 'dict[str, Any]'",
     "add_post_to_campaign": "(self, account_id: 'str', campaign_id: 'str', post_urn: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
     "list_audiences": "(self, account_id: 'str') -> 'dict[str, Any]'",
     "create_company_list_audience": "(self, account_id: 'str', name: 'str', companies: 'Sequence[Mapping[str, Any]]', *, confirm_send: 'bool') -> 'dict[str, Any]'",
     "create_saved_audience": "(self, account_id: 'str', campaign_id: 'str', name: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
+    "search_sales_navigator_accounts": "(self, *, keywords: 'str | None' = None, industry: 'Sequence[str] | None' = None, hq_location: 'Sequence[str] | None' = None, size: 'Sequence[str] | None' = None, headcount_growth_min: 'int | None' = None, headcount_growth_max: 'int | None' = None, page: 'int' = 1) -> 'dict[str, Any]'",
+    "search_sales_navigator_leads": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'",
+    "get_sales_navigator_account": "(self, company_id: 'str') -> 'dict[str, Any]'",
+    "list_sales_navigator_account_lists": "(self, page: 'int' = 1) -> 'dict[str, Any]'",
+    "get_sales_navigator_account_list": (
+        "(self, list_id: 'str', page: 'int' = 1) -> 'dict[str, Any]'"
+    ),
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
     "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
 }
@@ -103,6 +110,11 @@ DELEGATES = {
     "list_audiences": ("_audiences", "list_audiences"),
     "create_company_list_audience": ("_audiences", "create_company_list_audience"),
     "create_saved_audience": ("_audiences", "create_saved_audience"),
+    "search_sales_navigator_accounts": ("_sales_navigator", "search_accounts"),
+    "search_sales_navigator_leads": ("_sales_navigator", "search_leads"),
+    "get_sales_navigator_account": ("_sales_navigator", "get_account"),
+    "list_sales_navigator_account_lists": ("_sales_navigator", "list_account_lists"),
+    "get_sales_navigator_account_list": ("_sales_navigator", "get_account_list"),
 }
 
 DELEGATE_CALLS = {
@@ -132,15 +144,24 @@ DELEGATE_CALLS = {
     "send_message": "self._message_sender.send_message(linkedin_username, message, confirm_send=confirm_send, profile_urn=profile_urn)",
     "reply_to_conversation": "self._message_sender.reply_to_conversation(thread_id, message, confirm_send=confirm_send)",
     "withdraw_invitations": "self._connection.withdraw_invitations(older_than_days, exclude_usernames=exclude_usernames, max_withdrawals=max_withdrawals, dry_run=dry_run, deadline=deadline)",
-    "update_campaign": "self._campaign_editor.update_campaign(account_id, campaign_id, daily_budget=daily_budget, lifetime_budget=lifetime_budget, start_date=start_date, end_date=end_date, confirm_send=confirm_send)",
+    "update_campaign": "self._campaign_editor.update_campaign(account_id, campaign_id, daily_budget=daily_budget, lifetime_budget=lifetime_budget, start_date=start_date, end_date=end_date, confirm_send=confirm_send, political_ad=political_ad)",
     "set_campaign_status": "self._campaign_editor.set_campaign_status(account_id, campaign_id, status=status, confirm_send=confirm_send)",
     "search_targeting_entities": "self._campaign_targeting.search_targeting_entities(account_id, campaign_id, query)",
-    "update_campaign_targeting": "self._campaign_targeting.update_campaign_targeting(account_id, campaign_id, add=add, remove=remove, confirm_send=confirm_send, deadline=deadline)",
+    "update_campaign_targeting": "self._campaign_targeting.update_campaign_targeting(account_id, campaign_id, add=add, remove=remove, confirm_send=confirm_send, deadline=deadline, political_ad=political_ad)",
     "create_campaign_draft": "self._campaign_editor.create_campaign_draft(account_id, campaign_group_id, objective=objective, name=name, confirm_send=confirm_send)",
     "add_post_to_campaign": "self._campaign_content.add_post_to_campaign(account_id, campaign_id, post_urn, confirm_send=confirm_send)",
     "list_audiences": "self._audiences.list_audiences(account_id)",
     "create_company_list_audience": "self._audiences.create_company_list_audience(account_id, name, companies, confirm_send=confirm_send)",
     "create_saved_audience": "self._audiences.create_saved_audience(account_id, campaign_id, name, confirm_send=confirm_send)",
+    "search_sales_navigator_accounts": "self._sales_navigator.search_accounts(keywords=keywords, industry=industry, hq_location=hq_location, size=size, headcount_growth_min=headcount_growth_min, headcount_growth_max=headcount_growth_max, page=page)",
+    "search_sales_navigator_leads": "self._sales_navigator.search_leads(keywords=keywords, title=title, seniority=seniority, current_company=current_company, location=location, industry=industry, page=page)",
+    "get_sales_navigator_account": "self._sales_navigator.get_account(company_id)",
+    "list_sales_navigator_account_lists": (
+        "self._sales_navigator.list_account_lists(page)"
+    ),
+    "get_sales_navigator_account_list": (
+        "self._sales_navigator.get_account_list(list_id, page)"
+    ),
 }
 
 FACADE_STATE = {
@@ -159,6 +180,7 @@ FACADE_STATE = {
     "_message_sender",
     "_person",
     "_posts",
+    "_sales_navigator",
 }
 
 PERMANENT_ALIASES = {

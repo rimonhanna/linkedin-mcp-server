@@ -8,7 +8,7 @@ admission refuses never reaches the capture.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
@@ -19,6 +19,7 @@ import pytest
 
 from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 from linkedin_mcp_server.scraping import campaign_manager_editor as editor_module
+from linkedin_mcp_server.scraping import campaign_manager_political as political_module
 from linkedin_mcp_server.scraping import campaign_manager_write as write_module
 from linkedin_mcp_server.scraping.campaign_manager_editor import CampaignManagerEditor
 from linkedin_mcp_server.scraping.campaign_manager_write import CampaignWriteFlow
@@ -121,6 +122,8 @@ class _App:
         self.states: dict[str, str] = {}
         self.dialog_on_switch = False
         self.dialog = False
+        # The political-ad question: None absent, else how it answers.
+        self.political: Callable[[Any], Awaitable[dict]] | None = None
         self.group_write_on_setup = False
         self.on_blur: Callable[[str, str], dict | None] | None = None
         self.picks: list[dict | None] = []
@@ -130,6 +133,8 @@ class _App:
         self.typed: list[str] = []
         self.sent: list[tuple[str, str]] = []
         self.focused: str | None = None
+        # The classic editor saves a draft only by its footer.
+        self.classic = False
         page.url = DETAILS
         page.main_frame = SimpleNamespace(url=page.url)
         page.evaluate = AsyncMock(side_effect=self.evaluate)
@@ -139,13 +144,17 @@ class _App:
         )
         self.programs = {
             editor_module._INPUT_JS: "input",
+            editor_module._TYPED_JS: "typed",
             editor_module._BLUR_JS: "blur",
+            editor_module._INPUT_STATE_JS: "input_state",
+            write_module._CLASSIC_FOOTER_JS: "classic",
             editor_module._SWITCH_JS: "switch",
             editor_module._DIALOG_JS: "dialog",
             editor_module._OBJECTIVE_JS: "objective",
             editor_module._DATE_INPUT_JS: "date_input",
             editor_module._CALENDAR_JS: "calendar",
             write_module._FOOTER_JS: "footer",
+            political_module.POLITICAL_JS: "political",
         }
 
     def _move(self, url: str) -> None:
@@ -220,6 +229,12 @@ class _App:
             if arg["focus"] and state == "ready":
                 self.focused = arg["id"]
             return {"state": state}
+        if name == "typed":
+            return {"state": "typed" if self.typed[-1] == arg["text"] else "mismatch"}
+        if name == "input_state":
+            return {"count": 1, "attached": True, "focused": False, "empty": False}
+        if name == "classic":
+            return 1 if self.classic else 0
         if name == "blur":
             body = self.on_blur(arg, self.typed[-1]) if self.on_blur else None
             if body is not None:
@@ -246,6 +261,10 @@ class _App:
             return {"state": state}
         if name == "dialog":
             return self.dialog
+        if name == "political":
+            if self.political is None:
+                return {"state": "absent"}
+            return await self.political(arg)
         if name == "objective":
             ready = arg["value"] in self.objectives
             if arg["click"] and ready:
@@ -341,7 +360,8 @@ async def test_dry_run_verifies_and_plans_without_a_window_or_an_edit(mock_page)
     assert result["status"] == "confirmation_required"
     assert result["retry_safe"] is True
     assert result["planned"] == {
-        "dailyBudget": {"amount": "12.5", "currencyCode": "EUR"}
+        "dailyBudget": {"amount": "12.5", "currencyCode": "EUR"},
+        "politicalAdQuestion": "may",
     }
     assert result["target"]["id"] == int(CAMPAIGN)
     mock_page.keyboard.insert_text.assert_not_awaited()

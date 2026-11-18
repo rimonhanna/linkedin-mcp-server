@@ -1,0 +1,103 @@
+{
+  "call": {
+    "arguments": {},
+    "method": "list_sales_navigator_account_lists"
+  },
+  "events": [
+    {
+      "call": "list_sales_navigator_account_lists",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "no_seat"
+    },
+    {
+      "call": "list_sales_navigator_account_lists",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "no_seat"
+    },
+    {
+      "call": "list_sales_navigator_account_lists",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/lists/company",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "no_seat"
+    },
+    {
+      "call": "list_sales_navigator_account_lists",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/premium/products/?from=x",
+      "requested_url": "https://www.linkedin.com/sales/lists/company",
+      "section": "no_seat",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "list_sales_navigator_account_lists",
+      "kind": "wait_for_load_state",
+      "section": "no_seat",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "list_sales_navigator_account_lists",
+      "description": "goto https://www.linkedin.com/sales/lists/company",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "no_seat"
+    },
+    {
+      "call": "list_sales_navigator_account_lists",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/lists/company",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "no_seat"
+    },
+    {
+      "call": "list_sales_navigator_account_lists",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "no_seat"
+    },
+    {
+      "call": "list_sales_navigator_account_lists",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "no_seat"
+    },
+    {
+      "call": "list_sales_navigator_account_lists",
+      "kind": "boundary.rate_limit",
+      "section": "no_seat"
+    },
+    {
+      "call": "list_sales_navigator_account_lists",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "no_seat"
+    },
+    {
+      "call": "list_sales_navigator_account_lists",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "no_seat"
+    }
+  ],
+  "result": {
+    "message": "Sales Navigator did not open (LinkedIn showed /premium/products/). This account may have no Sales Navigator seat, or needs a contract chosen in the browser.",
+    "raised": "LinkedInScraperException"
+  },
+  "scenario": "list_sales_navigator_account_lists__no_seat",
+  "schema_version": 1
+}
