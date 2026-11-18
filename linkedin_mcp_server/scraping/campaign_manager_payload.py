@@ -27,7 +27,6 @@ from linkedin_mcp_server.scraping.restli import (
     included_by_urn as included_by_urn,
     iso_from_ms as _iso_from_ms,
     normalized_elements as normalized_elements,
-    normalized_record as normalized_record,
     plain_elements as plain_elements,
     restli_list as restli_list,
     same_id as same_id,

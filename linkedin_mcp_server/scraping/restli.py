@@ -77,20 +77,6 @@ def plain_elements(payload: Any) -> list[dict[str, Any]] | None:
     return [item for item in elements if isinstance(item, dict)]
 
 
-def paging_total(payload: Any) -> int | None:
-    """``paging.total`` of a plain Rest.li collection."""
-    record = as_mapping(payload)
-    paging = as_mapping(record.get("paging")) if record is not None else None
-    return as_int(paging.get("total")) if paging is not None else None
-
-
-def normalized_record(payload: Any) -> dict[str, Any] | None:
-    record = as_mapping(payload)
-    if record is None:
-        return None
-    return as_mapping(record.get("data"))
-
-
 def included_by_urn(payload: Any) -> dict[str, dict[str, Any]]:
     """The ``included`` entities of a normalized payload, by ``entityUrn``."""
     record = as_mapping(payload)

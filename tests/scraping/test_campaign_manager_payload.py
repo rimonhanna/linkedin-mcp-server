@@ -13,7 +13,6 @@ from linkedin_mcp_server.scraping.campaign_manager_payload import (
     format_restli_date_range,
     merge_by_id,
     normalized_elements,
-    normalized_record,
     parse_cm_call,
     plain_elements,
     render_accounts,
@@ -100,8 +99,6 @@ def test_plain_envelope():
 
 
 def test_normalized_envelopes():
-    assert normalized_record({"data": {"id": 1}, "included": []}) == {"id": 1}
-    assert normalized_record({"data": []}) is None
     refs = {
         "data": {"elements": ["urn:li:c:1", {"id": 2}]},
         "included": [{"entityUrn": "urn:li:c:1", "id": 1}],

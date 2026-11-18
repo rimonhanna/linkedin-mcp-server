@@ -2,8 +2,8 @@
 
 The page scopes its ``q=statistics`` queries by id lists, not ``accountIds``:
 campaign groups by ``campaignGroupIds`` with only the cost projected, campaigns
-by chunked ``campaignIds`` pivoted by campaign and objective type. A personal
-boost account's reporting is only on the boost manager, as a plain GET.
+by chunked ``campaignIds`` pivoted by campaign and objective type. Campaign
+Manager shows no reporting for a personal boost account made since 2024.
 """
 
 from __future__ import annotations
@@ -38,7 +38,6 @@ from scraping.test_campaign_manager import (
     _url,
 )
 
-BOOST_PATH = "/campaignmanager/boost/boostaccounts/"
 FIRST = 100000301
 GROUP_FIELDS = "baseMetrics:(costInLocalCurrency),pivotValues"
 CAMPAIGN_FIELDS = (
@@ -351,66 +350,28 @@ def _boost_record() -> SimpleNamespace:
                 "type": "PERSONAL",
                 "status": "ACTIVE",
                 "currencyCode": "EUR",
+                "reference": "urn:li:member:100000099",
+                "createdAt": 1_735_689_600_000,
             },
             "included": [],
         },
     )
 
 
-def _boost_statistics(rows: list[dict[str, Any]]) -> SimpleNamespace:
-    return _response(
-        "campaignManagerAdAnalytics?q=statistics&pivots=List(CAMPAIGN)"
-        f"&timeGranularity=ALL&dateRange={CURRENT}&accountIds=List({ACCOUNT})"
-        "&fields=baseMetrics:(impressions,clicks,costInLocalCurrency),"
-        "objectiveMetrics:(keyResults),pivotValues",
-        {"elements": rows, "paging": {"count": 10, "links": [], "start": 0}},
-    )
-
-
-async def test_boost_account_is_read_from_the_boost_manager(mock_page):
-    browser = _Browser(mock_page)
-    url = _url("/campaigns")
-    browser.loads[url] = [_boost_record()]
-    browser.routes[BOOST_PATH] = [
-        _boost_statistics(
-            [
-                {
-                    "pivotValues": [{"id": f"urn:li:sponsoredCampaign:{FIRST}"}],
-                    "baseMetrics": {"impressions": 9, "clicks": 2},
-                    "objectiveMetrics": {"keyResults": 3},
-                }
-            ]
-        )
-    ]
-
-    with patch.object(api_module, "note_throttle_signal") as signal:
-        result = await _run(
-            mock_page,
-            browser,
-            lambda r: r.get_campaign_analytics(
-                ACCOUNT, demographics=["MEMBER_JOB_FUNCTION"]
-            ),
-        )
-
-    signal.assert_not_called()
-    assert browser.charged[-1].endswith(BOOST_PATH)
-    assert browser.navigated == [url]
-    assert result["url"].endswith(BOOST_PATH)
-    (row,) = result["analytics"]["rows"]
-    assert row["keyResults"] == 3
-    assert result["analytics"]["currencyCode"] == "EUR"
-    error = result["section_errors"]["demographics_MEMBER_JOB_FUNCTION"]
-    assert "boost account" in error["error_message"]
-
-
-async def test_boost_account_without_reporting_names_the_boost_account(mock_page):
+async def test_boost_account_without_reporting_says_where_its_results_are(mock_page):
     browser = _Browser(mock_page)
     browser.loads[_url("/campaigns")] = [_boost_record()]
 
-    with pytest.raises(LinkedInScraperException, match="personal boost account"):
+    with (
+        patch.object(api_module, "note_throttle_signal") as signal,
+        pytest.raises(LinkedInScraperException, match="personal boost account") as exc,
+    ):
         await _run(mock_page, browser, lambda r: r.get_campaign_analytics(ACCOUNT))
 
-    assert [path for path in browser.charged if path.endswith(BOOST_PATH)] != []
+    signal.assert_not_called()
+    assert "post's own analytics" in str(exc.value)
+    assert browser.navigated == [_url("/campaigns")]
+    assert browser.charged == []
 
 
 def _demographic(scope: str, rows: list[dict[str, Any]]) -> SimpleNamespace:
