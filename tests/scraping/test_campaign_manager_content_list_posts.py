@@ -6,7 +6,10 @@ from typing import Any
 
 import pytest
 
-from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+from linkedin_mcp_server.core.exceptions import (
+    InvalidReferenceError,
+    LinkedInScraperException,
+)
 from linkedin_mcp_server.scraping.campaign_manager_content import (
     CampaignContentEditor,
 )
@@ -47,18 +50,24 @@ def _library(*, count: int = 100, total: int | None = None) -> dict[str, Any]:
 
 
 class _ListApp(_App):
-    def __init__(self, page: Any, payload: dict[str, Any], count: int = 100) -> None:
+    def __init__(
+        self, page: Any, payload: dict[str, Any], count: int | None = 100
+    ) -> None:
         super().__init__(page)
         self.payload = payload
         self.page_size = count
+        # A write the app tries while the library loads.
+        self.write_on_load = False
 
     async def evaluate(self, script: str, arg: Any = None) -> Any:
         if "linkedin-mcp:cm-route" not in script:
             return await super().evaluate(script, arg)
         self.navigated.append(arg)
         self.page.url = "https://www.linkedin.com" + arg
-        path = f"{LIBRARY_PATH}&count={self.page_size}&start=0"
-        _emit(self.page, [_response(path, self.payload)])
+        if self.write_on_load:
+            await self.send("campaignManagerCreatives", {"name": "x"}, "create")
+        size = f"&count={self.page_size}" if self.page_size is not None else ""
+        _emit(self.page, [_response(f"{LIBRARY_PATH}{size}&start=0", self.payload)])
         return True
 
 
@@ -127,3 +136,63 @@ def test_a_long_excerpt_is_shortened_to_one_line():
     assert entry["excerpt"].startswith("First line word")
     assert entry["excerpt"].endswith("...")
     assert len(entry["excerpt"]) <= 160
+
+
+async def test_without_a_count_param_the_answer_page_size_decides(mock_page):
+    # paging.count 2 and two posts listed: a full page, so more may exist.
+    app = _ListApp(mock_page, _library(count=2), count=None)
+
+    result = await _list(mock_page, app)
+
+    error = result["section_errors"]["sponsorable_posts"]
+    assert "full first page of 2" in error["error_message"]
+
+
+async def test_a_short_page_by_the_answer_page_size_is_complete(mock_page):
+    app = _ListApp(mock_page, _library(count=10), count=None)
+
+    result = await _list(mock_page, app)
+
+    assert "section_errors" not in result
+
+
+async def test_no_total_and_no_page_size_is_never_called_complete(mock_page):
+    payload = _library()
+    del payload["data"]["paging"]
+    app = _ListApp(mock_page, payload, count=None)
+
+    result = await _list(mock_page, app)
+
+    error = result["section_errors"]["sponsorable_posts"]
+    assert error["error_type"] == "page_limit"
+    assert "without saying how many" in error["error_message"]
+
+
+async def test_a_write_the_app_tries_while_the_library_loads_is_aborted(mock_page):
+    app = _ListApp(mock_page, _library())
+    app.write_on_load = True
+
+    result = await _list(mock_page, app)
+
+    assert app.sent == ["abort"]
+    assert [post["urn"] for post in result["sponsorable_posts"]] == [POST, OTHER]
+
+
+async def test_an_ad_set_campaign_manager_refuses_is_a_bad_reference(mock_page):
+    app = _ListApp(mock_page, _library())
+    app.page.url = "https://example.invalid/"
+    app.navigate = _setup_redirect(app)  # type: ignore[method-assign]
+
+    with pytest.raises(InvalidReferenceError, match="setup page"):
+        await _list(mock_page, app)
+
+
+def _setup_redirect(app: _App) -> Any:
+    async def navigate(url: str) -> None:
+        app.navigated.append(url)
+        app.page.url = (
+            f"https://www.linkedin.com/campaignmanager/accounts/{ACCOUNT}"
+            "/campaigns/new/setup"
+        )
+
+    return navigate

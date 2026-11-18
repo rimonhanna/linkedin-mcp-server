@@ -196,6 +196,8 @@ class _App:
             return True
         if "linkedin-mcp:cm-content-pill" in script:
             return self.pill
+        if "linkedin-mcp:cm-anchor" in script:
+            return {"anchors": {}, "loading": False}
         if "linkedin-mcp:cm-content-rows" in script:
             return self._state()
         if "linkedin-mcp:cm-content-click" in script:

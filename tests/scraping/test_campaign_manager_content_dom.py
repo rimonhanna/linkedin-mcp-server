@@ -127,9 +127,13 @@ async def _clicks(page: Any) -> list[str]:
     return (await page.evaluate("document.body.dataset.clicks || ''")).split()
 
 
+def _ids(count: int) -> list[str]:
+    return [f"select-row-{i}-checkbox" for i in range(count)]
+
+
 async def _add(page: Any, index: int, count: int) -> list[str]:
-    if await click_library(page, "row", index, count):
-        await click_library(page, "add", index, count)
+    if await click_library(page, "row", index, _ids(count)):
+        await click_library(page, "add", index, _ids(count))
     return await _clicks(page)
 
 
@@ -200,9 +204,9 @@ async def test_no_click_when_the_rows_differ_from_the_plan(page, rows, count):
 async def test_add_is_not_clicked_unless_exactly_the_row_is_checked(page):
     await _load(page, _rows(2) + _actions("en"))
 
-    assert await click_library(page, "add", 1, 2) is False
-    assert await click_library(page, "row", 0, 2) is True
-    assert await click_library(page, "add", 1, 2) is False
+    assert await click_library(page, "add", 1, _ids(2)) is False
+    assert await click_library(page, "row", 0, _ids(2)) is True
+    assert await click_library(page, "add", 1, _ids(2)) is False
     assert await _clicks(page) == ["row-0"]
 
 

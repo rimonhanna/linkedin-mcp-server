@@ -1,9 +1,13 @@
 """Add an existing company post to a Campaign Manager ad set as an ad.
 
-The post is found in the ad set's content library by URN: row ``i`` of the
-library table is element ``i`` of the app's own
+The post is found in the ad set's content library by URN in the app's own
 ``campaignManagerContentLibraryEntities?q=organicCompanyContent`` answer, and
-eligibility is that answer's verdict. The add button is located by structure,
+eligibility is that answer's verdict. Its table row is tied to it by the row
+checkbox id: the table is keyed by ``urn`` (bundle ``@rowIdKey``), so a row id
+naming the post is exact. The table shows a filtered, paged copy of the answer
+(posts already in the ad set dropped, 5 per page), so a row position is taken
+as the answer's position only for index-keyed ids on one page holding exactly
+the answer's posts. The add button is located by structure,
 relative to the library's "Remove from library" control: it is the one visible
 button after that control and outside it, and the control itself never matches.
 A click that hit anything else still writes nothing, because the write window
@@ -15,14 +19,19 @@ AGENTS.md Scraping Rules nothing here reads visible text.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 from urllib.parse import urlparse
 
 import asyncio
 import logging
+import re
 
-from linkedin_mcp_server.core.exceptions import LinkedInScraperException
+from linkedin_mcp_server.core.exceptions import (
+    InvalidReferenceError,
+    LinkedInScraperException,
+)
 from linkedin_mcp_server.scraping.campaign_manager import (
     _LINKEDIN,
     _ROUTE_SCRIPT,
@@ -62,6 +71,7 @@ from linkedin_mcp_server.scraping.campaign_manager_write import (
     ANCHORS,
     CampaignWriteFlow,
 )
+from linkedin_mcp_server.scraping.restli import as_int, envelope_paging
 from linkedin_mcp_server.scraping.identifiers import (
     campaign_manager_url,
     normalize_ad_account_id,
@@ -84,6 +94,10 @@ _CREATIVES_WAIT = 8.0
 _ROWS_POLL_SECONDS = 0.25
 _ROWS_POLLS = 20
 _TARGET_KEYS = ("kind", "uiLabel", "id", "accountId", "name", "status")
+# The library table's page size (bundle ``@pageSize``).
+_TABLE_PAGE_SIZE = 5
+_URN_ROW = re.compile(r"select-row-urn:li:[A-Za-z]+:[0-9]+-checkbox")
+_INDEX_ROW = re.compile(r"select-row-[0-9]+-checkbox")
 _CREATIVE_URN = "urn:li:sponsoredCreative:"
 
 # Shared by both programs: the rows in id order, and the add button found
@@ -132,21 +146,22 @@ _ROWS_JS = (
 }"""
 )
 
-# One program per click, each re-checking the whole layout first: ``row``
-# checks box ``index`` while no box is checked and the add button is disabled;
+# One program per click, each re-checking the whole layout first (the same
+# row ids in the same order): ``row`` checks box ``index`` while no box is
+# checked and the add button is disabled;
 # ``add`` clicks the add button only while exactly that box is checked.
 _CLICK_JS = (
-    """([step, index, count]) => {
+    """([step, index, ids]) => {
     /* linkedin-mcp:cm-content-click */"""
     + _LIBRARY_HELPERS
     + """
     const boxes = rowBoxes();
     const add = addButton();
-    const ordered = boxes.every((b, i) => b.id === `select-row-${i}-checkbox`);
+    const same = boxes.length === ids.length &&
+        boxes.every((b, i) => b.id === ids[i]);
     const box = boxes[index];
     const others = boxes.filter((b, i) => i !== index && b.checked);
-    if (boxes.length !== count || !ordered || !box || box.disabled ||
-            add === null || others.length !== 0) {
+    if (!same || !box || box.disabled || add === null || others.length !== 0) {
         return { clicked: false, state: snapshot() };
     }
     if (step === 'row') {
@@ -182,9 +197,10 @@ async def library_rows(page: Any) -> dict[str, Any] | None:
     return result if isinstance(result, dict) else None
 
 
-async def click_library(page: Any, step: str, index: int, count: int) -> bool:
-    """Check row ``index`` (``step="row"``) or click the add button (``"add"``)."""
-    result = await page.evaluate(_CLICK_JS, [step, index, count])
+async def click_library(page: Any, step: str, index: int, ids: Sequence[str]) -> bool:
+    """Check row ``index`` (``step="row"``) or click the add button (``"add"``),
+    only while the table still shows rows ``ids``."""
+    result = await page.evaluate(_CLICK_JS, [step, index, list(ids)])
     clicked = isinstance(result, dict) and result.get("clicked") is True
     if not clicked:
         logger.debug("Content library %s not clicked: %s", step, result)
@@ -202,17 +218,55 @@ async def select_organic(page: Any) -> str | None:
     return "clicked" if result.get("clicked") is True else None
 
 
-def _rows_in_order(state: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+def _rendered(state: dict[str, Any] | None) -> list[dict[str, Any]] | None:
     rows: Any = state.get("rows") if state is not None else None
     if not isinstance(rows, list):
         return None
-    ordered = [cast("dict[str, Any]", row) for row in rows if isinstance(row, dict)]
-    if len(ordered) != len(rows) or any(
-        row.get("id") != f"select-row-{index}-checkbox"
-        for index, row in enumerate(ordered)
-    ):
+    found = [cast("dict[str, Any]", row) for row in rows if isinstance(row, dict)]
+    if len(found) != len(rows) or not all(isinstance(r.get("id"), str) for r in found):
         return None
-    return ordered
+    return found
+
+
+def _row_id(key: str | int) -> str:
+    return f"select-row-{key}-checkbox"
+
+
+def locate_row(
+    rows: Sequence[Mapping[str, Any]], post: str, index: int, count: int
+) -> int | None:
+    """The rendered row of ``post``, or None when no row is provably its own.
+
+    A row id keyed by the post's URN is exact. Index-keyed ids name the post's
+    answer position only when the table shows the whole answer on one page.
+    """
+    ids = [row.get("id") for row in rows]
+    own = _row_id(post)
+    if own in ids:
+        return ids.index(own) if ids.count(own) == 1 else None
+    if (
+        len(ids) == count
+        and count <= _TABLE_PAGE_SIZE
+        and ids == [_row_id(i) for i in range(count)]
+    ):
+        return index
+    return None
+
+
+def _row_kinds(rows: Sequence[Mapping[str, Any]], post: str) -> list[str]:
+    """How each row id is keyed, value-free, for the failure notes."""
+    kinds = []
+    for row in rows:
+        row_id = str(row.get("id"))
+        if row_id == _row_id(post):
+            kinds.append("this post")
+        elif _URN_ROW.fullmatch(row_id):
+            kinds.append("urn")
+        elif _INDEX_ROW.fullmatch(row_id):
+            kinds.append("index")
+        else:
+            kinds.append("other")
+    return kinds
 
 
 _LIBRARY = ("campaignManagerContentLibraryEntities",)
@@ -229,12 +283,56 @@ def _is_library(response: CmResponse) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class _Row:
+    # The post's position in the library answer.
     index: int
     entry: SponsorableContent
-    # Rows the table showed, re-checked before every click.
+    # Posts in the library answer.
     count: int
     # Where this tool's library answers start in the capture.
     after: int
+    # The post's rendered row, and the row ids re-checked before every click.
+    position: int
+    ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _Library:
+    # The answer the table renders, its posts, and where this load's answers
+    # start in the capture.
+    response: CmResponse
+    entries: list[SponsorableContent]
+    after: int
+
+
+def _truncation(response: CmResponse, listed: int) -> str | None:
+    """Why ``listed`` posts may not be the whole library; None when provably whole.
+
+    The page size is the request's ``count``, else the answer's
+    ``paging.count``. Without a total or a page size nothing proves the page
+    complete.
+    """
+    total = envelope_total(response.payload)
+    if total is not None:
+        if total <= listed:
+            return None
+        return (
+            f"Campaign Manager reported {total} company posts and returned "
+            f"{listed} on its first page; the rest were not read."
+        )
+    requested = response.call.params.get("count", "")
+    paging = envelope_paging(response.payload) or {}
+    page_size = int(requested) if requested.isdigit() else as_int(paging.get("count"))
+    if page_size is not None and listed < page_size:
+        return None
+    if page_size is not None:
+        return (
+            f"Campaign Manager returned a full first page of {listed} company "
+            "posts; more may exist and were not read."
+        )
+    return (
+        f"Campaign Manager returned {listed} company posts without saying how "
+        "many there are or its page size; more may exist and were not read."
+    )
 
 
 def _creative_id(value: str | None) -> str | None:
@@ -324,7 +422,7 @@ class CampaignContentEditor:
                     planned=planned,
                 )
             answer, window = await self._add(
-                capture, page, campaign, post, index, count
+                capture, page, campaign, post, found.position, found.ids
             )
             retry_safe = retry_safe_from(window)
             common: dict[str, Any] = {
@@ -421,12 +519,12 @@ class CampaignContentEditor:
         async with self._flow.capturing() as capture:
             record = await self._flow.read_campaign(capture, account, campaign)
             if isinstance(record, tuple):
-                raise LinkedInScraperException(record[1])
+                raise InvalidReferenceError(record[1])
             async with without_campaign_manager_writes(self._session.page):
                 loaded = await self._load_library(capture, library_path)
-            if len(loaded) == 2:
+            if not isinstance(loaded, _Library):
                 raise LinkedInScraperException(loaded[1])
-            response, entries, _after = loaded
+            response, entries = loaded.response, loaded.entries
 
         built = build_campaign(record) or {}
         result: dict[str, Any] = {
@@ -437,20 +535,7 @@ class CampaignContentEditor:
         }
         if text := render_sponsorable_posts(entries):
             result["sections"]["sponsorable_posts"] = text
-        total = envelope_total(response.payload)
-        page_size = response.call.params.get("count", "")
-        if total is not None and total > len(entries):
-            message = (
-                f"Campaign Manager reported {total} company posts and returned "
-                f"{len(entries)} on its first page; the rest were not read."
-            )
-        elif total is None and page_size.isdigit() and len(entries) >= int(page_size):
-            message = (
-                f"Campaign Manager returned a full first page of {len(entries)} "
-                "company posts; more may exist and were not read."
-            )
-        else:
-            message = None
+        message = _truncation(response, len(entries))
         if message is not None:
             result["section_errors"] = {
                 "sponsorable_posts": _error("page_limit", message)
@@ -459,7 +544,7 @@ class CampaignContentEditor:
 
     async def _load_library(
         self, capture: CampaignManagerCapture, library_path: str
-    ) -> tuple[CmResponse, list[SponsorableContent], int] | tuple[str, str]:
+    ) -> _Library | tuple[str, str]:
         """Open the ad set's content library on its company posts filter.
 
         Returns the answer the table renders, its entries and where this
@@ -502,7 +587,7 @@ class CampaignContentEditor:
                 "Campaign Manager returned the content library in a shape this "
                 "tool does not recognise.",
             )
-        return response, entries, after
+        return _Library(response, entries, after)
 
     async def _find_post(
         self, capture: CampaignManagerCapture, library_path: str, post: str
@@ -515,10 +600,10 @@ class CampaignContentEditor:
         planned: dict[str, Any] = {"postUrn": post}
         async with without_campaign_manager_writes(page):
             loaded = await self._load_library(capture, library_path)
-            if len(loaded) == 2:
+            if not isinstance(loaded, _Library):
                 status, message = loaded
                 return status, f"{message} Nothing was changed.", planned
-            response, entries, after = loaded
+            response, entries, after = loaded.response, loaded.entries, loaded.after
             index = next(
                 (i for i, entry in enumerate(entries) if entry["urn"] == post), None
             )
@@ -547,23 +632,24 @@ class CampaignContentEditor:
                     {**planned, "reasons": list(entry["nonSponsorableReasons"])},
                 )
             await self._flow.wait_for_anchor(page, ANCHORS["library_rows"])
-            rows = await self._rendered_rows(page, len(entries))
-            if rows is None:
+            located = await self._rendered_row(page, post, index, len(entries))
+            if located is None:
                 return (
                     "control_unavailable",
-                    f"The content library shows a different number of rows "
-                    f"than the {len(entries)} posts Campaign Manager sent. "
-                    "Nothing was changed.",
+                    "The content library did not show a row this tool could "
+                    "tie to the post. Nothing was changed.",
                     planned,
                 )
-            if rows[index].get("disabled") is True:
+            rows, position = located
+            if rows[position].get("disabled") is True:
                 return (
                     "post_not_sponsorable",
                     "Campaign Manager does not allow this post for this "
                     "campaign's objective or format. Nothing was changed.",
                     {**planned, "reasons": []},
                 )
-            return _Row(index, entry, len(entries), after)
+            ids = tuple(str(row["id"]) for row in rows)
+            return _Row(index, entry, len(entries), after, position, ids)
 
     async def _organic_pill(self, page: Any) -> str | None:
         for attempt in range(_ROWS_POLLS):
@@ -573,26 +659,39 @@ class CampaignContentEditor:
             await asyncio.sleep(_ROWS_POLL_SECONDS)
         return None
 
-    async def _rendered_rows(
-        self, page: Any, count: int
-    ) -> list[dict[str, Any]] | None:
-        """The rows once the table shows ``count`` of them, unselected, with
-        a disabled add button; None for any other layout."""
+    async def _rendered_row(
+        self, page: Any, post: str, index: int, count: int
+    ) -> tuple[list[dict[str, Any]], int] | None:
+        """The rendered rows and the post's row among them, once the table
+        settles unselected with a disabled add button; None after the bound,
+        with the table's structure recorded for the failure notes."""
+        rows: list[dict[str, Any]] | None = None
+        add: Any = None
         for attempt in range(_ROWS_POLLS):
             state = await library_rows(page)
-            rows = _rows_in_order(state)
+            rows = _rendered(state)
             add = state.get("add") if state is not None else None
+            position = locate_row(rows, post, index, count) if rows else None
             if (
                 rows is not None
-                and len(rows) == count
+                and position is not None
                 and isinstance(add, dict)
                 and add.get("disabled") is True
                 and not any(row.get("checked") for row in rows)
             ):
-                return rows
+                return rows, position
             if attempt + 1 < _ROWS_POLLS:
                 await asyncio.sleep(_ROWS_POLL_SECONDS)
-        logger.debug("Content library rows never matched %d entries", count)
+        await self._flow.record_page_structure(
+            page,
+            library_rows={
+                "answer_posts": count,
+                "rows": len(rows) if rows is not None else None,
+                "row_ids": _row_kinds(rows or [], post),
+                "checked": sum(1 for row in rows or [] if row.get("checked")),
+                "add": add if isinstance(add, dict) else None,
+            },
+        )
         return None
 
     async def _add(
@@ -601,8 +700,8 @@ class CampaignContentEditor:
         page: Any,
         campaign: str,
         post: str,
-        index: int,
-        count: int,
+        position: int,
+        ids: Sequence[str],
     ) -> tuple[CmWriteResponse | None, WriteWindow]:
         """Check the row and click add inside a window admitting one create."""
         admitted: list[WriteRequest] = []
@@ -629,8 +728,8 @@ class CampaignContentEditor:
         async with self._flow.apply(
             page, admit, expected_path=lambda path: path.startswith(prefix)
         ) as window:
-            if await click_library(page, "row", index, count) and await click_library(
-                page, "add", index, count
+            if await click_library(page, "row", position, ids) and await click_library(
+                page, "add", position, ids
             ):
                 answer = await self._flow.wait_saved(
                     capture, is_create, after, timeout=_SAVE_TIMEOUT

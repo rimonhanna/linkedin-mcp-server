@@ -433,10 +433,11 @@ class CampaignWriteFlow:
             return False
         return True
 
-    async def record_page_structure(self, page: Any) -> None:
+    async def record_page_structure(self, page: Any, **extra: Any) -> None:
         """Note which known anchors the page has, for the failure notes.
 
-        A diagnostic only: a page that navigates meanwhile is not recorded.
+        ``extra`` adds a caller's own value-free summary. A diagnostic only: a
+        page that navigates meanwhile is not recorded.
         """
         log = current_log()
         try:
@@ -449,7 +450,9 @@ class CampaignWriteFlow:
         if log is None or not isinstance(summary, dict):
             logger.debug("Page structure not recorded: %s", summary)
             return
-        log.add_page({"path": _DIGITS.sub("N", urlparse(page.url).path), **summary})
+        log.add_page(
+            {"path": _DIGITS.sub("N", urlparse(page.url).path), **summary, **extra}
+        )
 
     @asynccontextmanager
     async def apply(

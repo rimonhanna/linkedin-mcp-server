@@ -185,24 +185,28 @@
       "arg": [
         "row",
         0,
-        1
+        [
+          "select-row-0-checkbox"
+        ]
       ],
       "call": "add_post_to_campaign",
       "kind": "evaluate",
       "operation": "cm_content_click",
-      "program_digest": "591d6b870bca",
+      "program_digest": "f838d815b46b",
       "section": "add_post_to_campaign__added"
     },
     {
       "arg": [
         "add",
         0,
-        1
+        [
+          "select-row-0-checkbox"
+        ]
       ],
       "call": "add_post_to_campaign",
       "kind": "evaluate",
       "operation": "cm_content_click",
-      "program_digest": "591d6b870bca",
+      "program_digest": "f838d815b46b",
       "section": "add_post_to_campaign__added"
     },
     {
