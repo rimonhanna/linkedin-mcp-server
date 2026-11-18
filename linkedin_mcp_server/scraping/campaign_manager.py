@@ -209,8 +209,8 @@ def _boost_without_reporting(record: dict[str, Any]) -> bool:
     return (
         record.get("type") == _BOOST_ACCOUNT_TYPE
         and isinstance(reference, str)
-        and reference.split(":")[-2:-1] == ["member"]
-        and isinstance(created, int)
+        and reference.startswith("urn:li:member:")
+        and type(created) is int
         and created >= _BOOST_REPORTING_CUTOFF_MS
     )
 
