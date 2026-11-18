@@ -87,8 +87,13 @@ _ROUTE_SCRIPT = """(path) => {
 # The boost manager loads the member's personal boost account, which the
 # account list's own finder leaves out.
 _BOOST_ACCOUNTS_PATH = "/campaignmanager/boost/boostaccounts/"
-# A boost account's ``type``; its reporting is not on the accounts pages.
+# Campaign Manager's account route refuses a ``PERSONAL`` account whose
+# ``reference`` is a member URN and whose ``createdAt`` is on or after
+# 2024-01-01 UTC, and no boost route loads reporting analytics (bundle,
+# 2026-11-18). Such an account's results live on the boosted post.
 _BOOST_ACCOUNT_TYPE = "PERSONAL"
+_BOOST_REPORTING_CUTOFF_MS = 1_704_067_200_000
+_ACCOUNT_URN = "urn:li:sponsoredAccount:"
 _READY_TIMEOUT = 12.0
 # For a response the page may not send; a miss is no throttle evidence.
 _OPTIONAL_WAIT = 5.0
@@ -190,7 +195,24 @@ def _refusal(
 
 
 def _account_wide(call: CmCall, account_id: str) -> bool:
-    return restli_list(call.params.get("accountIds", "")) == [account_id]
+    """Whether ``accountIds`` names this account alone, by id or by URN."""
+    return [
+        item.removeprefix(_ACCOUNT_URN)
+        for item in restli_list(call.params.get("accountIds", ""))
+    ] == [account_id]
+
+
+def _boost_without_reporting(record: dict[str, Any]) -> bool:
+    """Whether Campaign Manager refuses this account's reporting, as its route does."""
+    reference = record.get("reference")
+    created = record.get("createdAt")
+    return (
+        record.get("type") == _BOOST_ACCOUNT_TYPE
+        and isinstance(reference, str)
+        and reference.split(":")[-2:-1] == ["member"]
+        and isinstance(created, int)
+        and created >= _BOOST_REPORTING_CUTOFF_MS
+    )
 
 
 def _unverified(what: str) -> LinkedInScraperException:
@@ -655,7 +677,7 @@ class CampaignManagerReader:
                     and response.call.entity_id == account
                     and record is not None
                     and same_id(record.get("id"), account)
-                    and record.get("type") == _BOOST_ACCOUNT_TYPE
+                    and _boost_without_reporting(record)
                 )
 
             try:
@@ -673,29 +695,13 @@ class CampaignManagerReader:
                 if type(exc) is not LinkedInScraperException or unmatched is None:
                     raise
                 raise unmatched from exc
-            boost = (
-                found is not None and is_boost(found) and not capture.matching(is_level)
-            )
-            if boost:
-                # The accounts pages never load a boost account's reporting.
-                url = f"{_LINKEDIN}{_BOOST_ACCOUNTS_PATH}"
-                await self._route_to(_BOOST_ACCOUNTS_PATH)
-                found = await self._optional(
-                    capture,
-                    is_level,
-                    timeout=_READY_TIMEOUT,
-                    wanted=("campaignManagerAdAnalytics",),
+            if found is not None and is_boost(found) and not capture.matching(is_level):
+                raise LinkedInScraperException(
+                    "This ad account is a personal boost account, the one "
+                    "LinkedIn keeps for boosted posts. Campaign Manager does not "
+                    "show reporting for it, so nothing was reported. A boosted "
+                    "post's results are in that post's own analytics on LinkedIn."
                 )
-                await capture.settle()
-                if found is None:
-                    detail = _unmatched_detail(capture, pivot)
-                    raise LinkedInScraperException(
-                        "This ad account is a personal boost account, the one "
-                        "LinkedIn keeps for boosted posts. Campaign Manager's boost "
-                        "manager did not load its reporting analytics"
-                        + (f" ({detail})" if detail else "")
-                        + ", so nothing was reported."
-                    )
             if found is None:
                 unmatched = _unmatched_analytics(capture, pivot)
                 if unmatched is not None:
@@ -735,28 +741,21 @@ class CampaignManagerReader:
                     )
 
                 failure: dict[str, str] | None = None
-                if boost:
-                    failure = _error(
-                        "unavailable",
-                        "Campaign Manager has no demographics page for a personal "
-                        "boost account, so its demographics were not read.",
+                try:
+                    # Optional page: a miss is no throttle evidence.
+                    opened = await self._open(
+                        capture,
+                        demographics_url,
+                        tab_path=urlparse(demographics_url).path,
+                        ready=is_demographic,
+                        throttle=False,
+                        wanted=("campaignManagerAdAnalytics",),
                     )
+                except LinkedInScraperException as exc:
+                    failure = _error("unavailable", str(exc))
                 else:
-                    try:
-                        # Optional page: a miss is no throttle evidence.
-                        opened = await self._open(
-                            capture,
-                            demographics_url,
-                            tab_path=urlparse(demographics_url).path,
-                            ready=is_demographic,
-                            throttle=False,
-                            wanted=("campaignManagerAdAnalytics",),
-                        )
-                    except LinkedInScraperException as exc:
-                        failure = _error("unavailable", str(exc))
-                    else:
-                        if opened is None:
-                            failure = _redirect_error("demographics")
+                    if opened is None:
+                        failure = _redirect_error("demographics")
                 for facet in wanted:
                     name = f"demographics_{facet}"
                     if failure is not None:

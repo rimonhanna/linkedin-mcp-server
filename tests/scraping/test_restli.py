@@ -11,8 +11,6 @@ from linkedin_mcp_server.scraping.restli import (
     as_str,
     iso_from_ms,
     normalized_elements,
-    normalized_record,
-    paging_total,
     plain_elements,
     restli_list,
 )
@@ -51,16 +49,12 @@ def test_restli_list_splits_top_level_items(value, expected):
     assert restli_list(value) == expected
 
 
-def test_plain_elements_and_paging_total():
+def test_plain_elements():
     payload = {"elements": [{"id": 100000001}], "paging": {"total": 1500}}
     assert plain_elements(payload) == [{"id": 100000001}]
     assert plain_elements({"elements": []}) == []
     assert plain_elements({"elements": [{"id": 1}, "urn"]}) is None
     assert plain_elements({"data": {}}) is None
-    assert paging_total(payload) == 1500
-    assert paging_total({"paging": {"total": "1500"}}) is None
-    assert paging_total({"elements": []}) is None
-    assert paging_total(None) is None
 
 
 def test_normalized_elements_resolve_urn_references():
@@ -74,5 +68,3 @@ def test_normalized_elements_resolve_urn_references():
     ]
     assert normalized_elements({"data": {"elements": ["urn:li:example:9"]}}) is None
     assert normalized_elements({"elements": []}) is None
-    assert normalized_record({"data": {"id": 1}}) == {"id": 1}
-    assert normalized_record({"data": []}) is None
