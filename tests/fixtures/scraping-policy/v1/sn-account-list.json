@@ -339,6 +339,14 @@
         "name": "Example Company"
       }
     ],
+    "paging": {
+      "count": 26,
+      "more": false,
+      "next_page": null,
+      "page": 1,
+      "start": 0,
+      "total": 26
+    },
     "section_names": [
       "account_list",
       "accounts"

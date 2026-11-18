@@ -199,6 +199,21 @@ def _page_limit(name: str, total: int, read: int, why: str) -> dict[str, str]:
     )
 
 
+def _read_paging(
+    first_page: int, read: int, total: int, next_page: int | None
+) -> dict[str, Any]:
+    """Where a multi-page read started, how many rows it returned, what remains."""
+    start = (first_page - 1) * PAGE_SIZE
+    return {
+        "page": first_page,
+        "start": start,
+        "count": read,
+        "total": total,
+        "more": start + read < total,
+        "next_page": next_page,
+    }
+
+
 def _criteria(values: Sequence[str] | None) -> list[str]:
     return [value.strip() for value in values or () if value.strip()]
 
@@ -311,13 +326,16 @@ class SalesNavigatorReader:
         name: str,
         refused: _Refusal | None = None,
         on_first: Callable[[SalesNavigatorCapture], Awaitable[None]] | None = None,
-    ) -> tuple[list[_Row], dict[str, str] | None, int | None]:
+    ) -> tuple[list[_Row], dict[str, str] | None, int | None, int]:
         """The rows of a paged table from ``first_page``, one load per 25 rows.
 
-        Reads at most ``MAX_PAGE`` pages; a longer table stops with a
-        ``page_limit`` error and the page to continue from. Also stops with a
-        ``page_limit`` error when a page does not arrive, the reported total
-        changes between pages or a row repeats one of an earlier page.
+        Page N is LinkedIn's own Nth page: the URL carries ``page=N`` and only
+        the response that starts at ``(N - 1) * 25`` is read. Reads at most
+        ``MAX_PAGE`` pages; a longer table stops with a ``page_limit`` error
+        and the page to continue from. Also stops with a ``page_limit`` error
+        when a page does not arrive, the reported total changes between pages
+        or a row repeats one of an earlier page. The last value is LinkedIn's
+        ``paging.total``.
         """
         if first_page < 1:
             raise FilterValidationError("page must be 1 or greater.")
@@ -337,6 +355,7 @@ class SalesNavigatorReader:
                         f"next_page={page + 1} to continue)",
                     ),
                     page + 1,
+                    total,
                 )
             page += 1
             first = page == first_page
@@ -357,6 +376,7 @@ class SalesNavigatorReader:
                     rows,
                     _page_limit(name, total, len(rows), f"page {page} did not load"),
                     None,
+                    total,
                 )
             built = _first_built(capture.matching(ready), builder)
             if built is None:
@@ -374,6 +394,7 @@ class SalesNavigatorReader:
                         f"the total changed to {reported} while it was read",
                     ),
                     None,
+                    total,
                 )
             ids = [item.get("id") for item in items]
             if seen.intersection(ids):
@@ -386,6 +407,7 @@ class SalesNavigatorReader:
                         f"the list changed while reading (page {page} repeated a row)",
                     ),
                     None,
+                    total,
                 )
             seen.update(ids)
             rows.extend(items)
@@ -394,8 +416,9 @@ class SalesNavigatorReader:
                 rows,
                 _page_limit(name, total, len(rows), "the pages returned fewer rows"),
                 None,
+                total,
             )
-        return rows, None, None
+        return rows, None, None, total
 
     async def _geo_ids(self, values: Sequence[str], field: str) -> list[str]:
         ids: list[str] = []
@@ -676,7 +699,7 @@ class SalesNavigatorReader:
 
             return match
 
-        lists, limit, next_page = await self._read_all(
+        lists, limit, next_page, total = await self._read_all(
             lambda n: url if n == 1 else f"{url}?page={n}",
             first_page=page,
             expected_path=_LISTS_PATH,
@@ -690,6 +713,7 @@ class SalesNavigatorReader:
             result["sections"]["account_lists"] = text
         if limit is not None:
             result["section_errors"] = {"account_lists": limit}
+        result["paging"] = _read_paging(page, len(lists), total, next_page)
         if next_page is not None:
             result["next_page"] = next_page
         return result
@@ -718,7 +742,7 @@ class SalesNavigatorReader:
                 await capture.wait_for(is_metadata, timeout=_READY_TIMEOUT)
             metadata.extend(capture.matching(is_metadata))
 
-        accounts, limit, next_page = await self._read_all(
+        accounts, limit, next_page, total = await self._read_all(
             lambda n: url if n == 1 else f"{url}&page={n}",
             first_page=page,
             expected_path=_LIST_PATH,
@@ -744,6 +768,7 @@ class SalesNavigatorReader:
         result["accounts"] = accounts
         if limit is not None:
             result["section_errors"] = {"accounts": limit}
+        result["paging"] = _read_paging(page, len(accounts), total, next_page)
         if next_page is not None:
             result["next_page"] = next_page
         return result

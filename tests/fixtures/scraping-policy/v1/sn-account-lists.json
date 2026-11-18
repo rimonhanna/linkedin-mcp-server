@@ -137,6 +137,14 @@
         "name": "Example other list"
       }
     ],
+    "paging": {
+      "count": 2,
+      "more": false,
+      "next_page": null,
+      "page": 1,
+      "start": 0,
+      "total": 2
+    },
     "section_names": [
       "account_lists"
     ],

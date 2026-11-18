@@ -331,8 +331,9 @@ def register_sales_navigator_tools(
         Returns:
             Dict with url, sections (account_lists -> one line per list),
             account_lists (id, name, description, listType, listSource,
-            entityCount, role, lastModifiedAt) and, when more lists remain,
-            next_page.
+            entityCount, role, lastModifiedAt), paging (page, start, count =
+            lists returned, total as LinkedIn reports it, more, next_page)
+            and, when more lists remain, next_page.
         """
         try:
             extractor = extractor or await get_ready_extractor(
@@ -396,7 +397,9 @@ def register_sales_navigator_tools(
             account_list (id, name, description, listType, listSource,
             entityCount, role, lastModifiedAt), accounts, each row read (id,
             name, industry, employeeCount, employeeDisplayCount,
-            buyerIntentLevel, saved) and, when more accounts remain, next_page.
+            buyerIntentLevel, saved), paging (page, start, count = accounts
+            returned, total as LinkedIn reports it, more, next_page) and, when
+            more accounts remain, next_page.
         """
         try:
             list_id = normalize_sales_list_id(list_id)
