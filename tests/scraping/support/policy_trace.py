@@ -662,9 +662,7 @@ class ScriptedPage:
             assert not remaining, (
                 f"{self.recorder.scenario}: listeners remain: {remaining}"
             )
-            assert routed == {
-                "**/voyager/api/voyagerRelationshipsDashInvitations**": 1
-            }, routed
+            assert routed == {"**/voyager/api/**": 1}, routed
         elif retained_read_guard:
             assert remaining == {"request": 1}, remaining
             assert routed == {

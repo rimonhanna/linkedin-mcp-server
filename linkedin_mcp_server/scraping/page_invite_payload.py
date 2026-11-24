@@ -337,7 +337,9 @@ def member_id_of(encoded: str) -> str | None:
         return None
     if len(raw) < 8 or raw[0] != 0 or raw[2] != 0 or raw[3] != 0:
         return None
-    return str(int.from_bytes(raw[4:8], "big"))
+    member = int.from_bytes(raw[4:8], "big")
+    # No member is 0: an id that decodes to it is not one this reading explains.
+    return str(member) if member else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -440,3 +442,24 @@ def ref_matches(ref: InviteeRef, candidate: Candidate) -> bool:
         return candidate["profileId"] == ref.key
     public = candidate.get("publicIdentifier")
     return public is not None and unquote(public).lower() == ref.key
+
+
+def can_match_a_row(ref: InviteeRef) -> bool:
+    """Whether ``ref`` could name any dialog row at all.
+
+    Dialog rows are ``fsd_profile`` (``ACoA``) ids, so an id kept as given
+    because it does not decode (a Sales Navigator ``ACwA`` id) matches none.
+    """
+    return ref.kind != "profile" or ref.key.startswith("ACoA")
+
+
+def matching_rows(ref: InviteeRef, rows: list[Candidate]) -> list[Candidate]:
+    """Every row ``ref`` names: the row with its exact ``ACoA`` id when one has
+    it, else every row it matches. More than one means the identifier is
+    ambiguous and must not select anyone.
+    """
+    if ref.exact is not None:
+        exact = [row for row in rows if row["profileId"] == ref.exact]
+        if exact:
+            return exact
+    return [row for row in rows if ref_matches(ref, row)]

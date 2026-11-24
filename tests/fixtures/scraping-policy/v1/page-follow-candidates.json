@@ -11,7 +11,7 @@
       "call": "list_page_follow_candidates",
       "callback_id": "callback-1",
       "kind": "route.add",
-      "pattern": "**/voyager/api/voyagerRelationshipsDashInvitations**",
+      "pattern": "**/voyager/api/**",
       "section": "list_page_follow_candidates__first_page"
     },
     {

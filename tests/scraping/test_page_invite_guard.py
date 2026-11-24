@@ -15,9 +15,11 @@ URL = "https://www.linkedin.com/voyager/api/voyagerRelationshipsDashInvitations"
 
 
 class _Request:
-    def __init__(self, body: Any, *, method: str = "POST", restli="batch_create"):
+    def __init__(
+        self, body: Any, *, method: str = "POST", restli="batch_create", url=URL
+    ):
         self.method = method
-        self.url = URL
+        self.url = url
         self.post_data = json.dumps(body)
         self._headers = {"x-restli-method": restli} if restli else {}
 
@@ -128,3 +130,36 @@ async def test_a_window_needs_the_page_held():
             page, company_id=COMPANY, planned=["ACoAAone1"]
         ):
             pass
+
+
+OTHER = (
+    "https://www.linkedin.com/voyager/api/voyagerRelationshipsDashMemberRelationships"
+)
+
+
+async def test_the_route_covers_every_voyager_request():
+    page = _Page()
+    await guard.register_page_invite_routes(page)
+    assert [pattern for pattern, _ in page.routes] == ["**/voyager/api/**"]
+
+
+async def test_outside_the_window_only_invitations_are_held():
+    page = _Page()
+    async with guard.without_page_invites(page):
+        assert await _send(page, _Request(_batch("ACoAAone1"), url=OTHER)) == "sent"
+
+
+async def test_the_window_aborts_the_plan_sent_to_any_other_endpoint():
+    page = _Page()
+    async with guard.without_page_invites(page):
+        async with guard.explicit_page_invite(
+            page, company_id=COMPANY, planned=["ACoAAone1"]
+        ) as window:
+            other = _Request(_batch("ACoAAone1"), url=OTHER)
+            assert await _send(page, other) == "aborted", "only the endpoint passes"
+            graphql = _Request(
+                {"variables": {}}, restli=None, url=OTHER.rsplit("/", 1)[0] + "/graphql"
+            )
+            assert await _send(page, graphql) == "aborted"
+    assert window.admitted == []
+    assert window.refused == ["not the invitations endpoint"] * 2

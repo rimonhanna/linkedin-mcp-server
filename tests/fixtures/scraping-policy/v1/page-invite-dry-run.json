@@ -17,7 +17,7 @@
       "call": "invite_to_follow_page",
       "callback_id": "callback-1",
       "kind": "route.add",
-      "pattern": "**/voyager/api/voyagerRelationshipsDashInvitations**",
+      "pattern": "**/voyager/api/**",
       "section": "invite_to_follow_page__dry_run"
     },
     {

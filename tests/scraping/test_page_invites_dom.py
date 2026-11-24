@@ -45,7 +45,8 @@ def _page(rows: str, *, extra: str = "") -> str:
         "</button></div>"
         "<script>document.querySelector('#invite').addEventListener('change',()=>{"
         "const any=[...document.querySelectorAll('#invite input:checked')].length;"
-        "document.getElementById('invite-btn').disabled=!any;});"
+        "const b=document.getElementById('invite-btn');"
+        "b.disabled=!any;b.textContent='Invite ('+any+')';});"
         "document.getElementById('invite-btn').disabled=true;</script>"
         "</body></html>"
     )
@@ -111,10 +112,10 @@ async def test_a_checked_box_outside_the_rows_is_counted(dom_page):
 async def test_invite_is_pressed_only_once_enabled(dom_page):
     await _load(dom_page, _page(_row("ACoAAone1")))
 
-    assert await dom_page.evaluate(pi._PRESS_INVITE_JS) == "disabled"
+    assert await dom_page.evaluate(pi._PRESS_INVITE_JS, 1) == "disabled"
     assert await dom_page.evaluate("document.body.dataset.pressed ?? null") is None
     await dom_page.evaluate(pi._TICK_JS, "ACoAAone1")
-    assert await dom_page.evaluate(pi._PRESS_INVITE_JS) == "clicked"
+    assert await dom_page.evaluate(pi._PRESS_INVITE_JS, 1) == "clicked"
     assert await dom_page.evaluate("document.body.dataset.pressed ?? null") == "1"
 
 
@@ -127,4 +128,17 @@ async def test_paging_presses_only_the_labelled_control(dom_page):
     )
     assert await dom_page.evaluate("document.body.dataset.more ?? null") == "1"
     assert await dom_page.evaluate(pi._SHOW_MORE_JS, ["Mehr anzeigen"]) == "none"
+    assert await dom_page.evaluate("document.body.dataset.pressed ?? null") is None
+
+
+async def test_invite_is_pressed_only_when_it_shows_the_selected_count(dom_page):
+    await _load(dom_page, _page(_row("ACoAAone1") + _row("ACoAAtwo2")))
+    await dom_page.evaluate(pi._TICK_JS, "ACoAAone1")
+
+    # The last button reads "Invite (1)": a plan of two must not press it.
+    assert await dom_page.evaluate(pi._PRESS_INVITE_JS, 2) == "count_mismatch"
+    assert await dom_page.evaluate("document.body.dataset.pressed ?? null") is None
+    # Nor may a last button with no count at all, whatever its position.
+    await dom_page.evaluate("document.getElementById('invite-btn').textContent='Go'")
+    assert await dom_page.evaluate(pi._PRESS_INVITE_JS, 1) == "count_mismatch"
     assert await dom_page.evaluate("document.body.dataset.pressed ?? null") is None

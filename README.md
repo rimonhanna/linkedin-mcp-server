@@ -296,7 +296,7 @@ credits from the responses that dialog loads. On any other page LinkedIn opens
 Each invitation costs the page one credit (LinkedIn refunds it when the
 invitation is accepted; credits are shared by all admins and granted
 monthly). `invite_to_follow_page` invites only the people you pass, found in the
-dialog's candidate list by paging through it (up to 500 candidates, never by
+dialog's candidate list by paging through it (up to 300 candidates, never by
 typing) and matched by member id or public profile name. It takes the
 identifiers the other tools return, including Sales Navigator lead results. With
 `confirm_send` false it ticks nothing and reports what it would do. With

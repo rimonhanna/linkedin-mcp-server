@@ -15,6 +15,7 @@ from typing import Any, cast
 import pytest
 
 from linkedin_mcp_server.scraping import page_invites as pi
+from linkedin_mcp_server.scraping.page_invite_api import PageInviteCapture
 from linkedin_mcp_server.scraping.page_invite_guard import _guard_for
 
 COMPANY = "100000701"
@@ -107,14 +108,21 @@ class _DialogPage:
         admin: bool = True,
         answer: tuple[int, Any] | None = (201, None),
         extra_tick: str | None = None,
+        send_path: str | None = "voyagerRelationshipsDashInvitations",
+        press_outcome: str = "clicked",
+        row_ids: list[str] | None = None,
     ):
         self.url = "about:blank"
-        self.rows = IDS[:rows]
+        self.rows = row_ids if row_ids is not None else IDS[:rows]
         self.invitable = invitable or {}
         self.credits = credits
         self.admin = admin
         self.answer = answer
         self.extra_tick = extra_tick
+        # Where Invite sends the batch; None sends nothing the guard sees.
+        self.send_path = send_path
+        self.press_outcome = press_outcome
+        self.press_args: list[Any] = []
         self.listeners: dict[str, list[Any]] = {}
         self.routes: list[tuple[str, Any]] = []
         self.checked: list[str] = []
@@ -155,6 +163,9 @@ class _DialogPage:
             return "ticked"
         if "page-invite-press" in program:
             self.events.append("press")
+            self.press_args.append(arg)
+            if self.press_outcome != "clicked":
+                return self.press_outcome
             await self._send()
             return "clicked"
         if "page-invite-more" in program:
@@ -186,7 +197,7 @@ class _DialogPage:
                     "lastName": "Person",
                     "publicIdentifier": f"example-person-{IDS.index(i)}"
                     if i in IDS
-                    else "example-dashboard",
+                    else f"example-other-{i}",
                 }
                 for i in ids
             ],
@@ -272,6 +283,8 @@ class _DialogPage:
         )
 
     async def _send(self) -> None:
+        if self.send_path is None:
+            return
         body = {
             "elements": [
                 {
@@ -282,7 +295,7 @@ class _DialogPage:
                 for i in self.checked
             ]
         }
-        request = _Request(API + "voyagerRelationshipsDashInvitations", "POST", body)
+        request = _Request(API + self.send_path, "POST", body)
         route = _Route(request)
         for _pattern, handler in self.routes:
             await handler(route)
@@ -298,7 +311,7 @@ class _DialogPage:
                 "included": [],
             }
         self._emit(
-            "voyagerRelationshipsDashInvitations",
+            self.send_path,
             payload,
             method="POST",
             body=body,
@@ -335,6 +348,7 @@ def writes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(pi.random, "uniform", lambda _a, _b: 0)
     monkeypatch.setattr(pi, "_SEND_TIMEOUT", 0.2)
     monkeypatch.setattr(pi, "_SEARCH_SETTLE_SECONDS", 0.05)
+    monkeypatch.setattr(PageInviteCapture, "_note_throttle", lambda *_a, **_k: None)
     return recorded
 
 
@@ -345,9 +359,17 @@ def _actions(page: _DialogPage) -> tuple[pi.PageInviteActions, _Navigator]:
     ), navigator
 
 
-async def _invite(page: _DialogPage, people: list[str], *, confirm: bool) -> dict:
+async def _invite(
+    page: _DialogPage,
+    people: list[str],
+    *,
+    confirm: bool,
+    deadline: float | None = None,
+) -> dict:
     actions, _ = _actions(page)
-    return await actions.invite_to_follow(COMPANY, people, confirm_send=confirm)
+    return await actions.invite_to_follow(
+        COMPANY, people, confirm_send=confirm, deadline=deadline
+    )
 
 
 def _statuses(result: dict) -> dict[str, str]:
@@ -579,5 +601,118 @@ async def test_a_list_not_read_to_its_end_says_so(writes, monkeypatch):
         _DialogPage(rows=25), [f"urn:li:member:{MEMBERS[24]}"], confirm=False
     )
     (person,) = result["people"]
-    assert person["status"] == "not_invitable"
+    assert person["status"] == "not_found"
     assert person["detail"] == "not_in_candidates_read (20 read, max_pages)"
+
+
+async def test_a_batch_sent_to_another_endpoint_is_stopped_in_the_window(writes):
+    # The send endpoint was never observed: a batch the dialog posts anywhere
+    # else under the Voyager API must not leave either.
+    page = _DialogPage(rows=3, send_path="voyagerRelationshipsDashMemberInvitations")
+    result = await _invite(page, [IDS[0]], confirm=True)
+
+    assert page.sent == []
+    assert result["status"] == "blocked_by_guard"
+    assert "not the invitations endpoint" in result["message"]
+    assert result["retry_safe"] is True
+    assert writes == []
+
+
+async def test_a_press_with_no_request_seen_is_unconfirmed_and_paced(writes):
+    page = _DialogPage(rows=3, send_path=None)
+    result = await _invite(page, [IDS[0], IDS[1]], confirm=True)
+
+    assert result["status"] == "send_unconfirmed", "unseen send must be unknown"
+    assert result["retry_safe"] is False
+    assert _statuses(result) == {IDS[0]: "unconfirmed", IDS[1]: "unconfirmed"}
+    assert writes == [pi.PAGE_INVITES, pi.PAGE_INVITES]
+
+
+async def test_two_rows_with_one_member_id_select_no_one(writes):
+    # Two different encoded ids that decode to the same member id.
+    twin = _encoded(0x2A, MEMBERS[1])[:-2] + "zz"
+    page = _DialogPage(row_ids=[IDS[0], IDS[1], twin])
+    result = await _invite(page, [f"urn:li:member:{MEMBERS[1]}"], confirm=True)
+
+    (person,) = result["people"]
+    assert (person["status"], person.get("detail")) == (
+        "not_invitable",
+        "ambiguous_identifier",
+    ), "an ambiguous identifier must not pick a row"
+    assert "profileId" not in person
+    assert page.sent == []
+    assert result["status"] == "nothing_to_invite"
+
+
+async def test_an_exact_profile_id_is_not_ambiguous_with_a_decoded_twin(writes):
+    twin = _encoded(0x2A, MEMBERS[1])[:-2] + "zz"
+    page = _DialogPage(row_ids=[IDS[0], IDS[1], twin])
+    result = await _invite(page, [IDS[1]], confirm=False)
+    (person,) = result["people"]
+    assert (person["status"], person["profileId"]) == ("would_invite", IDS[1])
+
+
+async def test_too_little_time_left_sends_nothing(writes):
+    page = _DialogPage(rows=3)
+    result = await _invite(
+        page, [IDS[0]], confirm=True, deadline=pi.time.monotonic() + 30
+    )
+
+    assert result["status"] == "deadline", "a short deadline must not start a send"
+    assert result["retry_safe"] is True
+    assert page.events == []
+    assert page.sent == []
+    assert writes == []
+
+
+async def test_a_confirmed_invite_stops_paging_in_time_to_send(writes):
+    page = _DialogPage(rows=25)
+    result = await _invite(
+        page, [IDS[21]], confirm=True, deadline=pi.time.monotonic() + 45
+    )
+
+    assert "more" not in page.events, "paging must leave the send's reserve"
+    (person,) = result["people"]
+    assert person["status"] == "not_found"
+    assert person["detail"] == "not_in_candidates_read (20 read, deadline)"
+
+
+async def test_a_rate_limited_send_is_refused_not_unconfirmed(writes, monkeypatch):
+    monkeypatch.setattr(pi, "_SEND_TIMEOUT", 5.0)
+    page = _DialogPage(rows=3, answer=(429, {}))
+    started = pi.time.monotonic()
+    result = await _invite(page, [IDS[0]], confirm=True)
+
+    assert result["status"] == "refused_by_linkedin", "a 429 must be seen"
+    assert _statuses(result) == {IDS[0]: "refused"}
+    assert result["people"][0]["detail"] == "rate_limited"
+    assert result["retry_safe"] is False
+    assert pi.time.monotonic() - started < 2.0
+    assert writes == [pi.PAGE_INVITES]
+
+
+async def test_invite_is_not_pressed_unless_it_shows_the_count(writes):
+    page = _DialogPage(rows=3, press_outcome="count_mismatch")
+    result = await _invite(page, [IDS[0], IDS[1]], confirm=True)
+
+    assert set(page.press_args) == {2}
+    assert page.sent == []
+    assert result["status"] == "invite_control_not_found"
+    assert result["retry_safe"] is True
+    assert writes == []
+
+
+async def test_an_id_no_dialog_row_can_have_does_not_page(writes):
+    # A Sales Navigator id that does not decode can only match exactly, and no
+    # dialog row is a Sales Navigator id.
+    unreadable = "ACwAAnotdecodable"
+    ref = pi.invitee_ref(unreadable)
+    assert ref is not None and ref.kind == "profile"
+    page = _DialogPage(rows=25)
+    result = await _invite(page, [IDS[0], unreadable], confirm=False)
+
+    assert "more" not in page.events, "paging cannot find an unmatchable id"
+    assert [(p["status"], p.get("detail")) for p in result["people"]] == [
+        ("would_invite", None),
+        ("not_found", "unmatchable_identifier"),
+    ]

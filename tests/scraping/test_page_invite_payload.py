@@ -208,6 +208,7 @@ def test_profile_and_lead_ids_decode_to_the_same_member():
     assert p.member_id_of(_encoded(0x2A, 123456789)) == "123456789"
     assert p.member_id_of(_encoded(0x2C, 123456789)) == "123456789"
     assert p.member_id_of("ACoAA") is None
+    assert p.member_id_of(_encoded(0x2A, 0)) is None, "member id 0 must not decode"
     assert p.member_id_of("not-an-id-at-all") is None
 
 

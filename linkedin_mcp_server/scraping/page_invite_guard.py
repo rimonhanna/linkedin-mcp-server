@@ -1,11 +1,13 @@
 """Page-scoped routing that lets the invite dialog send only the planned batch.
 
 Every non-GET request to ``voyagerRelationshipsDashInvitations`` is aborted
-while a page-invite tool holds the page, except inside
-``explicit_page_invite``, which admits one Rest.li ``batch_create`` whose
-elements invite exactly the planned profiles to follow exactly this page. Any
-other invitation the dialog might send (a profile ticked by accident, a second
-click, another invitation type) never leaves the browser.
+while a page-invite tool holds the page. Inside ``explicit_page_invite`` every
+non-GET Voyager request is aborted, whatever its endpoint, except one Rest.li
+``batch_create`` to that endpoint whose elements invite exactly the planned
+profiles to follow exactly this page: the send endpoint is read from the app's
+bundle, not measured, so an invitation the dialog sends anywhere else is
+stopped too. Any other invitation the dialog might send (a profile ticked by
+accident, a second click, another invitation type) never leaves the browser.
 
 Outside those calls the route falls through untouched: ``connect_with_person``
 reaches the same family of endpoints and is not this guard's business. The
@@ -21,16 +23,19 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 from weakref import WeakKeyDictionary
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
 from linkedin_mcp_server.scraping.page_invite_payload import (
     INVITATIONS,
+    VOYAGER_API,
     invitation_batch,
     inviter_allowed,
 )
 
-_ROUTE = f"**/voyager/api/{INVITATIONS}**"
+_ROUTE = f"**{VOYAGER_API}**"
+_INVITATIONS_PATH = f"{VOYAGER_API}{INVITATIONS}"
 # See ``messaging_read_state`` for why a route registered mid-session is bounded.
 _REGISTRATION_TIMEOUT_SECONDS = 15.0
 
@@ -52,12 +57,18 @@ def _json_body(request: Any) -> Any:
         return None
 
 
+def _is_invitations(url: str) -> bool:
+    return urlparse(url).path.startswith(_INVITATIONS_PATH)
+
+
 def admission_refusal(
     window: InviteWindow, method: str, restli_method: str | None, url: str, body: Any
 ) -> str | None:
     """Why a request must not leave, or None when it is the planned batch."""
     if window.admitted:
         return "a batch was already sent"
+    if not _is_invitations(url):
+        return "not the invitations endpoint"
     if method != "POST" or (restli_method or "").casefold() != "batch_create":
         return "not a batch create"
     if not inviter_allowed(url, window.company_id):
@@ -87,6 +98,9 @@ class _PageGuard:
             return
         window = self.window
         if window is None:
+            if not _is_invitations(request.url):
+                await route.fallback()
+                return
             self.refused_outside.append(method)
             await route.abort()
             return
@@ -151,7 +165,7 @@ def _guard_for(page: Any) -> _PageGuard:
 
 
 async def register_page_invite_routes(page: Any) -> None:
-    """Route the invitations endpoint on a page that has not navigated yet."""
+    """Route the Voyager API on a page that has not navigated yet."""
     await _guard_for(page).install(page)
 
 

@@ -175,11 +175,14 @@ def register_company_page_tools(
         (PAGE_INVITES_MAX, default 20 per 24 h); people past the remaining
         credits or the cap are not invited. Each person is matched to a row of
         the dialog's candidate list by member id or public profile name, never
-        by display name; up to 500 candidates are paged through, never by
-        typing. Someone who is not a 1st-degree connection, already follows or
-        was already invited is reported not_invitable, not as an error. An
-        invitation whose outcome is unknown is never sent again: check the page
-        before calling again.
+        by display name; up to 300 candidates are paged through, never by
+        typing. Paging finds its control by its English label, so on a
+        LinkedIn interface in another language only the first 20 candidates
+        are read, and anyone past them is reported not_found with
+        "more_control_not_found" in the detail. Someone who is not a
+        1st-degree connection, already follows or was already invited is
+        reported not_invitable, not as an error. An invitation whose outcome
+        is unknown is never sent again: check the page before calling again.
 
         Args:
             company_id: The page's numeric company id, or its /company/<id>/
@@ -199,17 +202,22 @@ def register_company_page_tools(
             status: dry_run, sent, send_unconfirmed, refused_by_linkedin,
             nothing_to_invite, not_page_admin, credits_unavailable,
             selection_failed, selection_mismatch, invite_control_not_found,
-            blocked_by_guard or not_sent. retry_safe is false once an
-            invitation request left the browser.
+            deadline (too little time was left to send; nothing was ticked)
+            or blocked_by_guard. retry_safe is false once an invitation
+            request may have left the browser.
             Each people entry has input (as passed), status (would_invite,
-            invited, refused, unconfirmed, not_sent, not_invitable,
+            invited, refused, unconfirmed, not_sent, not_invitable, not_found,
             invitability_unknown, no_credits, pacing_cap or duplicate), and
             profileId, name, headline, publicIdentifier and detail when known.
             A not_invitable detail is not_a_candidate (the whole list was
-            read: not a 1st-degree connection, already following or already
-            invited), not_in_candidates_read (paging stopped first; says how
-            many were read and why) or linkedin_declined (LinkedIn's own
-            status label follows when it gave one).
+            read and no row matched this identifier), ambiguous_identifier
+            (more than one row matched it, so none was chosen) or
+            linkedin_declined (LinkedIn's own status label follows when it
+            gave one). A not_found detail is not_in_candidates_read (paging
+            stopped before the end; says how many were read and why) or
+            unmatchable_identifier (a Sales Navigator id that names no
+            dialog row). A refused detail is the HTTP status, or
+            rate_limited when LinkedIn answered 429.
         """
         try:
             company_id = normalize_page_company_id(company_id)

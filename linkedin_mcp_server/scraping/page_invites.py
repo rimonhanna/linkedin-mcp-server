@@ -62,10 +62,12 @@ from linkedin_mcp_server.scraping.page_invite_payload import (
     Credits,
     InviteeRef,
     batch_statuses,
+    can_match_a_row,
     dialog_community,
     invitable_by_profile,
     invite_dialog_url,
     invitee_ref,
+    matching_rows,
     page_credits,
     profile_url,
     ref_matches,
@@ -80,12 +82,20 @@ logger = logging.getLogger(__name__)
 
 MAX_CANDIDATES = 200
 # How far an invite pages through the candidates to find the people it was
-# given: each page is one in-app request, not a page load.
-MAX_INVITE_CANDIDATES = 500
+# given: each page is one in-app request (and the status request after it), not
+# a page load. 300 is 28 "Show more results" presses at about 2.5 s each, which
+# fits the default tool deadline (180 s x 0.75) after the page load and the
+# send's reserve; the old 500 (48 presses) ran into the deadline first, so its
+# last pages were never reached and only added requests.
+MAX_INVITE_CANDIDATES = 300
 MAX_INVITEES = 20
 _READY_TIMEOUT = 12.0
 _PAGE_TIMEOUT = 10.0
 _SEND_TIMEOUT = 15.0
+# What a send needs once it starts: up to 20 ticks about a second apart, Invite
+# enabling (2 s) and LinkedIn's answer (``_SEND_TIMEOUT``), with a margin. Less
+# than this left and nothing is ticked, so a deadline never cuts a send short.
+_SEND_BUDGET_SECONDS = 40.0
 _POLL_SECONDS = 0.25
 # A name search fires per keystroke; the last result set is the one shown once
 # no new one has arrived for this long.
@@ -156,10 +166,12 @@ _TICK_JS = (
 )
 
 # Press the dialog's last button, its Invite action (measured: after "Unselect
-# all", disabled until a row is ticked). Answers "clicked", "disabled" or
+# all", disabled until a row is ticked), only when a number in its text is the
+# count selected: position alone could press another control, and digits are
+# not a locale's words. Answers "clicked", "disabled", "count_mismatch" or
 # "not_found".
 _PRESS_INVITE_JS = (
-    "() => { // linkedin-mcp:page-invite-press\n"
+    "(count) => { // linkedin-mcp:page-invite-press\n"
     + _DIALOG_JS
     + r"""
   const d = dialog();
@@ -168,6 +180,8 @@ _PRESS_INVITE_JS = (
   const invite = buttons[buttons.length - 1];
   if (!invite) return 'not_found';
   if (invite.disabled || invite.getAttribute('aria-disabled') === 'true') return 'disabled';
+  const numbers = (invite.innerText || invite.textContent || '').match(/\d+/g) || [];
+  if (!numbers.includes(String(count))) return 'count_mismatch';
   invite.click();
   return 'clicked';
 }
@@ -351,6 +365,7 @@ PersonStatus = Literal[
     "unconfirmed",
     "not_sent",
     "not_invitable",
+    "not_found",
     "invitability_unknown",
     "no_credits",
     "pacing_cap",
@@ -560,10 +575,15 @@ class PageInviteActions:
                 capture,
                 dialog,
                 company_id,
+                # A person who cannot name any row is not paged for.
                 enough=lambda found: all(
-                    any(ref_matches(ref, row) for row in found) for ref in refs
+                    not can_match_a_row(ref)
+                    or any(ref_matches(ref, row) for row in found)
+                    for ref in refs
                 ),
-                deadline=deadline,
+                deadline=deadline - _SEND_BUDGET_SECONDS
+                if deadline is not None and confirm_send
+                else deadline,
                 most=MAX_INVITE_CANDIDATES,
             )
             report.credits = dialog.credits()
@@ -593,12 +613,22 @@ class PageInviteActions:
                 return report.finish(
                     "nothing_to_invite", "No one asked for can be invited now."
                 )
-            return await self._send(capture, report, chosen)
+            return await self._send(capture, report, chosen, deadline)
 
     async def _send(
-        self, capture: PageInviteCapture, report: _Report, chosen: list[str]
+        self,
+        capture: PageInviteCapture,
+        report: _Report,
+        chosen: list[str],
+        deadline: float | None,
     ) -> dict[str, Any]:
         page = self._page
+        if deadline is not None and deadline - time.monotonic() < _SEND_BUDGET_SECONDS:
+            return report.finish(
+                "deadline",
+                "Too little of the call's time was left to tick, invite and wait "
+                "for LinkedIn's answer, so nothing was ticked or sent. Call again.",
+            )
         for index, profile_id in enumerate(chosen):
             if index:
                 await asyncio.sleep(random.uniform(0.4, 1.0))
@@ -618,17 +648,19 @@ class PageInviteActions:
             )
         after = len(capture.responses)
         response: InviteResponse | None = None
+        pressed = "not_found"
         async with explicit_page_invite(
             page, company_id=report.company_id, planned=chosen
         ) as window:
             try:
-                # The button enables on the app's re-render after the ticks.
-                pressed = await page.evaluate(_PRESS_INVITE_JS)
+                # The button enables, and shows the count, on the app's
+                # re-render after the ticks.
+                pressed = await page.evaluate(_PRESS_INVITE_JS, len(chosen))
                 for _ in range(8):
-                    if pressed != "disabled":
+                    if pressed not in ("disabled", "count_mismatch"):
                         break
                     await asyncio.sleep(_POLL_SECONDS)
-                    pressed = await page.evaluate(_PRESS_INVITE_JS)
+                    pressed = await page.evaluate(_PRESS_INVITE_JS, len(chosen))
                 if pressed == "clicked":
                     try:
                         response = await capture.wait_for(
@@ -644,7 +676,8 @@ class PageInviteActions:
                 logger.warning("Pressing Invite failed", exc_info=True)
                 pressed = "clicked"
             finally:
-                if window.admitted:
+                # A press nothing was seen leaving may have sent elsewhere.
+                if window.admitted or (pressed == "clicked" and not window.refused):
                     now = datetime.now(timezone.utc)
                     for _ in chosen:
                         record_write(JobStore(), PAGE_INVITES, now)
@@ -662,12 +695,13 @@ class PageInviteActions:
                     f"plan ({window.refused[0]}); they were stopped in the "
                     "browser and nothing was sent.",
                 )
-            # The guard sees every invitation request the page makes, so none
-            # left the browser.
-            return report.finish(
-                "not_sent",
-                "Invite was pressed but the dialog sent no invitation, so nothing "
-                "was invited.",
+            # The guard aborts every other Voyager write in the window, but a
+            # request outside the Voyager API would not be seen: unknown.
+            return report.sent_unknown(
+                chosen,
+                "Invite was pressed but no invitation request was seen, so "
+                "whether anyone was invited is unknown. Check the page's "
+                "invitations before trying again; a repeat could invite twice.",
             )
         if response is None:
             return report.sent_unknown(
@@ -719,17 +753,27 @@ class _Report:
         chosen: list[str] = []
         seen: set[str] = set()
         for index, ref in enumerate(self.people):
-            row = next((row for row in rows if ref_matches(ref, row)), None)
-            if row is None:
+            matches = matching_rows(ref, rows)
+            if len(matches) > 1:
                 self.statuses[index] = "not_invitable"
+                self.details[index] = "ambiguous_identifier"
+                continue
+            if not matches:
                 # A list read to its end lacks this person; a stopped one may
                 # only not have reached them.
-                self.details[index] = (
-                    "not_a_candidate"
-                    if paging_stop == "complete"
-                    else f"not_in_candidates_read ({len(rows)} read, {paging_stop})"
-                )
+                if not can_match_a_row(ref):
+                    self.statuses[index] = "not_found"
+                    self.details[index] = "unmatchable_identifier"
+                elif paging_stop == "complete":
+                    self.statuses[index] = "not_invitable"
+                    self.details[index] = "not_a_candidate"
+                else:
+                    self.statuses[index] = "not_found"
+                    self.details[index] = (
+                        f"not_in_candidates_read ({len(rows)} read, {paging_stop})"
+                    )
                 continue
+            row = matches[0]
             self.resolved[index] = row
             profile_id = row["profileId"]
             if profile_id in seen:
@@ -762,6 +806,16 @@ class _Report:
 
     def answered(self, chosen: list[str], response: InviteResponse) -> dict[str, Any]:
         self.retry_safe = False
+        if response.status == 429:
+            for profile_id in chosen:
+                index = self._index(profile_id)
+                self.statuses[index] = "refused"
+                self.details[index] = "rate_limited"
+            return self.finish(
+                "refused_by_linkedin",
+                "LinkedIn refused the invitations for now (HTTP 429, rate "
+                "limited). Do not retry; wait before inviting again.",
+            )
         if not response.ok:
             if response.status >= 500:
                 return self.sent_unknown(

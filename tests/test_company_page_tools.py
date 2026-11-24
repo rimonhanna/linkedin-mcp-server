@@ -17,7 +17,8 @@ from linkedin_mcp_server.tools import company_page
 from linkedin_mcp_server.tools.company_page import register_company_page_tools
 
 RESULT = {"status": "dry_run", "people": []}
-PROFILE = "ACoAAAAAEr4Bk7u-3pIa8wI55GOCgj6psu4_Jeo"
+# Synthetic: shaped like a profile id, names no one.
+PROFILE = "ACoAAExampleFakeProfileId0000"
 
 
 def _extractor() -> MagicMock:
@@ -82,9 +83,9 @@ async def test_every_identifier_form_is_passed_on_once(mock_context):
     people = [
         PROFILE,
         f" {PROFILE} ",
-        "urn:li:member:4798",
+        "urn:li:member:123456",
         "https://www.linkedin.com/in/some-person/",
-        "urn:li:fs_salesProfile:(ACwAAAAAEr4Bk7u-3pIa8wI55GOCgj6psu4_Jeo,NAME_SEARCH,x1)",
+        "urn:li:fs_salesProfile:(ACwAAExampleFakeLeadId0000,NAME_SEARCH,x1)",
     ]
     await fn("100000701", people, False, mock_context, extractor=extractor)
     args, kwargs = extractor.invite_to_follow_page.call_args
