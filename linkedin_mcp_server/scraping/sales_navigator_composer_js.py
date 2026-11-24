@@ -74,6 +74,7 @@ _COMMON_JS = r"""
 # Returns the form, or null when the page shows no single composer.
 PIN_JS = (
     "() => {"
+    + "/* linkedin-mcp:sn-composer-pin */"
     + _COMMON_JS
     + r"""
         const shown = editors();
@@ -103,6 +104,7 @@ PIN_JS = (
 
 STATE_JS = (
     "owner => {"
+    + "/* linkedin-mcp:sn-composer-state */"
     + _COMMON_JS
     + r"""
         const pinned = validate(owner);
@@ -123,6 +125,7 @@ STATE_JS = (
 # 'invalid'.
 PREPARE_WRITE_JS = (
     "(owner, arg) => {"
+    + "/* linkedin-mcp:sn-composer-prepare */"
     + _COMMON_JS
     + r"""
         let pinned = validate(owner);
@@ -139,6 +142,7 @@ PREPARE_WRITE_JS = (
 # Asked before every keystroke: each one goes to whatever holds focus then.
 FOCUS_CHECK_JS = (
     "(owner, arg) => {"
+    + "/* linkedin-mcp:sn-composer-focus */"
     + _COMMON_JS
     + r"""
         const pinned = validate(owner);
@@ -149,6 +153,7 @@ FOCUS_CHECK_JS = (
 # The field as a handle, so a line break is pressed on that element itself.
 FIELD_JS = (
     "(owner, arg) => {"
+    + "/* linkedin-mcp:sn-composer-field */"
     + _COMMON_JS
     + r"""
         const pinned = validate(owner);
@@ -161,6 +166,7 @@ FIELD_JS = (
 # it. 'written', 'flattened' (the text without its line breaks) or 'invalid'.
 SETTLE_WRITE_JS = (
     "(owner, arg) => {"
+    + "/* linkedin-mcp:sn-composer-settle */"
     + _COMMON_JS
     + r"""
         const recorded = owner && owner.__linkedinMcpSnComposer;
@@ -194,6 +200,7 @@ _FILLED_JS = r"""
 # 'ready', 'disabled' or 'invalid'.
 SUBMIT_READY_JS = (
     "(owner, arg) => {"
+    + "/* linkedin-mcp:sn-composer-ready */"
     + _COMMON_JS
     + _FILLED_JS
     + r"""
@@ -207,6 +214,7 @@ SUBMIT_READY_JS = (
 
 SUBMIT_JS = (
     "(owner, arg) => {"
+    + "/* linkedin-mcp:sn-composer-send */"
     + _COMMON_JS
     + _FILLED_JS
     + r"""
@@ -225,6 +233,7 @@ SUBMIT_JS = (
 # Empties only what this call typed: a field whose value is still exactly
 # the recorded text. Anything else belongs to someone else.
 CLEANUP_JS = r"""owner => {
+    /* linkedin-mcp:sn-composer-cleanup */
     const pinned = owner && owner.__linkedinMcpSnComposer;
     if (!pinned || !owner.isConnected) return false;
     let cleared = false;
@@ -241,5 +250,6 @@ CLEANUP_JS = r"""owner => {
 }"""
 
 DISPOSE_JS = r"""owner => {
+    /* linkedin-mcp:sn-composer-dispose */
     if (owner) delete owner.__linkedinMcpSnComposer;
 }"""

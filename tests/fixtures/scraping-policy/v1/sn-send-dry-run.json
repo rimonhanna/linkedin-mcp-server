@@ -1,0 +1,234 @@
+{
+  "call": {
+    "arguments": {
+      "confirm_send": false,
+      "lead_id": "ACwAAA0001",
+      "message": "Hello"
+    },
+    "method": "send_sales_navigator_message"
+  },
+  "events": [
+    {
+      "call": "send_sales_navigator_message",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "callback_id": "callback-3",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "callback_id": "callback-4",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessengerConversations*",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "callback_id": "callback-4",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessagingBadge*",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "callback_id": "callback-4",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessagingThreads**",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "callback_id": "callback-4",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessageActions**",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/inbox/mobile-compose/urn%3Ali%3Afs_salesProfile%3A%28ACwAAA0001%2C%2C%29",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/inbox/mobile-compose/urn%3Ali%3Afs_salesProfile%3A%28ACwAAA0001%2C%2C%29",
+      "requested_url": "https://www.linkedin.com/sales/inbox/mobile-compose/urn%3Ali%3Afs_salesProfile%3A%28ACwAAA0001%2C%2C%29",
+      "section": "message",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "kind": "wait_for_load_state",
+      "section": "message",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "description": "goto https://www.linkedin.com/sales/inbox/mobile-compose/urn%3Ali%3Afs_salesProfile%3A%28ACwAAA0001%2C%2C%29",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/inbox/mobile-compose/urn%3Ali%3Afs_salesProfile%3A%28ACwAAA0001%2C%2C%29",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "kind": "boundary.rate_limit",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "kind": "evaluate_handle",
+      "operation": "sn_composer_pin",
+      "program_digest": "00a7769e8aaa",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "handle": "handle-1",
+      "kind": "handle.as_element",
+      "present": true,
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "sn_composer_state",
+      "program_digest": "a13108e24237",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "sn_composer_dispose",
+      "program_digest": "13a66b7c97cf",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "handle": "handle-1",
+      "kind": "handle.dispose",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "message"
+    },
+    {
+      "call": "send_sales_navigator_message",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "message"
+    }
+  ],
+  "result": {
+    "delivery": {
+      "creditCost": 0,
+      "creditsRemaining": null,
+      "kind": "message"
+    },
+    "message": "Nothing was sent. The message would go to Example Person. It uses no InMail credit. Set confirm_send=true to send it.",
+    "recipient": {
+      "degree": 1,
+      "leadId": "ACwAAA0001",
+      "name": "Example Person"
+    },
+    "recipient_selected": true,
+    "retry_safe": true,
+    "sent": false,
+    "status": "confirmation_required",
+    "url": "https://www.linkedin.com/sales/inbox/mobile-compose/urn%3Ali%3Afs_salesProfile%3A%28ACwAAA0001%2C%2C%29"
+  },
+  "scenario": "send_sales_navigator_message__dry_run_to_a_connection",
+  "schema_version": 1
+}
