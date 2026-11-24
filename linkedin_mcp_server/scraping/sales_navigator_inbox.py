@@ -54,6 +54,7 @@ from linkedin_mcp_server.scraping.sales_navigator_inbox_payload import (
     InboxFilter,
     InboxMessage,
     SalesConversation,
+    ViewerCheck,
     build_conversation_rows,
     build_older_messages,
     build_thread,
@@ -204,7 +205,18 @@ def _exhausted(responses: list[SnResponse]) -> bool:
     return asked.isdigit() and rows is not None and len(rows) < int(asked)
 
 
-def _viewer_unclear() -> LinkedInScraperException:
+def _viewer_unclear(check: ViewerCheck) -> LinkedInScraperException:
+    if check == "chrome_names_no_participant":
+        logger.warning(
+            "The Sales Navigator page named a signed-in member who is no "
+            "participant of the conversations read; nothing was reported"
+        )
+        return LinkedInScraperException(
+            "The Sales Navigator page named no participant as you, so nothing "
+            "was reported rather than mix up your messages with the other "
+            "person's."
+        )
+    logger.warning("Sales Navigator viewer signals disagree (%s)", check)
     return LinkedInScraperException(
         "Sales Navigator's own data does not agree on which participant is "
         "you, so nothing was reported rather than mix up your messages with "
@@ -247,6 +259,8 @@ class _InboxCapture(SalesNavigatorCapture):
         self.thread_headers: dict[str, str] | None = None
         # The first older-messages request the page made: its URL and headers.
         self.older_template: tuple[str, dict[str, str]] | None = None
+        # Set when the viewer was told apart without the chrome's member.
+        self.chrome_unavailable = False
         self._started: set[str] = set()
 
     def _extra_listeners(self) -> tuple[tuple[str, Callable[..., None]], ...]:
@@ -332,8 +346,12 @@ class SalesNavigatorInboxReader:
             if capture.inbox_refused():
                 raise self._no_inbox() from exc
             raise
+        # The access check only explains a failed load: the inbox loaded.
         if capture.inbox_refused():
-            raise self._no_inbox()
+            logger.info(
+                "Sales Navigator's access check says the contract has no inbox, "
+                "but the inbox loaded; reading it"
+            )
 
     @staticmethod
     def _no_inbox() -> LinkedInScraperException:
@@ -344,9 +362,17 @@ class SalesNavigatorInboxReader:
 
     @staticmethod
     def _viewer(capture: _InboxCapture, payload: Any) -> str | None:
-        viewer, agreed = viewer_of(payload, capture.viewer())
-        if not agreed:
-            raise _viewer_unclear()
+        chrome = capture.viewer()
+        if chrome is None and not capture.chrome_unavailable:
+            capture.chrome_unavailable = True
+            logger.warning(
+                "The Sales Navigator page named no recognised signed-in member; "
+                "the viewer is told apart by the degree and every-thread checks "
+                "alone"
+            )
+        viewer, failed = viewer_of(payload, chrome)
+        if failed is not None:
+            raise _viewer_unclear(failed)
         return viewer
 
     @classmethod
@@ -662,8 +688,8 @@ class SalesNavigatorInboxReader:
             "url": url,
             "sections": {"conversation": render_conversation(conversation)},
             "conversation": conversation,
-            "marked_read": scan_marked_read
-            or conversation["id"] in _marked_read(capture.responses),
+            "marked_read": conversation["id"] in _marked_read(capture.responses),
+            "scan_marked_read": scan_marked_read,
         }
 
     async def _type_search(self, keywords: str) -> None:

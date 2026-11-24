@@ -46,12 +46,19 @@ nothing and makes the session look unlike a browser's.
 - The signed-in member is a participant of every thread. They are the member
   the app's own `salesApiNavChrome` names (when the page loaded it), the
   participant with `degree` 0, and present in every thread; when these
-  disagree the read is refused.
+  disagree the read is refused. A chrome that names a member who is no
+  participant gets its own refusal ("the Sales Navigator page named no
+  participant as you") and log line, apart from a conflict between signals.
+  A page whose chrome names no recognised member is read on the other two
+  checks, with a warning once per page load.
 - An access check that says the contract has no inbox
-  (`salesApiAccess.hasContractInboxAccess` false) refuses the read as a
-  missing seat.
+  (`salesApiAccess.hasContractInboxAccess` false) explains a load that failed
+  as a missing seat. When the inbox loads anyway, it is only logged.
 - Every result carries `marked_read`: true only when LinkedIn answered a
-  mark-read during the call. With the guard on, that cannot happen; it is the
+  mark-read for the conversation (or, for the list reads, any conversation)
+  during the call. A conversation read by `lead_id` also carries
+  `scan_marked_read`, for a mark-read answered during the inbox scan, whichever
+  conversation that was. With the guard on, neither can happen; they are the
   evidence, not a promise. If a thread could only be read by marking it read,
   the owner's decision is to read it and report `marked_read: true`.
 
