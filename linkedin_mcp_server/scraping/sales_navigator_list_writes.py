@@ -48,6 +48,7 @@ from linkedin_mcp_server.pacing import (
     note_throttle_signal,
     record_write,
 )
+from linkedin_mcp_server.scraping.contracts import before_the_reply_deadline
 from linkedin_mcp_server.scraping.identifiers import (
     SALES_ACCOUNT_LISTS_URL,
     normalize_sales_company_id,
@@ -547,7 +548,10 @@ class SalesNavigatorListWriter:
         async with explicit_list_write(self._session.page, planned) as window:
             _current_ledger().windows.append(window)
             try:
-                raw = await transmit(window)
+                # Ends ahead of the tool's deadline, so a request that left is
+                # answered as unconfirmed instead of landing as a cancellation.
+                with before_the_reply_deadline():
+                    raw = await transmit(window)
             except Exception:
                 logger.warning("The Sales Navigator list write failed", exc_info=True)
                 raw = None
@@ -707,9 +711,13 @@ class SalesNavigatorListWriter:
             if list_id is None:
                 return unknown("its answer named no list id")
             ledger.account_list = {"id": list_id, **planned_list}
-            headers, record = await self._open(
-                sales_account_list_url(list_id), list_id=list_id
-            )
+            headers, record = None, None
+            with before_the_reply_deadline() as read_back:
+                headers, record = await self._open(
+                    sales_account_list_url(list_id), list_id=list_id
+                )
+            if read_back.cancelled_caught:
+                return unknown("the list's own page did not load in time")
             if (
                 record is None
                 or _not_an_account_list(dict(record)) is not None
@@ -929,6 +937,22 @@ class SalesNavigatorListWriter:
             )
             if isinstance(answer, dict):
                 return answer
+            # A 2xx alone is not the list gone: only the list's page refusing
+            # that id (the reader's own refusal) is.
+            gone = False
+            with before_the_reply_deadline():
+                try:
+                    await self._open(sales_account_list_url(list_id), list_id=list_id)
+                except InvalidReferenceError:
+                    gone = True
+            if not gone:
+                return finish(
+                    "delete_unconfirmed",
+                    "Sales Navigator accepted the delete, but the list's page "
+                    "did not confirm the list is gone. Check "
+                    "list_sales_navigator_account_lists before trying again.",
+                    retry_safe=False,
+                )
             return finish(
                 "deleted", "Sales Navigator deleted the list.", retry_safe=False
             )

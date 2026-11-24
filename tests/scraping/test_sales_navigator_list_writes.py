@@ -119,7 +119,9 @@ class _Locator:
         return self._page.values.get(self._selector, "")
 
     async def is_enabled(self) -> bool:
-        return bool(self._page.values.get(writes._NAME_FIELD))
+        return self._selector not in self._page.missing and bool(
+            self._page.values.get(writes._NAME_FIELD)
+        )
 
 
 class _Page:
@@ -235,6 +237,21 @@ def _writer(
     return writer, opened
 
 
+def _gone_after_delete(record: dict[str, Any]) -> Any:
+    """The list's record on the first load, the reader's refusal after."""
+    from linkedin_mcp_server.core.exceptions import InvalidReferenceError
+
+    loads: list[str] = []
+
+    def load(list_id: str) -> dict[str, Any]:
+        loads.append(list_id)
+        if len(loads) > 1:
+            raise InvalidReferenceError("Sales Navigator refused that list_id")
+        return record
+
+    return load
+
+
 def _rows(*values: str) -> list[dict[str, Any]]:
     return writes.plan_accounts(list(values)).rows
 
@@ -287,7 +304,7 @@ async def test_delete_sends_only_the_exact_list_after_the_name_matches(
     ledger, monkeypatch
 ):
     page = _Page([{"status": 204, "payload": None, "restliId": None}])
-    writer, _ = _writer(page, monkeypatch, record=_account_list())
+    writer, _ = _writer(page, monkeypatch, record=_gone_after_delete(_account_list()))
     result = await writer.delete_account_list(
         LIST, expected_name=NAME, confirm_send=True
     )
@@ -870,7 +887,7 @@ async def test_a_stalled_last_progress_note_does_not_lose_the_result(
     import anyio
 
     page = _Page([{"status": 204, "payload": None, "restliId": None}])
-    writer, _ = _writer(page, monkeypatch, record=_account_list())
+    writer, _ = _writer(page, monkeypatch, record=_gone_after_delete(_account_list()))
 
     async def progress(*, progress: int, **_kwargs: Any) -> None:
         if progress == 100:
@@ -966,3 +983,109 @@ async def test_a_record_for_another_list_is_never_written_to():
     writer = writes.SalesNavigatorListWriter(reader)
     with pytest.raises(LinkedInScraperException, match="does not recognise"):
         await writer._open("https://example.invalid", list_id=LIST)
+
+
+# Confirmation and the tool's deadline
+
+
+async def test_a_delete_whose_list_still_loads_is_unconfirmed(ledger, monkeypatch):
+    page = _Page([{"status": 204, "payload": None, "restliId": None}])
+    writer, opened = _writer(page, monkeypatch, record=_account_list())
+    result = await writer.delete_account_list(
+        LIST, expected_name=NAME, confirm_send=True
+    )
+    assert result["status"] == "delete_unconfirmed", (
+        "a 2xx delete is deleted only when the list's page then refuses the id"
+    )
+    assert result["retry_safe"] is False
+    assert len(opened) == 2
+    assert _spent(ledger) == 1
+
+
+async def test_a_create_answer_stalled_near_the_deadline_is_unconfirmed(
+    tool_ledger, monkeypatch, mock_context
+):
+    import anyio
+
+    async def stalled(self: _Request) -> Any:
+        await anyio.sleep(60)
+
+    monkeypatch.setattr(_Request, "response", stalled)
+    page = _Page([{"status": 201, "payload": None, "restliId": "100000399"}])
+    writer, _ = _writer(page, monkeypatch, record=_created)
+    fn = await _tool("create_sales_navigator_account_list")
+    with anyio.fail_after(1):
+        result = await fn(NAME, True, mock_context, extractor=_Extractor(writer))
+    assert result["status"] == "create_unconfirmed", (
+        "a create whose answer outlasts the deadline must be create_unconfirmed"
+    )
+    assert result["retry_safe"] is False
+    assert _spent(tool_ledger) == 1
+
+
+async def test_a_read_back_stalled_near_the_deadline_is_unconfirmed(
+    tool_ledger, monkeypatch, mock_context
+):
+    import anyio
+
+    page = _Page([{"status": 201, "payload": None, "restliId": "100000399"}])
+    writer, _ = _writer(page, monkeypatch, record=_created)
+    reads = writer._open
+
+    async def stalled(url: str, *, list_id: str | None):
+        if list_id is not None:
+            await anyio.sleep(60)
+        return await reads(url, list_id=list_id)
+
+    monkeypatch.setattr(writer, "_open", stalled)
+    fn = await _tool("create_sales_navigator_account_list")
+    with anyio.fail_after(1):
+        result = await fn(NAME, True, mock_context, extractor=_Extractor(writer))
+    assert result["status"] == "create_unconfirmed", (
+        "a read-back that outlasts the deadline must be create_unconfirmed"
+    )
+    assert result["list"]["id"] == "100000399"
+    assert result["retry_safe"] is False
+
+
+async def test_a_disabled_create_button_is_never_pressed(ledger, monkeypatch):
+    page = _Page([])
+    page.missing.add(writes._CREATE_BUTTON)
+    writer, _ = _writer(page, monkeypatch, record=_created)
+    result = await writer.create_account_list(NAME, confirm_send=True)
+    assert page.submits == 0, "a disabled Create button must never be pressed"
+    assert result["status"] == "not_sent"
+    assert result["retry_safe"] is True
+    assert page.keyboard.pressed == ["Escape"]
+    assert _spent(ledger) == 0
+
+
+async def test_a_create_the_app_never_sends_is_not_sent_and_not_counted(
+    ledger, monkeypatch
+):
+    async def silent() -> None:
+        return None
+
+    monkeypatch.setattr(writes, "_SEND_TIMEOUT", 0.05)
+    page = _Page([])
+    monkeypatch.setattr(page, "app_creates", silent)
+    writer, _ = _writer(page, monkeypatch, record=_created)
+    result = await writer.create_account_list(NAME, confirm_send=True)
+    assert page.submits == 1
+    assert result["status"] == "not_sent", (
+        "a Create press the app sent nothing for must be not_sent"
+    )
+    assert result["retry_safe"] is True
+    assert page.sent == []
+    assert _spent(ledger) == 0, "a press the app sent nothing for must not be counted"
+
+
+def test_a_descriptions_line_breaks_are_sent_as_the_form_holds_them():
+    from linkedin_mcp_server.scraping.sales_navigator_list_payload import (
+        create_request,
+    )
+
+    planned = create_request(NAME, "one\r\ntwo\rthree\nfour")
+    assert planned.body["description"] == "one\ntwo\nthree\nfour", (
+        "a description's \\r\\n and \\r must be sent as \\n, as the textarea holds them"
+    )

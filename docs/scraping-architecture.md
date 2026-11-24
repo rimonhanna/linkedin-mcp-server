@@ -123,7 +123,7 @@ a page-owning collaborator.
 - `sales_navigator_lead_filters` -> `contracts`
 - `sales_navigator_list_guard` -> `sales_navigator_payload`
 - `sales_navigator_list_payload` -> `restli`, `sales_navigator_list_guard`, `sales_navigator_payload`
-- `sales_navigator_list_writes` -> `identifiers`, `restli`, `sales_navigator`, `sales_navigator_list_guard`, `sales_navigator_list_payload`, `sales_navigator_payload`
+- `sales_navigator_list_writes` -> `contracts`, `identifiers`, `restli`, `sales_navigator`, `sales_navigator_list_guard`, `sales_navigator_list_payload`, `sales_navigator_payload`
 - `sales_navigator_payload` -> `identifiers`, `restli`
 - `search_pages` -> `capture`, `contracts`, `link_metadata`, `search_parse`, `session`
 - `search_parse` -> _(none)_

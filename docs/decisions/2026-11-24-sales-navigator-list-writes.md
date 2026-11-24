@@ -44,11 +44,31 @@ Why not the app's controls:
   arbitrary set of company ids has no page that sends them as one request,
   and driving the picker account by account costs a page load and a write
   each, 25 where the tool spends one.
-- The delete is behind the list hub's row menu and a confirmation dialog.
-  The row menu's trigger carries an untranslated attribute
-  (`data-x--list-hub--action-menu--trigger`), but the recon recorded neither
-  the menu's items nor the dialog, and the hub shows 25 lists per page, so no
-  locale-free path to the delete is known.
+- The delete: the recon looked only at the list hub, where the delete is
+  behind a row menu and a confirmation dialog. The row menu's trigger
+  carries an untranslated attribute (`data-x--list-hub--action-menu--trigger`),
+  but the recon recorded neither the menu's items nor the dialog, and the hub
+  shows 25 lists per page, so no locale-free path to the delete is known
+  there. The list's own page (`/sales/accounts/dashboard?listId=<id>`), which
+  the tool already loads to check the name, was not examined for a delete
+  control at all.
+
+## How each write is confirmed
+
+- Create: Sales Navigator's answer names the new id, and the list's page then
+  shows an account list of that name.
+- Delete: a 2xx answer, then one more load of the list's page, which must be
+  refused for that list id (the reader's `_Refusal` on `salesApiLists/<id>`,
+  a 403/404 with no OK answer for the same id). A page that still loads the
+  list, or does not answer either way, is `delete_unconfirmed`.
+- Add: Sales Navigator's own per-account answer is the confirmation, with no
+  read-back. The save action answers one `listEntityActionResponses` entry per
+  account (`SUCCESS`, `CONFLICT` or a failure), so each account's status comes
+  from LinkedIn and an account it does not name stays `unconfirmed`. The
+  list's `entityCount` is not used: it is one number for the whole list, so it
+  cannot say which accounts went in, `CONFLICT` accounts leave it unchanged,
+  and another writer (the member in another tab) moves it at the same time.
+  Reading the rows back would cost a page load per 25 rows on every add.
 
 ## The `lists` element is a string
 
@@ -63,4 +83,6 @@ needs was not yet re-checked live.
 ## Revisit
 
 Switch the add or the delete to the app's control once a recon records a
-locale-free control that sends the planned request.
+locale-free control that sends the planned request. The first target is the
+list's own page (`/sales/accounts/dashboard?listId=<id>`): record its controls
+for a delete (and for adding accounts) before looking anywhere else.

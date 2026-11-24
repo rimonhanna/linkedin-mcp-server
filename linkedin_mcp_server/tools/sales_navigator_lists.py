@@ -75,8 +75,10 @@ async def _run(
     logger.info("%s (confirm_send=%s)", tool, confirm_send)
     await ctx.report_progress(progress=0, total=100, message=message)
     # The one place an error after an admitted request becomes an outcome.
-    # Each admitted request was counted by its window as it left, so a
-    # cancellation (the tool timeout) needs nothing here and goes on up.
+    # The tool timeout does not land after an admitted request: the writer's
+    # waits from then on end ahead of it and answer *_unconfirmed. What is
+    # left is a cancellation the server does not own (a client that cancels);
+    # the request was counted by its window as it left, so it goes on up.
     with tracking_list_writes(tool) as ledger:
         try:
             result = await call(extractor)
@@ -300,8 +302,9 @@ def register_sales_navigator_list_tools(
         it is an account list whose name is exactly expected_name; otherwise
         nothing is sent. Only that list id is ever deleted. confirm_send
         False is a dry run that deletes nothing and reports the list that
-        would be deleted. Success is only reported from Sales Navigator's own
-        answer; when an outcome is unknown, retry_safe is false: check
+        would be deleted. Status deleted is only reported from Sales
+        Navigator's own answer and the list's page then refusing the id (a
+        second page load); when an outcome is unknown, retry_safe is false: check
         list_sales_navigator_account_lists before calling again. The request
         counts against the daily sales_list_writes cap.
 
