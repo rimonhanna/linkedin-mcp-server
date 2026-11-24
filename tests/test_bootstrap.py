@@ -8326,7 +8326,7 @@ class TestPatchrightCommandTargetContract:
     def test_the_locked_release_is_the_one_this_contract_describes(self):
         import importlib.metadata
 
-        assert importlib.metadata.version("patchright") == "1.61.2"
+        assert importlib.metadata.version("patchright") == "1.64.4"
 
     def _assert_is_an_ffmpeg_directory(self, name: str) -> None:
         """Pin the kind, and the revision to one this browsers.json names.
@@ -8399,14 +8399,21 @@ class TestPatchrightCommandTargetContract:
             / "coreBundle.js"
         ).read_text()
 
+        # The resolver ``install`` calls, not the npm-install path that also
+        # pushes winldd: only this one decides what the command extracts.
+        start = bundle.index("      resolveBrowsers(aliases2, options) {")
+        resolver = bundle[
+            start : bundle.index("return [...new Set(executables)];", start)
+        ]
+
         assert (
-            'if (process.platform === "win32")\n'
-            '          executables.push(this.findExecutable("winldd"));' in bundle
+            'if (process.platform === "win32") '
+            'executables.push(this.findExecutable("winldd"));' in resolver
         )
         # And ffmpeg's condition beside it: any argument resolving to a browser.
         assert (
-            "if (executable?.browserName)\n"
-            '            executables.push(this.findExecutable("ffmpeg"));' in bundle
+            "if (executable?.browserName) "
+            'executables.push(this.findExecutable("ffmpeg"));' in resolver
         )
         # winldd carries no revisionOverrides, so its directory is the plain one.
         assert "revisionOverrides" not in _registry_entry("winldd")
