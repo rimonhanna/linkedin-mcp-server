@@ -264,14 +264,15 @@ The read tools only read. Each call opens a Sales Navigator page in your browser
 takes its data from the responses that page loads. The one request of their
 own is `get_sales_navigator_conversation` asking for older messages: it repeats
 the page's own older-messages request, with the page's own headers, for at
-most three batches of 10. No tool opens a lead's page, so nobody sees a
+most three batches of 10 (when the page made no such request itself, the
+request it was measured sending, with the headers of its conversation request). No tool opens a lead's page, so nobody sees a
 profile view from you.
 
 The inbox tools leave read state alone. Sales Navigator opens the top
 conversation of every inbox view (and of every search) by itself, and marks a
 conversation read once its newest message is on screen. While an inbox tool
-runs, the app's writes to its conversations (mark read or unread, seen
-receipts, archive) and its message sends are blocked in the browser, so an
+runs, every POST under the app's conversation resource (mark read or unread
+and archive among them) and its message sends are blocked in the browser, so an
 unread conversation stays unread; the app's other requests are left alone.
 Each result carries `marked_read`, true only if LinkedIn confirmed a mark-read
 anyway. Opening a conversation, including the one the inbox opens by itself,

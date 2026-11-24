@@ -170,12 +170,13 @@
         "headers": {
           "csrf-token": "policy-token"
         },
-        "url": "https://www.linkedin.com/sales-api/salesApiMessagingThreads/2-POLICY/messages?count=10&deliveredBefore=10000&decoration=%28id%2Ctype%2Cauthor%2Cattachments%2CcontentFlag%2CdeliveredAt%2Csubject%2Cbody%2CfooterText%2CblockCopy%2CsystemMessageContent%29"
+        "timeoutMs": 10000,
+        "url": "https://www.linkedin.com/sales-api/salesApiMessagingThreads/2-POLICY/messages?count=10&decoration=%28id%2Ctype%2Cauthor%2Cattachments%2CcontentFlag%2CdeliveredAt%2Csubject%2Cbody%2CfooterText%2CblockCopy%2CsystemMessageContent%29&deliveredBefore=10000"
       },
       "call": "get_sales_navigator_conversation",
       "kind": "evaluate",
       "operation": "sn_inbox_history",
-      "program_digest": "f5fde8fc0b2f",
+      "program_digest": "af2875ae9bf5",
       "section": "conversation"
     },
     {

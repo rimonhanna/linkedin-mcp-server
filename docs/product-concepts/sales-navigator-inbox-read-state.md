@@ -18,7 +18,7 @@ Listing threads alone does not mark anything read; opening one can.
 So the reads cannot rely on not opening threads. They rely on the read-state
 guard (`scraping/messaging_read_state.py`): its routes, registered on every
 page at creation, include every POST under `/sales-api/salesApiMessagingThreads`
-(mark read or unread, the archive patch, seen receipts) and under
+(mark read or unread and the archive patch among them) and under
 `/sales-api/salesApiMessageActions` (sends). While a passive read has latched
 the guard, those POSTs are aborted in the browser. Nothing else is: the app's
 boot, coach, heartbeat and telemetry POSTs pass, since blocking them protects
@@ -34,12 +34,22 @@ nothing and makes the session look unlike a browser's.
 - One conversation is its route, `/sales/inbox/<thread id>`, read from the
   single-thread response (the newest 10 messages). Older messages repeat the
   page's own `.../messages?deliveredBefore=` request with the page's own
-  headers, at most three batches. That replay is the one request these tools
-  make themselves.
+  headers, at most three batches, each aborted after 10 s and started only
+  while that much of the call's time is left. When the page made no
+  older-messages request itself, the decoration it was measured sending is
+  used with the headers of its conversation request. That replay is the one
+  request these tools make themselves.
 - A `lead_id` is matched only against the participants' `fs_salesProfile` ids
-  in the list data, never by name, in the 200 most recent conversations.
-- The signed-in member is a participant of every thread and is told apart by
-  `degree` 0.
+  in the list data, never by name, in the 200 most recent conversations. A
+  miss says why the scan stopped when it stopped early, and is no proof there
+  is no conversation.
+- The signed-in member is a participant of every thread. They are the member
+  the app's own `salesApiNavChrome` names (when the page loaded it), the
+  participant with `degree` 0, and present in every thread; when these
+  disagree the read is refused.
+- An access check that says the contract has no inbox
+  (`salesApiAccess.hasContractInboxAccess` false) refuses the read as a
+  missing seat.
 - Every result carries `marked_read`: true only when LinkedIn answered a
   mark-read during the call. With the guard on, that cannot happen; it is the
   evidence, not a promise. If a thread could only be read by marking it read,

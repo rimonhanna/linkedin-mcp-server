@@ -12,7 +12,7 @@ from weakref import WeakKeyDictionary, WeakSet
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
 
 # The Sales Navigator entries take every POST under its thread resource (mark
-# read or unread, the archive patch, seen receipts) and its message actions
+# read or unread and the archive patch among them) and its message actions
 # (send); a thread id is a path segment, hence ``**``. Only these: the app's
 # other POSTs (boot, coach, heartbeats, telemetry) pass, since aborting them
 # protects nothing and makes the session look unlike a browser's.

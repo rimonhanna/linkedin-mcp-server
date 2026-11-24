@@ -3,9 +3,9 @@ LinkedIn Sales Navigator inbox read tools.
 
 Every tool loads the Sales Navigator inbox in the signed-in member's browser
 and reads the responses the page itself receives. They need a Sales Navigator
-seat. The inbox opens its top conversation on its own; the app's mark-read and
-seen-receipt requests are aborted during every read, so unread conversations
-stay unread.
+seat. The inbox opens its top conversation on its own; every POST under the
+app's thread resource (mark read included) is aborted during every read, so
+unread conversations stay unread.
 """
 
 import logging
@@ -66,9 +66,10 @@ def register_sales_navigator_inbox_tools(
         the call's time limit is near.
 
         Sales Navigator opens the top conversation of any inbox view on its
-        own, which also loads that participant's profile; its mark-read and
-        seen-receipt requests are blocked, so unread conversations stay
-        unread (marked_read is true only if LinkedIn confirmed one anyway).
+        own, which also loads that participant's profile; every POST under the
+        thread resource (mark read included) is blocked, so unread
+        conversations stay unread (marked_read is true only if LinkedIn
+        confirmed a mark-read anyway).
 
         Args:
             ctx: FastMCP context for progress reporting
@@ -134,16 +135,20 @@ def register_sales_navigator_inbox_tools(
         Provide thread_id (from get_sales_navigator_inbox or
         search_sales_navigator_conversations) or lead_id. A lead_id is matched
         only against the participants' lead ids in the inbox's own data, never
-        by name; a lead with no conversation in the inbox (archived ones are not
-        searched), or an index past the ones found, is refused rather than
-        resolved to another thread. Needs a Sales Navigator seat. The newest 10
+        by name, among the 200 most recent conversations; a lead with no
+        conversation there (archived ones are not searched), or an index past
+        the ones found, is refused rather than resolved to another thread. A
+        miss is no proof there is no conversation; the error says when the
+        scan stopped early. Needs a Sales Navigator seat. The newest 10
         messages come with the page; up to 30 older ones are read by repeating
         the page's own older-messages request.
 
         Sales Navigator opens the conversation on its
-        own, which also loads that participant's profile; its mark-read and
-        seen-receipt requests are blocked, so unread conversations stay
-        unread (marked_read is true only if LinkedIn confirmed one anyway).
+        own, which also loads that participant's profile; every POST under the
+        thread resource (mark read included) is blocked, so unread
+        conversations stay unread (marked_read is true only if LinkedIn
+        confirmed a mark-read anyway, for this conversation or, with lead_id,
+        for any conversation the inbox scan opened).
 
         Args:
             ctx: FastMCP context for progress reporting
@@ -218,9 +223,10 @@ def register_sales_navigator_inbox_tools(
         no search URL) and clicks no result. Needs a Sales Navigator seat.
 
         Sales Navigator opens the top conversation of any inbox view on its
-        own, which also loads that participant's profile; its mark-read and
-        seen-receipt requests are blocked, so unread conversations stay
-        unread (marked_read is true only if LinkedIn confirmed one anyway).
+        own, which also loads that participant's profile; every POST under the
+        thread resource (mark read included) is blocked, so unread
+        conversations stay unread (marked_read is true only if LinkedIn
+        confirmed a mark-read anyway).
 
         Args:
             keywords: Search keywords

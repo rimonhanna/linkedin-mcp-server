@@ -3,9 +3,9 @@
 The inbox answers from ``/sales-api/salesApiMessagingThreads`` in normalized
 Rest.li (``data`` + ``included``): a thread carries its participants as
 ``fs_salesProfile`` URNs resolved through ``included``, and its messages
-inline. The signed-in member is a participant of every thread; LinkedIn marks
-them with ``degree`` 0, which is how they are told apart (never by name).
-Builders return ``None`` on a wrong shape and never raise.
+inline. The signed-in member is a participant of every thread and is told
+apart by id, never by name (``viewer_of``). Builders return ``None`` on a
+wrong shape and never raise.
 """
 
 from __future__ import annotations
@@ -25,6 +25,10 @@ from linkedin_mcp_server.scraping.restli import (
 from linkedin_mcp_server.scraping.sales_navigator_payload import sales_profile_id
 
 THREADS = "salesApiMessagingThreads"
+# Boot calls: the app's chrome names the signed-in member, and the access
+# check says whether the contract has an inbox at all.
+NAV_CHROME = "salesApiNavChrome"
+ACCESS = "salesApiAccess"
 # The thread list's finders: the inbox view (``filter``) and the search box.
 LIST_FINDER = "filter"
 SEARCH_FINDER = "keyword"
@@ -32,6 +36,10 @@ SEARCH_FINDER = "keyword"
 MESSAGE_BATCH = 10
 _PREVIEW_LENGTH = 200
 _VIEWER_DEGREE = 0
+_MEMBER_URN = "urn:li:member:"
+# Where the chrome may name the member. ``viewerSalesUrn`` is in the decoration
+# the page asks for; the value's form is checked, not assumed.
+_CHROME_VIEWER_KEYS = ("viewerSalesUrn", "member")
 
 InboxFilter = Literal[
     "all",
@@ -53,7 +61,8 @@ FILTERS: Mapping[InboxFilter, tuple[str | None, str]] = {
     "inmail_declined": ("DECLINED", "INMAIL_DECLINED"),
     "archived": ("ARCHIVED", "ARCHIVED"),
 }
-# The decoration the page sends for older messages; replayed unchanged.
+# The decoration the page was measured sending for older messages, for when the
+# page made no older-messages request of its own to replay.
 MESSAGE_DECORATION = (
     "(id,type,author,attachments,contentFlag,deliveredAt,subject,body,"
     "footerText,blockCopy,systemMessageContent)"
@@ -143,12 +152,78 @@ def _participant(
     return participant
 
 
-def _is_viewer(urn: str, profiles: Mapping[str, dict[str, Any]]) -> bool:
-    return as_int(profiles.get(urn, {}).get("degree")) == _VIEWER_DEGREE
+def _is_viewer(urn: str, viewer: str | None) -> bool:
+    return viewer is not None and sales_profile_id(urn) == viewer
+
+
+def chrome_viewer(payload: Any) -> str | None:
+    """The member the app's chrome names: a sales profile or a member URN."""
+    record = envelope_record(payload)
+    if record is None:
+        return None
+    for key in _CHROME_VIEWER_KEYS:
+        value = as_str(_ref(record, key))
+        if value is not None and (
+            sales_profile_id(value) is not None or value.startswith(_MEMBER_URN)
+        ):
+            return value
+    return None
+
+
+def no_inbox_access(payload: Any) -> bool:
+    """The access check says this contract has no Sales Navigator inbox."""
+    record = envelope_record(payload)
+    return record is not None and record.get("hasContractInboxAccess") is False
+
+
+def _named_by(urn: str, profiles: Mapping[str, dict[str, Any]], chrome: str) -> bool:
+    if (chrome_id := sales_profile_id(chrome)) is not None:
+        return sales_profile_id(urn) == chrome_id
+    return as_str(profiles.get(urn, {}).get("objectUrn")) == chrome
+
+
+def viewer_of(payload: Any, chrome: str | None) -> tuple[str | None, bool]:
+    """The signed-in member's profile id in one thread or list response.
+
+    The second value is False when the signals disagree: the chrome's member
+    (when the page loaded it), the ``degree`` 0 participant, and the one
+    participant present in every thread must all be the same person. A
+    response with no thread names no viewer and disagrees with nothing.
+    """
+    elements = envelope_elements(payload)
+    if elements is None:
+        record = envelope_record(payload)
+        elements = [record] if record is not None else []
+    threads = [_urns(_ref(record, "participants")) or [] for record in elements]
+    if not threads:
+        return None, True
+    profiles = included_by_urn(payload)
+    everyone = {urn for thread in threads for urn in thread}
+    by_degree = {
+        sales_profile_id(urn)
+        for urn in everyone
+        if as_int(profiles.get(urn, {}).get("degree")) == _VIEWER_DEGREE
+    }
+    if chrome is not None:
+        named = {
+            sales_profile_id(urn)
+            for urn in everyone
+            if _named_by(urn, profiles, chrome)
+        }
+    else:
+        named = by_degree
+    if len(named) != 1:
+        return None, False
+    (viewer,) = named
+    if viewer is None or not by_degree <= {viewer}:
+        return None, False
+    if not all(any(_is_viewer(urn, viewer) for urn in thread) for thread in threads):
+        return None, False
+    return viewer, True
 
 
 def build_participants(
-    value: Any, profiles: Mapping[str, dict[str, Any]]
+    value: Any, profiles: Mapping[str, dict[str, Any]], viewer: str | None
 ) -> list[Participant] | None:
     """The thread's other participants; the signed-in member is left out."""
     urns = _urns(value)
@@ -156,7 +231,7 @@ def build_participants(
         return None
     participants: list[Participant] = []
     for urn in urns:
-        if _is_viewer(urn, profiles):
+        if _is_viewer(urn, viewer):
             continue
         participant = _participant(urn, profiles)
         if participant is None:
@@ -166,7 +241,7 @@ def build_participants(
 
 
 def build_message(
-    element: Any, profiles: Mapping[str, dict[str, Any]]
+    element: Any, profiles: Mapping[str, dict[str, Any]], viewer: str | None
 ) -> InboxMessage | None:
     record = as_mapping(element)
     if record is None:
@@ -193,7 +268,7 @@ def build_message(
         message["subject"] = subject
     author = as_str(_ref(record, "author"))
     if author is not None:
-        message["fromViewer"] = _is_viewer(author, profiles)
+        message["fromViewer"] = _is_viewer(author, viewer)
         if (sender := _participant(author, profiles)) is not None:
             message["senderLeadId"] = sender["leadId"]
             if "name" in sender:
@@ -202,14 +277,14 @@ def build_message(
 
 
 def build_messages(
-    value: Any, profiles: Mapping[str, dict[str, Any]]
+    value: Any, profiles: Mapping[str, dict[str, Any]], viewer: str | None
 ) -> list[InboxMessage] | None:
     """Messages oldest first; ``None`` when any one is malformed."""
     if not isinstance(value, list):
         return None
     messages: list[InboxMessage] = []
     for element in value:
-        message = build_message(element, profiles)
+        message = build_message(element, profiles, viewer)
         if message is None:
             return None
         messages.append(message)
@@ -217,13 +292,15 @@ def build_messages(
 
 
 def _thread_facts(
-    record: Mapping[str, Any], profiles: Mapping[str, dict[str, Any]]
+    record: Mapping[str, Any],
+    profiles: Mapping[str, dict[str, Any]],
+    viewer: str | None,
 ) -> tuple[str, list[Participant], int, bool, list[InboxMessage]] | None:
     thread_id = as_str(record.get("id"))
     unread = as_int(record.get("unreadMessageCount"))
     archived = record.get("archived", False)
-    participants = build_participants(_ref(record, "participants"), profiles)
-    messages = build_messages(_ref(record, "messages"), profiles)
+    participants = build_participants(_ref(record, "participants"), profiles, viewer)
+    messages = build_messages(_ref(record, "messages"), profiles, viewer)
     if (
         thread_id is None
         or unread is None
@@ -236,12 +313,12 @@ def _thread_facts(
 
 
 def build_conversation_row(
-    element: Any, profiles: Mapping[str, dict[str, Any]]
+    element: Any, profiles: Mapping[str, dict[str, Any]], viewer: str | None
 ) -> InboxConversation | None:
     record = as_mapping(element)
     if record is None:
         return None
-    facts = _thread_facts(record, profiles)
+    facts = _thread_facts(record, profiles, viewer)
     if facts is None:
         return None
     thread_id, participants, unread, archived, messages = facts
@@ -266,7 +343,9 @@ def build_conversation_row(
     return row
 
 
-def build_conversation_rows(payload: Any) -> list[InboxConversation] | None:
+def build_conversation_rows(
+    payload: Any, viewer: str | None
+) -> list[InboxConversation] | None:
     """Every row of one thread-list response; ``None`` if any is malformed."""
     elements = envelope_elements(payload)
     if elements is None:
@@ -274,28 +353,22 @@ def build_conversation_rows(payload: Any) -> list[InboxConversation] | None:
     profiles = included_by_urn(payload)
     rows: list[InboxConversation] = []
     for element in elements:
-        row = build_conversation_row(element, profiles)
+        row = build_conversation_row(element, profiles, viewer)
         if row is None:
             return None
         rows.append(row)
     return rows
 
 
-def page_cursor(payload: Any) -> int | None:
-    """Where the next list page starts: the last row's ``nextPageStartsAt``."""
-    elements = envelope_elements(payload) or []
-    return as_int(elements[-1].get("nextPageStartsAt")) if elements else None
-
-
 def build_thread(
-    payload: Any,
+    payload: Any, viewer: str | None
 ) -> tuple[SalesConversation, Mapping[str, dict[str, Any]]] | None:
     """One thread (the single-thread response) and the profiles it names."""
     record = envelope_record(payload)
     if record is None:
         return None
     profiles = included_by_urn(payload)
-    facts = _thread_facts(record, profiles)
+    facts = _thread_facts(record, profiles, viewer)
     if facts is None:
         return None
     thread_id, participants, unread, archived, messages = facts
@@ -313,13 +386,13 @@ def build_thread(
 
 
 def build_older_messages(
-    payload: Any, profiles: Mapping[str, dict[str, Any]]
+    payload: Any, profiles: Mapping[str, dict[str, Any]], viewer: str | None
 ) -> list[InboxMessage] | None:
     """One older batch (the ``/messages`` response), oldest first."""
     elements = envelope_elements(payload)
     if elements is None:
         return None
-    return build_messages(elements, {**profiles, **included_by_urn(payload)})
+    return build_messages(elements, {**profiles, **included_by_urn(payload)}, viewer)
 
 
 def _names(participants: Iterable[Participant]) -> str:
