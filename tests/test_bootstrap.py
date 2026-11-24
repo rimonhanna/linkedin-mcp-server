@@ -8430,7 +8430,9 @@ class TestInstallerAuxiliaryAccounting:
         module.__file__ = str(package / "__init__.py")
         monkeypatch.setitem(sys.modules, "patchright", module)
 
-    #: The shape of the locked registry, trimmed to what the accounting reads.
+    #: The shape of patchright's browsers.json, trimmed to what the accounting
+    #: reads. The revisions are an older lock's and only illustrative: the
+    #: accounting takes them from the stubbed registry, not the installed one.
     _BROWSERS = [
         {"name": "chromium", "revision": "1228", "installByDefault": True},
         {
