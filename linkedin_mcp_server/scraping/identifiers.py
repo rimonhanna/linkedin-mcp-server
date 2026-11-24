@@ -398,17 +398,17 @@ def normalize_person_identifier(value: str, *, allow_self_alias: bool = False) -
     return reference
 
 
-# A member id LinkedIn mints, not a public identifier: ``ACo...`` (the member
-# URN's id) or ``ACw...`` (a Sales Navigator profile id). Case-sensitive and
-# at least 20 characters after the prefix, like the ids LinkedIn returns, so a
-# vanity name that merely starts with "aco" passes.
-_OPAQUE_MEMBER_ID = re.compile(r"^AC[ow][A-Za-z0-9_-]{20,}$")
+# A member id LinkedIn mints, not a public identifier: ``ACoAA...`` (the
+# member URN's id) or ``ACwAA...`` (a Sales Navigator profile id). LinkedIn's
+# are 39 characters, 34 after the prefix; this asks for 30 or more, and is
+# case-sensitive, so a vanity name that starts with "aco" or "ACo" passes.
+_OPAQUE_MEMBER_ID = re.compile(r"^AC[ow]AA[A-Za-z0-9_-]{30,}$")
 
 
 def refuse_opaque_member_id(username: str, *, tool: str) -> None:
     """Refuse an opaque member id where `tool` needs the public identifier.
 
-    The invite and message writes confirm their result against the member's
+    The invite write confirms its result against the member's
     ``/in/<public identifier>/`` address (the sent-invitations list, the
     custom-invite deeplink's ``vanityName``). An opaque id never matches that
     address, so a sent invitation would read as unconfirmed and a retry could

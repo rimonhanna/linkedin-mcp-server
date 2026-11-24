@@ -102,9 +102,9 @@ instances, clear profiles, or replace the user's browser session.
   `get_sales_navigator_account`, `list_sales_navigator_account_lists`,
   `get_sales_navigator_account_list`, `list_sales_navigator_lead_lists` and
   `get_sales_navigator_lead_list`. A lead's `id` (`ACw...`) is for the Sales
-  Navigator tools and its `profileUrl` is a link only: `connect_with_person`
-  and `send_message` refuse an `ACw...`/`ACo...` id as `linkedin_username`;
-  pass the member's public identifier.
+  Navigator tools and its `profileUrl` is a link only. `send_message` accepts
+  it as `linkedin_username`; `connect_with_person` refuses an
+  `ACw...`/`ACo...` id, so pass it the member's public identifier.
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
   InMail included, by its thread ID) and `connect_with_person`, and the
   Campaign Manager writes (`update_campaign`, `set_campaign_status`,

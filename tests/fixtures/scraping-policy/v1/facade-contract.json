@@ -2175,7 +2175,7 @@
               "type": "boolean"
             },
             "linkedin_username": {
-              "description": "LinkedIn username of the recipient; a full profile URL is accepted too",
+              "description": "LinkedIn username of the recipient; a full profile URL or a profile id (ACo..., or an ACw... Sales Navigator lead id) is accepted too, and the recipient is the member that profile page opens",
               "type": "string"
             },
             "message": {
