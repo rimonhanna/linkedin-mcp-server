@@ -819,3 +819,51 @@ async def test_a_send_window_the_click_left_unused_is_closed(dom, monkeypatch):
     assert result["status"] == "send_unconfirmed"
     assert late == "blocked"
     assert dom.sends == []
+
+
+# --- The inbox reads' access and viewer checks ------------------------------
+
+
+def _chrome(viewer: str) -> CapturedResponse:
+    return _response(
+        f"{API}/salesApiNavChrome?decoration=x", {"data": {"viewerSalesUrn": viewer}}
+    )
+
+
+async def test_a_contract_without_an_inbox_types_nothing(dom):
+    access = _response(
+        f"{API}/salesApiAccess", {"data": {"hasContractInboxAccess": False}}
+    )
+
+    result = await send(dom, composer_page(), [_profile(1), access])
+
+    assert result["status"] == "composer_unavailable"
+    assert await _box(dom) == ""
+    assert dom.sends == []
+
+
+async def test_a_chrome_naming_the_lead_as_you_leaves_the_reply_cost_unknown(dom):
+    messages = [*UNANSWERED, _message("INMAIL_ACCEPT", LEAD_URN, 2)]
+
+    result = await reply(
+        dom, composer_page(), [_chrome(LEAD_URN), _thread(messages), _credits(7)]
+    )
+
+    assert result["status"] == "inmail_reply_cost_unknown"
+    assert result["participant"] is None
+    assert dom.sends == []
+
+
+async def test_a_chrome_naming_you_keeps_the_answered_inmail_free(dom):
+    messages = [*UNANSWERED, _message("INMAIL_ACCEPT", LEAD_URN, 2)]
+
+    result = await reply(
+        dom,
+        composer_page(),
+        [_chrome(VIEWER_URN), _thread(messages)],
+        confirm_send=False,
+    )
+
+    assert result["status"] == "confirmation_required"
+    assert result["participant"] == "Test Lead"
+    assert result["delivery"]["creditCost"] == 0

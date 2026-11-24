@@ -87,13 +87,14 @@ from linkedin_mcp_server.scraping.sales_navigator_send_page import (
     is_profile,
     is_send,
     merged_profile,
-    no_inbox_access,
+    inbox_refused,
     profile_name,
     profile_of,
     reply_cost,
     sent_body,
     thread_of,
     thread_participant,
+    thread_viewer,
 )
 from linkedin_mcp_server.scraping.sales_navigator_api import SnResponse
 from linkedin_mcp_server.scraping.session import ScrapingSession
@@ -249,7 +250,7 @@ class SalesNavigatorMessageSender:
                     recipient["name"] = name
                 if (degree := as_int(profile.get("degree"))) is not None:
                     recipient["degree"] = degree
-                if no_inbox_access(capture.responses):
+                if inbox_refused(capture.responses):
                     return respond(
                         expected_route,
                         "composer_unavailable",
@@ -487,7 +488,8 @@ class SalesNavigatorMessageSender:
                         "Sales Navigator did not open the requested conversation. "
                         "Check the thread_id against get_sales_navigator_inbox.",
                     )
-                participant = thread_participant(response.payload, record)
+                viewer = thread_viewer(capture.responses, response.payload)
+                participant = thread_participant(response.payload, record, viewer)
                 respond = partial(
                     sales_reply_result, thread_id=thread_id, participant=participant
                 )
@@ -510,7 +512,7 @@ class SalesNavigatorMessageSender:
                     )
                 proceed = False
                 try:
-                    inmail_thread, cost = reply_cost(response.payload, record)
+                    inmail_thread, cost = reply_cost(response.payload, record, viewer)
                     if cost != 0:
                         await self._credits(capture)
                     await capture.settle()

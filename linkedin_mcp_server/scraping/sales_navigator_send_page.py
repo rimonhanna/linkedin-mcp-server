@@ -24,7 +24,11 @@ from linkedin_mcp_server.scraping.sales_navigator_api import (
     SnResponse,
 )
 from linkedin_mcp_server.scraping.sales_navigator_inbox_payload import (
+    ACCESS,
+    NAV_CHROME,
     build_messages,
+    chrome_viewer,
+    no_inbox_access,
     viewer_of,
 )
 from linkedin_mcp_server.scraping.sales_navigator_payload import (
@@ -36,14 +40,11 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
 _PROFILES = "salesApiProfiles"
 THREADS = "salesApiMessagingThreads"
 CREDITS = "salesApiCredits"
-_ACCESS = "salesApiAccess"
 _SEND = "salesApiMessageActions"
 _SEND_ACTION = "createMessage"
 _INMAIL_GRANT = "LSS_INMAIL"
 # The message types that show the recipient took up an InMail.
 _INMAIL_ANSWERS = frozenset({"INMAIL_ACCEPT", "INMAIL_REPLY"})
-# The degree Sales Navigator gives the signed-in member in a thread.
-_VIEWER_DEGREE = 0
 CONNECTION_DEGREE = 1
 
 
@@ -60,7 +61,8 @@ class SendCapture(SalesNavigatorCapture):
 
     def __init__(self, page: Any):
         super().__init__(
-            page, resources=frozenset({_PROFILES, THREADS, CREDITS, _ACCESS})
+            page,
+            resources=frozenset({_PROFILES, THREADS, CREDITS, ACCESS, NAV_CHROME}),
         )
         self.send_requests: list[Any] = []
 
@@ -147,14 +149,38 @@ def inmail_credits(responses: list[SnResponse]) -> int | None:
     return None
 
 
-def no_inbox_access(responses: list[SnResponse]) -> bool:
-    """True when the page was told this contract has no Sales Navigator inbox."""
-    for response in responses:
-        if response.ok and response.call.resource == _ACCESS:
-            record = as_mapping(response.payload)
-            if record is not None and record.get("hasContractInboxAccess") is False:
-                return True
-    return False
+def inbox_refused(responses: list[SnResponse]) -> bool:
+    """True when the page was told this contract has no Sales Navigator inbox.
+
+    The reads go on when the inbox loads anyway; a send does not, since it
+    acts as the user on a contract that says it has no messaging.
+    """
+    return any(
+        response.ok
+        and response.call.resource == ACCESS
+        and no_inbox_access(response.payload)
+        for response in responses
+    )
+
+
+def thread_viewer(responses: list[SnResponse], payload: Any) -> str | None:
+    """The signed-in member's profile id in one thread response, or None.
+
+    Told apart as the inbox reads tell it (``viewer_of``): the member the
+    app's chrome names, when the page loaded it, the ``degree`` 0
+    participant and the participant present in every thread must agree.
+    """
+    chrome = next(
+        (
+            named
+            for response in responses
+            if response.ok and response.call.resource == NAV_CHROME
+            if (named := chrome_viewer(response.payload)) is not None
+        ),
+        None,
+    )
+    viewer, failed = viewer_of(payload, chrome)
+    return viewer if failed is None else None
 
 
 def existing_thread(responses: list[SnResponse]) -> str | None:
@@ -168,7 +194,9 @@ def existing_thread(responses: list[SnResponse]) -> str | None:
     return None
 
 
-def reply_cost(payload: Any, record: dict[str, Any]) -> tuple[bool, int | None]:
+def reply_cost(
+    payload: Any, record: dict[str, Any], viewer: str | None
+) -> tuple[bool, int | None]:
     """Whether the conversation is an InMail, and what a reply in it costs.
 
     Read from the conversation's own messages (their ``type``): a reply is
@@ -176,9 +204,8 @@ def reply_cost(payload: Any, record: dict[str, Any]) -> tuple[bool, int | None]:
     side accepted or answered (an ``INMAIL_ACCEPT`` or ``INMAIL_REPLY`` from a
     participant who is not the signed-in member). Otherwise the cost is None,
     unknown and never assumed free: an InMail nobody answered, messages that
-    cannot be read, or a signed-in member who cannot be told apart.
+    cannot be read, or no ``viewer`` (``thread_viewer``) to tell apart.
     """
-    viewer, agrees = viewer_of(payload, None)
     messages = build_messages(
         record.get("messages", record.get("*messages")),
         included_by_urn(payload),
@@ -188,15 +215,11 @@ def reply_cost(payload: Any, record: dict[str, Any]) -> tuple[bool, int | None]:
         return False, None
     if not any(message["inmail"] for message in messages):
         return False, 0
-    answered = (
-        viewer is not None
-        and agrees
-        and any(
-            message["type"] in _INMAIL_ANSWERS
-            and not message["fromViewer"]
-            and "senderLeadId" in message
-            for message in messages
-        )
+    answered = viewer is not None and any(
+        message["type"] in _INMAIL_ANSWERS
+        and not message["fromViewer"]
+        and "senderLeadId" in message
+        for message in messages
     )
     return True, 0 if answered else None
 
@@ -249,13 +272,20 @@ def profile_name(profile: dict[str, Any]) -> str | None:
     )
 
 
-def thread_participant(payload: Any, record: dict[str, Any]) -> str | None:
-    """The names of the conversation's other participants, for the answer only."""
+def thread_participant(
+    payload: Any, record: dict[str, Any], viewer: str | None
+) -> str | None:
+    """The names of the conversation's other participants, for the answer only.
+
+    None when the signed-in member could not be told apart (``viewer``).
+    """
+    if viewer is None:
+        return None
     profiles = included_by_urn(payload)
     names: list[str] = []
     for urn in record.get("participants") or []:
         profile = profiles.get(urn) if isinstance(urn, str) else None
-        if profile is None or as_int(profile.get("degree")) == _VIEWER_DEGREE:
+        if profile is None or sales_profile_id(urn) == viewer:
             continue
         name = profile_name(profile)
         if name:
