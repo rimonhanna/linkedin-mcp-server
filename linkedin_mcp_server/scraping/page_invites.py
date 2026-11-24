@@ -445,6 +445,8 @@ class PageInviteActions:
                 return rows, True, "max_pages"
             if deadline is not None and time.monotonic() + _PAGE_TIMEOUT >= deadline:
                 return rows, True, "deadline"
+            # A person reads a page of rows before asking for the next.
+            await asyncio.sleep(random.uniform(0.8, 2.0))
             stop = await self._show_more(capture, company_id, len(rows))
             if stop is not None:
                 return rows, True, stop
@@ -620,7 +622,13 @@ class PageInviteActions:
             page, company_id=report.company_id, planned=chosen
         ) as window:
             try:
+                # The button enables on the app's re-render after the ticks.
                 pressed = await page.evaluate(_PRESS_INVITE_JS)
+                for _ in range(8):
+                    if pressed != "disabled":
+                        break
+                    await asyncio.sleep(_POLL_SECONDS)
+                    pressed = await page.evaluate(_PRESS_INVITE_JS)
                 if pressed == "clicked":
                     try:
                         response = await capture.wait_for(
