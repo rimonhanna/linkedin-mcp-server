@@ -796,3 +796,28 @@ async def test_older_batches_fall_back_to_the_measured_decoration(mock_page):
 
     query = parse_qs(urlparse(browser.fetched[0]["url"]).query)
     assert query["decoration"] == [inbox_module.MESSAGE_DECORATION]
+
+
+async def test_a_lead_read_reports_a_mark_read_from_its_inbox_scan(mock_page):
+    browser = _Inbox(mock_page)
+    top, target = _thread(1, unread=1), _thread(2, lead=5)
+    # The scan's page opens its top conversation, another thread, and LinkedIn
+    # confirms a mark-read for it.
+    browser.loads[SALES_INBOX_URL] = [
+        *_boot(),
+        _list([top, target], leads=(1, 5)),
+        _mark_read("2-THREAD0001%3D%3D", past_guard=True),
+    ]
+    browser.loads[sales_inbox_thread_url(target["id"])] = [
+        *_boot(),
+        _thread_response(target, 5),
+    ]
+
+    result = await _run(
+        mock_page, browser, lambda r: r.get_conversation(lead_id="ACwAAA0005")
+    )
+
+    assert result["conversation"]["id"] == target["id"]
+    assert result["marked_read"] is True, (
+        "a mark-read LinkedIn confirmed during the lead_id scan must be reported"
+    )

@@ -464,8 +464,12 @@ class SalesNavigatorInboxReader:
 
     async def _thread_for_lead(
         self, lead_id: str, index: int, deadline: float | None
-    ) -> str:
-        """The ``index``-th listed conversation whose participant is the lead."""
+    ) -> tuple[str, bool]:
+        """The ``index``-th listed conversation whose participant is the lead.
+
+        Also whether LinkedIn answered a mark-read during the scan: the inbox
+        opens its top conversation on its own, whichever thread that is.
+        """
         is_page = _is_list(LIST_FINDER, "filter", FILTERS["all"][1])
 
         def matches(rows: list[InboxConversation]) -> list[str]:
@@ -496,7 +500,7 @@ class SalesNavigatorInboxReader:
                 f"index {index} out of range: only {len(found)} conversation(s) "
                 f"with lead {lead_id} were found." + _lead_miss_note(reason)
             )
-        return found[index]
+        return found[index], bool(_marked_read(capture.responses))
 
     @staticmethod
     def _older_request(
@@ -606,10 +610,11 @@ class SalesNavigatorInboxReader:
         if index < 0:
             raise LinkedInScraperException(f"index must be non-negative (got {index}).")
         async with self._guard():
+            scan_marked_read = False
             if thread_id:
                 target = normalize_sales_thread_id(thread_id)
             else:
-                target = await self._thread_for_lead(
+                target, scan_marked_read = await self._thread_for_lead(
                     normalize_sales_lead_id(lead_id or ""), index, deadline
                 )
             url = sales_inbox_thread_url(target)
@@ -644,17 +649,21 @@ class SalesNavigatorInboxReader:
                     }
                 await capture.settle()
         strip_delivered_at(conversation["messages"])
-        return self._conversation_result(url, conversation, capture)
+        return self._conversation_result(url, conversation, capture, scan_marked_read)
 
     @staticmethod
     def _conversation_result(
-        url: str, conversation: SalesConversation, capture: SalesNavigatorCapture
+        url: str,
+        conversation: SalesConversation,
+        capture: SalesNavigatorCapture,
+        scan_marked_read: bool,
     ) -> dict[str, Any]:
         return {
             "url": url,
             "sections": {"conversation": render_conversation(conversation)},
             "conversation": conversation,
-            "marked_read": conversation["id"] in _marked_read(capture.responses),
+            "marked_read": scan_marked_read
+            or conversation["id"] in _marked_read(capture.responses),
         }
 
     async def _type_search(self, keywords: str) -> None:

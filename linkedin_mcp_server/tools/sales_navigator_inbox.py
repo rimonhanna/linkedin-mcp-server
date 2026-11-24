@@ -147,7 +147,8 @@ def register_sales_navigator_inbox_tools(
         own, which also loads that participant's profile; every POST under the
         thread resource (mark read included) is blocked, so unread
         conversations stay unread (marked_read is true only if LinkedIn
-        confirmed a mark-read anyway).
+        confirmed a mark-read anyway, for this conversation or, with lead_id,
+        for any conversation the inbox scan opened).
 
         Args:
             ctx: FastMCP context for progress reporting
