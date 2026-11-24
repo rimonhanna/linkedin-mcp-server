@@ -81,6 +81,9 @@ TOOL_DELEGATES = {
     "get_sales_navigator_account": "get_sales_navigator_account",
     "list_sales_navigator_account_lists": "list_sales_navigator_account_lists",
     "get_sales_navigator_account_list": "get_sales_navigator_account_list",
+    "get_sales_navigator_inbox": "get_sales_navigator_inbox",
+    "get_sales_navigator_conversation": "get_sales_navigator_conversation",
+    "search_sales_navigator_conversations": "search_sales_navigator_conversations",
 }
 # Enrichment tools compose several facade calls, or none when they only read
 # the on-disk cache or the job ledger; a tuple lists every facade method a

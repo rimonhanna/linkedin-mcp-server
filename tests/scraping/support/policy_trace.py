@@ -14,6 +14,7 @@ import asyncio
 import inspect
 import re
 
+from linkedin_mcp_server.scraping.messaging_read_state import _READ_STATE_WRITE_ROUTES
 
 _MISSING = object()
 _REAL_ASYNCIO_SLEEP = asyncio.sleep
@@ -655,10 +656,7 @@ class ScriptedPage:
             assert routed == {"**/campaign-manager-api/**": 1}, routed
         elif retained_read_guard:
             assert remaining == {"request": 1}, remaining
-            assert routed == {
-                "**/voyager/api/voyagerMessagingDashMessengerConversations*": 1,
-                "**/voyager/api/voyagerMessagingDashMessagingBadge*": 1,
-            }, routed
+            assert routed == dict.fromkeys(_READ_STATE_WRITE_ROUTES, 1), routed
         else:
             assert not remaining, (
                 f"{self.recorder.scenario}: listeners remain: {remaining}"

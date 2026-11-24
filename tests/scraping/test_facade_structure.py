@@ -69,6 +69,9 @@ PUBLIC_SIGNATURES = {
     "get_sales_navigator_account": "(self, company_id: 'str') -> 'dict[str, Any]'",
     "list_sales_navigator_account_lists": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "get_sales_navigator_account_list": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "get_sales_navigator_inbox": "(self, limit: 'int' = 20, filter: 'InboxFilter' = 'all', *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "get_sales_navigator_conversation": "(self, thread_id: 'str | None' = None, lead_id: 'str | None' = None, index: 'int' = 0, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "search_sales_navigator_conversations": "(self, keywords: 'str', limit: 'int' = 20, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
     "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
 }
@@ -115,6 +118,9 @@ DELEGATES = {
     "get_sales_navigator_account": ("_sales_navigator", "get_account"),
     "list_sales_navigator_account_lists": ("_sales_navigator", "list_account_lists"),
     "get_sales_navigator_account_list": ("_sales_navigator", "get_account_list"),
+    "get_sales_navigator_inbox": ("_sales_inbox", "get_inbox"),
+    "get_sales_navigator_conversation": ("_sales_inbox", "get_conversation"),
+    "search_sales_navigator_conversations": ("_sales_inbox", "search_conversations"),
 }
 
 DELEGATE_CALLS = {
@@ -163,6 +169,15 @@ DELEGATE_CALLS = {
     "get_sales_navigator_account_list": (
         "self._sales_navigator.get_account_list(list_id, page, deadline=deadline)"
     ),
+    "get_sales_navigator_inbox": (
+        "self._sales_inbox.get_inbox(limit, filter, deadline=deadline)"
+    ),
+    "get_sales_navigator_conversation": (
+        "self._sales_inbox.get_conversation(thread_id, lead_id, index, deadline=deadline)"
+    ),
+    "search_sales_navigator_conversations": (
+        "self._sales_inbox.search_conversations(keywords, limit, deadline=deadline)"
+    ),
 }
 
 FACADE_STATE = {
@@ -181,6 +196,7 @@ FACADE_STATE = {
     "_message_sender",
     "_person",
     "_posts",
+    "_sales_inbox",
     "_sales_navigator",
 }
 

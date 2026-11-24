@@ -110,6 +110,9 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
         "get_sales_navigator_account",
         "list_sales_navigator_account_lists",
         "get_sales_navigator_account_list",
+        "get_sales_navigator_inbox",
+        "get_sales_navigator_conversation",
+        "search_sales_navigator_conversations",
     ):
         setattr(mock, name, AsyncMock(return_value=scrape_result))
     mock.extract_page = AsyncMock(

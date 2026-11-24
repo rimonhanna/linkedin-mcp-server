@@ -85,6 +85,9 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `get_sales_navigator_account` | One company's Sales Navigator account page: description, industry, website, headquarters, revenue range, headcount and headcount growth. Needs a Sales Navigator seat. Read-only |
 | `list_sales_navigator_account_lists` | Every Sales Navigator account list of the member, with its size. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account_list` | One Sales Navigator account list and every company in it. Needs a Sales Navigator seat. Read-only |
+| `get_sales_navigator_inbox` | Recent Sales Navigator inbox conversations (1 to 1,000), in any inbox view: all, unread, sent, InMail awaiting response, accepted or declined, archived. Unread conversations stay unread. Needs a Sales Navigator seat. Read-only |
+| `get_sales_navigator_conversation` | One Sales Navigator conversation by `thread_id`, or by `lead_id` (matched on the lead id only, never by name), with up to 40 of its newest messages. Unread stays unread. Needs a Sales Navigator seat. Read-only |
+| `search_sales_navigator_conversations` | Search Sales Navigator messages by keyword through the inbox's own search box (up to 50 conversations). Unread stays unread. Needs a Sales Navigator seat. Read-only |
 | `start_enrichment_job` | Queue a resumable bulk profile-enrichment job from a list of usernames or profile URLs |
 | `run_enrichment_bunch` | Visit the next few profiles in a job, paced with randomized delays, a rolling 24h action budget and working hours; returns when to call it again. A bunch that loses its browser relaunches it and retries once; a profile that never loaded is left pending and is not charged |
 | `get_enrichment_status` | Progress and collected results for an enrichment job, or list all jobs |
@@ -256,8 +259,30 @@ The Sales Navigator tools need a Sales Navigator seat on the signed-in
 account. Without one, LinkedIn shows another page and the tool says so.
 
 They only read. Each call opens a Sales Navigator page in your browser and
-takes its data from the responses that page loads; it sends no request of its
-own. No tool opens a lead's page, so nobody sees a profile view from you.
+takes its data from the responses that page loads. The one request of their
+own is `get_sales_navigator_conversation` asking for older messages: it repeats
+the page's own older-messages request, with the page's own headers, for at
+most three batches of 10. No tool opens a lead's page, so nobody sees a
+profile view from you.
+
+The inbox tools leave read state alone. Sales Navigator opens the top
+conversation of every inbox view (and of every search) by itself, and marks a
+conversation read once its newest message is on screen. While an inbox tool
+runs, the app's writes to its conversations (mark read or unread, seen
+receipts, archive) and its message sends are blocked in the browser, so an
+unread conversation stays unread; the app's other requests are left alone.
+Each result carries `marked_read`, true only if LinkedIn confirmed a mark-read
+anyway. Opening a conversation, including the one the inbox opens by itself,
+also loads that participant's Sales Navigator profile, as it does in the
+browser. That is a data request, not a visit to the lead's page, so it is not a
+profile view.
+
+`get_sales_navigator_inbox` scrolls the list (20 conversations a scroll) and
+says in `paging.reason` why it stopped. `search_sales_navigator_conversations`
+types the keywords into the inbox's search box, because Sales Navigator has no
+search address, and clicks no result. A `lead_id` passed to
+`get_sales_navigator_conversation` is looked for in the 200 most recent
+conversations of the inbox, not in archived ones.
 
 Each search page counts against `SEARCH_PAGES_MAX`, the same cap as classic
 people and company search. Other Sales Navigator pages are counted but have no

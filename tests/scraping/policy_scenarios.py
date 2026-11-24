@@ -1979,6 +1979,9 @@ TOOL_FACADE_METHODS = {
     "get_sales_navigator_account",
     "list_sales_navigator_account_lists",
     "get_sales_navigator_account_list",
+    "get_sales_navigator_inbox",
+    "get_sales_navigator_conversation",
+    "search_sales_navigator_conversations",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
 

@@ -31,6 +31,20 @@
     },
     {
       "call": "reply_to_conversation",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessagingThreads**",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_conversation",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessageActions**",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_conversation",
       "callback_id": "callback-3",
       "event": "framenavigated",
       "kind": "listener.add",
