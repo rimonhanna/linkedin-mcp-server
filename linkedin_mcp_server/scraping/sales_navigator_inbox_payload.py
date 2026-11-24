@@ -182,13 +182,27 @@ def _named_by(urn: str, profiles: Mapping[str, dict[str, Any]], chrome: str) -> 
     return as_str(profiles.get(urn, {}).get("objectUrn")) == chrome
 
 
-def viewer_of(payload: Any, chrome: str | None) -> tuple[str | None, bool]:
+# Which viewer check failed. Only the first is not a conflict between signals:
+# the chrome named someone, but no participant of the response is that member.
+ViewerCheck = Literal[
+    "chrome_names_no_participant",
+    "chrome_names_several",
+    "degree_zero_not_one",
+    "degree_disagrees",
+    "missing_from_a_thread",
+]
+
+
+def viewer_of(
+    payload: Any, chrome: str | None
+) -> tuple[str | None, ViewerCheck | None]:
     """The signed-in member's profile id in one thread or list response.
 
-    The second value is False when the signals disagree: the chrome's member
-    (when the page loaded it), the ``degree`` 0 participant, and the one
-    participant present in every thread must all be the same person. A
-    response with no thread names no viewer and disagrees with nothing.
+    The second value names the check that failed, or is None when the signals
+    agree: the chrome's member (when the page loaded it), the ``degree`` 0
+    participant, and the one participant present in every thread must all be
+    the same person. A response with no thread names no viewer and fails no
+    check.
     """
     elements = envelope_elements(payload)
     if elements is None:
@@ -196,7 +210,7 @@ def viewer_of(payload: Any, chrome: str | None) -> tuple[str | None, bool]:
         elements = [record] if record is not None else []
     threads = [_urns(_ref(record, "participants")) or [] for record in elements]
     if not threads:
-        return None, True
+        return None, None
     profiles = included_by_urn(payload)
     everyone = {urn for thread in threads for urn in thread}
     by_degree = {
@@ -209,17 +223,21 @@ def viewer_of(payload: Any, chrome: str | None) -> tuple[str | None, bool]:
             sales_profile_id(urn)
             for urn in everyone
             if _named_by(urn, profiles, chrome)
-        }
+        } - {None}
+        if not named:
+            return None, "chrome_names_no_participant"
+        if len(named) > 1:
+            return None, "chrome_names_several"
     else:
-        named = by_degree
-    if len(named) != 1:
-        return None, False
+        named = by_degree - {None}
+        if len(named) != 1:
+            return None, "degree_zero_not_one"
     (viewer,) = named
-    if viewer is None or not by_degree <= {viewer}:
-        return None, False
+    if not by_degree <= {viewer}:
+        return None, "degree_disagrees"
     if not all(any(_is_viewer(urn, viewer) for urn in thread) for thread in threads):
-        return None, False
-    return viewer, True
+        return None, "missing_from_a_thread"
+    return viewer, None
 
 
 def build_participants(

@@ -327,6 +327,7 @@
       "unreadCount": 1
     },
     "marked_read": false,
+    "scan_marked_read": false,
     "section_names": [
       "conversation"
     ],

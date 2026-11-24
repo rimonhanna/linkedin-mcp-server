@@ -275,7 +275,8 @@ runs, every POST under the app's conversation resource (mark read or unread
 and archive among them) and its message sends are blocked in the browser, so an
 unread conversation stays unread; the app's other requests are left alone.
 Each result carries `marked_read`, true only if LinkedIn confirmed a mark-read
-anyway. Opening a conversation, including the one the inbox opens by itself,
+anyway; a conversation read by `lead_id` also carries `scan_marked_read` for a
+mark-read confirmed while the inbox was scanned for it. Opening a conversation, including the one the inbox opens by itself,
 also loads that participant's Sales Navigator profile, as it does in the
 browser. That is a data request, not a visit to the lead's page, so it is not a
 profile view.

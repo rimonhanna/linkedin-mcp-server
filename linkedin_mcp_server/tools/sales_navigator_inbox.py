@@ -147,8 +147,9 @@ def register_sales_navigator_inbox_tools(
         own, which also loads that participant's profile; every POST under the
         thread resource (mark read included) is blocked, so unread
         conversations stay unread (marked_read is true only if LinkedIn
-        confirmed a mark-read anyway, for this conversation or, with lead_id,
-        for any conversation the inbox scan opened).
+        confirmed a mark-read of this conversation anyway; scan_marked_read
+        is true only if, with lead_id, it confirmed one during the inbox scan,
+        whichever conversation the inbox opened).
 
         Args:
             ctx: FastMCP context for progress reporting
@@ -162,8 +163,8 @@ def register_sales_navigator_inbox_tools(
             Dict with url, sections (conversation -> text), conversation (id,
             participants, unread, unreadCount, archived, inmail, messages
             oldest first [id, type, fromViewer, inmail, body, senderLeadId,
-            senderName, sentAt, subject], history [batches, complete]) and
-            marked_read.
+            senderName, sentAt, subject], history [batches, complete]),
+            marked_read and scan_marked_read.
         """
         if not thread_id and not lead_id:
             raise_tool_error(

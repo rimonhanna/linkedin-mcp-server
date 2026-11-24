@@ -475,6 +475,7 @@ async def test_conversation_reports_its_own_thread_marked_read(mock_page):
     )
 
     assert result["marked_read"] is True
+    assert result["scan_marked_read"] is False, "a thread_id read scans no inbox"
 
 
 async def test_conversation_by_lead_matches_the_lead_id_only(mock_page):
@@ -649,6 +650,54 @@ async def test_a_chrome_naming_someone_else_refuses_the_read(mock_page):
         await _run(mock_page, browser, lambda r: r.get_inbox(limit=5))
 
 
+async def test_a_chrome_naming_no_participant_has_its_own_refusal(mock_page, caplog):
+    browser = _Inbox(mock_page)
+    chrome = _response("salesApiNavChrome?decoration=x", {"viewerSalesUrn": _lead(99)})
+    browser.loads[SALES_INBOX_URL] = [*_boot(), chrome, _list([_thread(1)])]
+
+    with pytest.raises(LinkedInScraperException) as raised:
+        await _run(mock_page, browser, lambda r: r.get_inbox(limit=5))
+
+    assert "named no participant as you" in str(raised.value), (
+        "a chrome member who is no participant must not read as a signal conflict"
+    )
+    assert any("no participant" in r.getMessage() for r in caplog.records)
+    assert not any("signals disagree" in r.getMessage() for r in caplog.records)
+
+
+async def test_a_missing_chrome_is_warned_once_per_page_load(mock_page, caplog):
+    browser = _Inbox(mock_page)
+    browser.loads[SALES_INBOX_URL] = [
+        *_boot(),
+        _list([_thread(n) for n in range(1, 21)]),
+    ]
+    browser.scrolls = [[_list([_thread(n) for n in range(21, 26)])]]
+
+    result = await _run(mock_page, browser, lambda r: r.get_inbox(limit=25))
+
+    assert result["paging"]["count"] == 25
+    warned = [
+        r for r in caplog.records if "no recognised signed-in member" in r.getMessage()
+    ]
+    assert len(warned) == 1, (
+        f"a page with no usable chrome must warn exactly once, got {len(warned)}"
+    )
+
+
+async def test_a_chrome_naming_the_viewer_raises_no_missing_chrome_warning(
+    mock_page, caplog
+):
+    browser = _Inbox(mock_page)
+    chrome = _response("salesApiNavChrome?decoration=x", {"viewerSalesUrn": VIEWER})
+    browser.loads[SALES_INBOX_URL] = [*_boot(), chrome, _list([_thread(1)])]
+
+    await _run(mock_page, browser, lambda r: r.get_inbox(limit=5))
+
+    assert not any(
+        "no recognised signed-in member" in r.getMessage() for r in caplog.records
+    )
+
+
 async def test_a_chrome_naming_the_viewer_reads_the_inbox(mock_page):
     browser = _Inbox(mock_page)
     chrome = _response("salesApiNavChrome?decoration=x", {"viewerSalesUrn": VIEWER})
@@ -670,6 +719,21 @@ async def test_a_contract_with_no_inbox_is_the_no_seat_message(mock_page):
 
     with pytest.raises(LinkedInScraperException, match="has no Sales Navigator inbox"):
         await _run(mock_page, browser, lambda r: r.get_inbox(limit=5))
+
+
+async def test_a_no_inbox_access_check_does_not_refuse_a_loaded_inbox(mock_page):
+    browser = _Inbox(mock_page)
+    browser.loads[SALES_INBOX_URL] = [
+        _response("salesApiAccess", {"hasContractInboxAccess": False}),
+        _response("salesApiEntitlements"),
+        _list([_thread(1)]),
+    ]
+
+    result = await _run(mock_page, browser, lambda r: r.get_inbox(limit=5))
+
+    assert [row["id"] for row in result["conversations"]] == ["2-THREAD0001=="], (
+        "the access check only explains a failed load; a loaded inbox is read"
+    )
 
 
 async def test_a_short_last_page_at_the_limit_has_no_more(mock_page):
@@ -818,6 +882,9 @@ async def test_a_lead_read_reports_a_mark_read_from_its_inbox_scan(mock_page):
     )
 
     assert result["conversation"]["id"] == target["id"]
-    assert result["marked_read"] is True, (
+    assert result["scan_marked_read"] is True, (
         "a mark-read LinkedIn confirmed during the lead_id scan must be reported"
+    )
+    assert result["marked_read"] is False, (
+        "marked_read is the conversation's own; the scan's mark-read was another"
     )

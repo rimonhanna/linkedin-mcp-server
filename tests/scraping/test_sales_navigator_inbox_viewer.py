@@ -47,22 +47,22 @@ def test_the_chrome_member_who_is_degree_zero_and_in_every_thread_is_the_viewer(
 
     assert viewer_of(payload, VIEWER.replace("v0", "other-token")) == (
         "ACwAAA0000",
-        True,
+        None,
     )
-    assert viewer_of(payload, "urn:li:member:100000000") == ("ACwAAA0000", True)
+    assert viewer_of(payload, "urn:li:member:100000000") == ("ACwAAA0000", None)
 
 
 def test_without_the_chrome_the_degree_zero_member_in_every_thread_is_the_viewer():
     assert viewer_of(_list([VIEWER, LEAD], [VIEWER, OTHER]), None) == (
         "ACwAAA0000",
-        True,
+        None,
     )
 
 
 def test_a_chrome_member_who_is_not_the_degree_zero_participant_is_refused():
     payload = _list([VIEWER, LEAD])
 
-    assert viewer_of(payload, LEAD) == (None, False), (
+    assert viewer_of(payload, LEAD) == (None, "degree_disagrees"), (
         "the chrome naming the lead while the viewer is degree 0 must refuse"
     )
 
@@ -70,17 +70,23 @@ def test_a_chrome_member_who_is_not_the_degree_zero_participant_is_refused():
 def test_a_chrome_member_missing_from_a_thread_is_refused():
     payload = _list([VIEWER, LEAD], [LEAD, OTHER])
 
-    assert viewer_of(payload, VIEWER) == (None, False), (
+    assert viewer_of(payload, VIEWER) == (None, "missing_from_a_thread"), (
         "the chrome's member must be a participant of every thread"
     )
 
 
-def test_a_chrome_member_nobody_matches_is_refused():
-    assert viewer_of(_list([VIEWER, LEAD]), "urn:li:member:999") == (None, False)
+def test_a_chrome_member_nobody_matches_is_refused_as_naming_no_participant():
+    assert viewer_of(_list([VIEWER, LEAD]), "urn:li:member:999") == (
+        None,
+        "chrome_names_no_participant",
+    ), "a chrome member matching no participant is its own check, not a conflict"
 
 
 def test_no_degree_zero_participant_and_no_chrome_is_refused():
-    assert viewer_of(_list([VIEWER, LEAD], viewer_degree=2), None) == (None, False)
+    assert viewer_of(_list([VIEWER, LEAD], viewer_degree=2), None) == (
+        None,
+        "degree_zero_not_one",
+    )
 
 
 def test_a_single_thread_response_is_checked_the_same_way():
@@ -89,12 +95,12 @@ def test_a_single_thread_response_is_checked_the_same_way():
         "included": _profiles(),
     }
 
-    assert viewer_of(record, VIEWER) == ("ACwAAA0000", True)
-    assert viewer_of(record, LEAD) == (None, False)
+    assert viewer_of(record, VIEWER) == ("ACwAAA0000", None)
+    assert viewer_of(record, LEAD) == (None, "degree_disagrees")
 
 
 def test_a_response_with_no_thread_names_no_viewer():
-    assert viewer_of(_list(), None) == (None, True)
+    assert viewer_of(_list(), None) == (None, None)
 
 
 def test_the_chrome_viewer_is_read_only_in_a_recognised_form():
