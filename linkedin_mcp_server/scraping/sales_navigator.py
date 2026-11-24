@@ -353,6 +353,7 @@ class SalesNavigatorReader:
         refused: _Refusal | None = None,
         on_first: Callable[[SalesNavigatorCapture], Awaitable[None]] | None = None,
         deadline: float | None = None,
+        until: Callable[[list[_Row]], bool] | None = None,
     ) -> tuple[list[_Row], dict[str, str] | None, int | None, int]:
         """The rows of a paged table from ``first_page``, one load per 25 rows.
 
@@ -365,8 +366,9 @@ class SalesNavigatorReader:
         slowest page so far, pacing wait included. The first page is always
         read. Also stops with a ``page_limit`` error and no page
         to continue from when the reported total changes between pages or a
-        row repeats one of an earlier page. The last value is LinkedIn's
-        ``paging.total``.
+        row repeats one of an earlier page. With ``until`` the read ends,
+        without an error, once the rows read so far satisfy it. The last value
+        is LinkedIn's ``paging.total``.
         """
         if first_page < 1:
             raise FilterValidationError("page must be 1 or greater.")
@@ -467,6 +469,8 @@ class SalesNavigatorReader:
                 )
             seen.update(ids)
             rows.extend(items)
+            if until is not None and until(rows):
+                return rows, None, None, total
             slowest = max(slowest, time.monotonic() - began)
         if len(rows) < total - (first_page - 1) * PAGE_SIZE:
             return (
@@ -527,14 +531,8 @@ class SalesNavigatorReader:
         page: int,
         *,
         required: bool,
-        also: tuple[str, ...] = (),
-        on_loaded: Callable[[SalesNavigatorCapture], None] | None = None,
     ) -> tuple[str, SnResponse | None]:
-        """``_search``; with ``required=False`` a page that never answered is None.
-
-        ``also`` names more resources to capture, handed to ``on_loaded``
-        once the page answered; nothing waits for them.
-        """
+        """``_search``; with ``required=False`` a page that never answered is None."""
         criteria = [search_filter for _, search_filter in filters]
         url = search_page_url(kind, build_search_query(keywords, criteria), page)
         start = (page - 1) * PAGE_SIZE
@@ -544,7 +542,7 @@ class SalesNavigatorReader:
                 response, start
             )
 
-        async with self._capture(resource, *also) as capture:
+        async with self._capture(resource) as capture:
             found = await self._open(
                 capture,
                 url,
@@ -554,8 +552,6 @@ class SalesNavigatorReader:
             )
         if found is None:
             return url, None
-        if on_loaded is not None:
-            on_loaded(capture)
         responses = capture.matching(is_page)
         for response in responses:
             sent = response.call.params.get("query", "")
@@ -642,7 +638,7 @@ class SalesNavigatorReader:
             "company", _ACCOUNT_SEARCH, keywords, filters, page
         )
         cards = build_elements(response.payload, build_account_card)
-        paging = build_paging(response.payload, page)
+        paging = build_paging(response.payload, page, len(cards or ()))
         if cards is None or paging is None:
             raise _unverified("the account search results")
         result: dict[str, Any] = {"url": url, "sections": {}, "accounts": cards}
@@ -722,6 +718,10 @@ class SalesNavigatorReader:
                 "company_size, years_in_current_role, years_at_current_company, "
                 "account_list, lead_list or exclude_lead_list."
             )
+        if lead_lists or not_lead_lists:
+            await self._known_lists("LEAD", [*lead_lists, *not_lead_lists])
+        if account_lists:
+            await self._known_lists("ACCOUNT", account_lists)
         filters: list[tuple[str, SearchFilter]] = []
         if titles:
             filters.append(("title", SearchFilter(CURRENT_TITLE, texts=tuple(titles))))
@@ -781,7 +781,7 @@ class SalesNavigatorReader:
         )
         elements = envelope_elements(response.payload)
         built = build_leads(elements) if elements is not None else None
-        paging = build_paging(response.payload, page)
+        paging = build_paging(response.payload, page, len(built[0]) if built else 0)
         if built is None or paging is None:
             raise _unverified("the lead search results")
         leads, withheld = built
@@ -879,25 +879,8 @@ class SalesNavigatorReader:
         page: int,
         deadline: float | None,
     ) -> dict[str, Any]:
-        def rows_at(start: int) -> Callable[[SnResponse], bool]:
-            def match(response: SnResponse) -> bool:
-                return (
-                    _is(response, _LISTS, finder="listType")
-                    and response.call.params.get("listType") == list_type
-                    and _starts_at(response, start)
-                )
-
-            return match
-
-        lists, limit, next_page, total = await self._read_all(
-            lambda n: url if n == 1 else f"{url}?page={n}",
-            first_page=page,
-            expected_path=urlparse(url).path,
-            resources=(_LISTS,),
-            rows_at=rows_at,
-            builder=build_account_list,
-            name=key.replace("_", " "),
-            deadline=deadline,
+        lists, limit, next_page, total = await self._read_lists(
+            url, list_type, key, page, deadline
         )
         result: dict[str, Any] = {"url": url, "sections": {}, key: lists}
         if text := render_account_lists(lists):
@@ -908,6 +891,80 @@ class SalesNavigatorReader:
         if next_page is not None:
             result["next_page"] = next_page
         return result
+
+    async def _read_lists(
+        self,
+        url: str,
+        list_type: str,
+        key: Literal["account_lists", "lead_lists"],
+        page: int,
+        deadline: float | None,
+        until: Callable[[list[AccountList]], bool] | None = None,
+    ) -> tuple[list[AccountList], dict[str, str] | None, int | None, int]:
+        def rows_at(start: int) -> Callable[[SnResponse], bool]:
+            def match(response: SnResponse) -> bool:
+                return (
+                    _is(response, _LISTS, finder="listType")
+                    and response.call.params.get("listType") == list_type
+                    and _starts_at(response, start)
+                )
+
+            return match
+
+        return await self._read_all(
+            lambda n: url if n == 1 else f"{url}?page={n}",
+            first_page=page,
+            expected_path=urlparse(url).path,
+            resources=(_LISTS,),
+            rows_at=rows_at,
+            builder=build_account_list,
+            name=key.replace("_", " "),
+            deadline=deadline,
+            until=until,
+        )
+
+    async def _known_lists(
+        self,
+        list_type: Literal["LEAD", "ACCOUNT"],
+        ids: Sequence[str],
+        deadline: float | None = None,
+    ) -> dict[str, AccountList]:
+        """The member's own lists named by ``ids``, read from the list hub.
+
+        Sales Navigator's search does not check a list id: an id it does not
+        know is ignored and the search returns leads the list does not hold.
+        So every id is looked up first, reading list pages only until all are
+        found; one not among the member's lists is refused before any search.
+        """
+        if list_type == "LEAD":
+            url, key, kind = SALES_LEAD_LISTS_URL, "lead_lists", "lead"
+        else:
+            url, key, kind = SALES_ACCOUNT_LISTS_URL, "account_lists", "account"
+        wanted = set(ids)
+
+        def found_all(rows: list[AccountList]) -> bool:
+            return wanted <= {row.get("id") for row in rows}
+
+        lists, limit, _, _ = await self._read_lists(
+            url, list_type, key, 1, deadline, until=found_all
+        )
+        known = {
+            list_id: row
+            for row in lists
+            if (list_id := row.get("id")) is not None and list_id in wanted
+        }
+        missing = ", ".join(sorted(wanted - known.keys()))
+        if not missing:
+            return known
+        if limit is not None:
+            raise LinkedInScraperException(
+                f"Could not confirm the {kind} list {missing}: {limit['error_message']}"
+            )
+        raise InvalidReferenceError(
+            f"{missing} is not one of this account's Sales Navigator {kind} "
+            f"lists. Pass a list id as list_sales_navigator_{kind}_lists "
+            "returned it."
+        )
 
     async def get_lead_list(
         self, list_id: str, page: int = 1, *, deadline: float | None = None
@@ -921,13 +978,14 @@ class SalesNavigatorReader:
         not finish before ``deadline`` or a pacing cap refuses it; each stop
         leaves ``next_page``.
 
-        The list itself is confirmed only when the first page also sent its
-        ``salesApiLists`` record; ``lead_list`` then carries its name and
-        entityCount. Otherwise ``lead_list`` is the id alone, and a list id
-        Sales Navigator does not know reads as 0 leads, not as an error.
+        The id is first looked up among the member's lead lists (see
+        ``_known_lists``); ``lead_list`` is that record. When its entityCount
+        is more than the search's total, ``section_errors.lead_list`` says
+        how many leads of the list the search does not serve.
         """
         list_ref = normalize_sales_list_id(list_id)
         self._check_page(page)
+        lead_list = (await self._known_lists("LEAD", [list_ref], deadline))[list_ref]
         filters = [("lead_list", SearchFilter(LEAD_LIST, ids=(list_ref,)))]
         leads: list[Lead] = []
         seen: set[str] = set()
@@ -935,20 +993,9 @@ class SalesNavigatorReader:
         total: int | None = None
         limit: dict[str, Any] | None = None
         next_page: int | None = None
-        lead_list: AccountList = {"id": list_ref}
         slowest = 0.0
         current = page
         first_url = ""
-
-        def read_list(capture: SalesNavigatorCapture) -> None:
-            nonlocal lead_list
-            for response in capture.matching(
-                lambda r: _is(r, _LISTS) and r.call.entity_id == list_ref
-            ):
-                record = build_account_list(envelope_record(response.payload))
-                if record is not None and record.get("id") == list_ref:
-                    lead_list = record
-                    return
 
         while True:
             if current > page:
@@ -989,8 +1036,6 @@ class SalesNavigatorReader:
                     filters,
                     current,
                     required=current == page,
-                    also=(_LISTS,) if current == page else (),
-                    on_loaded=read_list if current == page else None,
                 )
             except ActionLimitError as exc:
                 # Refused before the load, so nothing was charged; the first
@@ -1015,7 +1060,9 @@ class SalesNavigatorReader:
                 break
             elements = envelope_elements(response.payload)
             built = build_leads(elements) if elements is not None else None
-            paging = build_paging(response.payload, current)
+            paging = build_paging(
+                response.payload, current, len(built[0]) if built else 0
+            )
             if built is None or paging is None:
                 raise _unverified("the lead list")
             rows, hidden = built
@@ -1068,8 +1115,20 @@ class SalesNavigatorReader:
         }
         if text := render_leads(leads):
             result["sections"]["leads"] = text
+        section_errors: dict[str, dict[str, Any]] = {}
         if limit is not None:
-            result["section_errors"] = {"leads": limit}
+            section_errors["leads"] = limit
+        held = lead_list.get("entityCount")
+        if held is not None and reported < held:
+            section_errors["lead_list"] = _error(
+                "unavailable",
+                f"The list holds {held} leads but Sales Navigator's search "
+                f"serves {reported} of them, so {held - reported} cannot be "
+                "read here (for example a lead Sales Navigator no longer "
+                "shows).",
+            )
+        if section_errors:
+            result["section_errors"] = section_errors
         result["paging"] = {
             "page": page,
             "start": start,

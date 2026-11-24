@@ -109,8 +109,8 @@ def register_sales_navigator_tools(
             Dict with url, sections (accounts -> one line per account),
             accounts (id, name, industry, employeeCountRange,
             employeeDisplayCount, description, saved, listCount,
-            salesNavigatorUrl) and paging (page, start, count, total,
-            resultCap, capped, more).
+            salesNavigatorUrl) and paging (page, start, count = accounts
+            returned, total, resultCap, capped, more).
         """
         try:
             industry_list = industry_ids(industry)
@@ -207,6 +207,12 @@ def register_sales_navigator_tools(
         range, seniority name) are in the member's UI language; ids carry
         identity.
 
+        Every account_list, lead_list and exclude_lead_list id is first looked
+        up among the account's own lists (one list page load per 25 lists,
+        until all are found), because Sales Navigator's search ignores an id
+        it does not know; an id that is not one of them is refused before the
+        search.
+
         Leads whose LinkedIn profile blocks third-party data sharing are left
         out and only counted in withheld. At least one of keywords or a filter
         is required.
@@ -238,22 +244,20 @@ def register_sales_navigator_tools(
                 current company.
             account_list: One or a list of account list ids, as
                 list_sales_navigator_account_lists returned them: leads at
-                the companies in those lists. A list id Sales Navigator does
-                not know is not an error; it may return no leads.
+                the companies in those lists.
             lead_list: One or a list of lead list ids, as
                 list_sales_navigator_lead_lists returned them: only leads in
-                those lists. A list id Sales Navigator does not know is not
-                an error; it may return no leads.
-            exclude_lead_list: Lead list ids whose leads are left out. An
-                unknown id is not an error; it may exclude nothing.
+                those lists.
+            exclude_lead_list: Lead list ids whose leads are left out.
             page: Result page, 1 to 40 (25 results each).
 
         Returns:
             Dict with url, sections (leads -> one line per lead), leads (id,
             profileUrl, memberUrn, fullName, firstName, lastName, geoRegion,
-            degree, premium, openLink, seniority, currentPositions, summary),
-            paging
-            (page, start, count, total, resultCap, capped, more) and withheld
+            degree, premium, seniority, currentPositions, summary; no Open
+            Profile flag, which the search does not carry),
+            paging (page, start, count = leads returned, total,
+            resultCap, capped, more) and withheld
             ({count, reason}, present only when a lead was left out).
         """
         try:
@@ -607,10 +611,13 @@ def register_sales_navigator_tools(
         left out and only counted in withheld. section_errors.leads is set
         whenever the result is partial.
 
-        lead_list carries the list's name and entityCount only when the page
-        also sent the list's own record. Otherwise it is the id alone, and an
-        id Sales Navigator does not know returns 0 leads, not an error: check
-        the id against list_sales_navigator_lead_lists.
+        The id is first looked up among the account's lead lists (one list
+        page load per 25 lists, until found), because Sales Navigator's search
+        ignores an id it does not know and would return unrelated leads; an id
+        that is not one of them is refused before any search page loads.
+        lead_list is that list's record. When its entityCount is more than
+        the search's total, section_errors.lead_list says how many of the
+        list's leads Sales Navigator's search does not serve.
 
         Args:
             list_id: Numeric lead list id, as list_sales_navigator_lead_lists
@@ -622,9 +629,10 @@ def register_sales_navigator_tools(
 
         Returns:
             Dict with url, sections (leads -> one line per lead), lead_list
-            ({id}, plus name and entityCount when confirmed), leads (id,
+            (id, name, entityCount, listType, ...), leads (id,
             profileUrl, memberUrn, fullName, firstName, lastName, geoRegion,
-            degree, premium, openLink, seniority, currentPositions, summary),
+            degree, premium, seniority, currentPositions, summary; no Open
+            Profile flag, which the search does not carry),
             paging (page,
             start, count = leads returned, total as LinkedIn reports it,
             resultCap, capped, more, next_page), next_page when more pages

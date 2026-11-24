@@ -1932,12 +1932,24 @@ async def _sn_lead_list_scenario() -> dict[str, Any]:
         _sn_lead("ACwAAA0001", "Example Person", degree=1),
         _sn_lead("ACwAAA0002", "Withheld Person", blockThirdPartyDataSharing=True),
     ]
+    entry = {**_sn_list_entry(int(list_id), "Example lead list", 2), "listType": "LEAD"}
     page.script(
         "goto",
+        # The id is looked up among the member's lead lists before the search.
         lambda: _sn_emit(
             page,
-            [*_sn_boot(), _sn_search("salesApiLeadSearch", query, 0, leads, 2)],
+            [
+                *_sn_boot(),
+                _sn_response(
+                    "salesApiLists?q=listType&listType=LEAD&start=0&count=25",
+                    {
+                        "elements": [entry],
+                        "paging": {"start": 0, "count": 25, "total": 1},
+                    },
+                ),
+            ],
         ),
+        lambda: _sn_emit(page, [_sn_search("salesApiLeadSearch", query, 0, leads, 2)]),
     )
     trace = await _sales_navigator_run(
         "lead_list",

@@ -20,8 +20,8 @@ def test_a_normalized_collection_builds_like_a_plain_one():
     assert build_elements(normalized, build_account_card) == build_elements(
         plain, build_account_card
     )
-    assert build_paging(normalized, 1) == build_paging(plain, 1)
-    assert build_paging(normalized, 1) is not None
+    assert build_paging(normalized, 1, 0) == build_paging(plain, 1, 0)
+    assert build_paging(normalized, 1, 0) is not None
 
 
 def test_a_normalized_ref_resolves_and_an_unresolved_one_refuses():

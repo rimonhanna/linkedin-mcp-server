@@ -18,6 +18,7 @@ from linkedin_mcp_server.scraping.sales_navigator_lead_filters import (
 )
 
 from .test_sales_navigator import _boot, _Browser, _run, _search
+from .test_sales_navigator_lead_lists import _own_lists
 
 
 def _sent_query(url: str) -> str:
@@ -28,10 +29,11 @@ class _Echoing(_Browser):
     """A page whose API request carries the query its URL was loaded with."""
 
     async def navigate(self, url: str) -> None:
-        self.loads[url] = [
-            *_boot(),
-            _search("salesApiLeadSearch", _sent_query(url), 0, [], 0),
-        ]
+        if "/sales/search/" in url:
+            self.loads[url] = [
+                *_boot(),
+                _search("salesApiLeadSearch", _sent_query(url), 0, [], 0),
+            ]
         await super().navigate(url)
 
 
@@ -84,11 +86,18 @@ async def test_each_icp_filter_sends_its_exact_query(
     mock_page, arguments: dict[str, Any], query: str
 ):
     browser = _Echoing(mock_page)
+    lists = arguments.get("account_list") or [
+        *arguments.get("lead_list", ()),
+        *arguments.get("exclude_lead_list", ()),
+    ]
+    list_type = "ACCOUNT" if "account_list" in arguments else "LEAD"
+    hub = _own_lists(browser, *lists, list_type=list_type)
 
     await _run(mock_page, browser, lambda r: r.search_leads(**arguments))
 
-    assert len(browser.navigated) == 1
-    assert _sent_query(browser.navigated[0]) == query
+    searches = [url for url in browser.navigated if url != hub]
+    assert len(searches) == 1
+    assert _sent_query(searches[0]) == query
 
 
 def test_the_function_table_is_complete_and_exact():

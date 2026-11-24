@@ -11,6 +11,7 @@ import pytest
 from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 from linkedin_mcp_server.scraping import sales_navigator as reader_module
 from linkedin_mcp_server.scraping.identifiers import (
+    SALES_ACCOUNT_LISTS_URL,
     SALES_LEAD_LISTS_URL,
     normalize_sales_list_id,
 )
@@ -47,6 +48,34 @@ def _lead_lists(start: int, count: int, total: int, list_type: str = "LEAD"):
     )
 
 
+def _own_lists(
+    browser: _Browser,
+    *ids: str,
+    list_type: str = "LEAD",
+    entity_count: int = 2,
+) -> str:
+    """Script the member's list hub to hold ``ids``; return the hub URL."""
+    url = SALES_LEAD_LISTS_URL if list_type == "LEAD" else SALES_ACCOUNT_LISTS_URL
+    hub = _response(
+        f"salesApiLists?q=listType&listType={list_type}&isMetadataNeeded=true"
+        "&start=0&count=25",
+        {
+            "elements": [
+                {
+                    "id": int(list_id),
+                    "name": "Example list",
+                    "listType": list_type,
+                    "entityCount": entity_count,
+                }
+                for list_id in ids
+            ],
+            "paging": {"start": 0, "count": 25, "total": len(ids)},
+        },
+    )
+    browser.loads[url] = [*_boot(), hub]
+    return url
+
+
 def _page_url(page: int) -> str:
     return search_page_url("people", QUERY, page)
 
@@ -80,6 +109,7 @@ async def test_lead_lists_are_read_from_the_people_lists_page(mock_page):
 
 async def test_a_lead_list_is_read_as_a_search_filtered_to_it(mock_page):
     browser = _Browser(mock_page)
+    hub = _own_lists(browser, LEAD_LIST_ID, entity_count=27)
     browser.loads[_page_url(1)] = [*_boot(), _leads_page(1, 25, 27, degree=1)]
     withheld = _lead("ACwAAA9999", "Withheld", blockThirdPartyDataSharing=True)
     browser.loads[_page_url(2)] = [
@@ -94,9 +124,14 @@ async def test_a_lead_list_is_read_as_a_search_filtered_to_it(mock_page):
 
     result = await _run(mock_page, browser, lambda r: r.get_lead_list(LEAD_LIST_ID))
 
-    assert browser.navigated == [_page_url(1), _page_url(2)]
+    assert browser.navigated == [hub, _page_url(1), _page_url(2)]
     assert len(result["leads"]) == 26
-    assert result["lead_list"] == {"id": LEAD_LIST_ID}
+    assert result["lead_list"] == {
+        "id": LEAD_LIST_ID,
+        "name": "Example list",
+        "listType": "LEAD",
+        "entityCount": 27,
+    }
     assert result["withheld"]["count"] == 1
     assert "ACwAAA9999" not in repr(result)
     last = result["leads"][-1]
@@ -118,6 +153,7 @@ async def test_a_lead_list_is_read_as_a_search_filtered_to_it(mock_page):
 
 async def test_a_page_that_does_not_load_returns_the_page_to_retry(mock_page):
     browser = _Browser(mock_page)
+    _own_lists(browser, LEAD_LIST_ID, entity_count=30)
     browser.loads[_page_url(1)] = [*_boot(), _leads_page(1, 25, 30)]
 
     result = await _run(mock_page, browser, lambda r: r.get_lead_list(LEAD_LIST_ID))
@@ -131,6 +167,7 @@ async def test_a_page_that_does_not_load_returns_the_page_to_retry(mock_page):
 
 async def test_a_total_that_moves_stops_the_read_without_a_next_page(mock_page):
     browser = _Browser(mock_page)
+    _own_lists(browser, LEAD_LIST_ID, entity_count=30)
     browser.loads[_page_url(1)] = [*_boot(), _leads_page(1, 25, 30)]
     browser.loads[_page_url(2)] = [_leads_page(2, 5, 31)]
 
@@ -152,6 +189,7 @@ class _Slow(_Browser):
 
 async def _read_slowly(mock_page, deadline: float) -> tuple[_Slow, dict[str, Any]]:
     browser = _Slow(mock_page)
+    _own_lists(browser, LEAD_LIST_ID, entity_count=100)
     for page in range(1, 5):
         browser.loads[_page_url(page)] = [_leads_page(page, 25, 100)]
     clock = SimpleNamespace(monotonic=lambda: browser.now)
@@ -165,32 +203,34 @@ async def _read_slowly(mock_page, deadline: float) -> tuple[_Slow, dict[str, Any
 
 
 async def test_a_read_stops_at_a_page_boundary_before_the_deadline(mock_page):
-    browser, result = await _read_slowly(mock_page, 20.0)
+    browser, result = await _read_slowly(mock_page, 27.5)
 
-    # Two pages end at 15 s; a third would end at 22.5 s, past the deadline.
-    assert len(browser.navigated) == 2
+    # The list hub and two pages end at 22.5 s; a third page would end at
+    # 30 s, past the deadline.
+    assert len(browser.navigated) == 3
     assert result["next_page"] == 3
     assert result["paging"]["more"] is True
     assert "ran out of time" in result["section_errors"]["leads"]["error_message"]
 
 
 async def test_the_second_page_is_not_started_when_it_would_end_late(mock_page):
-    browser, result = await _read_slowly(mock_page, 10.0)
+    browser, result = await _read_slowly(mock_page, 17.5)
 
-    # The first page ends at 7.5 s; the second would end at 15 s.
-    assert len(browser.navigated) == 1
+    # The hub and first page end at 15 s; the second would end at 22.5 s.
+    assert len(browser.navigated) == 2
     assert result["next_page"] == 2
 
 
 async def test_a_later_page_starts_at_its_own_offset(mock_page):
     browser = _Browser(mock_page)
+    hub = _own_lists(browser, LEAD_LIST_ID, entity_count=30)
     browser.loads[_page_url(2)] = [*_boot(), _leads_page(2, 5, 30)]
 
     result = await _run(
         mock_page, browser, lambda r: r.get_lead_list(LEAD_LIST_ID, page=2)
     )
 
-    assert browser.navigated == [_page_url(2)]
+    assert browser.navigated == [hub, _page_url(2)]
     assert result["paging"]["start"] == 25
     assert result["paging"]["more"] is False
 

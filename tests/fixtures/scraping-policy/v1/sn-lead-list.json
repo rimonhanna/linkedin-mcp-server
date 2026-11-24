@@ -23,7 +23,7 @@
     {
       "call": "get_sales_navigator_lead_list",
       "extra": {
-        "target_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+        "target_url": "https://www.linkedin.com/sales/lists/people",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -33,8 +33,8 @@
     {
       "call": "get_sales_navigator_lead_list",
       "kind": "navigate",
-      "landed_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
-      "requested_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+      "landed_url": "https://www.linkedin.com/sales/lists/people",
+      "requested_url": "https://www.linkedin.com/sales/lists/people",
       "section": "lead_list",
       "timeout_ms": 30000,
       "wait_until": "commit"
@@ -76,7 +76,7 @@
     },
     {
       "call": "get_sales_navigator_lead_list",
-      "description": "goto https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+      "description": "goto https://www.linkedin.com/sales/lists/people",
       "kind": "boundary.stabilize",
       "result": null,
       "section": "lead_list"
@@ -85,7 +85,7 @@
       "call": "get_sales_navigator_lead_list",
       "extra": {
         "load_state_lagged": false,
-        "target_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+        "target_url": "https://www.linkedin.com/sales/lists/people",
         "wait_until": "domcontentloaded"
       },
       "kind": "boundary.trace",
@@ -122,11 +122,110 @@
       "event": "response",
       "kind": "listener.remove",
       "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+      "requested_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+      "section": "lead_list",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "wait_for_load_state",
+      "section": "lead_list",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "description": "goto https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "boundary.rate_limit",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "lead_list"
     }
   ],
   "result": {
     "lead_list": {
-      "id": "100000311"
+      "entityCount": 2,
+      "id": "100000311",
+      "listType": "LEAD",
+      "name": "Example lead list"
     },
     "leads": [
       {
