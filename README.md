@@ -313,11 +313,13 @@ id as `account_list`. Every lead row carries:
 - `id`: the Sales Navigator profile id (an `ACw...` id), which the Sales
   Navigator tools take;
 - `profileUrl`: `https://www.linkedin.com/in/<id>`, a link to open the
-  profile in a browser. Neither it nor the id is a public identifier:
-  `connect_with_person` and `send_message` refuse an `ACw...` or `ACo...` id
-  as `linkedin_username`, because they confirm the result against the
-  member's `/in/<public identifier>/` address. Pass the public identifier
-  (the part after `/in/` in the member's own profile address) instead;
+  profile in a browser. Neither it nor the id is a public identifier.
+  `send_message` accepts the id as `linkedin_username`: it messages the
+  member the profile page opens, read from that page and its Message action.
+  `connect_with_person` refuses an `ACw...` or `ACo...` id, because it
+  confirms the invite against the member's `/in/<public identifier>/`
+  address; pass it the public identifier (the part after `/in/` in the
+  member's own profile address) instead;
 - `memberUrn`: `urn:li:member:<n>`;
 - `degree`: 1, 2 or 3 for the connection degree. Filter with `network: ["F"]`
   for 1st-degree connections only, for example to invite them to follow a

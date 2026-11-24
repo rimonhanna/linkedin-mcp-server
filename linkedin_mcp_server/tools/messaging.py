@@ -41,7 +41,6 @@ from linkedin_mcp_server.scraping.contracts import (
 )
 from linkedin_mcp_server.scraping.identifiers import (
     normalize_person_identifier,
-    refuse_opaque_member_id,
     normalize_profile_urn,
     normalize_thread_id,
 )
@@ -294,7 +293,7 @@ def register_messaging_tools(
         retry is safe.
 
         Args:
-            linkedin_username: LinkedIn username of the recipient; a full profile URL is accepted too
+            linkedin_username: LinkedIn username of the recipient; a full profile URL or a profile id (ACo..., or an ACw... Sales Navigator lead id) is accepted too, and the recipient is the member that profile page opens
             message: Message text to send. Line breaks (LF or CRLF) are
                 supported and typed as Shift+Enter; three or more in a row
                 collapse to one blank line. Other C0 control characters
@@ -343,7 +342,6 @@ def register_messaging_tools(
             if confirm_send:
                 refuse_action(JobStore(), MESSAGES, datetime.now().astimezone())
             linkedin_username = normalize_person_identifier(linkedin_username)
-            refuse_opaque_member_id(linkedin_username, tool="send_message")
             if profile_urn is not None:
                 profile_urn = normalize_profile_urn(profile_urn)
             extractor = extractor or await get_ready_extractor(
