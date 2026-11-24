@@ -2004,8 +2004,8 @@ def test_send_statuses_are_the_senders_own():
 
     builders = {"message_action_result", "reply_action_result", "respond"}
 
-    # A status is a literal or a module-level constant shared with other
-    # send paths, such as ENTER_TO_SEND_ENABLED.
+    # A status is a literal or a module-level constant imported into
+    # message_sender, such as ENTER_TO_SEND_ENABLED.
     def status_of(node):
         if isinstance(node, ast.Name):
             value = getattr(message_sender, node.id, None)

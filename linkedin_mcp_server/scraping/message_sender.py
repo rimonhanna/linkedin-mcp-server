@@ -214,6 +214,7 @@ _PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 1_000
 # without one would hold the browser for the full ten seconds.
 _SEND_PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 10_000
 _MESSAGE_SUBMIT_READY_TIMEOUT_MS = 1_000
+_ENTER_TO_SEND_SETTLE_TIMEOUT_MS = 1_000
 _MESSAGE_CLEANUP_TIMEOUT_SECONDS = 1.0
 # A send that may already have left has to answer. FastMCP runs a tool inside
 # `anyio.fail_after()`, and a deadline landing after the click discards
@@ -954,6 +955,17 @@ _MESSAGE_COMPOSER_READY_JS = (
     + _MESSAGE_COMPOSER_INSPECT_JS
     + """
         return inspect(target).status === 'valid';
+    }"""
+)
+
+# Resolves once the composer no longer reads as Press Enter to Send, which a
+# Send button rendering after the editor and its toggle does.
+_MESSAGE_ENTER_TO_SEND_SETTLED_JS = (
+    "(target) => {"
+    + _MESSAGE_COMPOSER_INSPECT_JS
+    + """
+        const state = inspect(target);
+        return !(state.status === 'valid' && state.enterToSend);
     }"""
 )
 
@@ -1732,6 +1744,22 @@ class MessageSender:
         )
         return state if isinstance(state, dict) else {"status": "invalid"}
 
+    async def _enter_to_send_persists(self, target: _MessageTarget) -> bool:
+        """Whether Press Enter to Send still reads as on once a late Send
+        button has had time to render."""
+        try:
+            await self._page.wait_for_function(
+                _MESSAGE_ENTER_TO_SEND_SETTLED_JS,
+                arg=self._message_target_argument(target),
+                timeout=_ENTER_TO_SEND_SETTLE_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            pass
+        except Exception:
+            logger.debug("Could not wait for a late Send button", exc_info=True)
+        state = await self._read_message_composer_state(target)
+        return state.get("status") == "valid" and state.get("enterToSend") is True
+
     async def _focus_verified_message_editor(self, target: _MessageTarget) -> bool:
         """Focus the same editor after local contradiction checks."""
         focused = await self._page.evaluate(
@@ -2193,7 +2221,9 @@ class MessageSender:
                 "The local composer did not identify exactly the requested profile.",
             )
         recipient_selected = True
-        if state.get("enterToSend") is True:
+        if state.get("enterToSend") is True and await self._enter_to_send_persists(
+            target
+        ):
             return contracts.message_action_result(
                 self._page.url,
                 ENTER_TO_SEND_ENABLED,
@@ -2607,7 +2637,9 @@ class MessageSender:
                     "The thread URL changed while its title was read.",
                 )
             respond = respond_for(participant)
-            if state.get("enterToSend") is True:
+            if state.get("enterToSend") is True and await self._enter_to_send_persists(
+                target
+            ):
                 return respond(
                     self._page.url,
                     ENTER_TO_SEND_ENABLED,

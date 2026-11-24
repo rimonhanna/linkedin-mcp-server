@@ -60,7 +60,9 @@ RECORDER_JS = """
 """
 
 
-def compose_page(footer: str, *, toggle_outside: bool = False) -> str:
+def compose_page(
+    footer: str, *, toggle_outside: bool = False, scope: str = "form"
+) -> str:
     outside = TOGGLE if toggle_outside else ""
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -69,14 +71,14 @@ def compose_page(footer: str, *, toggle_outside: bool = False) -> str:
     <main>
       <section id="conversation" role="dialog">
         {outside}
-        <form id="composer-scope" onsubmit="return false">
+        <{scope} id="composer-scope" onsubmit="return false">
           <div id="recipient" data-profile-urn="ACoAAB">
             <a href="https://www.linkedin.com/in/test-member/">Test Member</a>
           </div>
           <div id="composer" role="textbox" contenteditable="true"
                style="display:block;width:200px;height:30px"></div>
           {footer}
-        </form>
+        </{scope}>
       </section>
     </main>
     <script>{RECORDER_JS}</script>
@@ -112,6 +114,15 @@ def thread_page(footer: str) -> str:
   </body>
 </html>
 """
+
+
+def with_late_submit(html: str, *, delay_ms: int = 400) -> str:
+    """The same page, with its Send button rendered after the editor and toggle."""
+    script = (
+        "<script>setTimeout(() => document.getElementById('composer-scope')"
+        f".insertAdjacentHTML('beforeend', '{SUBMIT}'), {delay_ms});</script>"
+    )
+    return html.replace("</body>", f"{script}\n  </body>", 1)
 
 
 @pytest.fixture
@@ -234,6 +245,21 @@ class TestEnterToSendDetection:
 
         assert state["enterToSend"] is False
 
+    async def test_a_plain_button_is_not_a_send_options_toggle(self, dom_page):
+        plain = '<button id="plain" type="button">...</button>'
+
+        state = await self._state(dom_page, compose_page(plain))
+
+        assert state["submitCount"] == 0
+        assert state["enterToSend"] is False
+
+    async def test_a_dialog_without_a_form_is_not_enter_to_send(self, dom_page):
+        state = await self._state(dom_page, compose_page(TOGGLE, scope="div"))
+
+        assert state["status"] == "valid"
+        assert state["submitCount"] == 0
+        assert state["enterToSend"] is False
+
 
 class TestSendMessageWithEnterToSend:
     @pytest.mark.parametrize("confirm_send", [False, True], ids=["dry-run", "send"])
@@ -261,6 +287,14 @@ class TestSendMessageWithEnterToSend:
 
         assert result["status"] == "confirmation_required"
 
+    async def test_a_late_send_button_is_not_reported_as_enter_to_send(self, dom_page):
+        page = with_late_submit(compose_page(TOGGLE))
+
+        result = await send(dom_page, page, confirm_send=False)
+
+        assert result["status"] == "confirmation_required"
+        assert await untouched(dom_page)
+
 
 class TestReplyWithEnterToSend:
     @pytest.mark.parametrize("confirm_send", [False, True], ids=["dry-run", "send"])
@@ -275,6 +309,14 @@ class TestReplyWithEnterToSend:
         assert result["recipient_selected"] is True
         assert result["sent"] is False
         assert result["retry_safe"] is True
+        assert await untouched(dom_page)
+
+    async def test_a_late_send_button_is_not_reported_as_enter_to_send(self, dom_page):
+        page = with_late_submit(thread_page(TOGGLE))
+
+        result = await reply(dom_page, page, confirm_send=False)
+
+        assert result["status"] == "confirmation_required"
         assert await untouched(dom_page)
 
 
