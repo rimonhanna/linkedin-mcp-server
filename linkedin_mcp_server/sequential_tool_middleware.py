@@ -101,6 +101,9 @@ class SequentialToolExecutionMiddleware(Middleware):
             "add_post_to_campaign",
             "create_company_list_audience",
             "create_saved_audience",
+            "create_sales_navigator_account_list",
+            "add_accounts_to_sales_navigator_list",
+            "delete_sales_navigator_account_list",
         }
     )
 

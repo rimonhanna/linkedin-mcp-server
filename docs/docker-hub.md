@@ -148,6 +148,7 @@ Use `$env:USERPROFILE\.linkedin-mcp` when constructing the host path outside JSO
 | `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / per calendar week (resets Monday 00:00 local time). Both may be raised or lowered. |
 | `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may be raised or lowered. |
 | `CAMPAIGN_WRITES_MAX` | `30` | Campaign Manager writes per rolling 24 h that left the browser (a dry run is never counted); may be raised or lowered. |
+| `SALES_LIST_WRITES_MAX` | `30` | Sales Navigator account-list requests (create, add, delete) per rolling 24 h that left the browser (a dry run is never counted); may be raised or lowered. |
 | `WORKING_HOURS_DISABLED` | off | The account budget is on business hours by default (09:00-18:00, lunch and weekends off): invitations, messages and Campaign Manager writes wait for the window, and profile/search loads run on half their cap outside it. `1` turns both off. The hours follow the container's clock, which is UTC unless `TZ` is set (`-e TZ=Europe/Berlin`). |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one. |
 | `DAILY_CAP_JITTER` | `0.15` | Fraction shaved off the daily cap at random each day. |

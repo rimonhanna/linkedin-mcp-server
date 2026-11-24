@@ -62,6 +62,9 @@ a page-owning collaborator.
 | `sales_navigator` | `SalesNavigatorReader` | `page-owning` |
 | `sales_navigator_api` | `SalesNavigatorCapture` | `browser-free` |
 | `sales_navigator_lead_filters` | `ACCOUNT_LIST`, `FUNCTION`, `FUNCTION_IDS`, `LEAD_LIST`, `RELATIONSHIP`, `TENURE_IDS`, `TenureBucket`, `YEARS_AT_CURRENT_COMPANY`, `YEARS_IN_CURRENT_POSITION`, `function_ids()`, `tenure_ids()` | `browser-free` |
+| `sales_navigator_list_guard` | `ListWriteWindow`, `PlannedListWrite`, `admission_refusal()`, `explicit_list_write()`, `register_sales_list_routes()`, `without_sales_list_writes()` | `browser-free` |
+| `sales_navigator_list_payload` | `ACCOUNT_LIST_TYPE`, `DESCRIPTION_MAX_LENGTH`, `LISTS`, `MAX_ACCOUNTS_PER_CALL`, `NAME_MAX_LENGTH`, `add_request()`, `company_urn()`, `create_request()`, `created_list_id()`, `delete_request()`, `refuse_invalid_list_text()` | `browser-free` |
+| `sales_navigator_list_writes` | `PlannedAccounts`, `SalesNavigatorListWriter`, `list_write_result()`, `plan_accounts()` | `browser-free` |
 | `sales_navigator_payload` | `Account`, `AccountCard`, `AccountList`, `COMPANY_FILTER_ID`, `COMPANY_HEADCOUNT`, `COMPANY_HEADCOUNT_GROWTH`, `CURRENT_COMPANY`, `CURRENT_TITLE`, `EmployeeGrowth`, `Headquarters`, `INDUSTRY`, `Lead`, `ListedAccount`, `MAX_PAGE`, `PAGE_SIZE`, `Position`, `REGION`, `RESULT_CAP`, `RevenueRange`, `SENIORITY_IDS`, `SENIORITY_LEVEL`, `SN_API_PREFIX`, `SearchFilter`, `SearchPaging`, `Seniority`, `SeniorityLevel`, `SnCall`, `SnMoney`, `T`, `WITHHELD_REASON`, `Withheld`, `build_account()`, `build_account_card()`, `build_account_list()`, `build_elements()`, `build_lead()`, `build_leads()`, `build_listed_account()`, `build_paging()`, `build_search_query()`, `build_withheld()`, `is_withheld()`, `missing_echoes()`, `parse_sn_call()`, `render_account()`, `render_account_cards()`, `render_account_lists()`, `render_leads()`, `render_listed_accounts()`, `restli_value()`, `sales_company_id()`, `sales_profile_id()`, `search_page_url()`, `unrequested_echoes()` | `browser-free` |
 | `search_pages` | `SearchPages`, `paginate_search()`, `search_rows()` | `browser-free` |
 | `search_parse` | `parse_company_cards()`, `parse_count()`, `parse_people_cards()`, `parse_result_count()` | `browser-free` |
@@ -94,7 +97,7 @@ a page-owning collaborator.
 - `content` -> `session`, `text`
 - `contracts` -> `identifiers`, `link_metadata`
 - `conversations` -> `content`, `identifiers`, `link_metadata`, `messaging_api`, `messaging_payload`, `messaging_read_state`, `navigation`, `profile_page`, `session`, `text`
-- `extractor` -> `campaign_manager`, `campaign_manager_audiences`, `campaign_manager_content`, `campaign_manager_editor`, `campaign_manager_targeting`, `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `sales_navigator`, `session`, `text`
+- `extractor` -> `campaign_manager`, `campaign_manager_audiences`, `campaign_manager_content`, `campaign_manager_editor`, `campaign_manager_targeting`, `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `sales_navigator`, `sales_navigator_list_writes`, `session`, `text`
 - `facets` -> `capture`, `company_parse`, `contracts`, `identifiers`, `job_policy`, `link_metadata`, `navigation`, `session`
 - `feed` -> `content`, `contracts`, `feed_payload`, `navigation`, `session`, `text`
 - `feed_payload` -> `link_metadata`
@@ -118,6 +121,9 @@ a page-owning collaborator.
 - `sales_navigator` -> `contracts`, `facets`, `identifiers`, `navigation`, `restli`, `sales_navigator_api`, `sales_navigator_lead_filters`, `sales_navigator_payload`, `search_urls`, `session`
 - `sales_navigator_api` -> `api_capture`, `sales_navigator_payload`
 - `sales_navigator_lead_filters` -> `contracts`
+- `sales_navigator_list_guard` -> `sales_navigator_payload`
+- `sales_navigator_list_payload` -> `restli`, `sales_navigator_list_guard`
+- `sales_navigator_list_writes` -> `identifiers`, `restli`, `sales_navigator`, `sales_navigator_list_guard`, `sales_navigator_list_payload`, `sales_navigator_payload`
 - `sales_navigator_payload` -> `identifiers`, `restli`
 - `search_pages` -> `capture`, `contracts`, `link_metadata`, `search_parse`, `session`
 - `search_parse` -> _(none)_
@@ -127,12 +133,15 @@ a page-owning collaborator.
 
 ## `LinkedInExtractor` public coroutine surface
 
+- `add_accounts_to_sales_navigator_list`
 - `add_post_to_campaign`
 - `click_button_by_text`
 - `connect_with_person`
 - `create_campaign_draft`
 - `create_company_list_audience`
+- `create_sales_navigator_account_list`
 - `create_saved_audience`
+- `delete_sales_navigator_account_list`
 - `extract_feed`
 - `extract_page`
 - `get_campaign`
@@ -189,6 +198,7 @@ a page-owning collaborator.
 - `_person`
 - `_posts`
 - `_sales_navigator`
+- `_sales_navigator_lists`
 
 ## Dependency-direction violations
 

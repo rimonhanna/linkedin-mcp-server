@@ -1,0 +1,166 @@
+{
+  "call": {
+    "arguments": {
+      "confirm_send": false,
+      "expected_name": "Example list",
+      "list_id": "100000301"
+    },
+    "method": "delete_sales_navigator_account_list"
+  },
+  "events": [
+    {
+      "call": "delete_sales_navigator_account_list",
+      "callback_id": "callback-1",
+      "kind": "route.add",
+      "pattern": "**/sales-api/**",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+      "requested_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+      "section": "delete_account_list",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "kind": "wait_for_load_state",
+      "section": "delete_account_list",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "description": "goto https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "kind": "boundary.rate_limit",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "delete_account_list"
+    },
+    {
+      "call": "delete_sales_navigator_account_list",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "delete_account_list"
+    }
+  ],
+  "result": {
+    "dry_run": true,
+    "list": {
+      "entityCount": 2,
+      "id": "100000301",
+      "listType": "ACCOUNT",
+      "name": "Example list"
+    },
+    "message": "Nothing was deleted. confirm_send true sends one request deleting this list; its accounts are not affected.",
+    "retry_safe": true,
+    "status": "dry_run",
+    "tool": "delete_sales_navigator_account_list",
+    "url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301"
+  },
+  "scenario": "delete_sales_navigator_account_list__dry_run",
+  "schema_version": 1
+}

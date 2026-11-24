@@ -87,6 +87,9 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `get_sales_navigator_account_list` | One Sales Navigator account list and every company in it. Needs a Sales Navigator seat. Read-only |
 | `list_sales_navigator_lead_lists` | Every Sales Navigator lead list of the member, with its size. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_lead_list` | The leads of one Sales Navigator lead list, read as a lead search filtered to the list (up to 1,000), with the same lead records and ids as lead search. Needs a Sales Navigator seat. Read-only |
+| `create_sales_navigator_account_list` | Create a Sales Navigator account list, optionally with up to 25 accounts (the company ids account search returns). `confirm_send: false` is a dry run. Needs a Sales Navigator seat |
+| `add_accounts_to_sales_navigator_list` | Add up to 25 accounts to one Sales Navigator account list in one request, with a status per account. `confirm_send: false` is a dry run. Needs a Sales Navigator seat |
+| `delete_sales_navigator_account_list` | Delete one Sales Navigator account list by its id, only when its name is exactly `expected_name`. `confirm_send: false` is a dry run. Needs a Sales Navigator seat |
 | `start_enrichment_job` | Queue a resumable bulk profile-enrichment job from a list of usernames or profile URLs |
 | `run_enrichment_bunch` | Visit the next few profiles in a job, paced with randomized delays, a rolling 24h action budget and working hours; returns when to call it again. A bunch that loses its browser relaunches it and retries once; a profile that never loaded is left pending and is not charged |
 | `get_enrichment_status` | Progress and collected results for an enrichment job, or list all jobs |
@@ -257,9 +260,10 @@ refused outside working hours like invitations and messages.
 The Sales Navigator tools need a Sales Navigator seat on the signed-in
 account. Without one, LinkedIn shows another page and the tool says so.
 
-They only read. Each call opens a Sales Navigator page in your browser and
-takes its data from the responses that page loads; it sends no request of its
-own. No tool opens a lead's page, so nobody sees a profile view from you.
+The read tools only read. Each call opens a Sales Navigator page in your
+browser and takes its data from the responses that page loads; it sends no
+request of its own. No tool opens a lead's page, so nobody sees a profile view
+from you. The three account-list writes are described below.
 
 Each search page counts against `SEARCH_PAGES_MAX`, the same cap as classic
 people and company search. Other Sales Navigator pages are counted but have no
@@ -293,7 +297,10 @@ To build an audience from an ideal customer profile, narrow
 `search_sales_navigator_leads` with its filters, or save the people to a lead
 list in Sales Navigator and read it with `get_sales_navigator_lead_list`. The
 `account_list` filter finds the people at the companies of an account list.
-Every lead row carries:
+To search inside companies you found, build an account list from them:
+`create_sales_navigator_account_list` with the `id`s of
+`search_sales_navigator_accounts` rows as `accounts`, then pass the new list's
+id as `account_list`. Every lead row carries:
 
 - `id`: the Sales Navigator profile id (an `ACw...` id), and
   `salesProfileUrn`, the full `urn:li:fs_salesProfile:(...)` it came from;
@@ -306,6 +313,27 @@ Every lead row carries:
 - `degree`: 1, 2 or 3 for the connection degree. Filter with `network: ["F"]`
   for 1st-degree connections only, for example to invite them to follow a
   company page.
+
+#### Account-list writes
+
+`create_sales_navigator_account_list`, `add_accounts_to_sales_navigator_list`
+and `delete_sales_navigator_account_list` change your own Sales Navigator
+lists; nobody else is notified. Each one opens one Sales Navigator page to
+check its target first: an add or a delete needs an account list (a lead list
+is refused), and a delete goes ahead only when the list's current name is
+exactly `expected_name`. With `confirm_send: false` nothing is sent and the
+result says what would be. With `confirm_send: true` the tool sends exactly
+one request per step, the one Sales Navigator's own app sends for it, from
+your browser with the app's headers; every other change the page tries while
+the tool runs is stopped in the browser. A create with `accounts` is two
+requests: the list, then the accounts.
+
+Success is only reported from Sales Navigator's own answer. When no answer
+arrives the result is `*_unconfirmed` with `retry_safe: false`: check the
+lists before calling again, as a repeat could create a second list. Each
+request that left the browser counts against `SALES_LIST_WRITES_MAX` (30 per
+rolling 24 h) and the hourly cap, a dry run never does, and they wait for
+working hours like the other writes.
 
 
 
@@ -1013,6 +1041,7 @@ off.
 | `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / per calendar week (resets Monday 00:00 local time); both may be raised or lowered |
 | `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may be raised or lowered |
 | `CAMPAIGN_WRITES_MAX` | `30` | Campaign Manager writes per rolling 24 h; may be raised or lowered |
+| `SALES_LIST_WRITES_MAX` | `30` | Sales Navigator account-list requests (create, add, delete) per rolling 24 h; may be raised or lowered |
 | `WORKING_HOURS_DISABLED` | off | `1` lets invitations, messages and Campaign Manager writes go outside working hours and lifts the halved read caps |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one |
 | `DAILY_CAP_JITTER` | `0.15` | Fraction shaved off the daily cap at random each day |

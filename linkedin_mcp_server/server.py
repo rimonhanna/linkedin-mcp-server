@@ -62,6 +62,9 @@ from linkedin_mcp_server.tools.messaging import register_messaging_tools
 from linkedin_mcp_server.tools.person import register_person_tools
 from linkedin_mcp_server.tools.post import register_post_tools
 from linkedin_mcp_server.tools.sales_navigator import register_sales_navigator_tools
+from linkedin_mcp_server.tools.sales_navigator_lists import (
+    register_sales_navigator_list_tools,
+)
 
 if TYPE_CHECKING:
     from linkedin_mcp_server.daemon_proxy import DaemonProxyBackend
@@ -90,6 +93,11 @@ create_campaign_draft, add_post_to_campaign, create_company_list_audience and
 create_saved_audience change the user's ad account and can spend money: call
 them with confirm_send false first, show the user the planned change, and
 confirm only what they approved.
+
+create_sales_navigator_account_list, add_accounts_to_sales_navigator_list and
+delete_sales_navigator_account_list change the user's Sales Navigator lists:
+call them with confirm_send false first and confirm only what the user
+approved.
 
 Calls are paced and run one at a time on purpose. If a tool reports a rate
 limit, an account cooldown or a pacing cap, do not retry or work around it:
@@ -345,6 +353,7 @@ def create_mcp_server(
         register_campaign_manager_tools(mcp, tool_timeout=tool_timeout)
         register_campaign_manager_action_tools(mcp, tool_timeout=tool_timeout)
         register_sales_navigator_tools(mcp, tool_timeout=tool_timeout)
+        register_sales_navigator_list_tools(mcp, tool_timeout=tool_timeout)
         register_enrichment_tools(mcp, tool_timeout=tool_timeout)
         register_company_enrichment_tools(mcp, tool_timeout=tool_timeout)
 

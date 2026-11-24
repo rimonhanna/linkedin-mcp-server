@@ -108,7 +108,12 @@ instances, clear profiles, or replace the user's browser session.
   Campaign Manager writes (`update_campaign`, `set_campaign_status`,
   `update_campaign_targeting`, `create_campaign_draft`,
   `add_post_to_campaign`, `create_company_list_audience`,
-  `create_saved_audience`), subject to the explicit authorization rules above.
+  `create_saved_audience`), and the Sales Navigator account-list writes
+  (`create_sales_navigator_account_list`,
+  `add_accounts_to_sales_navigator_list`,
+  `delete_sales_navigator_account_list`, which needs the list's exact
+  current name as `expected_name`), subject to the explicit authorization
+  rules above.
   A Campaign Manager result with `retry_safe` false may have been saved: ask
   the user to check Campaign Manager before calling again.
 - Cleanup: use `close_session` only when the user asks to end the managed

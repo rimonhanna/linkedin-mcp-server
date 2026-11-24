@@ -48,6 +48,9 @@ from linkedin_mcp_server.scraping.campaign_manager_guard import (
 from linkedin_mcp_server.scraping.messaging_read_state import (
     register_read_state_routes,
 )
+from linkedin_mcp_server.scraping.sales_navigator_list_guard import (
+    register_sales_list_routes,
+)
 
 from .exceptions import NetworkError, ProxyConnectionError
 
@@ -650,6 +653,16 @@ class BrowserManager:
                 logger.warning(
                     "Campaign Manager routes did not register at launch; "
                     "Campaign Manager reads will refuse until they do",
+                    exc_info=True,
+                )
+            try:
+                await register_sales_list_routes(self._page)
+            except Exception:
+                # Not fatal: the list-write tools refuse on their own (the
+                # guard keeps the failure and never writes unguarded).
+                logger.warning(
+                    "Sales Navigator list routes did not register at launch; "
+                    "the list-write tools will refuse until they do",
                     exc_info=True,
                 )
 

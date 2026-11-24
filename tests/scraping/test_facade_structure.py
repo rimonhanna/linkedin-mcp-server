@@ -71,6 +71,9 @@ PUBLIC_SIGNATURES = {
     "get_sales_navigator_account_list": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "list_sales_navigator_lead_lists": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "get_sales_navigator_lead_list": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "create_sales_navigator_account_list": "(self, name: 'str', *, description: 'str | None' = None, accounts: 'Sequence[str]' = (), confirm_send: 'bool') -> 'dict[str, Any]'",
+    "add_accounts_to_sales_navigator_list": "(self, list_id: 'str', accounts: 'Sequence[str]', *, confirm_send: 'bool') -> 'dict[str, Any]'",
+    "delete_sales_navigator_account_list": "(self, list_id: 'str', *, expected_name: 'str', confirm_send: 'bool') -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
     "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
 }
@@ -119,6 +122,15 @@ DELEGATES = {
     "get_sales_navigator_account_list": ("_sales_navigator", "get_account_list"),
     "list_sales_navigator_lead_lists": ("_sales_navigator", "list_lead_lists"),
     "get_sales_navigator_lead_list": ("_sales_navigator", "get_lead_list"),
+    "create_sales_navigator_account_list": (
+        "_sales_navigator_lists",
+        "create_account_list",
+    ),
+    "add_accounts_to_sales_navigator_list": ("_sales_navigator_lists", "add_accounts"),
+    "delete_sales_navigator_account_list": (
+        "_sales_navigator_lists",
+        "delete_account_list",
+    ),
 }
 
 DELEGATE_CALLS = {
@@ -173,6 +185,18 @@ DELEGATE_CALLS = {
     "get_sales_navigator_lead_list": (
         "self._sales_navigator.get_lead_list(list_id, page, deadline=deadline)"
     ),
+    "create_sales_navigator_account_list": (
+        "self._sales_navigator_lists.create_account_list(name, "
+        "description=description, accounts=accounts, confirm_send=confirm_send)"
+    ),
+    "add_accounts_to_sales_navigator_list": (
+        "self._sales_navigator_lists.add_accounts(list_id, accounts, "
+        "confirm_send=confirm_send)"
+    ),
+    "delete_sales_navigator_account_list": (
+        "self._sales_navigator_lists.delete_account_list(list_id, "
+        "expected_name=expected_name, confirm_send=confirm_send)"
+    ),
 }
 
 FACADE_STATE = {
@@ -192,6 +216,7 @@ FACADE_STATE = {
     "_person",
     "_posts",
     "_sales_navigator",
+    "_sales_navigator_lists",
 }
 
 PERMANENT_ALIASES = {
