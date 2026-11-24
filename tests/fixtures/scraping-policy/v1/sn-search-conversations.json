@@ -112,6 +112,13 @@
     },
     {
       "call": "search_sales_navigator_conversations",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
       "kind": "wait_for_load_state",
       "section": "search_results",
       "state": "domcontentloaded",
@@ -184,7 +191,8 @@
     },
     {
       "call": "search_sales_navigator_conversations",
-      "kind": "keyboard.insert_text",
+      "delay_ms": 90,
+      "kind": "keyboard.type",
       "section": "search_results",
       "text": "engine"
     },
@@ -194,6 +202,13 @@
       "event": "response",
       "kind": "listener.emit",
       "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "kind": "locator.input_value",
+      "locator": "sn_search_box_first",
+      "section": "search_results",
+      "timeout_ms": 5000
     },
     {
       "call": "search_sales_navigator_conversations",

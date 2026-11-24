@@ -13,7 +13,7 @@ from .test_sales_navigator import _boot
 from .test_sales_navigator_inbox import _Inbox, _list, _run, _thread
 
 
-async def test_search_inserts_the_keywords_in_one_go(mock_page):
+async def test_search_types_the_keywords_at_an_even_pace(mock_page):
     browser = _Inbox(mock_page)
     browser.loads[SALES_INBOX_URL] = [*_boot(), _list([_thread(9)])]
     browser.searched["example words"] = [
@@ -22,7 +22,9 @@ async def test_search_inserts_the_keywords_in_one_go(mock_page):
 
     await _run(mock_page, browser, lambda r: r.search_conversations("example words"))
 
-    mock_page.keyboard.insert_text.assert_awaited_once_with("example words")
+    # An inserted value fires no key event, and the app never searches it.
+    mock_page.keyboard.insert_text.assert_not_awaited()
+    mock_page.keyboard.type.assert_awaited_once_with("example words", delay=90)
 
 
 async def test_search_ignores_partial_keywords_and_reads_the_final_one(mock_page):

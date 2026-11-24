@@ -2037,24 +2037,39 @@ async def _sn_conversation_scenario() -> dict[str, Any]:
 
 
 async def _sn_search_conversations_scenario() -> dict[str, Any]:
-    page = _sn_page("search_sales_navigator_conversations__typed_into_the_inbox_box")
+    page = _page(
+        TraceRecorder(
+            "search_sales_navigator_conversations__typed_into_the_inbox_box",
+            _COMMON_ALLOWED | {"locator.input_value"},
+        )
+    )
     page.declare_locator(sn_inbox_module._SEARCH_BOX_SELECTORS[0], "sn_search_box")
     page.declare_derived("sn_search_box", "first", "sn_search_box_first")
+    # The app opens the top conversation on its own after the list.
+    opened = _sn_response(
+        "salesApiMessagingThreads/2-POLICY9?count=1&messageCount=10&decoration=example",
+        {"data": _sn_thread(9), "included": _sn_profiles()},
+    )
     page.script(
         "goto",
         lambda: _sn_emit(
             page,
-            [*_sn_boot(), _sn_threads("q=filter&filter=INBOX", [_sn_thread(9)], 20)],
+            [
+                *_sn_boot(),
+                _sn_threads("q=filter&filter=INBOX", [_sn_thread(9)], 20),
+                opened,
+            ],
         ),
     )
     page.script("sn_search_box_first.click", None)
     page.script(
-        "keyboard.insert_text",
+        "keyboard.type",
         lambda: _sn_emit(
             page,
             [_sn_threads("q=keyword&keyword=engine", [_sn_thread(1)], 20)],
         ),
     )
+    page.script("sn_search_box_first.input_value", "engine")
     return await _sn_inbox_run(
         "search_results",
         page,
