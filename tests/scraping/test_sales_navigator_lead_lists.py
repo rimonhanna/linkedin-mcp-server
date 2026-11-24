@@ -142,31 +142,44 @@ async def test_a_total_that_moves_stops_the_read_without_a_next_page(mock_page):
     assert "total changed to 31" in result["section_errors"]["leads"]["error_message"]
 
 
-async def test_a_read_stops_at_a_page_boundary_before_the_deadline(mock_page):
-    class _Slow(_Browser):
-        now = 0.0
+class _Slow(_Browser):
+    now = 0.0
 
-        async def navigate(self, url: str) -> None:
-            self.now += SECONDS_PER_PAGE
-            await super().navigate(url)
+    async def navigate(self, url: str) -> None:
+        self.now += SECONDS_PER_PAGE
+        await super().navigate(url)
 
+
+async def _read_slowly(mock_page, deadline: float) -> tuple[_Slow, dict[str, Any]]:
     browser = _Slow(mock_page)
     for page in range(1, 5):
         browser.loads[_page_url(page)] = [_leads_page(page, 25, 100)]
     clock = SimpleNamespace(monotonic=lambda: browser.now)
-
     with patch.object(reader_module, "time", clock):
         result = await _run(
             mock_page,
             browser,
-            lambda r: r.get_lead_list(LEAD_LIST_ID, deadline=20.0),
+            lambda r: r.get_lead_list(LEAD_LIST_ID, deadline=deadline),
         )
+    return browser, result
+
+
+async def test_a_read_stops_at_a_page_boundary_before_the_deadline(mock_page):
+    browser, result = await _read_slowly(mock_page, 20.0)
 
     # Two pages end at 15 s; a third would end at 22.5 s, past the deadline.
     assert len(browser.navigated) == 2
     assert result["next_page"] == 3
     assert result["paging"]["more"] is True
     assert "ran out of time" in result["section_errors"]["leads"]["error_message"]
+
+
+async def test_the_second_page_is_not_started_when_it_would_end_late(mock_page):
+    browser, result = await _read_slowly(mock_page, 10.0)
+
+    # The first page ends at 7.5 s; the second would end at 15 s.
+    assert len(browser.navigated) == 1
+    assert result["next_page"] == 2
 
 
 async def test_a_later_page_starts_at_its_own_offset(mock_page):
