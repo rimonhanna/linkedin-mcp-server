@@ -33,7 +33,10 @@ from linkedin_mcp_server.pacing import (
 )
 from linkedin_mcp_server.scraping import parse_person_sections
 from linkedin_mcp_server.scraping.contracts import FilterValidationError
-from linkedin_mcp_server.scraping.identifiers import normalize_person_identifier
+from linkedin_mcp_server.scraping.identifiers import (
+    normalize_person_identifier,
+    refuse_opaque_member_id,
+)
 from linkedin_mcp_server.scraping.invitation_withdrawal import MAX_WITHDRAWALS_LIMIT
 from linkedin_mcp_server.tools.enrichment import DEADLINE_FRACTION
 
@@ -428,6 +431,7 @@ def register_person_tools(
             # Before the browser: a refused invite must not spend a page load.
             refuse_action(JobStore(), INVITES, datetime.now().astimezone())
             linkedin_username = normalize_person_identifier(linkedin_username)
+            refuse_opaque_member_id(linkedin_username, tool="connect_with_person")
             extractor = extractor or await get_ready_extractor(
                 ctx, tool_name="connect_with_person"
             )
