@@ -1,0 +1,256 @@
+{
+  "call": {
+    "arguments": {
+      "keywords": "engine",
+      "limit": 5
+    },
+    "method": "search_sales_navigator_conversations"
+  },
+  "events": [
+    {
+      "call": "search_sales_navigator_conversations",
+      "callback_id": "callback-1",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessengerConversations*",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessagingBadge*",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessagingThreads**",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessageActions**",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "callback_id": "callback-4",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/inbox",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/inbox",
+      "requested_url": "https://www.linkedin.com/sales/inbox",
+      "section": "search_results",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "kind": "wait_for_load_state",
+      "section": "search_results",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "description": "goto https://www.linkedin.com/sales/inbox",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/inbox",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "kind": "boundary.rate_limit",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "kind": "locator.create",
+      "locator": "sn_search_box",
+      "parent": null,
+      "section": "search_results",
+      "selector": "#left-rail-inbox-search"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "kind": "locator.derive",
+      "locator": "sn_search_box_first",
+      "operation": "first",
+      "parent": "sn_search_box",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "kind": "locator.click",
+      "locator": "sn_search_box_first",
+      "section": "search_results",
+      "timeout_ms": 5000
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "delay_ms": null,
+      "kind": "keyboard.type",
+      "section": "search_results",
+      "text": "engine"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "kind": "boundary.rate_limit",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "search_results"
+    },
+    {
+      "call": "search_sales_navigator_conversations",
+      "callback_id": "callback-4",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "search_results"
+    }
+  ],
+  "result": {
+    "conversations": [
+      {
+        "archived": false,
+        "id": "2-POLICY1",
+        "inmail": false,
+        "lastMessageAt": "2026-09-21T14:13:19Z",
+        "lastMessagePreview": "Example body m1",
+        "messageCount": 1,
+        "participants": [
+          {
+            "degree": 2,
+            "leadId": "ACwAAA0001",
+            "memberUrn": "urn:li:member:100000001",
+            "name": "Example Person"
+          }
+        ],
+        "unread": false,
+        "unreadCount": 0
+      }
+    ],
+    "marked_read": false,
+    "paging": {
+      "count": 1,
+      "more": false,
+      "reason": "complete"
+    },
+    "section_names": [
+      "search_results"
+    ],
+    "sections": {
+      "search_results": "Example Person (thread 2-POLICY1): 2026-09-21T14:13:19Z, Example body m1"
+    },
+    "url": "https://www.linkedin.com/sales/inbox"
+  },
+  "scenario": "search_sales_navigator_conversations__typed_into_the_inbox_box",
+  "schema_version": 1
+}

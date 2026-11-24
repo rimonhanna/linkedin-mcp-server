@@ -119,7 +119,7 @@ _FETCH_JSON = """async ({ url, headers }) => {
     try {
         const response = await fetch(url, {
             method: 'GET',
-            credentials: 'include',
+            credentials: 'same-origin',
             headers,
         });
         let payload = null;

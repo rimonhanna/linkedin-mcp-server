@@ -1,0 +1,339 @@
+{
+  "call": {
+    "arguments": {
+      "thread_id": "2-POLICY"
+    },
+    "method": "get_sales_navigator_conversation"
+  },
+  "events": [
+    {
+      "call": "get_sales_navigator_conversation",
+      "callback_id": "callback-1",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessengerConversations*",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessagingBadge*",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessagingThreads**",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessageActions**",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "callback_id": "callback-4",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/inbox/2-POLICY",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/inbox/2-POLICY",
+      "requested_url": "https://www.linkedin.com/sales/inbox/2-POLICY",
+      "section": "conversation",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "count": 2,
+      "event": "request",
+      "kind": "listener.emit",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "kind": "wait_for_load_state",
+      "section": "conversation",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "description": "goto https://www.linkedin.com/sales/inbox/2-POLICY",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/inbox/2-POLICY",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "kind": "boundary.rate_limit",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "conversation"
+    },
+    {
+      "arg": {
+        "headers": {
+          "csrf-token": "policy-token"
+        },
+        "url": "https://www.linkedin.com/sales-api/salesApiMessagingThreads/2-POLICY/messages?count=10&deliveredBefore=10000&decoration=%28id%2Ctype%2Cauthor%2Cattachments%2CcontentFlag%2CdeliveredAt%2Csubject%2Cbody%2CfooterText%2CblockCopy%2CsystemMessageContent%29"
+      },
+      "call": "get_sales_navigator_conversation",
+      "kind": "evaluate",
+      "operation": "sn_inbox_history",
+      "program_digest": "f5fde8fc0b2f",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "conversation"
+    },
+    {
+      "call": "get_sales_navigator_conversation",
+      "callback_id": "callback-4",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "conversation"
+    }
+  ],
+  "result": {
+    "conversation": {
+      "archived": false,
+      "history": {
+        "batches": 2,
+        "complete": true
+      },
+      "id": "2-POLICY",
+      "inmail": false,
+      "messages": [
+        {
+          "body": "Example body o0",
+          "fromViewer": false,
+          "id": "o0",
+          "inmail": false,
+          "senderLeadId": "ACwAAA0001",
+          "senderName": "Example Person",
+          "sentAt": "1970-01-01T00:00:00Z",
+          "type": "MESSAGE"
+        },
+        {
+          "body": "Example body n0",
+          "fromViewer": false,
+          "id": "n0",
+          "inmail": false,
+          "senderLeadId": "ACwAAA0001",
+          "senderName": "Example Person",
+          "sentAt": "1970-01-01T00:00:10Z",
+          "type": "MESSAGE"
+        },
+        {
+          "body": "Example body n1",
+          "fromViewer": false,
+          "id": "n1",
+          "inmail": false,
+          "senderLeadId": "ACwAAA0001",
+          "senderName": "Example Person",
+          "sentAt": "1970-01-01T00:00:10Z",
+          "type": "MESSAGE"
+        },
+        {
+          "body": "Example body n2",
+          "fromViewer": false,
+          "id": "n2",
+          "inmail": false,
+          "senderLeadId": "ACwAAA0001",
+          "senderName": "Example Person",
+          "sentAt": "1970-01-01T00:00:10Z",
+          "type": "MESSAGE"
+        },
+        {
+          "body": "Example body n3",
+          "fromViewer": false,
+          "id": "n3",
+          "inmail": false,
+          "senderLeadId": "ACwAAA0001",
+          "senderName": "Example Person",
+          "sentAt": "1970-01-01T00:00:10Z",
+          "type": "MESSAGE"
+        },
+        {
+          "body": "Example body n4",
+          "fromViewer": false,
+          "id": "n4",
+          "inmail": false,
+          "senderLeadId": "ACwAAA0001",
+          "senderName": "Example Person",
+          "sentAt": "1970-01-01T00:00:10Z",
+          "type": "MESSAGE"
+        },
+        {
+          "body": "Example body n5",
+          "fromViewer": false,
+          "id": "n5",
+          "inmail": false,
+          "senderLeadId": "ACwAAA0001",
+          "senderName": "Example Person",
+          "sentAt": "1970-01-01T00:00:10Z",
+          "type": "MESSAGE"
+        },
+        {
+          "body": "Example body n6",
+          "fromViewer": false,
+          "id": "n6",
+          "inmail": false,
+          "senderLeadId": "ACwAAA0001",
+          "senderName": "Example Person",
+          "sentAt": "1970-01-01T00:00:10Z",
+          "type": "MESSAGE"
+        },
+        {
+          "body": "Example body n7",
+          "fromViewer": false,
+          "id": "n7",
+          "inmail": false,
+          "senderLeadId": "ACwAAA0001",
+          "senderName": "Example Person",
+          "sentAt": "1970-01-01T00:00:10Z",
+          "type": "MESSAGE"
+        },
+        {
+          "body": "Example body n8",
+          "fromViewer": false,
+          "id": "n8",
+          "inmail": false,
+          "senderLeadId": "ACwAAA0001",
+          "senderName": "Example Person",
+          "sentAt": "1970-01-01T00:00:10Z",
+          "type": "MESSAGE"
+        },
+        {
+          "body": "Example body n9",
+          "fromViewer": false,
+          "id": "n9",
+          "inmail": false,
+          "senderLeadId": "ACwAAA0001",
+          "senderName": "Example Person",
+          "sentAt": "1970-01-01T00:00:10Z",
+          "type": "MESSAGE"
+        }
+      ],
+      "participants": [
+        {
+          "degree": 2,
+          "leadId": "ACwAAA0001",
+          "memberUrn": "urn:li:member:100000001",
+          "name": "Example Person"
+        }
+      ],
+      "unread": true,
+      "unreadCount": 1
+    },
+    "marked_read": false,
+    "section_names": [
+      "conversation"
+    ],
+    "sections": {
+      "conversation": "Conversation with Example Person\n[1970-01-01T00:00:00Z] Example Person:\nExample body o0\n[1970-01-01T00:00:10Z] Example Person:\nExample body n0\n[1970-01-01T00:00:10Z] Example Person:\nExample body n1\n[1970-01-01T00:00:10Z] Example Person:\nExample body n2\n[1970-01-01T00:00:10Z] Example Person:\nExample body n3\n[1970-01-01T00:00:10Z] Example Person:\nExample body n4\n[1970-01-01T00:00:10Z] Example Person:\nExample body n5\n[1970-01-01T00:00:10Z] Example Person:\nExample body n6\n[1970-01-01T00:00:10Z] Example Person:\nExample body n7\n[1970-01-01T00:00:10Z] Example Person:\nExample body n8\n[1970-01-01T00:00:10Z] Example Person:\nExample body n9"
+    },
+    "url": "https://www.linkedin.com/sales/inbox/2-POLICY"
+  },
+  "scenario": "get_sales_navigator_conversation__one_older_batch",
+  "schema_version": 1
+}

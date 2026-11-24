@@ -362,7 +362,7 @@ async def test_guard_precedes_navigation_and_cleans_up_on_failure(mock_page, wor
         events.append(("remove", pattern, handler))
 
     async def fail(*args, **kwargs):
-        assert [event[0] for event in events] == ["add", "add"]
+        assert [event[0] for event in events] == ["add"] * len(_READ_STATE_WRITE_ROUTES)
         raise RuntimeError("offline navigation failed")
 
     mock_page.route = AsyncMock(side_effect=route)
@@ -377,7 +377,7 @@ async def test_guard_precedes_navigation_and_cleans_up_on_failure(mock_page, wor
                 else {}
             )
             await getattr(reader, workflow)(**kwargs)
-    assert [event[0] for event in events] == ["add", "add"]
+    assert [event[0] for event in events] == ["add"] * len(_READ_STATE_WRITE_ROUTES)
     mock_page.unroute.assert_not_awaited()
 
 
@@ -395,7 +395,7 @@ async def test_partial_guard_registration_fails_closed_without_duplicates(mock_p
     ):
         async with reader._without_read_state_writes():
             pytest.fail("must not guess whether registration succeeded")
-    assert mock_page.route.await_count == len(_READ_STATE_WRITE_ROUTES)
+    assert mock_page.route.await_count == 2
 
 
 async def test_guard_exit_does_not_wait_for_interception_reconfiguration(mock_page):
@@ -681,7 +681,7 @@ async def test_guard_exits_with_busy_iframe_and_context_routes_without_accumulat
             await asyncio.sleep(0.5)
             # Last-page-route removal used to wait for this busy child frame.
             await asyncio.wait_for(guard.__aexit__(None, None, None), timeout=1)
-            assert len(additions) == 2
+            assert len(additions) == len(_READ_STATE_WRITE_ROUTES)
             assert not writes
             # Existing verified compose intent can release the latch.
             from linkedin_mcp_server.scraping.messaging_read_state import (
@@ -706,7 +706,7 @@ async def test_guard_exits_with_busy_iframe_and_context_routes_without_accumulat
                     "fetch('/voyager/api/voyagerMessagingDashMessagingBadge',{method:'POST'})"
                 )
             assert len(writes) == 2
-            assert len(additions) == 2
+            assert len(additions) == len(_READ_STATE_WRITE_ROUTES)
         finally:
             await browser.close()
 

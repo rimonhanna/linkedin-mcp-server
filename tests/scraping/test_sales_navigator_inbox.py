@@ -457,10 +457,9 @@ async def test_conversation_by_lead_matches_the_lead_id_only(mock_page):
     # Thread 1 is with another lead who has the same display name.
     other = _thread(1, lead=7)
     mine = [_thread(2, lead=5), _thread(3, lead=5)]
-    browser.loads[SALES_INBOX_URL] = [
-        *_boot(),
-        _list([other, *mine], leads=(5, 7)),
-    ]
+    listing = _list([other, *mine], leads=(5, 7))
+    listing.json.return_value["included"][2]["fullName"] = "Example Person 5"
+    browser.loads[SALES_INBOX_URL] = [*_boot(), listing]
     target = mine[1]
     url = sales_inbox_thread_url(target["id"])
     browser.loads[url] = [*_boot(), _thread_response(target, 5)]
