@@ -95,7 +95,8 @@ class LinkedInExtractor:
         self._audiences = CampaignAudiences(session, navigator)
         self._sales_navigator = SalesNavigatorReader(session, navigator, facets)
         self._sales_inbox = SalesNavigatorInboxReader(
-            session, navigator, self._sales_navigator
+            session,
+            self._sales_navigator,
         )
 
     async def get_page_text(self) -> str:

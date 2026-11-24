@@ -62,7 +62,7 @@ a page-owning collaborator.
 | `sales_navigator` | `SalesNavigatorReader` | `page-owning` |
 | `sales_navigator_api` | `SalesNavigatorCapture` | `browser-free` |
 | `sales_navigator_inbox` | `SalesNavigatorInboxReader` | `page-owning` |
-| `sales_navigator_inbox_payload` | `FILTERS`, `InboxConversation`, `InboxFilter`, `InboxMessage`, `LIST_FINDER`, `MESSAGE_BATCH`, `MESSAGE_DECORATION`, `Participant`, `SEARCH_FINDER`, `SalesConversation`, `THREADS`, `ThreadHistory`, `build_conversation_row()`, `build_conversation_rows()`, `build_message()`, `build_messages()`, `build_older_messages()`, `build_participants()`, `build_thread()`, `page_cursor()`, `render_conversation()`, `render_conversations()`, `strip_delivered_at()` | `browser-free` |
+| `sales_navigator_inbox_payload` | `ACCESS`, `FILTERS`, `InboxConversation`, `InboxFilter`, `InboxMessage`, `LIST_FINDER`, `MESSAGE_BATCH`, `MESSAGE_DECORATION`, `NAV_CHROME`, `Participant`, `SEARCH_FINDER`, `SalesConversation`, `THREADS`, `ThreadHistory`, `build_conversation_row()`, `build_conversation_rows()`, `build_message()`, `build_messages()`, `build_older_messages()`, `build_participants()`, `build_thread()`, `chrome_viewer()`, `no_inbox_access()`, `render_conversation()`, `render_conversations()`, `strip_delivered_at()`, `viewer_of()` | `browser-free` |
 | `sales_navigator_payload` | `Account`, `AccountCard`, `AccountList`, `COMPANY_FILTER_ID`, `COMPANY_HEADCOUNT`, `COMPANY_HEADCOUNT_GROWTH`, `CURRENT_COMPANY`, `CURRENT_TITLE`, `EmployeeGrowth`, `Headquarters`, `INDUSTRY`, `Lead`, `ListedAccount`, `MAX_PAGE`, `PAGE_SIZE`, `Position`, `REGION`, `RESULT_CAP`, `RevenueRange`, `SENIORITY_IDS`, `SENIORITY_LEVEL`, `SN_API_PREFIX`, `SearchFilter`, `SearchPaging`, `Seniority`, `SeniorityLevel`, `SnCall`, `SnMoney`, `T`, `WITHHELD_REASON`, `Withheld`, `build_account()`, `build_account_card()`, `build_account_list()`, `build_elements()`, `build_lead()`, `build_leads()`, `build_listed_account()`, `build_paging()`, `build_search_query()`, `build_withheld()`, `is_withheld()`, `missing_echoes()`, `parse_sn_call()`, `render_account()`, `render_account_cards()`, `render_account_lists()`, `render_leads()`, `render_listed_accounts()`, `restli_value()`, `sales_company_id()`, `sales_profile_id()`, `search_page_url()`, `unrequested_echoes()` | `browser-free` |
 | `search_pages` | `SearchPages`, `paginate_search()`, `search_rows()` | `browser-free` |
 | `search_parse` | `parse_company_cards()`, `parse_count()`, `parse_people_cards()`, `parse_result_count()` | `browser-free` |
@@ -118,7 +118,7 @@ a page-owning collaborator.
 - `restli` -> _(none)_
 - `sales_navigator` -> `contracts`, `facets`, `identifiers`, `navigation`, `restli`, `sales_navigator_api`, `sales_navigator_payload`, `search_urls`, `session`
 - `sales_navigator_api` -> `api_capture`, `sales_navigator_payload`
-- `sales_navigator_inbox` -> `identifiers`, `messaging_read_state`, `navigation`, `sales_navigator`, `sales_navigator_api`, `sales_navigator_inbox_payload`, `sales_navigator_payload`, `session`
+- `sales_navigator_inbox` -> `identifiers`, `messaging_read_state`, `restli`, `sales_navigator`, `sales_navigator_api`, `sales_navigator_inbox_payload`, `sales_navigator_payload`, `session`
 - `sales_navigator_inbox_payload` -> `restli`, `sales_navigator_payload`
 - `sales_navigator_payload` -> `identifiers`, `restli`
 - `search_pages` -> `capture`, `contracts`, `link_metadata`, `search_parse`, `session`

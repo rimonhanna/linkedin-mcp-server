@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from fnmatch import fnmatchcase
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -108,6 +109,14 @@ def _thread_response(record: dict[str, Any], *leads: int) -> SimpleNamespace:
     return response
 
 
+def _mark_read(thread: str, *, past_guard: bool = False) -> SimpleNamespace:
+    response = _response(
+        f"salesApiMessagingThreads/{thread}?action=markAsRead", method="POST"
+    )
+    response.past_guard = past_guard
+    return response
+
+
 class _Inbox(_Browser):
     """The fake browser, plus the list scroller, the search box and fetch."""
 
@@ -118,6 +127,8 @@ class _Inbox(_Browser):
         self.history: list[dict[str, Any]] = []
         self.fetched: list[dict[str, Any]] = []
         self.typed: list[str] = []
+        self.aborted: list[str] = []
+        self.programs: list[str] = []
         self.scrollable = True
         page.evaluate = with_document_identity(
             page, AsyncMock(side_effect=self._evaluate)
@@ -128,12 +139,31 @@ class _Inbox(_Browser):
         page.locator = MagicMock(return_value=box)
         page.keyboard.press = AsyncMock()
 
-    def emit(self, response: SimpleNamespace) -> None:
-        # The guard's own listener holds requests weakly; a POST here is one
-        # that already got past it, so only GETs are announced.
-        listeners = self.page.listeners.get("request", [])
-        for callback in list(listeners if response.request.method == "GET" else []):
-            callback(response.request)
+    async def _routed(self, request: SimpleNamespace) -> bool:
+        """Run a request through the routes the page registered; False if aborted."""
+        for call in self.page.route.await_args_list:
+            pattern, handler = call.args
+            if fnmatchcase(request.url, pattern):
+                route = SimpleNamespace(
+                    request=request, abort=AsyncMock(), fallback=AsyncMock()
+                )
+                await handler(route)
+                if route.abort.await_count:
+                    return False
+        return True
+
+    async def emit(self, response: SimpleNamespace) -> None:
+        request = response.request
+        if request.method == "GET":
+            for callback in list(self.page.listeners.get("request", [])):
+                callback(request)
+        # The guard's own listener holds requests weakly, so a POST goes to the
+        # routes alone. ``past_guard`` scripts one LinkedIn answered anyway.
+        elif not getattr(response, "past_guard", False) and not await self._routed(
+            request
+        ):
+            self.aborted.append(request.url)
+            return
         for callback in list(self.page.listeners.get("response", [])):
             callback(response)
 
@@ -141,7 +171,7 @@ class _Inbox(_Browser):
         self.events.append(f"load {url}")
         self.page.url = self.landings.get(url, url)
         for response in self.loads.get(url, []):
-            self.emit(response)
+            await self.emit(response)
 
     async def _evaluate(self, program: str, arg: Any = None) -> Any:
         if "linkedin-mcp:sn-inbox-scroll" in program:
@@ -149,9 +179,10 @@ class _Inbox(_Browser):
             if not self.scrollable:
                 return False
             for response in self.scrolls.pop(0) if self.scrolls else []:
-                self.emit(response)
+                await self.emit(response)
             return True
         if "linkedin-mcp:sn-inbox-history" in program:
+            self.programs.append(program)
             self.fetched.append(arg)
             return self.history.pop(0)
         raise AssertionError(f"unexpected program {program[:60]!r}")
@@ -159,7 +190,7 @@ class _Inbox(_Browser):
     async def type(self, page: Any, text: str, **_: Any) -> None:
         self.typed.append(text)
         for response in self.searched.get(text, []):
-            self.emit(response)
+            await self.emit(response)
 
     @contextmanager
     def running(self) -> Iterator[None]:
@@ -179,7 +210,7 @@ async def _run(
     session = ScrapingSession(page)
     navigator = PageNavigator(session)
     reader = SalesNavigatorInboxReader(
-        session, navigator, SalesNavigatorReader(session, navigator, browser.facets)
+        session, SalesNavigatorReader(session, navigator, browser.facets)
     )
     with browser.running():
         return await call(reader)
@@ -192,7 +223,7 @@ async def test_inbox_reads_the_first_page_without_scrolling(mock_page):
     browser = _Inbox(mock_page)
     browser.loads[SALES_INBOX_URL] = [
         *_boot(),
-        _list([_thread(1, unread=2), _thread(2)]),
+        _list([_thread(1, unread=2), _thread(2)], count=2),
     ]
 
     result = await _run(mock_page, browser, lambda r: r.get_inbox(limit=2))
@@ -312,10 +343,7 @@ async def test_inbox_reports_a_mark_read_linkedin_confirmed(mock_page):
     browser.loads[SALES_INBOX_URL] = [
         *_boot(),
         _list([_thread(1, unread=1)], count=20),
-        _response(
-            "salesApiMessagingThreads/2-THREAD0001%3D%3D?action=markAsRead",
-            method="POST",
-        ),
+        _mark_read("2-THREAD0001%3D%3D", past_guard=True),
     ]
 
     result = await _run(mock_page, browser, lambda r: r.get_inbox(limit=5))
@@ -439,10 +467,7 @@ async def test_conversation_reports_its_own_thread_marked_read(mock_page):
     browser.loads[url] = [
         *_boot(),
         _thread_response(record, 1),
-        _response(
-            "salesApiMessagingThreads/2-THREAD0001%3D%3D?action=markAsRead",
-            method="POST",
-        ),
+        _mark_read("2-THREAD0001%3D%3D", past_guard=True),
     ]
 
     result = await _run(
@@ -536,3 +561,238 @@ async def test_search_with_no_answer_for_the_keywords_fails(mock_page):
 
     with pytest.raises(LinkedInScraperException, match="did not return"):
         await _run(mock_page, browser, lambda r: r.search_conversations("example"))
+
+
+# --- read-state guard, viewer, access, paging, lead misses, older batches ----
+
+MARK_READ_URL = (
+    "https://www.linkedin.com/sales-api/salesApiMessagingThreads/"
+    "2-THREAD0001%3D%3D?action=markAsRead"
+)
+
+
+def _inbox_path(browser: _Inbox) -> Callable[[SalesNavigatorInboxReader], Any]:
+    browser.loads[SALES_INBOX_URL] = [
+        *_boot(),
+        _list([_thread(1)]),
+        _mark_read("2-THREAD0001%3D%3D"),
+    ]
+    return lambda r: r.get_inbox(limit=5)
+
+
+def _filter_path(browser: _Inbox) -> Callable[[SalesNavigatorInboxReader], Any]:
+    browser.loads[f"{SALES_INBOX_URL}?filter=UNREAD"] = [
+        *_boot(),
+        _list([_thread(1, unread=1)], value="UNREAD"),
+        _mark_read("2-THREAD0001%3D%3D"),
+    ]
+    return lambda r: r.get_inbox(limit=5, filter="unread")
+
+
+def _search_path(browser: _Inbox) -> Callable[[SalesNavigatorInboxReader], Any]:
+    browser.loads[SALES_INBOX_URL] = [*_boot(), _list([_thread(9)])]
+    browser.searched["example"] = [
+        _list([_thread(1)], finder="keyword", value="example"),
+        _mark_read("2-THREAD0001%3D%3D"),
+    ]
+    return lambda r: r.search_conversations("example", limit=5)
+
+
+def _conversation_path(browser: _Inbox) -> Callable[[SalesNavigatorInboxReader], Any]:
+    record = _thread(1, unread=1)
+    browser.loads[sales_inbox_thread_url(record["id"])] = [
+        *_boot(),
+        _thread_response(record, 1),
+        _mark_read("2-THREAD0001%3D%3D"),
+    ]
+    return lambda r: r.get_conversation(thread_id=record["id"])
+
+
+def _lead_path(browser: _Inbox) -> Callable[[SalesNavigatorInboxReader], Any]:
+    record = _thread(1, unread=1)
+    # The scan's own page opens the top conversation and asks to mark it read.
+    browser.loads[SALES_INBOX_URL] = [
+        *_boot(),
+        _list([record]),
+        _mark_read("2-THREAD0001%3D%3D"),
+    ]
+    browser.loads[sales_inbox_thread_url(record["id"])] = [
+        *_boot(),
+        _thread_response(record, 1),
+    ]
+    return lambda r: r.get_conversation(lead_id="ACwAAA0001")
+
+
+@pytest.mark.parametrize(
+    "path",
+    [_inbox_path, _filter_path, _search_path, _conversation_path, _lead_path],
+    ids=["inbox", "filter", "search", "conversation", "lead_id"],
+)
+async def test_every_read_aborts_the_apps_mark_read(mock_page, path):
+    browser = _Inbox(mock_page)
+    call = path(browser)
+
+    result = await _run(mock_page, browser, call)
+
+    assert browser.aborted == [MARK_READ_URL], (
+        "the read-state guard must abort the app's mark-read during the read"
+    )
+    assert result["marked_read"] is False
+
+
+async def test_a_chrome_naming_someone_else_refuses_the_read(mock_page):
+    browser = _Inbox(mock_page)
+    chrome = _response("salesApiNavChrome?decoration=x", {"viewerSalesUrn": _lead(1)})
+    browser.loads[SALES_INBOX_URL] = [*_boot(), chrome, _list([_thread(1)])]
+
+    with pytest.raises(LinkedInScraperException, match="does not agree on which"):
+        await _run(mock_page, browser, lambda r: r.get_inbox(limit=5))
+
+
+async def test_a_chrome_naming_the_viewer_reads_the_inbox(mock_page):
+    browser = _Inbox(mock_page)
+    chrome = _response("salesApiNavChrome?decoration=x", {"viewerSalesUrn": VIEWER})
+    browser.loads[SALES_INBOX_URL] = [*_boot(), chrome, _list([_thread(1)])]
+
+    result = await _run(mock_page, browser, lambda r: r.get_inbox(limit=5))
+
+    assert [p["leadId"] for p in result["conversations"][0]["participants"]] == [
+        "ACwAAA0001"
+    ]
+
+
+async def test_a_contract_with_no_inbox_is_the_no_seat_message(mock_page):
+    browser = _Inbox(mock_page)
+    browser.loads[SALES_INBOX_URL] = [
+        _response("salesApiAccess", {"hasContractInboxAccess": False}),
+        _response("salesApiEntitlements"),
+    ]
+
+    with pytest.raises(LinkedInScraperException, match="has no Sales Navigator inbox"):
+        await _run(mock_page, browser, lambda r: r.get_inbox(limit=5))
+
+
+async def test_a_short_last_page_at_the_limit_has_no_more(mock_page):
+    browser = _Inbox(mock_page)
+    browser.loads[SALES_INBOX_URL] = [
+        *_boot(),
+        _list([_thread(n) for n in range(1, 21)]),
+    ]
+    browser.scrolls = [[_list([_thread(n) for n in range(21, 26)])]]
+
+    result = await _run(mock_page, browser, lambda r: r.get_inbox(limit=25))
+
+    assert result["paging"] == {"count": 25, "more": False, "reason": "complete"}, (
+        "a short last page means the view ended, so paging.more must be false"
+    )
+
+
+async def test_a_lead_miss_says_why_the_scan_stopped_and_is_no_proof(mock_page):
+    browser = _Inbox(mock_page)
+    browser.loads[SALES_INBOX_URL] = [
+        *_boot(),
+        _list([_thread(n) for n in range(1, 21)]),
+    ]
+
+    with pytest.raises(LinkedInScraperException) as raised:
+        await _run(
+            mock_page, browser, lambda r: r.get_conversation(lead_id="ACwAAA0042")
+        )
+    message = str(raised.value)
+    assert "The scan stopped early: Sales Navigator loaded no more" in message
+    assert "no proof there is none" in message
+
+
+async def test_a_complete_scan_miss_still_says_it_is_no_proof(mock_page):
+    browser = _Inbox(mock_page)
+    browser.loads[SALES_INBOX_URL] = [*_boot(), _list([_thread(2)])]
+
+    with pytest.raises(LinkedInScraperException) as raised:
+        await _run(
+            mock_page, browser, lambda r: r.get_conversation(lead_id="ACwAAA0042")
+        )
+    assert "stopped early" not in str(raised.value)
+    assert "no proof there is none" in str(raised.value)
+
+
+def _full_thread() -> dict[str, Any]:
+    record = _thread(1)
+    record["messages"] = [_message(f"n{i}", 10_000 + i, _lead(1)) for i in range(10)]
+    return record
+
+
+async def test_no_older_batch_starts_too_close_to_the_deadline(mock_page):
+    browser = _Inbox(mock_page)
+    record = _full_thread()
+    browser.loads[sales_inbox_thread_url(record["id"])] = [
+        *_boot(),
+        _thread_response(record, 1),
+    ]
+
+    browser.history = [{"status": 200, "payload": {"data": {"elements": []}}}]
+
+    result = await _run(
+        mock_page,
+        browser,
+        lambda r: r.get_conversation(
+            thread_id=record["id"], deadline=inbox_module.time.monotonic() + 5
+        ),
+    )
+
+    assert browser.fetched == [], "no batch may start that cannot end in time"
+    assert result["conversation"]["history"] == {"batches": 1, "complete": False}
+
+
+async def test_an_older_batch_is_aborted_in_the_page_after_ten_seconds(mock_page):
+    browser = _Inbox(mock_page)
+    record = _full_thread()
+    browser.loads[sales_inbox_thread_url(record["id"])] = [
+        *_boot(),
+        _thread_response(record, 1),
+    ]
+    browser.history = [{"status": 200, "payload": {"data": {"elements": []}}}]
+
+    await _run(mock_page, browser, lambda r: r.get_conversation(thread_id=record["id"]))
+
+    assert browser.fetched[0]["timeoutMs"] == 10_000
+    assert "signal: AbortSignal.timeout(timeoutMs)" in browser.programs[0]
+
+
+async def test_older_batches_replay_the_pages_own_request(mock_page):
+    browser = _Inbox(mock_page)
+    record = _full_thread()
+    own = _response(
+        "salesApiMessagingThreads/2-THREAD0001%3D%3D/messages?count=10"
+        "&deliveredBefore=999&decoration=%28id%2Cbody%2CownField%29",
+        {"data": {"elements": []}},
+    )
+    own.request.all_headers = AsyncMock(return_value={"csrf-token": "ajax:1"})
+    browser.loads[sales_inbox_thread_url(record["id"])] = [
+        *_boot(),
+        _thread_response(record, 1),
+        own,
+    ]
+    browser.history = [{"status": 200, "payload": {"data": {"elements": []}}}]
+
+    await _run(mock_page, browser, lambda r: r.get_conversation(thread_id=record["id"]))
+
+    (fetched,) = browser.fetched
+    query = parse_qs(urlparse(fetched["url"]).query)
+    assert query["decoration"] == ["(id,body,ownField)"]
+    assert query["deliveredBefore"] == ["10000"]
+    assert fetched["headers"] == {"csrf-token": "ajax:1"}
+
+
+async def test_older_batches_fall_back_to_the_measured_decoration(mock_page):
+    browser = _Inbox(mock_page)
+    record = _full_thread()
+    browser.loads[sales_inbox_thread_url(record["id"])] = [
+        *_boot(),
+        _thread_response(record, 1),
+    ]
+    browser.history = [{"status": 200, "payload": {"data": {"elements": []}}}]
+
+    await _run(mock_page, browser, lambda r: r.get_conversation(thread_id=record["id"]))
+
+    query = parse_qs(urlparse(browser.fetched[0]["url"]).query)
+    assert query["decoration"] == [inbox_module.MESSAGE_DECORATION]
