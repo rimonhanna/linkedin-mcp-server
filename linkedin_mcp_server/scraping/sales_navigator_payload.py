@@ -162,7 +162,6 @@ class Lead(TypedDict, total=False):
     geoRegion: str
     degree: int
     premium: bool
-    openLink: bool
     seniority: list[Seniority]
     currentPositions: list[Position]
     summary: str
@@ -549,6 +548,8 @@ def build_lead(element: Any) -> Lead | None:
     profile_id = sales_profile_id(record.get("entityUrn")) if record else None
     if record is None or profile_id is None or is_withheld(record):
         return None
+    # No openLink: the search request does not ask for it (nor for
+    # memberBadges), so the card's value is a default false, not a signal.
     # Not the whole entityUrn: its third part is a token minted for this
     # viewer, and the Sales Navigator tools address a lead by the id alone.
     lead: dict[str, Any] = {
@@ -568,7 +569,6 @@ def build_lead(element: Any) -> Lead | None:
             "geoRegion": as_str,
             "degree": as_int,
             "premium": _bool,
-            "openLink": _bool,
         },
     )
     seniority: list[Seniority] = []

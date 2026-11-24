@@ -254,7 +254,8 @@ def register_sales_navigator_tools(
         Returns:
             Dict with url, sections (leads -> one line per lead), leads (id,
             profileUrl, memberUrn, fullName, firstName, lastName, geoRegion,
-            degree, premium, openLink, seniority, currentPositions, summary),
+            degree, premium, seniority, currentPositions, summary; no Open
+            Profile flag, which the search does not carry),
             paging (page, start, count = leads returned, total,
             resultCap, capped, more) and withheld
             ({count, reason}, present only when a lead was left out).
@@ -630,7 +631,8 @@ def register_sales_navigator_tools(
             Dict with url, sections (leads -> one line per lead), lead_list
             (id, name, entityCount, listType, ...), leads (id,
             profileUrl, memberUrn, fullName, firstName, lastName, geoRegion,
-            degree, premium, openLink, seniority, currentPositions, summary),
+            degree, premium, seniority, currentPositions, summary; no Open
+            Profile flag, which the search does not carry),
             paging (page,
             start, count = leads returned, total as LinkedIn reports it,
             resultCap, capped, more, next_page), next_page when more pages
