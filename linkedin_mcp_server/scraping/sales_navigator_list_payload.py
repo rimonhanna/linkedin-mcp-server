@@ -60,7 +60,11 @@ def create_request(name: str, description: str | None) -> PlannedListWrite:
         "role": "OWNER",
     }
     if description and description.strip():
-        body["description"] = description.strip()
+        # The form's textarea holds every line break as \n, so the app sends
+        # \n whatever was typed.
+        body["description"] = (
+            description.strip().replace("\r\n", "\n").replace("\r", "\n")
+        )
     return PlannedListWrite(
         method="POST", resource=LISTS, entity_id=None, query=(), body=body
     )

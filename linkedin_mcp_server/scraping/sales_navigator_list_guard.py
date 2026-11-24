@@ -126,6 +126,11 @@ def _query(url: str) -> list[str]:
     return [pair for pair in urlparse(url).query.split("&") if pair]
 
 
+def _for_planned_resource(planned: PlannedListWrite, method: str, url: str) -> bool:
+    call = parse_sn_call(url, method)
+    return call is not None and call.resource == planned.resource
+
+
 def _is_boot(url: str) -> bool:
     call = parse_sn_call(url, "POST")
     return call is not None and (call.resource, call.params.get("action")) == _BOOT
@@ -177,7 +182,10 @@ class _PageGuard:
             await route.fallback()
             return
         window.refused.append(reason or "window closed")
-        window.decided.set()
+        # Only a refusal of the planned resource answers the wait for the
+        # app's request; a stray write (a tracking call) leaves it waiting.
+        if _for_planned_resource(window.planned, method, request.url):
+            window.decided.set()
         await route.abort()
 
     async def install(self, page: Any) -> None:

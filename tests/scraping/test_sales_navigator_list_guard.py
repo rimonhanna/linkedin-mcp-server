@@ -242,3 +242,16 @@ async def test_a_request_whose_window_closed_while_it_was_read_is_aborted():
         "a request read under a closed window must not count for a later one"
     )
     assert first.refused == ["window closed"]
+
+
+async def test_only_a_refusal_of_the_planned_resource_ends_the_wait():
+    page = _Page()
+    async with guard.without_sales_list_writes(page):
+        async with guard.explicit_list_write(page, PLANNED) as window:
+            stray = _Request("salesApiLists?action=save", {"x": 1})
+            assert await _send(page, stray) == "aborted"
+            assert not window.decided.is_set(), (
+                "a stray write to another resource must not end the wait"
+            )
+            assert await _send(page, _add({"companyIds": [1]})) == "aborted"
+            assert window.decided.is_set()
