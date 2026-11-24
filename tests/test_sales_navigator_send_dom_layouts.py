@@ -184,3 +184,22 @@ async def test_reply_composer_with_send_its_only_disabled_button_sends(dom, fiel
         {"message": {"body": "First line\nSecond line", "subject": None}}
     ]
     assert await _clicks(dom) == 1
+
+
+async def test_only_the_last_button_of_the_actions_bar_can_be_send(dom):  # noqa: F811
+    # Shaped like Send, but another button follows it in the same bar.
+    html = new_message_page().replace(
+        '<div class="mlA">',
+        '<button type="button" disabled aria-disabled="false">Earlier</button>'
+        '<div class="mlA">',
+    )
+
+    result = await send(
+        dom,
+        html,
+        [_profile(2, open_link=True)],
+        subject="Hello",
+        confirm_send=False,
+    )
+
+    assert result["status"] == "confirmation_required", result
