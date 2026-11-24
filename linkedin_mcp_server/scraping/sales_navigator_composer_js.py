@@ -4,9 +4,13 @@ The composer (new message and reply alike) is a ``form`` holding one
 ``textarea[name=message]``, an optional one-line subject ``input`` for an
 InMail, and a Send ``button[type=button]`` that stays disabled while the form
 is empty. There is no submit-type button and no Press Enter to Send setting,
-so the Send control is recognised by structure alone: the one visible button
-of the form that is disabled while nothing is typed. A form where that is not
-exactly one button is never sent from.
+so the Send control is recognised by structure alone: the one visible
+``type=button`` button of the form that is disabled while nothing is typed.
+A form where that is not exactly one button is never sent from. The disabled
+state of every visible button of the form is recorded when it is pinned, and
+Send is clicked only when, after typing, exactly that button went from
+disabled to enabled and no other button changed; a button's label is never
+read.
 
 ``PIN_JS`` records the form's parts on the form element itself, and every
 later script works on those recorded elements and refuses when the page no
@@ -44,6 +48,27 @@ _COMMON_JS = r"""
         return pinned;
     };
     const field = (pinned, name) => name === 'subject' ? pinned.subject : pinned.editor;
+    const buttons = form => Array.from(form.querySelectorAll('button')).filter(visible);
+    // 'same', 'flipped' (only the Send button went from disabled to enabled)
+    // or 'changed' (a button came, went or changed state otherwise).
+    const compareButtons = (owner, pinned) => {
+        const now = buttons(owner);
+        const before = pinned.buttons;
+        if (now.length !== before.length) return 'changed';
+        let flipped = false;
+        for (let index = 0; index < now.length; index++) {
+            const [button, was] = before[index];
+            if (now[index] !== button) return 'changed';
+            const is = disabled(button);
+            if (is === was) continue;
+            if (button === pinned.button && was && !is) {
+                flipped = true;
+                continue;
+            }
+            return 'changed';
+        }
+        return flipped ? 'flipped' : 'same';
+    };
 """
 
 # Returns the form, or null when the page shows no single composer.
@@ -58,8 +83,9 @@ PIN_JS = (
         if (!form) return null;
         const fields = subjects(form);
         if (fields.length > 1) return null;
-        const quiet = Array.from(form.querySelectorAll('button'))
-            .filter(visible)
+        const shownButtons = buttons(form);
+        const quiet = shownButtons
+            .filter(button => button.type === 'button')
             .filter(disabled);
         form.__linkedinMcpSnComposer = {
             editor,
@@ -68,6 +94,7 @@ PIN_JS = (
             // enables it, and such a form is reported occupied anyway.
             button: quiet.length === 1 ? quiet[0] : null,
             sendCount: quiet.length,
+            buttons: shownButtons.map(button => [button, disabled(button)]),
             written: {message: '', subject: ''},
         };
         return form;
@@ -79,7 +106,9 @@ STATE_JS = (
     + _COMMON_JS
     + r"""
         const pinned = validate(owner);
-        if (!pinned) return {status: 'invalid'};
+        if (!pinned || compareButtons(owner, pinned) !== 'same') {
+            return {status: 'invalid'};
+        }
         return {
             status: 'valid',
             empty: !pinned.editor.value.trim() &&
@@ -170,7 +199,9 @@ SUBMIT_READY_JS = (
     + r"""
         const pinned = validate(owner);
         if (!pinned || !pinned.button || !filled(pinned, arg)) return 'invalid';
-        return disabled(pinned.button) ? 'disabled' : 'ready';
+        const buttonsNow = compareButtons(owner, pinned);
+        if (buttonsNow === 'changed') return 'invalid';
+        return buttonsNow === 'flipped' ? 'ready' : 'disabled';
     }"""
 )
 
@@ -182,7 +213,7 @@ SUBMIT_JS = (
         const pinned = validate(owner);
         if (
             !pinned || !pinned.button || !filled(pinned, arg) ||
-            disabled(pinned.button)
+            compareButtons(owner, pinned) !== 'flipped'
         ) {
             return 'invalid';
         }

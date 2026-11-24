@@ -10,12 +10,22 @@ response, and the route is pinned through every later step.
 
 What a send costs is read from the page, never inferred: the composer shows a
 subject field only for an InMail, the profile says whether the lead has an
-Open Profile (free), and the page's credit response gives the balance. A send
-that spends a credit needs ``spend_inmail_credit`` on top of ``confirm_send``.
+Open Profile or is a TeamLink colleague (both free), and the page's credit
+response gives the balance. A send that spends a credit needs
+``spend_inmail_credit`` on top of ``confirm_send``. A message into an existing
+conversation is free only when the page shows it is: a conversation with a
+connection, one with no InMail in it, or an InMail the other side accepted or
+answered. Any other one has an unknown cost (``creditCost`` None) and is
+treated as one that may spend a credit: it needs ``spend_inmail_credit`` and a
+known balance, and without the flag is refused as
+``inmail_reply_cost_unknown``.
 
 A send is confirmed by the app's own send request
 (``salesApiMessageActions?action=createMessage``) answering 2xx, never by the
 page; anything else after the click is ``send_unconfirmed`` and not retry safe.
+The read-state guard stays on while typing and sending: the click opens a
+window for exactly one ``createMessage``, and a mark-read, an archive or a
+second send is still aborted.
 """
 
 from __future__ import annotations
@@ -40,13 +50,11 @@ from linkedin_mcp_server.scraping.identifiers import (
     sales_inbox_thread_url,
 )
 from linkedin_mcp_server.scraping.messaging_read_state import (
-    allow_explicit_message_write,
+    close_sales_send,
+    open_one_sales_send,
     without_read_state_writes,
 )
-from linkedin_mcp_server.scraping.restli import (
-    as_int,
-    as_mapping,
-)
+from linkedin_mcp_server.scraping.restli import as_int
 from linkedin_mcp_server.scraping.sales_navigator import SalesNavigatorReader, _Refusal
 from linkedin_mcp_server.scraping.sales_navigator_payload import (
     sales_profile_id,
@@ -54,9 +62,12 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
 from linkedin_mcp_server.scraping.sales_navigator_send_contract import (
     INMAIL_CREDIT_REQUIRED,
     INMAIL_CREDITS_UNKNOWN,
+    INMAIL_REPLY_COST_UNKNOWN,
     NO_INMAIL_CREDITS,
+    SEND_BLOCKED_NO_CREDITS,
     SUBJECT_REQUIRED,
     Delivery,
+    DeliveryKind,
     Recipient,
     compose_route_urn,
     refuse_an_invalid_sales_message,
@@ -75,9 +86,11 @@ from linkedin_mcp_server.scraping.sales_navigator_send_page import (
     inmail_credits,
     is_profile,
     is_send,
+    merged_profile,
     no_inbox_access,
     profile_name,
     profile_of,
+    reply_cost,
     sent_body,
     thread_of,
     thread_participant,
@@ -103,6 +116,29 @@ _UNCONFIRMED = (
 
 def _route_path(url: str) -> str:
     return urlparse(url).path.rstrip("/")
+
+
+def _free_at_zero_credits(delivery: Delivery) -> bool:
+    """A free InMail kind while the account shows no credits left."""
+    return (
+        delivery["kind"] in {"open_profile", "teamlink"}
+        and delivery["creditsRemaining"] == 0
+    )
+
+
+def _cost_text(delivery: Delivery) -> str:
+    cost = delivery["creditCost"]
+    credits = delivery["creditsRemaining"]
+    if cost is None:
+        return (
+            f"It may use 1 of {credits} InMail credits: Sales Navigator did not "
+            "show whether it does."
+        )
+    if cost:
+        return f"It would use 1 of {credits} InMail credits."
+    if delivery["kind"] == "teamlink":
+        return "It is a TeamLink InMail to a colleague and uses no InMail credit."
+    return "It uses no InMail credit."
 
 
 class SalesNavigatorMessageSender:
@@ -208,7 +244,7 @@ class SalesNavigatorMessageSender:
                         "Sales Navigator did not open a message to this lead. "
                         "Check the lead_id against search_sales_navigator_leads.",
                     )
-                profile = profile_of(profile_response, lead_id) or {}
+                profile = merged_profile(capture.responses, lead_id)
                 if name := profile_name(profile):
                     recipient["name"] = name
                 if (degree := as_int(profile.get("degree"))) is not None:
@@ -240,14 +276,16 @@ class SalesNavigatorMessageSender:
                 proceed = False
                 try:
                     is_inmail = state.get("subject") is True
-                    if is_inmail:
-                        await self._reader._optional(
-                            capture,
-                            lambda response: (
-                                response.ok and response.call.resource == CREDITS
-                            ),
-                        )
+                    if is_inmail or degree != CONNECTION_DEGREE:
+                        await self._credits(capture)
                     await capture.settle()
+                    # Every profile response the page has by now, merged.
+                    profile = merged_profile(capture.responses, lead_id)
+                    degree = as_int(profile.get("degree"))
+                    if degree is None:
+                        recipient.pop("degree", None)
+                    else:
+                        recipient["degree"] = degree
                     existing = existing_thread(capture.responses)
                     if (
                         not is_inmail
@@ -261,21 +299,23 @@ class SalesNavigatorMessageSender:
                             "would use an InMail credit, so nothing was typed.",
                             recipient_selected=True,
                         )
-                    open_profile = (as_mapping(profile.get("memberBadges")) or {}).get(
-                        "openLink"
-                    ) is True
-                    cost = 1 if is_inmail and not open_profile else 0
-                    credits = inmail_credits(capture.responses)
+                    kind: DeliveryKind
+                    cost: int | None
+                    if not is_inmail:
+                        # Into an existing conversation with someone who is
+                        # not a connection, the page shows no cost at all.
+                        kind = "message"
+                        cost = 0 if degree == CONNECTION_DEGREE else None
+                    elif profile["memberBadges"]["openLink"] is True:
+                        kind, cost = "open_profile", 0
+                    elif profile["colleague"] is True:
+                        kind, cost = "teamlink", 0
+                    else:
+                        kind, cost = "inmail", 1
                     delivery: Delivery = {
-                        "kind": (
-                            "message"
-                            if not is_inmail
-                            else "open_profile"
-                            if open_profile
-                            else "inmail"
-                        ),
+                        "kind": kind,
                         "creditCost": cost,
-                        "creditsRemaining": credits,
+                        "creditsRemaining": inmail_credits(capture.responses),
                     }
                     respond = partial(respond, delivery=delivery)
                     refused = self._gate(
@@ -297,9 +337,6 @@ class SalesNavigatorMessageSender:
                         await self._dispose(owner)
 
             try:
-                # Only a verified, confirmed send releases the latch, and only
-                # once the guarded read above has exited.
-                allow_explicit_message_write(self._page)
                 return await self._submit(
                     message,
                     subject if is_inmail else None,
@@ -309,9 +346,16 @@ class SalesNavigatorMessageSender:
                     budget_deadline=budget_deadline,
                     respond=respond,
                     on_sent={"thread_id": existing},
+                    delivery=delivery,
                 )
             finally:
                 await self._dispose(owner)
+
+    async def _credits(self, capture: SendCapture) -> None:
+        await self._reader._optional(
+            capture,
+            lambda response: response.ok and response.call.resource == CREDITS,
+        )
 
     @staticmethod
     def _gate(
@@ -338,17 +382,29 @@ class SalesNavigatorMessageSender:
             )
         cost = delivery["creditCost"]
         credits = delivery["creditsRemaining"]
-        is_inmail = delivery["kind"] != "message"
-        if cost and credits is None:
+        # The composer, not the kind, says whether there is a subject field.
+        is_inmail = state.get("subject") is True
+        if cost is None and not spend_inmail_credit:
+            return (
+                INMAIL_REPLY_COST_UNKNOWN,
+                f"Sales Navigator did not show whether this message to {who} "
+                "uses an InMail credit: the conversation is an InMail that was "
+                "not accepted or answered, or is with someone who is not a "
+                "connection. Nothing was typed or sent. Set "
+                "spend_inmail_credit=true with confirm_send=true to send it "
+                "anyway; it may use one InMail credit.",
+            )
+        what = "may use an InMail credit" if cost is None else "is an InMail"
+        if cost != 0 and credits is None:
             return (
                 INMAIL_CREDITS_UNKNOWN,
-                "This message is an InMail, and Sales Navigator did not say how "
+                f"This message {what}, and Sales Navigator did not say how "
                 "many InMail credits are left, so nothing was typed or sent.",
             )
-        if cost and credits is not None and credits < 1:
+        if cost != 0 and credits is not None and credits < 1:
             return (
                 NO_INMAIL_CREDITS,
-                "This message is an InMail and no InMail credits are left, so "
+                f"This message {what} and no InMail credits are left, so "
                 "nothing was typed or sent. Sales Navigator adds credits each month.",
             )
         if subject is not None and not is_inmail:
@@ -371,15 +427,10 @@ class SalesNavigatorMessageSender:
                 "confirm_send=true to spend it.",
             )
         if not confirm_send:
-            cost_text = (
-                f"It would use 1 of {credits} InMail credits."
-                if cost
-                else "It uses no InMail credit."
-            )
             return (
                 "confirmation_required",
-                f"Nothing was sent. The message would go to {who}. {cost_text} "
-                "Set confirm_send=true to send it.",
+                f"Nothing was sent. The message would go to {who}. "
+                f"{_cost_text(delivery)} Set confirm_send=true to send it.",
             )
         return None
 
@@ -389,12 +440,15 @@ class SalesNavigatorMessageSender:
         message: str,
         *,
         confirm_send: bool,
+        spend_inmail_credit: bool = False,
     ) -> dict[str, Any]:
         """Reply inside one Sales Navigator conversation, gated by confirmation.
 
         The thread id is the authorization: the page must load exactly that
         conversation's own response and stay on its route. A reply composer
-        that asks for a subject would start a new InMail and is refused.
+        that asks for a subject would start a new InMail and is refused. A
+        reply whose cost the conversation does not show (an InMail not yet
+        accepted or answered) needs ``spend_inmail_credit``.
         """
         refusal = refuse_an_invalid_sales_reply(thread_id, message)
         if refusal is not None:
@@ -456,10 +510,13 @@ class SalesNavigatorMessageSender:
                     )
                 proceed = False
                 try:
+                    inmail_thread, cost = reply_cost(response.payload, record)
+                    if cost != 0:
+                        await self._credits(capture)
                     await capture.settle()
                     delivery: Delivery = {
-                        "kind": "message",
-                        "creditCost": 0,
+                        "kind": "inmail" if inmail_thread else "message",
+                        "creditCost": cost,
                         "creditsRemaining": inmail_credits(capture.responses),
                     }
                     if state.get("subject") is True:
@@ -472,21 +529,21 @@ class SalesNavigatorMessageSender:
                             recipient_selected=True,
                         )
                     respond = partial(respond, delivery=delivery)
+                    who = participant or "the participant of this conversation"
                     refused = self._gate(
                         state,
                         delivery,
                         subject=None,
-                        spend_inmail_credit=False,
+                        spend_inmail_credit=spend_inmail_credit,
                         confirm_send=True,
-                        who=participant or "the participant of this conversation",
+                        who=who,
                     )
                     if refused is None and not confirm_send:
                         refused = (
                             "confirmation_required",
-                            "Nothing was sent. The message would go to "
-                            f"{participant or 'the participant of this conversation'}"
-                            " as a reply in this conversation and uses no InMail "
-                            "credit. Set confirm_send=true to send it.",
+                            f"Nothing was sent. The message would go to {who} as "
+                            f"a reply in this conversation. {_cost_text(delivery)} "
+                            "Set confirm_send=true to send it.",
                         )
                     if refused is not None:
                         status, text = refused
@@ -499,7 +556,6 @@ class SalesNavigatorMessageSender:
                         await self._dispose(owner)
 
             try:
-                allow_explicit_message_write(self._page)
                 return await self._submit(
                     message,
                     None,
@@ -509,6 +565,7 @@ class SalesNavigatorMessageSender:
                     budget_deadline=budget_deadline,
                     respond=respond,
                     on_sent={},
+                    delivery=delivery,
                 )
             finally:
                 await self._dispose(owner)
@@ -573,17 +630,16 @@ class SalesNavigatorMessageSender:
             return result
         return "invalid_after_keys" if keys_sent else "invalid"
 
-    async def _wait_for_submit(self, owner: Any, argument: dict[str, Any]) -> bool:
+    async def _wait_for_submit(self, owner: Any, argument: dict[str, Any]) -> str:
+        """'ready', 'disabled' (still, at the deadline) or 'invalid'."""
         deadline = time.monotonic() + _SUBMIT_READY_TIMEOUT_SECONDS
         while True:
             state = await owner.evaluate(js.SUBMIT_READY_JS, argument)
-            if state == "ready":
-                return True
             if state != "disabled":
-                return False
+                return "ready" if state == "ready" else "invalid"
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return False
+                return "disabled"
             await asyncio.sleep(min(0.05, remaining))
 
     async def _cleanup(self, owner: Any) -> None:
@@ -604,13 +660,43 @@ class SalesNavigatorMessageSender:
         budget_deadline: float,
         respond: Callable[..., dict[str, Any]],
         on_sent: dict[str, Any],
+        delivery: Delivery,
     ) -> dict[str, Any]:
         """Type into the pinned composer, click its Send once, confirm the send.
 
         ``retry_safe`` turns false from the moment the click is attempted, and
         after any keystroke whose effect nothing proves. ``on_sent`` is added
-        to a confirmed send's answer only.
+        to a confirmed send's answer only. The read-state guard stays latched
+        throughout; only the click opens it, for one ``createMessage``.
         """
+        try:
+            return await self._type_and_send(
+                message,
+                subject,
+                owner=owner,
+                capture=capture,
+                expected_route=expected_route,
+                budget_deadline=budget_deadline,
+                respond=respond,
+                on_sent=on_sent,
+                delivery=delivery,
+            )
+        finally:
+            close_sales_send(self._page)
+
+    async def _type_and_send(
+        self,
+        message: str,
+        subject: str | None,
+        *,
+        owner: Any,
+        capture: SendCapture,
+        expected_route: str,
+        budget_deadline: float,
+        respond: Callable[..., dict[str, Any]],
+        on_sent: dict[str, Any],
+        delivery: Delivery,
+    ) -> dict[str, Any]:
         respond = partial(respond, recipient_selected=True)
         if self._page.url != expected_route:
             return respond(
@@ -687,7 +773,16 @@ class SalesNavigatorMessageSender:
                     )
 
             argument = {"message": message, "subject": subject}
-            if not await self._wait_for_submit(owner, argument):
+            ready = await self._wait_for_submit(owner, argument)
+            if ready != "ready":
+                if ready == "disabled" and _free_at_zero_credits(delivery):
+                    return respond(
+                        self._page.url,
+                        SEND_BLOCKED_NO_CREDITS,
+                        "Sales Navigator did not enable Send for this message "
+                        "while the account has no InMail credits left, so "
+                        "nothing was sent and the draft was cleared.",
+                    )
                 return respond(
                     self._page.url,
                     "send_unavailable",
@@ -705,6 +800,7 @@ class SalesNavigatorMessageSender:
                     # A click can dispatch before the evaluate call reports an
                     # error, so an exception from this round trip is ambiguous.
                     may_have_submitted = True
+                    open_one_sales_send(self._page)
                     clicked = await owner.evaluate(js.SUBMIT_JS, argument)
                 except Exception:
                     logger.debug("Send click did not complete", exc_info=True)
@@ -744,15 +840,21 @@ class SalesNavigatorMessageSender:
                         retry_safe=False,
                     )
                 if not answer.ok:
+                    zero = (
+                        "The account has no InMail credits left. "
+                        if _free_at_zero_credits(delivery)
+                        else ""
+                    )
                     return respond(
                         self._page.url,
                         "send_unconfirmed",
                         f"Send was clicked and Sales Navigator answered HTTP "
-                        f"{answer.status}. " + _UNCONFIRMED,
+                        f"{answer.status}. " + zero + _UNCONFIRMED,
                         retry_safe=False,
                     )
+                # The guard let only the first send request leave the page.
                 delivered = (
-                    sent_body(capture.send_requests[-1])
+                    sent_body(capture.send_requests[0])
                     if capture.send_requests
                     else None
                 )

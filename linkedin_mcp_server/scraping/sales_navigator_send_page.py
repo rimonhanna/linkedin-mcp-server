@@ -23,6 +23,10 @@ from linkedin_mcp_server.scraping.sales_navigator_api import (
     SalesNavigatorCapture,
     SnResponse,
 )
+from linkedin_mcp_server.scraping.sales_navigator_inbox_payload import (
+    build_messages,
+    viewer_of,
+)
 from linkedin_mcp_server.scraping.sales_navigator_payload import (
     SnCall,
     parse_sn_call,
@@ -36,6 +40,8 @@ _ACCESS = "salesApiAccess"
 _SEND = "salesApiMessageActions"
 _SEND_ACTION = "createMessage"
 _INMAIL_GRANT = "LSS_INMAIL"
+# The message types that show the recipient took up an InMail.
+_INMAIL_ANSWERS = frozenset({"INMAIL_ACCEPT", "INMAIL_REPLY"})
 # The degree Sales Navigator gives the signed-in member in a thread.
 _VIEWER_DEGREE = 0
 CONNECTION_DEGREE = 1
@@ -160,6 +166,73 @@ def existing_thread(responses: list[SnResponse]) -> str | None:
             if len(elements) == 1:
                 return as_str(elements[0].get("id"))
     return None
+
+
+def reply_cost(payload: Any, record: dict[str, Any]) -> tuple[bool, int | None]:
+    """Whether the conversation is an InMail, and what a reply in it costs.
+
+    Read from the conversation's own messages (their ``type``): a reply is
+    free in a conversation with no InMail in it, or in an InMail the other
+    side accepted or answered (an ``INMAIL_ACCEPT`` or ``INMAIL_REPLY`` from a
+    participant who is not the signed-in member). Otherwise the cost is None,
+    unknown and never assumed free: an InMail nobody answered, messages that
+    cannot be read, or a signed-in member who cannot be told apart.
+    """
+    viewer, agrees = viewer_of(payload, None)
+    messages = build_messages(
+        record.get("messages", record.get("*messages")),
+        included_by_urn(payload),
+        viewer,
+    )
+    if not messages:
+        return False, None
+    if not any(message["inmail"] for message in messages):
+        return False, 0
+    answered = (
+        viewer is not None
+        and agrees
+        and any(
+            message["type"] in _INMAIL_ANSWERS
+            and not message["fromViewer"]
+            and "senderLeadId" in message
+            for message in messages
+        )
+    )
+    return True, 0 if answered else None
+
+
+def merged_profile(responses: list[SnResponse], lead_id: str) -> dict[str, Any]:
+    """The lead's profile across every profile response the page loaded.
+
+    Responses differ in decoration, so a field one leaves out another may
+    carry: ``memberBadges.openLink`` and ``colleague`` are true when any
+    response says so, and ``degree`` is kept only when every response that
+    gives one gives the same.
+    """
+    merged: dict[str, Any] = {}
+    degrees: set[int] = set()
+    open_link = False
+    colleague = False
+    for response in responses:
+        record = profile_of(response, lead_id)
+        if record is None:
+            continue
+        for key, value in record.items():
+            merged.setdefault(key, value)
+        if (degree := as_int(record.get("degree"))) is not None:
+            degrees.add(degree)
+        badges = as_mapping(record.get("memberBadges")) or {}
+        open_link = open_link or badges.get("openLink") is True
+        colleague = colleague or record.get("colleague") is True
+    merged.pop("degree", None)
+    if len(degrees) == 1:
+        merged["degree"] = next(iter(degrees))
+    merged["memberBadges"] = {
+        **(as_mapping(merged.get("memberBadges")) or {}),
+        "openLink": open_link,
+    }
+    merged["colleague"] = colleague
+    return merged
 
 
 def profile_name(profile: dict[str, Any]) -> str | None:

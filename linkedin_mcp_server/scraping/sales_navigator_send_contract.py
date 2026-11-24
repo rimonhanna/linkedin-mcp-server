@@ -21,7 +21,7 @@ from linkedin_mcp_server.scraping.identifiers import (
     sales_inbox_thread_url,
 )
 
-DeliveryKind = Literal["message", "inmail", "open_profile"]
+DeliveryKind = Literal["message", "inmail", "open_profile", "teamlink"]
 
 # Statuses of their own; every other status means what it means for
 # send_message.
@@ -29,6 +29,12 @@ INMAIL_CREDIT_REQUIRED = "inmail_credit_required"
 NO_INMAIL_CREDITS = "no_inmail_credits"
 INMAIL_CREDITS_UNKNOWN = "inmail_credits_unknown"
 SUBJECT_REQUIRED = "subject_required"
+# A message into a conversation whose cost the page does not show: an InMail
+# the lead has not answered, or a thread with someone who is not a connection.
+INMAIL_REPLY_COST_UNKNOWN = "inmail_reply_cost_unknown"
+# A free InMail (Open Profile, TeamLink) whose Send stayed disabled while the
+# account had no InMail credits left.
+SEND_BLOCKED_NO_CREDITS = "send_blocked_no_credits"
 
 _SALES_PROFILE_URN = "urn:li:fs_salesProfile:("
 # The two Rest.li parts after the profile id: how the lead was found and its
@@ -45,7 +51,8 @@ class Recipient(TypedDict, total=False):
 
 class Delivery(TypedDict):
     kind: DeliveryKind
-    creditCost: int
+    # None when the page does not show whether the send uses a credit.
+    creditCost: int | None
     creditsRemaining: int | None
 
 

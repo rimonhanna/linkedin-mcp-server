@@ -149,6 +149,29 @@ async def test_an_unconfirmed_send_is_counted(name):
 
 
 @pytest.mark.parametrize("name", TOOLS)
+@pytest.mark.parametrize(
+    "status", ["compose_interact_failed", "recipient_resolution_failed"]
+)
+async def test_typing_that_stopped_before_the_click_is_not_counted(name, status):
+    extractor = _extractor(name, {"status": status, "sent": False, "retry_safe": False})
+
+    _, _, record = await _call(name, VALID[name], extractor)
+
+    record.assert_not_called()
+
+
+@pytest.mark.parametrize("name", TOOLS)
+async def test_any_other_status_that_is_not_retry_safe_is_counted(name):
+    extractor = _extractor(
+        name, {"status": "some_new_status", "sent": False, "retry_safe": False}
+    )
+
+    _, _, record = await _call(name, VALID[name], extractor)
+
+    assert _kinds(record) == [SALES_NAVIGATOR_MESSAGES]
+
+
+@pytest.mark.parametrize("name", TOOLS)
 async def test_a_send_refused_before_typing_is_not_counted(name):
     extractor = _extractor(
         name, {"status": "inmail_credit_required", "sent": False, "retry_safe": True}
@@ -188,5 +211,19 @@ async def test_reply_forwards_the_normalized_thread():
     await _call("reply_to_sales_navigator_conversation", args, extractor)
 
     extractor.reply_to_sales_navigator_conversation.assert_awaited_once_with(
-        THREAD, "Hello\nthere", confirm_send=True
+        THREAD, "Hello\nthere", confirm_send=True, spend_inmail_credit=False
+    )
+
+
+async def test_reply_forwards_the_credit_flag():
+    extractor = _extractor("reply_to_sales_navigator_conversation", {"status": "sent"})
+    args = {
+        **VALID["reply_to_sales_navigator_conversation"],
+        "spend_inmail_credit": True,
+    }
+
+    await _call("reply_to_sales_navigator_conversation", args, extractor)
+
+    extractor.reply_to_sales_navigator_conversation.assert_awaited_once_with(
+        THREAD, "Hello\nthere", confirm_send=True, spend_inmail_credit=True
     )

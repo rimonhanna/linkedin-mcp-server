@@ -51,19 +51,24 @@ def _response(url: str, payload: Any, status: int = 200) -> CapturedResponse:
 
 
 def _profile(
-    degree: int, *, open_link: bool = False, urn: str = LEAD_URN
+    degree: int | None,
+    *,
+    open_link: bool = False,
+    colleague: bool | None = None,
+    urn: str = LEAD_URN,
 ) -> CapturedResponse:
+    record: dict[str, Any] = {
+        "entityUrn": urn,
+        "fullName": "Test Lead",
+        "memberBadges": {"openLink": open_link},
+    }
+    if degree is not None:
+        record["degree"] = degree
+    if colleague is not None:
+        record["colleague"] = colleague
     return _response(
         f"{API}/salesApiProfiles/(profileId:{LEAD},authType:NAME_SEARCH,authToken:abcd)",
-        {
-            "data": {
-                "entityUrn": urn,
-                "degree": degree,
-                "fullName": "Test Lead",
-                "memberBadges": {"openLink": open_link},
-            },
-            "included": [],
-        },
+        {"data": record, "included": []},
     )
 
 
@@ -81,11 +86,30 @@ def _existing() -> CapturedResponse:
     )
 
 
-def _thread() -> CapturedResponse:
+def _message(kind: str, author: str, index: int = 1) -> dict[str, Any]:
+    return {
+        "id": f"m{index}",
+        "type": kind,
+        "author": author,
+        "body": "Hello",
+        "deliveredAt": 1_790_000_000_000 + index,
+    }
+
+
+REGULAR = [_message("MESSAGE", LEAD_URN)]
+# An InMail the signed-in member sent, which the lead has not taken up.
+UNANSWERED = [_message("INMAIL", VIEWER_URN)]
+
+
+def _thread(messages: list[dict[str, Any]] = REGULAR) -> CapturedResponse:
     return _response(
         f"{API}/salesApiMessagingThreads/{THREAD.replace('=', '%3D')}?count=1",
         {
-            "data": {"id": THREAD, "participants": [VIEWER_URN, LEAD_URN]},
+            "data": {
+                "id": THREAD,
+                "participants": [VIEWER_URN, LEAD_URN],
+                "messages": messages,
+            },
             "included": [
                 {"entityUrn": VIEWER_URN, "degree": 0, "fullName": "Signed In"},
                 {"entityUrn": LEAD_URN, "degree": 1, "fullName": "Test Lead"},
@@ -553,4 +577,230 @@ async def test_reply_without_the_thread_response_is_refused(dom):
     result = await reply(dom, composer_page(), [_profile(1)])
 
     assert result["status"] == "recipient_resolution_failed"
+    assert dom.sends == []
+
+
+# --- Cost the page does not show ------------------------------------------
+
+
+async def test_reply_in_an_unanswered_inmail_is_refused_without_the_flag(dom):
+    result = await reply(dom, composer_page(), [_thread(UNANSWERED), _credits(7)])
+
+    assert result["status"] == "inmail_reply_cost_unknown"
+    assert result["retry_safe"] is True
+    assert result["delivery"] == {
+        "kind": "inmail",
+        "creditCost": None,
+        "creditsRemaining": 7,
+    }
+    assert await _box(dom) == ""
+    assert dom.sends == []
+
+
+async def test_reply_in_an_unanswered_inmail_needs_a_known_balance(dom):
+    result = await reply(
+        dom, composer_page(), [_thread(UNANSWERED)], spend_inmail_credit=True
+    )
+
+    assert result["status"] == "inmail_credits_unknown"
+    assert dom.sends == []
+
+
+async def test_reply_in_an_unanswered_inmail_with_the_flag_reports_no_cost_claim(dom):
+    result = await reply(
+        dom,
+        composer_page(),
+        [_thread(UNANSWERED), _credits(7)],
+        spend_inmail_credit=True,
+        confirm_send=False,
+    )
+
+    assert result["status"] == "confirmation_required"
+    assert result["delivery"]["creditCost"] is None
+    assert "may use 1 of 7" in result["message"]
+    assert dom.sends == []
+
+
+@pytest.mark.parametrize("answer", ["INMAIL_ACCEPT", "INMAIL_REPLY"])
+async def test_reply_in_an_inmail_the_lead_answered_is_free(dom, answer):
+    messages = [*UNANSWERED, _message(answer, LEAD_URN, 2)]
+
+    result = await reply(dom, composer_page(), [_thread(messages)], confirm_send=False)
+
+    assert result["status"] == "confirmation_required"
+    assert result["delivery"]["kind"] == "inmail"
+    assert result["delivery"]["creditCost"] == 0
+
+
+async def test_an_answer_from_the_signed_in_member_does_not_make_a_reply_free(dom):
+    messages = [*UNANSWERED, _message("INMAIL_REPLY", VIEWER_URN, 2)]
+
+    result = await reply(dom, composer_page(), [_thread(messages), _credits(7)])
+
+    assert result["status"] == "inmail_reply_cost_unknown"
+    assert dom.sends == []
+
+
+async def test_new_message_into_a_thread_with_a_non_connection_has_no_cost_claim(dom):
+    result = await send(dom, composer_page(), [_profile(2), _existing(), _credits(7)])
+
+    assert result["status"] == "inmail_reply_cost_unknown"
+    assert result["delivery"] == {
+        "kind": "message",
+        "creditCost": None,
+        "creditsRemaining": 7,
+    }
+    assert await _box(dom) == ""
+    assert dom.sends == []
+
+
+async def test_new_message_into_a_thread_with_a_non_connection_sends_with_the_flag(
+    dom,
+):
+    result = await send(
+        dom,
+        composer_page(),
+        [_profile(2), _existing(), _credits(7)],
+        spend_inmail_credit=True,
+    )
+
+    assert result["status"] == "sent", result
+    assert result["delivery"]["creditCost"] is None
+    assert len(dom.sends) == 1
+
+
+# --- Every profile response counts -----------------------------------------
+
+
+async def test_a_later_profile_response_with_the_open_profile_badge_counts(dom):
+    responses = [_profile(2), _profile(None, open_link=True), _credits(7)]
+
+    result = await send(
+        dom,
+        composer_page(subject=True),
+        responses,
+        subject="Hello",
+        confirm_send=False,
+    )
+
+    assert result["status"] == "confirmation_required"
+    assert result["delivery"]["kind"] == "open_profile"
+    assert result["recipient"]["degree"] == 2
+
+
+async def test_profile_responses_that_disagree_on_degree_name_no_connection(dom):
+    result = await send(dom, composer_page(), [_profile(1), _profile(2), _existing()])
+
+    assert result["status"] == "inmail_reply_cost_unknown"
+    assert "degree" not in result["recipient"]
+    assert dom.sends == []
+
+
+# --- TeamLink --------------------------------------------------------------
+
+
+async def test_teamlink_inmail_is_free_and_needs_no_spend_flag(dom):
+    responses = [_profile(None, colleague=False), _profile(3, colleague=True)]
+
+    result = await send(
+        dom, composer_page(subject=True), [*responses, _credits(7)], subject="Hello"
+    )
+
+    assert result["status"] == "sent", result
+    assert result["delivery"] == {
+        "kind": "teamlink",
+        "creditCost": 0,
+        "creditsRemaining": 7,
+    }
+    assert dom.sends == [{"message": {"body": TWO_LINES, "subject": "Hello"}}]
+
+
+async def test_teamlink_send_kept_disabled_at_zero_credits_is_reported_as_such(dom):
+    html = composer_page(subject=True).replace(
+        "send.disabled = !box.value.trim()", "send.disabled = true || !box.value.trim()"
+    )
+
+    result = await send(
+        dom,
+        html,
+        [_profile(3, colleague=True), _credits(0)],
+        subject="Hello",
+    )
+
+    assert result["status"] == "send_blocked_no_credits"
+    assert result["retry_safe"] is True
+    assert result["delivery"]["kind"] == "teamlink"
+    assert await _box(dom) == ""
+    assert await _clicks(dom) == 0
+    assert dom.sends == []
+
+
+# --- The guard while sending -----------------------------------------------
+
+
+async def test_a_mark_read_while_typing_is_aborted(dom):
+    html = composer_page().replace(
+        "box.addEventListener('input', sync);",
+        "box.addEventListener('input', sync);"
+        "box.addEventListener('input', () => {"
+        " if (document.body.dataset.marked) return;"
+        " document.body.dataset.marked = 'pending';"
+        " fetch('/sales-api/salesApiMessagingThreads/x?action=markAsRead',"
+        " {method: 'POST'}).then(() => { document.body.dataset.marked = 'sent'; },"
+        " () => { document.body.dataset.marked = 'blocked'; }); }, {once: true});",
+    )
+
+    result = await reply(dom, html, [_thread()])
+    await dom.page.wait_for_function("document.body.dataset.marked !== 'pending'")
+
+    assert result["status"] == "sent", result
+    assert await dom.page.evaluate("document.body.dataset.marked") == "blocked"
+
+
+async def test_a_second_send_request_from_one_click_is_aborted(dom):
+    html = composer_page().replace(
+        "send.addEventListener('click', () => {",
+        "send.addEventListener('click', () => {"
+        " setTimeout(() => fetch('/sales-api/salesApiMessageActions?action=createMessage',"
+        " {method: 'POST', body: JSON.stringify({second: true})})"
+        ".then(() => { document.body.dataset.second = 'sent'; },"
+        " () => { document.body.dataset.second = 'blocked'; }), 0);",
+    )
+
+    result = await reply(dom, html, [_thread()])
+    await dom.page.wait_for_function("document.body.dataset.second !== undefined")
+
+    assert await dom.page.evaluate("document.body.dataset.second") == "blocked"
+    assert result["status"] == "sent", result
+    assert dom.sends == [{"message": {"body": TWO_LINES, "subject": None}}]
+
+
+# --- The Send button -------------------------------------------------------
+
+
+async def test_a_disabled_submit_type_button_is_never_the_send_button(dom):
+    html = composer_page().replace(
+        '<button type="button" id="send">', '<button id="send">'
+    )
+
+    result = await send(dom, html, [_profile(1)])
+
+    assert result["status"] == "send_unavailable"
+    assert result["retry_safe"] is True
+    assert dom.sends == []
+
+
+async def test_another_button_changing_while_typing_stops_the_send(dom):
+    html = composer_page().replace(
+        "box.addEventListener('input', sync);",
+        "box.addEventListener('input', sync);"
+        "box.addEventListener('input', () => {"
+        " document.getElementById('attach').disabled = true; });",
+    )
+
+    result = await send(dom, html, [_profile(1)])
+
+    assert result["status"] == "send_unavailable"
+    assert result["retry_safe"] is True
+    assert await _clicks(dom) == 0
     assert dom.sends == []

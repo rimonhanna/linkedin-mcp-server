@@ -3,7 +3,7 @@ LinkedIn Sales Navigator send tools.
 
 A new message to a lead and a reply in a Sales Navigator conversation. Both
 act as the user, need ``confirm_send``, and a send that spends an InMail
-credit also needs ``spend_inmail_credit``. They have their own daily cap in
+credit, or may spend one, also needs ``spend_inmail_credit``. They have their own daily cap in
 the pacing ledger, beside the regular messages cap.
 """
 
@@ -38,6 +38,7 @@ from linkedin_mcp_server.scraping.identifiers import (
 )
 from linkedin_mcp_server.scraping.sales_navigator_send_contract import (
     INMAIL_CREDIT_REQUIRED,
+    INMAIL_REPLY_COST_UNKNOWN,
     refuse_an_invalid_sales_message,
     refuse_an_invalid_sales_reply,
 )
@@ -49,7 +50,22 @@ _TAGS = {"sales_navigator", "actions"}
 # Outcomes that need no explaining: a confirmed send, and a dry run or credit
 # gate that verified its target. Every other status keeps the run's trace.
 _SEND_SUCCEEDED = frozenset(
-    {"sent", "sent_flattened", "confirmation_required", INMAIL_CREDIT_REQUIRED}
+    {
+        "sent",
+        "sent_flattened",
+        "confirmation_required",
+        INMAIL_CREDIT_REQUIRED,
+        INMAIL_REPLY_COST_UNKNOWN,
+    }
+)
+# The not-retry-safe statuses the sender only answers before its one click on
+# Send: typing that lost focus or was interrupted, or a page that moved during
+# typing. Typing cannot send by itself: text is inserted, never typed as a
+# plain Enter, and each line break is Shift+Enter pressed on the message field
+# itself, which the composer reads as a new line. Every other status that is
+# not retry safe may follow the click and is counted.
+_BEFORE_THE_CLICK = frozenset(
+    {"compose_interact_failed", "recipient_resolution_failed"}
 )
 
 
@@ -72,7 +88,10 @@ async def _send(
         result = await call()
         # `retry_safe` is false from the moment a submission is attempted, so
         # an unconfirmed send is counted: a repeat can deliver it twice.
-        if result.get("sent") or result.get("retry_safe") is False:
+        if result.get("sent") or (
+            result.get("retry_safe") is False
+            and result.get("status") not in _BEFORE_THE_CLICK
+        ):
             record_action(
                 JobStore(), SALES_NAVIGATOR_MESSAGES, datetime.now().astimezone()
             )
@@ -122,8 +141,13 @@ def register_sales_navigator_inbox_action_tools(
         lead is verified from the page's own profile data and the page is
         pinned to that lead through every step. To a connection this is a
         free message. To anyone else it is an InMail: it needs a subject and,
-        unless the lead has an Open Profile, uses one InMail credit, which
-        needs spend_inmail_credit=true on top of confirm_send=true. Use a dry
+        unless the lead has an Open Profile or is a TeamLink colleague, uses
+        one InMail credit, which needs spend_inmail_credit=true on top of
+        confirm_send=true. A message into an existing conversation with
+        someone who is not a connection has a cost the page does not show
+        (creditCost null): it needs spend_inmail_credit=true and a known
+        credit balance, and without the flag returns
+        inmail_reply_cost_unknown. Use a dry
         run first: it types nothing and reports the message type, its cost
         and the credits left. A draft already in the box is left untouched
         (composer_occupied). This is a write operation when confirm_send is
@@ -141,22 +165,27 @@ def register_sales_navigator_inbox_action_tools(
             subject: The InMail subject, one line. Required for an InMail;
                 refused for a message to a connection, which has none.
             spend_inmail_credit: Must be True for a send that uses an InMail
-                credit. Without it such a send returns inmail_credit_required
-                and nothing is typed.
+                credit, or may use one. Without it such a send returns
+                inmail_credit_required (or inmail_reply_cost_unknown) and
+                nothing is typed.
 
         Returns:
             Dict with url, status, message, recipient_selected, sent,
             retry_safe, recipient ({leadId, name, degree}) and delivery
-            ({kind: message, inmail or open_profile, creditCost, creditsRemaining},
-            null until the message box showed the kind). ``thread_id`` is
+            ({kind: message, inmail, open_profile or teamlink, creditCost,
+            creditsRemaining}, null until the message box showed the kind;
+            creditCost is null when the cost is unknown). ``thread_id`` is
             present only on ``sent`` and ``sent_flattened``: the existing
             conversation with the lead, or null when there was none. ``sent``
             is true only after Sales Navigator's send request answered
             success. While ``retry_safe`` is false, calling again can deliver
             the message twice. Statuses of their own:
             ``inmail_credit_required``, ``no_inmail_credits``,
-            ``inmail_credits_unknown`` and ``subject_required``, all before
-            anything is typed.
+            ``inmail_credits_unknown``, ``inmail_reply_cost_unknown`` and
+            ``subject_required``, all before anything is typed, and
+            ``send_blocked_no_credits``: an Open Profile or TeamLink message
+            whose Send Sales Navigator kept disabled while no InMail credits
+            were left, so nothing was sent.
         """
         try:
             # Answered before a session is acquired, inside the `try` as in
@@ -211,6 +240,7 @@ def register_sales_navigator_inbox_action_tools(
         message: str,
         confirm_send: bool,
         ctx: Context,
+        spend_inmail_credit: bool = False,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -222,8 +252,13 @@ def register_sales_navigator_inbox_action_tools(
         confirmed the conversation's read state is left alone, so a dry run
         leaves an unread conversation unread. A reply box that asks for a
         subject would start a new InMail and is refused (composer_unavailable).
-        A draft already in the box is left untouched (composer_occupied). This
-        is a write operation when confirm_send is True.
+        A draft already in the box is left untouched (composer_occupied). A
+        reply is free in a conversation with no InMail in it, or in an InMail
+        the other side accepted or answered. In any other InMail its cost is
+        unknown (creditCost null): it needs spend_inmail_credit=true and a
+        known credit balance, and without the flag returns
+        inmail_reply_cost_unknown. This is a write operation when
+        confirm_send is True.
 
         Args:
             thread_id: Sales Navigator conversation id, or its /sales/inbox/<id>
@@ -234,6 +269,9 @@ def register_sales_navigator_inbox_action_tools(
                 verifies the conversation and reply box, types nothing, and
                 says who the reply would go to.
             ctx: FastMCP context for progress reporting
+            spend_inmail_credit: Must be True for a reply whose cost is
+                unknown. Without it such a reply returns
+                inmail_reply_cost_unknown and nothing is typed.
 
         Returns:
             Dict with url, status, message, recipient_selected, sent,
@@ -266,7 +304,10 @@ def register_sales_navigator_inbox_action_tools(
                 tool_timeout=tool_timeout,
                 progress="Sending Sales Navigator reply",
                 call=lambda: bound.reply_to_sales_navigator_conversation(
-                    thread_id, message, confirm_send=confirm_send
+                    thread_id,
+                    message,
+                    confirm_send=confirm_send,
+                    spend_inmail_credit=spend_inmail_credit,
                 ),
             )
         except AuthenticationError as e:

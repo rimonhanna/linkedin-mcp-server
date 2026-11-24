@@ -88,8 +88,8 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `get_sales_navigator_inbox` | Recent Sales Navigator inbox conversations (1 to 1,000), in any inbox view: all, unread, sent, InMail awaiting response, accepted or declined, archived. Unread conversations stay unread. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_conversation` | One Sales Navigator conversation by `thread_id`, or by `lead_id` (matched on the lead id only, never by name), with up to 40 of its newest messages. Unread stays unread. Needs a Sales Navigator seat. Read-only |
 | `search_sales_navigator_conversations` | Search Sales Navigator messages by keyword through the inbox's own search box (up to 50 conversations). Unread stays unread. Needs a Sales Navigator seat. Read-only |
-| `send_sales_navigator_message` | Send a new Sales Navigator message to one lead by lead id, a connection (free) or not (an InMail: needs a `subject` and, unless the lead has an Open Profile, one InMail credit, which needs `spend_inmail_credit` on top of `confirm_send`). A dry run types nothing and reports `delivery` (`kind`, `creditCost`, `creditsRemaining`). Needs a Sales Navigator seat |
-| `reply_to_sales_navigator_conversation` | Reply inside an existing Sales Navigator conversation by its thread id (requires confirmation; verifies the conversation and its reply box first, and a dry run leaves an unread conversation unread). Needs a Sales Navigator seat |
+| `send_sales_navigator_message` | Send a new Sales Navigator message to one lead by lead id, a connection (free) or not (an InMail: needs a `subject` and, unless the lead has an Open Profile or is a TeamLink colleague, one InMail credit, which needs `spend_inmail_credit` on top of `confirm_send`). A dry run types nothing and reports `delivery` (`kind`, `creditCost`, `creditsRemaining`; `creditCost` is null when the page does not show the cost). Needs a Sales Navigator seat |
+| `reply_to_sales_navigator_conversation` | Reply inside an existing Sales Navigator conversation by its thread id (requires confirmation; verifies the conversation and its reply box first, and a dry run leaves an unread conversation unread; a reply in an InMail the lead has not accepted or answered also needs `spend_inmail_credit`). Needs a Sales Navigator seat |
 | `start_enrichment_job` | Queue a resumable bulk profile-enrichment job from a list of usernames or profile URLs |
 | `run_enrichment_bunch` | Visit the next few profiles in a job, paced with randomized delays, a rolling 24h action budget and working hours; returns when to call it again. A bunch that loses its browser relaunches it and retries once; a profile that never loaded is left pending and is not charged |
 | `get_enrichment_status` | Progress and collected results for an enrichment job, or list all jobs |
@@ -295,14 +295,28 @@ conversation's read state is left alone, and the page's own data must name
 exactly that lead or conversation. Both need `confirm_send`; call with it
 false first to see who the message goes to and what it costs. A message to a
 connection is free; anyone else gets an InMail, which needs a one-line
-`subject` and uses one InMail credit unless the lead has an Open Profile.
-Spending a credit also needs `spend_inmail_credit=true`, and without it the
-answer is `inmail_credit_required` with the credits left. The balance comes
-from Sales Navigator itself; when it is zero the answer is
-`no_inmail_credits`, and when the page did not report it,
-`inmail_credits_unknown`. A send is confirmed only by Sales Navigator's own
-answer to its send request. A reply box that asks for a subject would start a
-new InMail and is refused. Sales Navigator sends are counted against
+`subject` and uses one InMail credit unless the lead has an Open Profile
+(`kind: open_profile`) or is a TeamLink colleague (`kind: teamlink`, from the
+profile's `colleague`). Spending a credit also needs
+`spend_inmail_credit=true`, and without it the answer is
+`inmail_credit_required` with the credits left. The balance comes from Sales
+Navigator itself; when it is zero the answer is `no_inmail_credits`, and when
+the page did not report it, `inmail_credits_unknown`. If Sales Navigator keeps
+Send disabled for an Open Profile or TeamLink message while no credits are
+left, the answer is `send_blocked_no_credits` and nothing was sent.
+
+A message into an existing conversation is free only when the page shows it
+is: the lead is a connection, the conversation holds no InMail, or the lead
+accepted or answered the InMail (an `INMAIL_ACCEPT` or `INMAIL_REPLY` message
+from them). Otherwise the cost is unknown: `creditCost` is null, never 0. Such
+a send is treated as one that may spend a credit: it needs
+`spend_inmail_credit=true` and a known balance, and without the flag the
+answer is `inmail_reply_cost_unknown`. A reply to an InMail you received and
+have not answered counts as unknown too. A send is confirmed only by Sales
+Navigator's own answer to its send request. A reply box that asks for a
+subject would start a new InMail and is refused. While typing and sending,
+the conversation's read state is still protected: only the click on Send lets
+one send request through. Sales Navigator sends are counted against
 `SALES_NAVIGATOR_MESSAGES_MAX` (50 per rolling 24 h), separate from
 `MESSAGES_MAX`, and wait for working hours like other messages.
 

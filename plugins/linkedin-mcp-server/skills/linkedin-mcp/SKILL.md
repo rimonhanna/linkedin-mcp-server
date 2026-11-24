@@ -20,8 +20,9 @@ work, health checks, or background maintenance.
   disabled, explain that state and stop.
 - `send_message`, `reply_to_conversation`, `send_sales_navigator_message`,
   `reply_to_sales_navigator_conversation` and `connect_with_person` are write
-  actions. A Sales Navigator InMail also spends a credit: set
-  `spend_inmail_credit` only when the user approved spending one. Use them only when the user explicitly authorizes the
+  actions. A Sales Navigator InMail also spends a credit, and a
+  send whose cost is unknown may: set `spend_inmail_credit` only when the user
+  approved spending one. Use them only when the user explicitly authorizes the
   exact recipient and action (for a reply, the exact thread). Confirm the
   final message or connection note unless the user has already supplied it.
 - `update_campaign`, `set_campaign_status`, `update_campaign_targeting`,

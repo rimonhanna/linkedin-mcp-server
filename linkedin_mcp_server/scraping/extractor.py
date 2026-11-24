@@ -633,10 +633,12 @@ class LinkedInExtractor:
         message: str,
         *,
         confirm_send: bool,
+        spend_inmail_credit: bool = False,
     ) -> dict[str, Any]:
         """Reply inside a Sales Navigator conversation, gated by confirmation."""
         return await self._sales_navigator_sender.reply_to_conversation(
             thread_id,
             message,
             confirm_send=confirm_send,
+            spend_inmail_credit=spend_inmail_credit,
         )

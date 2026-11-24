@@ -122,7 +122,7 @@
       },
       "reply_to_sales_navigator_conversation": {
         "coroutine": true,
-        "signature": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'"
+        "signature": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool', spend_inmail_credit: 'bool' = False) -> 'dict[str, Any]'"
       },
       "scrape_company": {
         "coroutine": true,
@@ -1368,6 +1368,11 @@
               "description": "Message text to send, read as send_sales_navigator_message\nreads it.",
               "type": "string"
             },
+            "spend_inmail_credit": {
+              "default": false,
+              "description": "Must be True for a reply whose cost is\nunknown. Without it such a reply returns\ninmail_reply_cost_unknown and nothing is typed.",
+              "type": "boolean"
+            },
             "thread_id": {
               "description": "Sales Navigator conversation id, or its /sales/inbox/<id>\nURL, as get_sales_navigator_inbox returned it",
               "type": "string"
@@ -2193,7 +2198,7 @@
             },
             "spend_inmail_credit": {
               "default": false,
-              "description": "Must be True for a send that uses an InMail\ncredit. Without it such a send returns inmail_credit_required\nand nothing is typed.",
+              "description": "Must be True for a send that uses an InMail\ncredit, or may use one. Without it such a send returns\ninmail_credit_required (or inmail_reply_cost_unknown) and\nnothing is typed.",
               "type": "boolean"
             },
             "subject": {

@@ -52,7 +52,7 @@ a page-owning collaborator.
 | `message_sender` | `MessageSender` | `page-owning` |
 | `messaging_api` | `MessagingApiCapture`, `has_searchable_text()`, `normalize_keywords()` | `browser-free` |
 | `messaging_payload` | `HistoryStopReason`, `MessageHistory`, `MessagingParticipant`, `ParticipantCoverage`, `StructuredConversation`, `StructuredMessage`, `build_conversation_references()`, `build_message_page_url()`, `build_message_references()`, `build_structured_conversation()`, `conversation_container()`, `conversation_elements()`, `conversation_matches_username()`, `conversation_rows_text()`, `conversation_thread_path()`, `find_conversation_by_thread_id()`, `format_message_elements()`, `merge_message_elements()`, `message_elements()`, `provider_timestamp()`, `replace_conversation_urn()` | `browser-free` |
-| `messaging_read_state` | `allow_explicit_message_write()`, `register_read_state_routes()`, `without_read_state_writes()` | `browser-free` |
+| `messaging_read_state` | `allow_explicit_message_write()`, `close_sales_send()`, `open_one_sales_send()`, `register_read_state_routes()`, `without_read_state_writes()` | `browser-free` |
 | `navigation` | `PageNavigator`, `WaitUntil` | `page-owning` |
 | `person` | `PersonScraper` | `page-owning` |
 | `posts` | `PostSearch` | `browser-free` |
@@ -65,8 +65,8 @@ a page-owning collaborator.
 | `sales_navigator_inbox` | `SalesNavigatorInboxReader` | `page-owning` |
 | `sales_navigator_inbox_payload` | `ACCESS`, `FILTERS`, `InboxConversation`, `InboxFilter`, `InboxMessage`, `LIST_FINDER`, `MESSAGE_BATCH`, `MESSAGE_DECORATION`, `NAV_CHROME`, `Participant`, `SEARCH_FINDER`, `SalesConversation`, `THREADS`, `ThreadHistory`, `build_conversation_row()`, `build_conversation_rows()`, `build_message()`, `build_messages()`, `build_older_messages()`, `build_participants()`, `build_thread()`, `chrome_viewer()`, `no_inbox_access()`, `render_conversation()`, `render_conversations()`, `strip_delivered_at()`, `viewer_of()` | `browser-free` |
 | `sales_navigator_payload` | `Account`, `AccountCard`, `AccountList`, `COMPANY_FILTER_ID`, `COMPANY_HEADCOUNT`, `COMPANY_HEADCOUNT_GROWTH`, `CURRENT_COMPANY`, `CURRENT_TITLE`, `EmployeeGrowth`, `Headquarters`, `INDUSTRY`, `Lead`, `ListedAccount`, `MAX_PAGE`, `PAGE_SIZE`, `Position`, `REGION`, `RESULT_CAP`, `RevenueRange`, `SENIORITY_IDS`, `SENIORITY_LEVEL`, `SN_API_PREFIX`, `SearchFilter`, `SearchPaging`, `Seniority`, `SeniorityLevel`, `SnCall`, `SnMoney`, `T`, `WITHHELD_REASON`, `Withheld`, `build_account()`, `build_account_card()`, `build_account_list()`, `build_elements()`, `build_lead()`, `build_leads()`, `build_listed_account()`, `build_paging()`, `build_search_query()`, `build_withheld()`, `is_withheld()`, `missing_echoes()`, `parse_sn_call()`, `render_account()`, `render_account_cards()`, `render_account_lists()`, `render_leads()`, `render_listed_accounts()`, `restli_value()`, `sales_company_id()`, `sales_profile_id()`, `search_page_url()`, `unrequested_echoes()` | `browser-free` |
-| `sales_navigator_send_contract` | `Delivery`, `DeliveryKind`, `INMAIL_CREDITS_UNKNOWN`, `INMAIL_CREDIT_REQUIRED`, `NO_INMAIL_CREDITS`, `Recipient`, `SUBJECT_REQUIRED`, `compose_route_urn()`, `refuse_an_invalid_sales_message()`, `refuse_an_invalid_sales_reply()`, `sales_compose_url()`, `sales_message_result()`, `sales_profile_urn()`, `sales_reply_result()` | `browser-free` |
-| `sales_navigator_send_page` | `CONNECTION_DEGREE`, `CREDITS`, `SendCapture`, `THREADS`, `existing_thread()`, `inmail_credits()`, `is_profile()`, `is_send()`, `no_inbox_access()`, `profile_name()`, `profile_of()`, `sent_body()`, `thread_of()`, `thread_participant()` | `browser-free` |
+| `sales_navigator_send_contract` | `Delivery`, `DeliveryKind`, `INMAIL_CREDITS_UNKNOWN`, `INMAIL_CREDIT_REQUIRED`, `INMAIL_REPLY_COST_UNKNOWN`, `NO_INMAIL_CREDITS`, `Recipient`, `SEND_BLOCKED_NO_CREDITS`, `SUBJECT_REQUIRED`, `compose_route_urn()`, `refuse_an_invalid_sales_message()`, `refuse_an_invalid_sales_reply()`, `sales_compose_url()`, `sales_message_result()`, `sales_profile_urn()`, `sales_reply_result()` | `browser-free` |
+| `sales_navigator_send_page` | `CONNECTION_DEGREE`, `CREDITS`, `SendCapture`, `THREADS`, `existing_thread()`, `inmail_credits()`, `is_profile()`, `is_send()`, `merged_profile()`, `no_inbox_access()`, `profile_name()`, `profile_of()`, `reply_cost()`, `sent_body()`, `thread_of()`, `thread_participant()` | `browser-free` |
 | `sales_navigator_sender` | `SalesNavigatorMessageSender` | `browser-free` |
 | `search_pages` | `SearchPages`, `paginate_search()`, `search_rows()` | `browser-free` |
 | `search_parse` | `parse_company_cards()`, `parse_count()`, `parse_people_cards()`, `parse_result_count()` | `browser-free` |
@@ -127,7 +127,7 @@ a page-owning collaborator.
 - `sales_navigator_inbox_payload` -> `restli`, `sales_navigator_payload`
 - `sales_navigator_payload` -> `identifiers`, `restli`
 - `sales_navigator_send_contract` -> `contracts`, `identifiers`
-- `sales_navigator_send_page` -> `restli`, `sales_navigator_api`, `sales_navigator_payload`
+- `sales_navigator_send_page` -> `restli`, `sales_navigator_api`, `sales_navigator_inbox_payload`, `sales_navigator_payload`
 - `sales_navigator_sender` -> `contracts`, `identifiers`, `messaging_read_state`, `restli`, `sales_navigator`, `sales_navigator_api`, `sales_navigator_composer_js`, `sales_navigator_payload`, `sales_navigator_send_contract`, `sales_navigator_send_page`, `session`
 - `search_pages` -> `capture`, `contracts`, `link_metadata`, `search_parse`, `session`
 - `search_parse` -> _(none)_

@@ -75,7 +75,7 @@ PUBLIC_SIGNATURES = {
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
     "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
     "send_sales_navigator_message": "(self, lead_id: 'str', message: 'str', *, confirm_send: 'bool', subject: 'str | None' = None, spend_inmail_credit: 'bool' = False) -> 'dict[str, Any]'",
-    "reply_to_sales_navigator_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
+    "reply_to_sales_navigator_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool', spend_inmail_credit: 'bool' = False) -> 'dict[str, Any]'",
 }
 
 DELEGATES = {
@@ -186,7 +186,7 @@ DELEGATE_CALLS = {
         "self._sales_inbox.search_conversations(keywords, limit, deadline=deadline)"
     ),
     "send_sales_navigator_message": "self._sales_navigator_sender.send_message(lead_id, message, confirm_send=confirm_send, subject=subject, spend_inmail_credit=spend_inmail_credit)",
-    "reply_to_sales_navigator_conversation": "self._sales_navigator_sender.reply_to_conversation(thread_id, message, confirm_send=confirm_send)",
+    "reply_to_sales_navigator_conversation": "self._sales_navigator_sender.reply_to_conversation(thread_id, message, confirm_send=confirm_send, spend_inmail_credit=spend_inmail_credit)",
 }
 
 FACADE_STATE = {
