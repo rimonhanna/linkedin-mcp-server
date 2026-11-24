@@ -188,7 +188,7 @@ async def test_search_accounts_reads_the_requested_page(mock_page):
     assert result["paging"] == {
         "page": 2,
         "start": 25,
-        "count": 25,
+        "count": 1,
         "total": 1500,
         "resultCap": 1000,
         "capped": True,

@@ -28,6 +28,7 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
 )
 
 from .test_sales_navigator import _boot, _Browser, _lead, _run, _search
+from .test_sales_navigator_lead_lists import _own_lists
 
 ACCOUNT_LIST_ID = "100000401"
 LEAD_LIST_ID = "100000402"
@@ -58,6 +59,8 @@ async def test_every_icp_filter_reaches_the_search_url(mock_page):
     browser = _Browser(mock_page)
     query = build_search_query(None, ICP_FILTERS)
     url = search_page_url("people", query, 1)
+    leads_hub = _own_lists(browser, LEAD_LIST_ID, OTHER_LEAD_LIST_ID)
+    accounts_hub = _own_lists(browser, ACCOUNT_LIST_ID, list_type="ACCOUNT")
     browser.loads[url] = [
         *_boot(),
         _search(
@@ -67,7 +70,7 @@ async def test_every_icp_filter_reaches_the_search_url(mock_page):
 
     result = await _run(mock_page, browser, lambda r: r.search_leads(**ICP_ARGS))
 
-    assert browser.navigated == [url]
+    assert browser.navigated == [leads_hub, accounts_hub, url]
     assert [lead["degree"] for lead in result["leads"]] == [1]
 
 
@@ -80,6 +83,8 @@ async def test_a_filter_the_page_dropped_is_named_and_nothing_reported(mock_page
         None,
         [*ICP_FILTERS[:-1], SearchFilter(LEAD_LIST, ids=(LEAD_LIST_ID,))],
     )
+    _own_lists(browser, LEAD_LIST_ID, OTHER_LEAD_LIST_ID)
+    _own_lists(browser, ACCOUNT_LIST_ID, list_type="ACCOUNT")
     browser.loads[url] = [*_boot(), _search("salesApiLeadSearch", sent, 0, [], 0)]
 
     with pytest.raises(

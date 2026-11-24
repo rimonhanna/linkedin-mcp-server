@@ -468,14 +468,19 @@ def unrequested_echoes(
     return extra
 
 
-def build_paging(payload: Any, page: int) -> SearchPaging | None:
+def build_paging(payload: Any, page: int, count: int) -> SearchPaging | None:
+    """Search paging; ``count`` is the rows returned, not LinkedIn's page size.
+
+    LinkedIn's own ``paging.count`` is the size it was asked for (25 on an
+    empty page too), so it only decides ``more``.
+    """
     paging = envelope_paging(payload)
     if paging is None:
         return None
     start = as_int(paging.get("start"))
-    count = as_int(paging.get("count"))
+    size = as_int(paging.get("count"))
     total = as_int(paging.get("total"))
-    if start is None or count is None or total is None:
+    if start is None or size is None or total is None:
         return None
     return {
         "page": page,
@@ -484,7 +489,7 @@ def build_paging(payload: Any, page: int) -> SearchPaging | None:
         "total": total,
         "resultCap": RESULT_CAP,
         "capped": total > RESULT_CAP,
-        "more": start + count < min(total, RESULT_CAP),
+        "more": start + size < min(total, RESULT_CAP),
     }
 
 

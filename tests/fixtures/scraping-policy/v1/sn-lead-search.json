@@ -155,7 +155,7 @@
     ],
     "paging": {
       "capped": false,
-      "count": 25,
+      "count": 1,
       "more": false,
       "page": 1,
       "resultCap": 1000,
