@@ -1054,7 +1054,8 @@ class SalesNavigatorReader:
             current += 1
         reported = total or 0
         start = (page - 1) * PAGE_SIZE
-        read = len(leads) + withheld
+        # Unique leads: a lead a page repeats is one row read, not two.
+        read = len(seen) + withheld
         if limit is None and start + read < min(reported, RESULT_CAP):
             limit = _page_limit(
                 "leads", reported, len(leads), "the pages returned fewer rows"
