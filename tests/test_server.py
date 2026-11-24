@@ -1056,6 +1056,8 @@ class TestWhatTheToolsPromise:
             "get_sales_navigator_account",
             "list_sales_navigator_account_lists",
             "get_sales_navigator_account_list",
+            "list_sales_navigator_lead_lists",
+            "get_sales_navigator_lead_list",
         }
         claiming = set()
         for name in reads:

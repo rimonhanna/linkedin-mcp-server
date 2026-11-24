@@ -144,6 +144,8 @@
         "geoRegion": "Example region",
         "id": "ACwAAA0001",
         "memberUrn": "urn:li:member:100000011",
+        "profileUrl": "https://www.linkedin.com/in/ACwAAA0001",
+        "salesProfileUrn": "urn:li:fs_salesProfile:(ACwAAA0001,NAME_SEARCH,abc)",
         "seniority": [
           {
             "id": "310",

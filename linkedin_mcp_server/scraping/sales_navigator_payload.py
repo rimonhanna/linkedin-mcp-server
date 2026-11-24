@@ -17,7 +17,10 @@ from dataclasses import dataclass
 from typing import Any, Literal, NotRequired, TypedDict, TypeVar, cast
 from urllib.parse import quote, urlparse
 
-from linkedin_mcp_server.scraping.identifiers import sales_company_url
+from linkedin_mcp_server.scraping.identifiers import (
+    person_profile_url,
+    sales_company_url,
+)
 from linkedin_mcp_server.scraping.restli import (
     as_dicts,
     as_int,
@@ -77,6 +80,7 @@ T = TypeVar("T")
 _SALES_COMPANY_URN = "urn:li:fs_salesCompany:"
 _SALES_PROFILE_URN = "urn:li:fs_salesProfile:("
 _INCLUDED = "selectionType:INCLUDED"
+_EXCLUDED = "selectionType:EXCLUDED"
 # The UI sends every company value with this parent marker; sent the same way.
 _COMPANY_PARENT = "parent:(id:0)"
 
@@ -95,6 +99,7 @@ class SearchFilter:
     type: str
     ids: tuple[str, ...] = ()
     texts: tuple[str, ...] = ()
+    excluded_ids: tuple[str, ...] = ()
     minimum: int | None = None
     maximum: int | None = None
 
@@ -149,6 +154,8 @@ class Seniority(TypedDict):
 
 class Lead(TypedDict, total=False):
     id: str
+    salesProfileUrn: str
+    profileUrl: str
     memberUrn: str
     fullName: str
     firstName: str
@@ -318,6 +325,9 @@ def _filter_clause(search_filter: SearchFilter) -> str | None:
     if search_filter.type == CURRENT_COMPANY:
         values = [value[:-1] + f",{_COMPANY_PARENT})" for value in values]
     values.extend(f"(text:{restli_value(v)},{_INCLUDED})" for v in search_filter.texts)
+    values.extend(
+        f"(id:{restli_value(v)},{_EXCLUDED})" for v in search_filter.excluded_ids
+    )
     bounds = [
         f"{name}:{bound}"
         for name, bound in (
@@ -413,6 +423,7 @@ def missing_echoes(
         ]
         ids = {v.get("id") for v in values if v.get("selectionType") == "INCLUDED"}
         texts = {v.get("text") for v in values if v.get("selectionType") == "INCLUDED"}
+        excluded = {v.get("id") for v in values if v.get("selectionType") == "EXCLUDED"}
         ranges = [_record(clause.get("rangeValue", "")) for clause in same_type]
         wanted_range = {
             name: str(bound)
@@ -425,6 +436,7 @@ def missing_echoes(
         echoed = (
             all(restli_value(v) in ids for v in search_filter.ids)
             and all(restli_value(v) in texts for v in search_filter.texts)
+            and all(restli_value(v) in excluded for v in search_filter.excluded_ids)
             and (not wanted_range or wanted_range in ranges)
         )
         if not echoed and search_filter.type not in missing:
@@ -528,7 +540,11 @@ def build_lead(element: Any) -> Lead | None:
     profile_id = sales_profile_id(record.get("entityUrn")) if record else None
     if record is None or profile_id is None or is_withheld(record):
         return None
-    lead: dict[str, Any] = {"id": profile_id}
+    lead: dict[str, Any] = {
+        "id": profile_id,
+        "salesProfileUrn": record["entityUrn"],
+        "profileUrl": person_profile_url(profile_id),
+    }
     member_urn = as_str(record.get("objectUrn"))
     if member_urn is not None:
         lead["memberUrn"] = member_urn

@@ -110,6 +110,8 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
         "get_sales_navigator_account",
         "list_sales_navigator_account_lists",
         "get_sales_navigator_account_list",
+        "list_sales_navigator_lead_lists",
+        "get_sales_navigator_lead_list",
     ):
         setattr(mock, name, AsyncMock(return_value=scrape_result))
     mock.extract_page = AsyncMock(
@@ -2924,6 +2926,8 @@ class TestToolTimeouts:
             "get_sales_navigator_account",
             "list_sales_navigator_account_lists",
             "get_sales_navigator_account_list",
+            "list_sales_navigator_lead_lists",
+            "get_sales_navigator_lead_list",
             "start_enrichment_job",
             "run_enrichment_bunch",
             "get_enrichment_status",
@@ -2980,6 +2984,8 @@ class TestToolTimeouts:
             "get_sales_navigator_account",
             "list_sales_navigator_account_lists",
             "get_sales_navigator_account_list",
+            "list_sales_navigator_lead_lists",
+            "get_sales_navigator_lead_list",
             "start_enrichment_job",
             "run_enrichment_bunch",
             "get_enrichment_status",

@@ -65,10 +65,12 @@ PUBLIC_SIGNATURES = {
     "create_company_list_audience": "(self, account_id: 'str', name: 'str', companies: 'Sequence[Mapping[str, Any]]', *, confirm_send: 'bool') -> 'dict[str, Any]'",
     "create_saved_audience": "(self, account_id: 'str', campaign_id: 'str', name: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
     "search_sales_navigator_accounts": "(self, *, keywords: 'str | None' = None, industry: 'Sequence[str] | None' = None, hq_location: 'Sequence[str] | None' = None, size: 'Sequence[str] | None' = None, headcount_growth_min: 'int | None' = None, headcount_growth_max: 'int | None' = None, page: 'int' = 1) -> 'dict[str, Any]'",
-    "search_sales_navigator_leads": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'",
+    "search_sales_navigator_leads": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, network: 'Sequence[str] | None' = None, function: 'Sequence[str] | None' = None, company_size: 'Sequence[str] | None' = None, years_in_current_role: 'Sequence[str] | None' = None, years_at_current_company: 'Sequence[str] | None' = None, account_list: 'Sequence[str] | None' = None, lead_list: 'Sequence[str] | None' = None, exclude_lead_list: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'",
     "get_sales_navigator_account": "(self, company_id: 'str') -> 'dict[str, Any]'",
     "list_sales_navigator_account_lists": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "get_sales_navigator_account_list": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "list_sales_navigator_lead_lists": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "get_sales_navigator_lead_list": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
     "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
 }
@@ -115,6 +117,8 @@ DELEGATES = {
     "get_sales_navigator_account": ("_sales_navigator", "get_account"),
     "list_sales_navigator_account_lists": ("_sales_navigator", "list_account_lists"),
     "get_sales_navigator_account_list": ("_sales_navigator", "get_account_list"),
+    "list_sales_navigator_lead_lists": ("_sales_navigator", "list_lead_lists"),
+    "get_sales_navigator_lead_list": ("_sales_navigator", "get_lead_list"),
 }
 
 DELEGATE_CALLS = {
@@ -155,13 +159,19 @@ DELEGATE_CALLS = {
     "create_company_list_audience": "self._audiences.create_company_list_audience(account_id, name, companies, confirm_send=confirm_send)",
     "create_saved_audience": "self._audiences.create_saved_audience(account_id, campaign_id, name, confirm_send=confirm_send)",
     "search_sales_navigator_accounts": "self._sales_navigator.search_accounts(keywords=keywords, industry=industry, hq_location=hq_location, size=size, headcount_growth_min=headcount_growth_min, headcount_growth_max=headcount_growth_max, page=page)",
-    "search_sales_navigator_leads": "self._sales_navigator.search_leads(keywords=keywords, title=title, seniority=seniority, current_company=current_company, location=location, industry=industry, page=page)",
+    "search_sales_navigator_leads": "self._sales_navigator.search_leads(keywords=keywords, title=title, seniority=seniority, current_company=current_company, location=location, industry=industry, network=network, function=function, company_size=company_size, years_in_current_role=years_in_current_role, years_at_current_company=years_at_current_company, account_list=account_list, lead_list=lead_list, exclude_lead_list=exclude_lead_list, page=page)",
     "get_sales_navigator_account": "self._sales_navigator.get_account(company_id)",
     "list_sales_navigator_account_lists": (
         "self._sales_navigator.list_account_lists(page, deadline=deadline)"
     ),
     "get_sales_navigator_account_list": (
         "self._sales_navigator.get_account_list(list_id, page, deadline=deadline)"
+    ),
+    "list_sales_navigator_lead_lists": (
+        "self._sales_navigator.list_lead_lists(page, deadline=deadline)"
+    ),
+    "get_sales_navigator_lead_list": (
+        "self._sales_navigator.get_lead_list(list_id, page, deadline=deadline)"
     ),
 }
 

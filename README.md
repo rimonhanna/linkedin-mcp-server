@@ -81,10 +81,12 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `create_company_list_audience` | Upload a list of companies (name, and optionally website and LinkedIn page) as a matched audience. Confirming accepts LinkedIn's Ads Agreement for the upload. `confirm_send` |
 | `create_saved_audience` | Save a campaign's (UI "Ad set") targeting as a named saved audience (1 to 25 characters). `confirm_send` |
 | `search_sales_navigator_accounts` | Search Sales Navigator accounts (companies) by keywords, industry, headquarters location, headcount and headcount growth; one page of 25 per call (`page` 1 to 40). Needs a Sales Navigator seat. Read-only |
-| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company, location and industry; one page of 25 per call. Leads who opted out of third-party data sharing are left out and counted in `withheld`. Needs a Sales Navigator seat. Read-only |
+| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company, location, industry, connection degree (`network`), function, company headcount, years in the current role or at the current company, account lists and lead lists (in or not in); one page of 25 per call. Each lead carries the ids other tools take (`profileUrl`, `salesProfileUrn`) and its connection `degree`. Leads who opted out of third-party data sharing are left out and counted in `withheld`. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account` | One company's Sales Navigator account page: description, industry, website, headquarters, revenue range, headcount and headcount growth. Needs a Sales Navigator seat. Read-only |
 | `list_sales_navigator_account_lists` | Every Sales Navigator account list of the member, with its size. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account_list` | One Sales Navigator account list and every company in it. Needs a Sales Navigator seat. Read-only |
+| `list_sales_navigator_lead_lists` | Every Sales Navigator lead list of the member, with its size. Needs a Sales Navigator seat. Read-only |
+| `get_sales_navigator_lead_list` | The leads of one Sales Navigator lead list, read as a lead search filtered to the list (up to 1,000), with the same lead records and ids as lead search. Needs a Sales Navigator seat. Read-only |
 | `start_enrichment_job` | Queue a resumable bulk profile-enrichment job from a list of usernames or profile URLs |
 | `run_enrichment_bunch` | Visit the next few profiles in a job, paced with randomized delays, a rolling 24h action budget and working hours; returns when to call it again. A bunch that loses its browser relaunches it and retries once; a profile that never loaded is left pending and is not charged |
 | `get_enrichment_status` | Progress and collected results for an enrichment job, or list all jobs |
@@ -281,6 +283,29 @@ counts as a page load. One call stops at 1,000 rows, or earlier when its next
 page would not finish within the call's time limit; it then returns what it
 read with `next_page`, and the next call continues from there. The companies of a list can be passed, by
 name, to `create_company_list_audience` to target them in Campaign Manager.
+
+`list_sales_navigator_lead_lists` reads lead lists the same way.
+`get_sales_navigator_lead_list` reads a list's leads as a lead search filtered
+to that list, so each page of 25 counts against `SEARCH_PAGES_MAX` and at most
+1,000 leads of one list can be read.
+
+To build an audience from an ideal customer profile, narrow
+`search_sales_navigator_leads` with its filters, or save the people to a lead
+list in Sales Navigator and read it with `get_sales_navigator_lead_list`. The
+`account_list` filter finds the people at the companies of an account list.
+Every lead row carries:
+
+- `id`: the Sales Navigator profile id (an `ACw...` id), and
+  `salesProfileUrn`, the full `urn:li:fs_salesProfile:(...)` it came from;
+- `profileUrl`: `https://www.linkedin.com/in/<id>`. LinkedIn resolves a
+  profile address built from that id to the member's own profile, so the id
+  or the URL can be passed as `linkedin_username` to `connect_with_person`,
+  `send_message` and the other person tools. It is not the `ACo...` id that
+  `send_message`'s `profile_urn` checks against;
+- `memberUrn`: `urn:li:member:<n>`;
+- `degree`: 1, 2 or 3 for the connection degree. Filter with `network: ["F"]`
+  for 1st-degree connections only, for example to invite them to follow a
+  company page.
 
 
 

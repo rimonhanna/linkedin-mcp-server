@@ -22,6 +22,7 @@ from linkedin_mcp_server.scraping.contracts import FilterValidationError
 from linkedin_mcp_server.scraping.facets import FacetResolver
 from linkedin_mcp_server.scraping.identifiers import (
     SALES_ACCOUNT_LISTS_URL,
+    SALES_LEAD_LISTS_URL,
     normalize_sales_company_id,
     normalize_sales_list_id,
     sales_account_list_url,
@@ -38,6 +39,16 @@ from linkedin_mcp_server.scraping.sales_navigator_api import (
     SalesNavigatorCapture,
     SnResponse,
 )
+from linkedin_mcp_server.scraping.sales_navigator_lead_filters import (
+    ACCOUNT_LIST,
+    FUNCTION,
+    LEAD_LIST,
+    RELATIONSHIP,
+    YEARS_AT_CURRENT_COMPANY,
+    YEARS_IN_CURRENT_POSITION,
+    function_ids,
+    tenure_ids,
+)
 from linkedin_mcp_server.scraping.sales_navigator_payload import (
     COMPANY_FILTER_ID,
     COMPANY_HEADCOUNT,
@@ -52,6 +63,7 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
     SENIORITY_IDS,
     SENIORITY_LEVEL,
     AccountList,
+    Lead,
     ListedAccount,
     SearchFilter,
     SeniorityLevel,
@@ -76,6 +88,7 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
 from linkedin_mcp_server.scraping.search_urls import (
     company_size_letters,
     industry_ids,
+    network_tokens,
 )
 from linkedin_mcp_server.scraping.session import ScrapingSession
 
@@ -95,7 +108,6 @@ _SEAT_RESOURCES = frozenset({"salesApiAccess", "salesApiEntitlements"})
 _SEAT_REFUSED = frozenset({401, 403})
 # What LinkedIn answers for an entity the member cannot open or that is gone.
 _REFUSED_STATUSES = frozenset({403, 404})
-_LISTS_PATH = urlparse(SALES_ACCOUNT_LISTS_URL).path
 _LIST_PATH = "/sales/accounts/dashboard"
 _HEADCOUNT_FIELDS = ("employeeCount", "employeeCountRange", "employeeDisplayCount")
 _NO_SEAT_ADVICE = (
@@ -491,6 +503,24 @@ class SalesNavigatorReader:
         page: int,
     ) -> tuple[str, SnResponse]:
         """Load one search page and return the response for exactly what was asked."""
+        url, response = await self._search_page(
+            kind, resource, keywords, filters, page, required=True
+        )
+        if response is None:
+            raise _unverified("the search results")
+        return url, response
+
+    async def _search_page(
+        self,
+        kind: Literal["company", "people"],
+        resource: str,
+        keywords: str | None,
+        filters: Sequence[tuple[str, SearchFilter]],
+        page: int,
+        *,
+        required: bool,
+    ) -> tuple[str, SnResponse | None]:
+        """``_search``; with ``required=False`` a page that never answered is None."""
         criteria = [search_filter for _, search_filter in filters]
         url = search_page_url(kind, build_search_query(keywords, criteria), page)
         start = (page - 1) * PAGE_SIZE
@@ -501,9 +531,15 @@ class SalesNavigatorReader:
             )
 
         async with self._capture(resource) as capture:
-            await self._open(
-                capture, url, expected_path=f"/sales/search/{kind}", ready=is_page
+            found = await self._open(
+                capture,
+                url,
+                expected_path=f"/sales/search/{kind}",
+                ready=is_page,
+                required=required,
             )
+        if found is None:
+            return url, None
         responses = capture.matching(is_page)
         for response in responses:
             sent = response.call.params.get("query", "")
@@ -607,6 +643,14 @@ class SalesNavigatorReader:
         current_company: Sequence[str] | None = None,
         location: Sequence[str] | None = None,
         industry: Sequence[str] | None = None,
+        network: Sequence[str] | None = None,
+        function: Sequence[str] | None = None,
+        company_size: Sequence[str] | None = None,
+        years_in_current_role: Sequence[str] | None = None,
+        years_at_current_company: Sequence[str] | None = None,
+        account_list: Sequence[str] | None = None,
+        lead_list: Sequence[str] | None = None,
+        exclude_lead_list: Sequence[str] | None = None,
         page: int = 1,
     ) -> dict[str, Any]:
         """One page (25) of Sales Navigator lead search results.
@@ -627,10 +671,39 @@ class SalesNavigatorReader:
         companies = _criteria(current_company)
         locations = _criteria(location)
         industries = industry_ids(_criteria(industry))
-        if not (keywords or titles or levels or companies or locations or industries):
+        degrees = network_tokens(_criteria(network))
+        functions = function_ids(_criteria(function))
+        sizes = company_size_letters(_criteria(company_size))
+        in_role = tenure_ids(_criteria(years_in_current_role), "years_in_current_role")
+        at_company = tenure_ids(
+            _criteria(years_at_current_company), "years_at_current_company"
+        )
+        account_lists = [normalize_sales_list_id(v) for v in _criteria(account_list)]
+        lead_lists = [normalize_sales_list_id(v) for v in _criteria(lead_list)]
+        not_lead_lists = [
+            normalize_sales_list_id(v) for v in _criteria(exclude_lead_list)
+        ]
+        if not (
+            keywords
+            or titles
+            or levels
+            or companies
+            or locations
+            or industries
+            or degrees
+            or functions
+            or sizes
+            or in_role
+            or at_company
+            or account_lists
+            or lead_lists
+            or not_lead_lists
+        ):
             raise FilterValidationError(
                 "Give at least one search criterion: keywords, title, seniority, "
-                "current_company, location or industry."
+                "current_company, location, industry, network, function, "
+                "company_size, years_in_current_role, years_at_current_company, "
+                "account_list, lead_list or exclude_lead_list."
             )
         filters: list[tuple[str, SearchFilter]] = []
         if titles:
@@ -648,6 +721,43 @@ class SalesNavigatorReader:
             filters.append(("location", SearchFilter(REGION, ids=tuple(geo))))
         if industries:
             filters.append(("industry", SearchFilter(INDUSTRY, ids=tuple(industries))))
+        if degrees:
+            filters.append(("network", SearchFilter(RELATIONSHIP, ids=tuple(degrees))))
+        if functions:
+            filters.append(("function", SearchFilter(FUNCTION, ids=tuple(functions))))
+        if sizes:
+            filters.append(
+                ("company_size", SearchFilter(COMPANY_HEADCOUNT, ids=tuple(sizes)))
+            )
+        if in_role:
+            filters.append(
+                (
+                    "years_in_current_role",
+                    SearchFilter(YEARS_IN_CURRENT_POSITION, ids=tuple(in_role)),
+                )
+            )
+        if at_company:
+            filters.append(
+                (
+                    "years_at_current_company",
+                    SearchFilter(YEARS_AT_CURRENT_COMPANY, ids=tuple(at_company)),
+                )
+            )
+        if account_lists:
+            filters.append(
+                ("account_list", SearchFilter(ACCOUNT_LIST, ids=tuple(account_lists)))
+            )
+        if lead_lists or not_lead_lists:
+            filters.append(
+                (
+                    "lead_list",
+                    SearchFilter(
+                        LEAD_LIST,
+                        ids=tuple(lead_lists),
+                        excluded_ids=tuple(not_lead_lists),
+                    ),
+                )
+            )
 
         url, response = await self._search(
             "people", _LEAD_SEARCH, keywords, filters, page
@@ -729,13 +839,34 @@ class SalesNavigatorReader:
 
         Fewer when the next page would not finish before ``deadline``.
         """
-        url = SALES_ACCOUNT_LISTS_URL
+        return await self._list_lists(
+            SALES_ACCOUNT_LISTS_URL, "ACCOUNT", "account_lists", page, deadline
+        )
 
+    async def list_lead_lists(
+        self, page: int = 1, *, deadline: float | None = None
+    ) -> dict[str, Any]:
+        """The member's lead lists from ``page``, up to 1,000 per call.
+
+        Fewer when the next page would not finish before ``deadline``.
+        """
+        return await self._list_lists(
+            SALES_LEAD_LISTS_URL, "LEAD", "lead_lists", page, deadline
+        )
+
+    async def _list_lists(
+        self,
+        url: str,
+        list_type: str,
+        key: Literal["account_lists", "lead_lists"],
+        page: int,
+        deadline: float | None,
+    ) -> dict[str, Any]:
         def rows_at(start: int) -> Callable[[SnResponse], bool]:
             def match(response: SnResponse) -> bool:
                 return (
                     _is(response, _LISTS, finder="listType")
-                    and response.call.params.get("listType") == "ACCOUNT"
+                    and response.call.params.get("listType") == list_type
                     and _starts_at(response, start)
                 )
 
@@ -744,21 +875,140 @@ class SalesNavigatorReader:
         lists, limit, next_page, total = await self._read_all(
             lambda n: url if n == 1 else f"{url}?page={n}",
             first_page=page,
-            expected_path=_LISTS_PATH,
+            expected_path=urlparse(url).path,
             resources=(_LISTS,),
             rows_at=rows_at,
             builder=build_account_list,
-            name="account lists",
+            name=key.replace("_", " "),
             deadline=deadline,
         )
-        result: dict[str, Any] = {"url": url, "sections": {}, "account_lists": lists}
+        result: dict[str, Any] = {"url": url, "sections": {}, key: lists}
         if text := render_account_lists(lists):
-            result["sections"]["account_lists"] = text
+            result["sections"][key] = text
         if limit is not None:
-            result["section_errors"] = {"account_lists": limit}
+            result["section_errors"] = {key: limit}
         result["paging"] = _read_paging(page, len(lists), total, next_page)
         if next_page is not None:
             result["next_page"] = next_page
+        return result
+
+    async def get_lead_list(
+        self, list_id: str, page: int = 1, *, deadline: float | None = None
+    ) -> dict[str, Any]:
+        """The leads of one lead list from ``page``, read as a lead search.
+
+        Sales Navigator's lead search filtered to the list, one search page of
+        25 per load, so the rows are the same lead records a search returns
+        and the 1,000-result cap of a search applies. Fewer pages when the
+        next one would not finish before ``deadline``.
+        """
+        list_ref = normalize_sales_list_id(list_id)
+        self._check_page(page)
+        filters = [("lead_list", SearchFilter(LEAD_LIST, ids=(list_ref,)))]
+        leads: list[Lead] = []
+        seen: set[str] = set()
+        withheld = 0
+        total: int | None = None
+        limit: dict[str, str] | None = None
+        next_page: int | None = None
+        slowest = 0.0
+        current = page
+        first_url = ""
+        while True:
+            if (
+                deadline is not None
+                and current > page
+                and time.monotonic() + slowest > deadline
+            ):
+                limit = _page_limit(
+                    "leads",
+                    total or 0,
+                    len(leads),
+                    f"this call ran out of time after {current - page} pages (pass "
+                    f"next_page={current} to continue)",
+                )
+                next_page = current
+                break
+            began = time.monotonic()
+            url, response = await self._search_page(
+                "people", _LEAD_SEARCH, None, filters, current, required=current == page
+            )
+            first_url = first_url or url
+            if response is None:
+                limit = _page_limit(
+                    "leads",
+                    total or 0,
+                    len(leads),
+                    f"page {current} did not load (pass next_page={current} to retry)",
+                )
+                next_page = current
+                break
+            elements = envelope_elements(response.payload)
+            built = build_leads(elements) if elements is not None else None
+            paging = build_paging(response.payload, current)
+            if built is None or paging is None:
+                raise _unverified("the lead list")
+            rows, hidden = built
+            if total is None:
+                total = paging["total"]
+            elif paging["total"] != total:
+                limit = _page_limit(
+                    "leads",
+                    total,
+                    len(leads),
+                    f"the total changed to {paging['total']} while it was read",
+                )
+                break
+            ids = [row["id"] for row in rows]
+            if seen.intersection(ids):
+                limit = _page_limit(
+                    "leads",
+                    total,
+                    len(leads),
+                    f"the list changed while reading (page {current} repeated a lead)",
+                )
+                break
+            seen.update(ids)
+            leads.extend(rows)
+            withheld += hidden
+            slowest = max(slowest, time.monotonic() - began)
+            if not paging["more"]:
+                if paging["capped"]:
+                    limit = _page_limit(
+                        "leads",
+                        total,
+                        len(leads),
+                        f"a search shows at most {RESULT_CAP:,}",
+                    )
+                break
+            current += 1
+        reported = total or 0
+        start = (page - 1) * PAGE_SIZE
+        read = len(leads) + withheld
+        result: dict[str, Any] = {
+            "url": first_url,
+            "sections": {},
+            "lead_list": {"id": list_ref},
+            "leads": leads,
+        }
+        if text := render_leads(leads):
+            result["sections"]["leads"] = text
+        if limit is not None:
+            result["section_errors"] = {"leads": limit}
+        result["paging"] = {
+            "page": page,
+            "start": start,
+            "count": len(leads),
+            "total": reported,
+            "resultCap": RESULT_CAP,
+            "capped": reported > RESULT_CAP,
+            "more": start + read < min(reported, RESULT_CAP) or limit is not None,
+            "next_page": next_page,
+        }
+        if next_page is not None:
+            result["next_page"] = next_page
+        if (note := build_withheld(withheld)) is not None:
+            result["withheld"] = note
         return result
 
     async def get_account_list(

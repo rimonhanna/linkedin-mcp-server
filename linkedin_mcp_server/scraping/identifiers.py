@@ -51,6 +51,7 @@ from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 __all__ = [
     "CAMPAIGN_MANAGER_ACCOUNTS_URL",
     "SALES_ACCOUNT_LISTS_URL",
+    "SALES_LEAD_LISTS_URL",
     "campaign_manager_date_range",
     "campaign_manager_url",
     "company_page_url",
@@ -614,8 +615,10 @@ def campaign_manager_url(account_id: str, suffix: str = "") -> str:
 
 
 SALES_ACCOUNT_LISTS_URL = "https://www.linkedin.com/sales/lists/company"
+SALES_LEAD_LISTS_URL = "https://www.linkedin.com/sales/lists/people"
 _SALES_COMPANY_URNS = ("urn:li:fs_salesCompany:", "urn:li:organization:")
 _SALES_LIST_ROUTES = (["sales", "accounts", "dashboard"], ["sales", "lists", "company"])
+_SALES_LEAD_LIST_ROUTE = ["sales", "lists", "people"]
 
 
 def normalize_sales_company_id(value: str) -> str:
@@ -643,11 +646,18 @@ def normalize_sales_company_id(value: str) -> str:
 
 
 def normalize_sales_list_id(value: str) -> str:
-    """The numeric id of a Sales Navigator account list, from the id or its URL."""
+    """The numeric id of a Sales Navigator list, from the id or its URL."""
     value = value.strip()
     if _NUMERIC_ID.fullmatch(value):
         return value
     segments = _linkedin_segments(value, want="list_id")
+    if (
+        segments is not None
+        and len(segments) == 4
+        and [part.lower() for part in segments[:3]] == _SALES_LEAD_LIST_ROUTE
+        and _NUMERIC_ID.fullmatch(segments[3])
+    ):
+        return segments[3]
     if (
         segments is not None
         and [part.lower() for part in segments] in _SALES_LIST_ROUTES

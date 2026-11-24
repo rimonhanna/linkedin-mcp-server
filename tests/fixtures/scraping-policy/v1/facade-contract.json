@@ -80,6 +80,10 @@
         "coroutine": true,
         "signature": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
+      "get_sales_navigator_lead_list": {
+        "coroutine": true,
+        "signature": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
       "get_saved_jobs": {
         "coroutine": true,
         "signature": "(self, max_pages: 'int' = 3, stage: 'JobsTrackerStage' = 'saved') -> 'dict[str, Any]'"
@@ -101,6 +105,10 @@
         "signature": "(self, account_id: 'str') -> 'dict[str, Any]'"
       },
       "list_sales_navigator_account_lists": {
+        "coroutine": true,
+        "signature": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
+      "list_sales_navigator_lead_lists": {
         "coroutine": true,
         "signature": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
@@ -150,7 +158,7 @@
       },
       "search_sales_navigator_leads": {
         "coroutine": true,
-        "signature": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
+        "signature": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, network: 'Sequence[str] | None' = None, function: 'Sequence[str] | None' = None, company_size: 'Sequence[str] | None' = None, years_in_current_role: 'Sequence[str] | None' = None, years_at_current_company: 'Sequence[str] | None' = None, account_list: 'Sequence[str] | None' = None, lead_list: 'Sequence[str] | None' = None, exclude_lead_list: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
       },
       "search_targeting_entities": {
         "coroutine": true,
@@ -193,12 +201,14 @@
       "get_my_profile",
       "get_sales_navigator_account",
       "get_sales_navigator_account_list",
+      "get_sales_navigator_lead_list",
       "get_saved_jobs",
       "get_sidebar_profiles",
       "list_ad_accounts",
       "list_audiences",
       "list_campaigns",
       "list_sales_navigator_account_lists",
+      "list_sales_navigator_lead_lists",
       "list_sponsorable_posts",
       "reply_to_conversation",
       "scrape_company",
@@ -978,6 +988,32 @@
           "type": "object"
         }
       },
+      "get_sales_navigator_lead_list": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "list_id": {
+              "description": "Numeric lead list id, as list_sales_navigator_lead_lists\nreturned it. A Sales Navigator lead list URL\n(/sales/lists/people/<id>) is accepted too.",
+              "type": "string"
+            },
+            "page": {
+              "default": 1,
+              "description": "1-based page of 25 leads to start from, 1 to 40 (default 1);\npass a previous result's next_page to continue.",
+              "maximum": 40,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "list_id"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "get_saved_jobs": {
         "input": {
           "additionalProperties": false,
@@ -1077,6 +1113,24 @@
         }
       },
       "list_sales_navigator_account_lists": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "page": {
+              "default": 1,
+              "description": "1-based page of 25 lists to start from (default 1); pass a\nprevious result's next_page to continue.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "list_sales_navigator_lead_lists": {
         "input": {
           "additionalProperties": false,
           "properties": {
@@ -1833,6 +1887,36 @@
         "input": {
           "additionalProperties": false,
           "properties": {
+            "account_list": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of account list ids, as\nlist_sales_navigator_account_lists returned them: leads at\nthe companies in those lists."
+            },
+            "company_size": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of current-company headcount buckets\n(1-10, 11-50, ..., 10001+) or facet letters (A to I)."
+            },
             "current_company": {
               "anyOf": [
                 {
@@ -1847,6 +1931,36 @@
               ],
               "default": null,
               "description": "One or a list of current companies, numeric\ncompany ids, urn:li:organization URNs or names."
+            },
+            "exclude_lead_list": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Lead list ids whose leads are left out."
+            },
+            "function": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of job functions, by name (engineering,\nsales, marketing, information_technology, ...) or id (1 to 26)."
             },
             "industry": {
               "anyOf": [
@@ -1875,6 +1989,21 @@
               "default": null,
               "description": "Free-text keywords."
             },
+            "lead_list": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of lead list ids, as\nlist_sales_navigator_lead_lists returned them: only leads in\nthose lists."
+            },
             "location": {
               "anyOf": [
                 {
@@ -1889,6 +2018,21 @@
               ],
               "default": null,
               "description": "One or a list of locations, numeric geo ids,\nurn:li:geo URNs or names."
+            },
+            "network": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Connection degree, one or a list of \"F\" (1st-degree),\n\"S\" (2nd-degree) and \"O\" (3rd-degree and beyond), the same\ntokens as search_people. [\"F\"] finds the connections a company\npage can invite to follow it."
             },
             "page": {
               "default": 1,
@@ -1938,6 +2082,50 @@
               ],
               "default": null,
               "description": "One or a list of current job titles (free text)."
+            },
+            "years_at_current_company": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "less_than_1",
+                      "1_to_2",
+                      "3_to_5",
+                      "6_to_10",
+                      "more_than_10"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The same buckets, for the time at the\ncurrent company."
+            },
+            "years_in_current_role": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "less_than_1",
+                      "1_to_2",
+                      "3_to_5",
+                      "6_to_10",
+                      "more_than_10"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of less_than_1, 1_to_2,\n3_to_5, 6_to_10, more_than_10."
             }
           },
           "type": "object"

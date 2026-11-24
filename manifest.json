@@ -190,7 +190,7 @@
     },
     {
       "name": "search_sales_navigator_leads",
-      "description": "Search Sales Navigator leads (people) by keywords, title, seniority, current company, location and industry, one page of 25 per call; leads who opted out of third-party data sharing are left out and counted (read-only)"
+      "description": "Search Sales Navigator leads (people) by keywords, title, seniority, current company, location, industry, connection degree, function, company headcount, tenure, account lists and lead lists, one page of 25 per call; leads who opted out of third-party data sharing are left out and counted (read-only)"
     },
     {
       "name": "get_sales_navigator_account",
@@ -203,6 +203,14 @@
     {
       "name": "get_sales_navigator_account_list",
       "description": "Get one Sales Navigator account list and every company in it (read-only)"
+    },
+    {
+      "name": "list_sales_navigator_lead_lists",
+      "description": "List every Sales Navigator lead list of the member (read-only)"
+    },
+    {
+      "name": "get_sales_navigator_lead_list",
+      "description": "Get the leads of one Sales Navigator lead list, up to 1,000 (read-only)"
     },
     {
       "name": "close_session",

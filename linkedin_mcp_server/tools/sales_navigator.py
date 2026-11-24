@@ -24,10 +24,15 @@ from linkedin_mcp_server.scraping.identifiers import (
     normalize_sales_company_id,
     normalize_sales_list_id,
 )
+from linkedin_mcp_server.scraping.sales_navigator_lead_filters import (
+    TenureBucket,
+    function_ids,
+)
 from linkedin_mcp_server.scraping.sales_navigator_payload import SeniorityLevel
 from linkedin_mcp_server.scraping.search_urls import (
     company_size_letters,
     industry_ids,
+    network_tokens,
 )
 from linkedin_mcp_server.tools.enrichment import DEADLINE_FRACTION
 from linkedin_mcp_server.tools.person import StrList
@@ -174,6 +179,14 @@ def register_sales_navigator_tools(
         current_company: StrList | None = None,
         location: StrList | None = None,
         industry: StrList | None = None,
+        network: StrList | None = None,
+        function: StrList | None = None,
+        company_size: StrList | None = None,
+        years_in_current_role: list[TenureBucket] | None = None,
+        years_at_current_company: list[TenureBucket] | None = None,
+        account_list: StrList | None = None,
+        lead_list: StrList | None = None,
+        exclude_lead_list: StrList | None = None,
         page: Annotated[int, Field(ge=1, le=40)] = 1,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
@@ -209,17 +222,45 @@ def register_sales_navigator_tools(
             location: One or a list of locations, numeric geo ids,
                 urn:li:geo URNs or names.
             industry: One or a list of industries, numeric ids or names.
+            network: Connection degree, one or a list of "F" (1st-degree),
+                "S" (2nd-degree) and "O" (3rd-degree and beyond), the same
+                tokens as search_people. ["F"] finds the connections a company
+                page can invite to follow it.
+            function: One or a list of job functions, by name (engineering,
+                sales, marketing, information_technology, ...) or id (1 to 26).
+            company_size: One or a list of current-company headcount buckets
+                (1-10, 11-50, ..., 10001+) or facet letters (A to I).
+            years_in_current_role: One or a list of less_than_1, 1_to_2,
+                3_to_5, 6_to_10, more_than_10.
+            years_at_current_company: The same buckets, for the time at the
+                current company.
+            account_list: One or a list of account list ids, as
+                list_sales_navigator_account_lists returned them: leads at
+                the companies in those lists.
+            lead_list: One or a list of lead list ids, as
+                list_sales_navigator_lead_lists returned them: only leads in
+                those lists.
+            exclude_lead_list: Lead list ids whose leads are left out.
             page: Result page, 1 to 40 (25 results each).
 
         Returns:
             Dict with url, sections (leads -> one line per lead), leads (id,
-            memberUrn, fullName, firstName, lastName, geoRegion, degree,
-            premium, openLink, seniority, currentPositions, summary), paging
+            salesProfileUrn, profileUrl, memberUrn, fullName, firstName,
+            lastName, geoRegion, degree, premium, openLink, seniority,
+            currentPositions, summary), paging
             (page, start, count, total, resultCap, capped, more) and withheld
             ({count, reason}, present only when a lead was left out).
         """
         try:
             industry_list = industry_ids(industry)
+            network = network_tokens(network)
+            function = function_ids(function or [])
+            company_size = company_size_letters(company_size)
+            account_list = [normalize_sales_list_id(v) for v in account_list or []]
+            lead_list = [normalize_sales_list_id(v) for v in lead_list or []]
+            exclude_lead_list = [
+                normalize_sales_list_id(v) for v in exclude_lead_list or []
+            ]
             _require_criterion(
                 keywords,
                 title,
@@ -227,6 +268,14 @@ def register_sales_navigator_tools(
                 current_company,
                 location,
                 industry_list,
+                network,
+                function,
+                company_size,
+                years_in_current_role,
+                years_at_current_company,
+                account_list,
+                lead_list,
+                exclude_lead_list,
             )
             extractor = extractor or await get_ready_extractor(
                 ctx, tool_name="search_sales_navigator_leads"
@@ -244,6 +293,14 @@ def register_sales_navigator_tools(
                 current_company=current_company or None,
                 location=location or None,
                 industry=industry_list or None,
+                network=network or None,
+                function=function or None,
+                company_size=company_size or None,
+                years_in_current_role=years_in_current_role or None,
+                years_at_current_company=years_at_current_company or None,
+                account_list=account_list or None,
+                lead_list=lead_list or None,
+                exclude_lead_list=exclude_lead_list or None,
                 page=page,
             )
 
@@ -452,6 +509,141 @@ def register_sales_navigator_tools(
                 raise_tool_error(relogin_exc, "get_sales_navigator_account_list")
         except Exception as e:
             raise_tool_error(e, "get_sales_navigator_account_list")  # NoReturn
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="List Sales Navigator Lead Lists",
+        annotations={"readOnlyHint": True, "openWorldHint": True},
+        tags={"sales_navigator", "scraping"},
+        exclude_args=["extractor"],
+    )
+    async def list_sales_navigator_lead_lists(
+        ctx: Context,
+        page: Annotated[int, Field(ge=1)] = 1,
+        extractor: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        List the Sales Navigator lead lists of the signed-in member. Read-only.
+        Needs a Sales Navigator seat. Reads like
+        list_sales_navigator_account_lists: one page of 25 lists per page
+        load, up to 1,000 per call or until the call's time limit is near;
+        pass next_page to continue. section_errors.lead_lists is set when the
+        result is partial.
+
+        Args:
+            ctx: FastMCP context for progress reporting
+            page: 1-based page of 25 lists to start from (default 1); pass a
+                previous result's next_page to continue.
+
+        Returns:
+            Dict with url, sections (lead_lists -> one line per list),
+            lead_lists (id, name, description, listType, listSource,
+            entityCount, role, lastModifiedAt), paging (page, start, count =
+            lists returned, total as LinkedIn reports it, more, next_page) and,
+            when more lists remain, next_page. The ids are what
+            get_sales_navigator_lead_list and the lead_list filter of
+            search_sales_navigator_leads take.
+        """
+        try:
+            deadline = _deadline(tool_timeout)
+            extractor = extractor or await get_ready_extractor(
+                ctx, tool_name="list_sales_navigator_lead_lists"
+            )
+            logger.info("Listing Sales Navigator lead lists")
+
+            await ctx.report_progress(
+                progress=0, total=100, message="Loading lead lists"
+            )
+
+            result = await extractor.list_sales_navigator_lead_lists(
+                page, deadline=deadline
+            )
+
+            await ctx.report_progress(progress=100, total=100, message="Complete")
+
+            return result
+
+        except AuthenticationError as e:
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "list_sales_navigator_lead_lists")
+        except Exception as e:
+            raise_tool_error(e, "list_sales_navigator_lead_lists")  # NoReturn
+
+    @mcp.tool(
+        timeout=tool_timeout,
+        title="Get Sales Navigator Lead List",
+        annotations={"readOnlyHint": True, "openWorldHint": True},
+        tags={"sales_navigator", "scraping"},
+        exclude_args=["extractor"],
+    )
+    async def get_sales_navigator_lead_list(
+        list_id: str,
+        ctx: Context,
+        page: Annotated[int, Field(ge=1, le=40)] = 1,
+        extractor: Any | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get the leads of one Sales Navigator lead list. Read-only. Needs a
+        Sales Navigator seat. No lead page is opened, so no profile view is
+        registered.
+
+        The list is read as a Sales Navigator lead search filtered to it, so
+        each page of 25 is one search page against the daily search cap, at
+        most 1,000 leads of a list can be read (40 pages) and the rows are the
+        same records search_sales_navigator_leads returns, with the same
+        identifiers. One call reads pages from page until the list is covered
+        or the call's time limit is near (then next_page is set). Leads who
+        blocked third-party data sharing are left out and only counted in
+        withheld. section_errors.leads is set when the result is partial.
+
+        Args:
+            list_id: Numeric lead list id, as list_sales_navigator_lead_lists
+                returned it. A Sales Navigator lead list URL
+                (/sales/lists/people/<id>) is accepted too.
+            ctx: FastMCP context for progress reporting
+            page: 1-based page of 25 leads to start from, 1 to 40 (default 1);
+                pass a previous result's next_page to continue.
+
+        Returns:
+            Dict with url, sections (leads -> one line per lead), lead_list
+            ({id}), leads (id, salesProfileUrn, profileUrl, memberUrn,
+            fullName, firstName, lastName, geoRegion, degree, premium,
+            openLink, seniority, currentPositions, summary), paging (page,
+            start, count = leads returned, total as LinkedIn reports it,
+            resultCap, capped, more, next_page), next_page when more pages
+            remain, and withheld ({count, reason}) when a lead was left out.
+        """
+        try:
+            deadline = _deadline(tool_timeout)
+            list_id = normalize_sales_list_id(list_id)
+            extractor = extractor or await get_ready_extractor(
+                ctx, tool_name="get_sales_navigator_lead_list"
+            )
+            logger.info("Fetching Sales Navigator lead list %s", list_id)
+
+            await ctx.report_progress(
+                progress=0, total=100, message="Loading lead list"
+            )
+
+            result = await extractor.get_sales_navigator_lead_list(
+                list_id, page, deadline=deadline
+            )
+
+            await ctx.report_progress(progress=100, total=100, message="Complete")
+
+            return result
+
+        except AuthenticationError as e:
+            try:
+                await handle_auth_error(e, ctx)
+            except Exception as relogin_exc:
+                raise_tool_error(relogin_exc, "get_sales_navigator_lead_list")
+        except FilterValidationError as e:
+            raise ToolError(str(e)) from e
+        except Exception as e:
+            raise_tool_error(e, "get_sales_navigator_lead_list")  # NoReturn
 
 
 def _require_criterion(*criteria: object) -> None:
