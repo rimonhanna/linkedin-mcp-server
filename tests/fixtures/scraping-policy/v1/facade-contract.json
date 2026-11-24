@@ -492,10 +492,10 @@
                 }
               ],
               "default": null,
-              "description": "Optional list description."
+              "description": "Optional list description, up to 350 characters."
             },
             "name": {
-              "description": "The list's name, as it will show in Sales Navigator.",
+              "description": "The list's name, as it will show in Sales Navigator, up to 75\ncharacters, one line.",
               "type": "string"
             }
           },

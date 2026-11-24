@@ -67,17 +67,18 @@ def register_sales_navigator_list_tools(
         confirm_send False is a dry run: nothing is created or added, and the
         result reports the planned list and each account's status
         (would_add, duplicate). confirm_send True creates the list, then adds
-        the accounts in one request. Success is only reported from Sales
-        Navigator's own answer. When an outcome is unknown, retry_safe is
+        the accounts in one request, as add_accounts_to_sales_navigator_list
+        does. Success is only reported from Sales Navigator's own answer. When an outcome is unknown, retry_safe is
         false: check list_sales_navigator_account_lists before calling again,
         or the list can be created twice. Each request sent counts against
         the daily sales_list_writes cap.
 
         Args:
-            name: The list's name, as it will show in Sales Navigator.
+            name: The list's name, as it will show in Sales Navigator, up to 75
+                characters, one line.
             confirm_send: False for a dry run; True to create the list.
             ctx: FastMCP context for progress reporting
-            description: Optional list description.
+            description: Optional list description, up to 350 characters.
             accounts: Optional company ids to add, as
                 search_sales_navigator_accounts or get_sales_navigator_account
                 return them (a urn:li:fs_salesCompany or urn:li:organization
@@ -139,13 +140,16 @@ def register_sales_navigator_list_tools(
     ) -> dict[str, Any]:
         """
         Add accounts to one Sales Navigator account list of the signed-in
-        member, in one request. Needs a Sales Navigator seat.
+        member, in one request. Needs a Sales Navigator seat. Like Sales
+        Navigator's own Save to list, this also saves each account.
 
         The list is opened first (one page load) and must be an account list;
         the list id is used exactly as given. confirm_send False is a dry run
         that adds nothing and reports each account's status (would_add,
-        duplicate). Success is only reported from Sales Navigator's own
-        answer. When an outcome is unknown, retry_safe is false: read the list
+        duplicate). With confirm_send True each account's status is taken
+        from Sales Navigator's answer for it: added, already_in_list, refused
+        (detail names Sales Navigator's reason, such as EXCEED_LIMIT) or
+        unconfirmed when the answer does not name it. When an outcome is unknown, retry_safe is false: read the list
         with get_sales_navigator_account_list before calling again. The one
         request counts against the daily sales_list_writes cap.
 
@@ -214,7 +218,8 @@ def register_sales_navigator_list_tools(
     ) -> dict[str, Any]:
         """
         Delete one Sales Navigator account list of the signed-in member. The
-        accounts themselves are not affected. Irreversible. Needs a Sales
+        accounts stay saved, as with Sales Navigator's own default.
+        Irreversible. Needs a Sales
         Navigator seat.
 
         The list is opened first (one page load), and it is deleted only when

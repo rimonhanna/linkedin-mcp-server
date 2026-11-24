@@ -337,7 +337,12 @@ result says what would be. With `confirm_send: true` the tool sends exactly
 one request per step, the one Sales Navigator's own app sends for it, from
 your browser with the app's headers; every other change the page tries while
 the tool runs is stopped in the browser. A create with `accounts` is two
-requests: the list, then the accounts.
+requests: the list, then the accounts. Adding accounts also saves them, as
+Sales Navigator's own Save to list does, and each account's status comes from
+Sales Navigator's answer for it (`added`, `already_in_list`, `refused` with
+its reason, or `unconfirmed`). Deleting a list leaves its accounts saved.
+A list name is at most 75 characters and a description 350, the limits of
+Sales Navigator's own form.
 
 Success is only reported from Sales Navigator's own answer to that request.
 That answer says Sales Navigator accepted it, not what the list now holds:

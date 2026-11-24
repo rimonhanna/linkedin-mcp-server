@@ -3,7 +3,8 @@
 While a list-write tool holds the page, every non-GET request to the Sales
 Navigator API is aborted, the app's own included, except inside
 ``explicit_list_write``, which admits exactly one request: the planned method
-on the planned resource, entity and action with the planned JSON body. A second
+on the planned resource and entity, with exactly the planned query and JSON
+body. A second
 request, a different list, a different set of accounts or a request the app
 sends on its own never leaves the browser.
 
@@ -25,10 +26,14 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 from weakref import WeakKeyDictionary
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
-from linkedin_mcp_server.scraping.sales_navigator_payload import parse_sn_call
+from linkedin_mcp_server.scraping.sales_navigator_payload import (
+    SN_API_PREFIX,
+    parse_sn_call,
+)
 
 _ROUTE = "**/sales-api/**"
 # See ``messaging_read_state`` for why a route registered mid-session is bounded.
@@ -43,9 +48,19 @@ class PlannedListWrite:
     method: str
     resource: str
     entity_id: str | None
-    action: str | None
+    # The whole query, in the order it is sent; compared as a set of pairs.
+    query: tuple[tuple[str, str], ...]
     # Compared decoded, so key order and whitespace do not matter.
     body: Any
+
+    @property
+    def path(self) -> str:
+        path = SN_API_PREFIX + self.resource
+        if self.entity_id is not None:
+            path += f"/{self.entity_id}"
+        if self.query:
+            path += "?" + "&".join(f"{key}={value}" for key, value in self.query)
+        return path
 
 
 @dataclass(slots=True)
@@ -85,11 +100,16 @@ def admission_refusal(
         return "not the planned resource"
     if call.entity_id != planned.entity_id:
         return "not the planned list"
-    if call.params.get("action") != planned.action:
-        return "not the planned action"
+    sent = sorted(tuple(pair.partition("=")[::2]) for pair in _query(url))
+    if sent != sorted(planned.query):
+        return "query differs from the plan"
     if body != planned.body:
         return "body differs from the plan"
     return None
+
+
+def _query(url: str) -> list[str]:
+    return [pair for pair in urlparse(url).query.split("&") if pair]
 
 
 def _is_boot(url: str) -> bool:

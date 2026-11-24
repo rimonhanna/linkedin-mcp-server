@@ -18,7 +18,9 @@ outcome, reported with ``retry_safe`` false and never sent again.
 
 from __future__ import annotations
 
+import json
 import logging
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -53,6 +55,7 @@ from linkedin_mcp_server.scraping.sales_navigator_list_payload import (
     LISTS,
     MAX_ACCOUNTS_PER_CALL,
     add_request,
+    add_statuses,
     create_request,
     created_list_id,
     delete_request,
@@ -65,20 +68,27 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
 
 logger = logging.getLogger(__name__)
 
-_FORWARDED_HEADERS = frozenset(
+# What the browser itself sets on a request; everything else the app's own
+# request carried (its CSRF token, tracking and identity headers) is sent.
+_BROWSER_HEADERS = frozenset(
     {
-        "accept",
-        "csrf-token",
-        "x-li-identity",
-        "x-li-lang",
-        "x-li-page-instance",
-        "x-li-track",
-        "x-restli-protocol-version",
+        "accept-encoding",
+        "accept-language",
+        "connection",
+        "content-length",
+        "content-type",
+        "cookie",
+        "host",
+        "origin",
+        "referer",
+        "user-agent",
     }
 )
+# What the app's JSON.stringify body goes out as.
+_BODY_TYPE = "text/plain;charset=UTF-8"
 _LISTS_PATH = "/sales/lists/company"
 _LIST_PATH = "/sales/accounts/dashboard"
-_SN_API_URL = "https://www.linkedin.com" + SN_API_PREFIX
+_ORIGIN = "https://www.linkedin.com"
 
 _FETCH_JS = """async ({ url, method, headers, body }) => {
     /* linkedin-mcp:sn-list-write */
@@ -232,7 +242,11 @@ class SalesNavigatorListWriter:
                 }
                 if "csrf-token" in headers:
                     templates.append(
-                        {k: v for k, v in headers.items() if k in _FORWARDED_HEADERS}
+                        {
+                            k: v
+                            for k, v in headers.items()
+                            if k not in _BROWSER_HEADERS and not k.startswith("sec-")
+                        }
                     )
 
         def is_record(response: Any) -> bool:
@@ -296,18 +310,12 @@ class SalesNavigatorListWriter:
         self, planned: PlannedListWrite, headers: dict[str, str]
     ) -> _Answer:
         """Send ``planned`` once, inside its window, and read the answer."""
-        url = _SN_API_URL + planned.resource
-        if planned.entity_id is not None:
-            url += f"/{planned.entity_id}"
-        if planned.action is not None:
-            url += f"?action={planned.action}"
+        url = _ORIGIN + planned.path
         body = None
         send_headers = dict(headers)
         if planned.body is not None:
-            import json
-
-            body = json.dumps(planned.body, separators=(",", ":"))
-            send_headers["content-type"] = "application/json"
+            body = json.dumps(planned.body, separators=(",", ":"), ensure_ascii=False)
+            send_headers["content-type"] = _BODY_TYPE
         raw: Any = None
         async with explicit_list_write(self._page, planned) as window:
             try:
@@ -571,10 +579,36 @@ class SalesNavigatorListWriter:
         )
         if isinstance(answer, dict):
             return answer
-        _set_statuses(rows, "added")
+        statuses = add_statuses(answer.payload, ids)
+        if statuses is None:
+            return unknown("its answer named no account")
+        for row in rows:
+            if row["status"] != "planned":
+                continue
+            status, detail = statuses[row["id"]]
+            row["status"] = status
+            if detail:
+                row["detail"] = detail
+        counts = Counter(statuses[i][0] for i in ids)
+        if counts["unconfirmed"]:
+            return finish(
+                "add_unconfirmed",
+                "Sales Navigator answered, but not for every account; read the "
+                "list with get_sales_navigator_account_list before adding the "
+                "unconfirmed ones again.",
+                retry_safe=False,
+            )
+        if not counts["added"] and not counts["already_in_list"]:
+            return finish(
+                "refused_by_linkedin",
+                "Sales Navigator added none of the accounts; see each one's detail.",
+                retry_safe=False,
+            )
         return finish(
-            "added",
-            "Sales Navigator accepted the accounts for this list.",
+            "added" if not counts["refused"] else "partly_added",
+            "Sales Navigator answered for every account: "
+            + ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in sorted(counts.items()))
+            + ".",
             retry_safe=False,
         )
 

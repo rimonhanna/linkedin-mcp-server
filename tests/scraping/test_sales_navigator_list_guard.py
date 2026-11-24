@@ -9,16 +9,16 @@ import pytest
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
 from linkedin_mcp_server.scraping import sales_navigator_list_guard as guard
+from linkedin_mcp_server.scraping.sales_navigator_list_payload import (
+    add_request,
+    delete_request,
+)
 
 API = "https://www.linkedin.com/sales-api/"
 LIST = "100000301"
-PLANNED = guard.PlannedListWrite(
-    method="POST",
-    resource="salesApiLists",
-    entity_id=LIST,
-    action="addEntities",
-    body={"entityUrns": ["urn:li:fs_salesCompany:100000001"]},
-)
+PLANNED = add_request(LIST, ["100000001"])
+DELETE = delete_request(LIST)
+DELETE_PATH = f"salesApiLists/{LIST}?unsaveEntity=false&doUnsaveLeadsUnderAccount=false"
 
 
 class _Request:
@@ -59,11 +59,8 @@ class _Page:
         self.routes.append((pattern, handler))
 
 
-def _add(body: Any = None, *, entity: str = LIST, action: str = "addEntities"):
-    return _Request(
-        f"salesApiLists/{entity}?action={action}",
-        PLANNED.body if body is None else body,
-    )
+def _add(body: Any = None, *, path: str = "salesApiCompanies?action=save"):
+    return _Request(path, PLANNED.body if body is None else body)
 
 
 async def _send(page: _Page, request: _Request) -> str | None:
@@ -93,9 +90,7 @@ async def test_while_a_tool_holds_the_page_every_write_is_aborted():
 
 async def test_a_post_tunnelling_a_delete_is_a_write():
     page = _Page()
-    tunnel = _Request(
-        f"salesApiLists/{LIST}", headers={"X-HTTP-Method-Override": "DELETE"}
-    )
+    tunnel = _Request(DELETE_PATH, headers={"X-HTTP-Method-Override": "DELETE"})
     async with guard.without_sales_list_writes(page):
         assert await _send(page, tunnel) == "aborted"
 
@@ -124,29 +119,26 @@ async def test_the_boot_record_passes_only_outside_a_window():
 @pytest.mark.parametrize(
     ("request_", "reason"),
     [
-        (_add(entity="100000302"), "not the planned list"),
-        (_add(action="removeEntities"), "not the planned action"),
         (
-            _add({"entityUrns": ["urn:li:fs_salesCompany:100000002"]}),
+            _add({"companyIds": [100000001], "lists": [100000302]}),
             "body differs from the plan",
         ),
         (
-            _add(
-                {
-                    "entityUrns": [
-                        "urn:li:fs_salesCompany:100000001",
-                        "urn:li:fs_salesCompany:100000002",
-                    ]
-                }
-            ),
+            _add({"companyIds": [100000001, 100000002], "lists": [int(LIST)]}),
             "body differs from the plan",
         ),
+        (_add(path="salesApiCompanies?action=unsave"), "query differs from the plan"),
         (
-            _Request(f"salesApiLists/{LIST}", method="DELETE"),
+            _add(path="salesApiCompanies?action=save&action=unsave"),
+            "query differs from the plan",
+        ),
+        (_add(path="salesApiCompanies"), "query differs from the plan"),
+        (
+            _Request("salesApiCompanies?action=save", method="DELETE"),
             "method DELETE is not the planned POST",
         ),
         (
-            _Request(f"salesApiLeadLists/{LIST}?action=addEntities", PLANNED.body),
+            _add(path="salesApiLists?action=save"),
             "not the planned resource",
         ),
     ],
@@ -169,6 +161,27 @@ async def test_the_window_admits_the_plan_once():
         assert await _send(page, _add()) == "aborted"
     assert window.admitted == 1
     assert window.refused == ["a write was already sent"]
+
+
+@pytest.mark.parametrize(
+    ("path", "reason"),
+    [
+        (DELETE_PATH.replace(LIST, "100000302"), "not the planned list"),
+        (
+            DELETE_PATH.replace("unsaveEntity=false", "unsaveEntity=true"),
+            "query differs from the plan",
+        ),
+        (f"salesApiLists/{LIST}", "query differs from the plan"),
+    ],
+)
+async def test_a_delete_window_admits_only_that_list_keeping_its_accounts(path, reason):
+    page = _Page()
+    async with guard.without_sales_list_writes(page):
+        async with guard.explicit_list_write(page, DELETE) as window:
+            assert await _send(page, _Request(path, method="DELETE")) == "aborted"
+            assert await _send(page, _Request(DELETE_PATH, method="DELETE")) == "sent"
+    assert window.refused == [reason]
+    assert window.admitted == 1
 
 
 async def test_a_window_needs_the_page_held():

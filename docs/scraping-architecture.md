@@ -63,7 +63,7 @@ a page-owning collaborator.
 | `sales_navigator_api` | `SalesNavigatorCapture` | `browser-free` |
 | `sales_navigator_lead_filters` | `ACCOUNT_LIST`, `FUNCTION`, `FUNCTION_IDS`, `LEAD_LIST`, `RELATIONSHIP`, `TENURE_IDS`, `TenureBucket`, `YEARS_AT_CURRENT_COMPANY`, `YEARS_IN_CURRENT_POSITION`, `function_ids()`, `tenure_ids()` | `browser-free` |
 | `sales_navigator_list_guard` | `ListWriteWindow`, `PlannedListWrite`, `admission_refusal()`, `explicit_list_write()`, `register_sales_list_routes()`, `without_sales_list_writes()` | `browser-free` |
-| `sales_navigator_list_payload` | `ACCOUNT_LIST_TYPE`, `DESCRIPTION_MAX_LENGTH`, `LISTS`, `MAX_ACCOUNTS_PER_CALL`, `NAME_MAX_LENGTH`, `add_request()`, `company_urn()`, `create_request()`, `created_list_id()`, `delete_request()`, `refuse_invalid_list_text()` | `browser-free` |
+| `sales_navigator_list_payload` | `ACCOUNT_LIST_TYPE`, `AccountStatus`, `COMPANIES`, `DESCRIPTION_MAX_LENGTH`, `LISTS`, `MAX_ACCOUNTS_PER_CALL`, `NAME_MAX_LENGTH`, `add_request()`, `add_statuses()`, `create_request()`, `created_list_id()`, `delete_request()`, `refuse_invalid_list_text()` | `browser-free` |
 | `sales_navigator_list_writes` | `PlannedAccounts`, `SalesNavigatorListWriter`, `list_write_result()`, `plan_accounts()` | `browser-free` |
 | `sales_navigator_payload` | `Account`, `AccountCard`, `AccountList`, `COMPANY_FILTER_ID`, `COMPANY_HEADCOUNT`, `COMPANY_HEADCOUNT_GROWTH`, `CURRENT_COMPANY`, `CURRENT_TITLE`, `EmployeeGrowth`, `Headquarters`, `INDUSTRY`, `Lead`, `ListedAccount`, `MAX_PAGE`, `PAGE_SIZE`, `Position`, `REGION`, `RESULT_CAP`, `RevenueRange`, `SENIORITY_IDS`, `SENIORITY_LEVEL`, `SN_API_PREFIX`, `SearchFilter`, `SearchPaging`, `Seniority`, `SeniorityLevel`, `SnCall`, `SnMoney`, `T`, `WITHHELD_REASON`, `Withheld`, `build_account()`, `build_account_card()`, `build_account_list()`, `build_elements()`, `build_lead()`, `build_leads()`, `build_listed_account()`, `build_paging()`, `build_search_query()`, `build_withheld()`, `is_withheld()`, `missing_echoes()`, `parse_sn_call()`, `render_account()`, `render_account_cards()`, `render_account_lists()`, `render_leads()`, `render_listed_accounts()`, `restli_value()`, `sales_company_id()`, `sales_profile_id()`, `search_page_url()`, `unrequested_echoes()` | `browser-free` |
 | `search_pages` | `SearchPages`, `paginate_search()`, `search_rows()` | `browser-free` |
@@ -122,7 +122,7 @@ a page-owning collaborator.
 - `sales_navigator_api` -> `api_capture`, `sales_navigator_payload`
 - `sales_navigator_lead_filters` -> `contracts`
 - `sales_navigator_list_guard` -> `sales_navigator_payload`
-- `sales_navigator_list_payload` -> `restli`, `sales_navigator_list_guard`
+- `sales_navigator_list_payload` -> `restli`, `sales_navigator_list_guard`, `sales_navigator_payload`
 - `sales_navigator_list_writes` -> `identifiers`, `restli`, `sales_navigator`, `sales_navigator_list_guard`, `sales_navigator_list_payload`, `sales_navigator_payload`
 - `sales_navigator_payload` -> `identifiers`, `restli`
 - `search_pages` -> `capture`, `contracts`, `link_metadata`, `search_parse`, `session`

@@ -119,6 +119,23 @@ def _spent(store: JobStore) -> int:
     )
 
 
+def _saved(*entries: tuple[str, str]) -> dict[str, Any]:
+    return {
+        "status": 200,
+        "payload": {
+            "value": {
+                "successful": [],
+                "failed": [],
+                "listEntityActionResponses": [
+                    {"status": status, "entity": f"urn:li:fs_salesCompany:{company}"}
+                    for company, status in entries
+                ],
+            }
+        },
+        "restliId": None,
+    }
+
+
 def _body(sent: dict[str, Any]) -> Any:
     return json.loads(sent["body"]) if sent["body"] else None
 
@@ -142,7 +159,11 @@ async def test_delete_sends_only_the_exact_list_after_the_name_matches(
     assert result["status"] == "deleted"
     assert result["retry_safe"] is False
     assert [(s["method"], _path(s)) for s in page.sent] == [
-        ("DELETE", f"/sales-api/salesApiLists/{LIST}")
+        (
+            "DELETE",
+            f"/sales-api/salesApiLists/{LIST}"
+            "?unsaveEntity=false&doUnsaveLeadsUnderAccount=false",
+        )
     ]
     assert _spent(ledger) == 1
 
@@ -256,13 +277,13 @@ async def test_a_request_that_drifted_from_the_plan_is_stopped_in_the_browser(
     page = _Page([{"status": 200, "payload": {}, "restliId": None}])
 
     def other_list(arg: dict[str, Any]) -> dict[str, Any]:
-        return {**arg, "url": arg["url"].replace(LIST, "100000302")}
+        return {**arg, "body": arg["body"].replace(LIST, "100000302")}
 
     page.tamper = other_list
     writer, _ = _writer(page, monkeypatch, record=_account_list())
     result = await writer.add_accounts(LIST, ["100000001"], confirm_send=True)
     assert result["status"] == "not_sent"
-    assert "not the planned list" in result["message"]
+    assert "body differs from the plan" in result["message"]
     assert result["retry_safe"] is True
     assert page.sent == []
     assert _spent(ledger) == 0
@@ -274,7 +295,7 @@ async def test_a_request_that_drifted_from_the_plan_is_stopped_in_the_browser(
 async def test_add_sends_one_request_with_exactly_the_planned_accounts(
     ledger, monkeypatch
 ):
-    page = _Page([{"status": 200, "payload": {}, "restliId": None}])
+    page = _Page([_saved(("100000001", "SUCCESS"), ("100000002", "SUCCESS"))])
     writer, _ = _writer(page, monkeypatch, record=_account_list())
     result = await writer.add_accounts(
         LIST, ["100000001", "100000002"], confirm_send=True
@@ -283,7 +304,8 @@ async def test_add_sends_one_request_with_exactly_the_planned_accounts(
     assert [a["status"] for a in result["accounts"]] == ["added", "added"]
     (sent,) = page.sent
     assert sent["method"] == "POST"
-    assert _body(sent) == writes.add_request(LIST, ["100000001", "100000002"]).body
+    assert _body(sent) == {"companyIds": [100000001, 100000002], "lists": [int(LIST)]}
+    assert _path(sent) == "/sales-api/salesApiCompanies?action=save"
     assert _spent(ledger) == 1
 
 
@@ -336,20 +358,25 @@ async def test_a_create_dry_run_touches_no_page(ledger, monkeypatch):
 async def test_create_then_add_to_the_id_sales_navigator_answered(ledger, monkeypatch):
     page = _Page(
         [
-            {"status": 201, "payload": None, "restliId": "100000399"},
-            {"status": 200, "payload": {}, "restliId": None},
+            {"status": 201, "payload": {"id": 100000399}, "restliId": None},
+            _saved(("100000001", "SUCCESS")),
         ]
     )
     writer, _ = _writer(page, monkeypatch)
     result = await writer.create_account_list(
-        NAME, description="Example", accounts=["100000001"], confirm_send=True
+        NAME, description=" Example ", accounts=["100000001"], confirm_send=True
     )
     assert result["status"] == "created"
     assert result["list"]["id"] == "100000399"
     assert result["accounts"][0]["status"] == "added"
     create, add = page.sent
-    assert _body(create) == writes.create_request(NAME, "Example").body
-    assert "100000399" in add["url"]
+    assert _body(create) == {
+        "name": NAME,
+        "listType": "ACCOUNT",
+        "role": "OWNER",
+        "description": "Example",
+    }
+    assert _body(add)["lists"] == [100000399]
     assert _spent(ledger) == 2
 
 
@@ -404,3 +431,46 @@ def test_an_unrecognised_account_or_too_many_refuse_the_call():
     assert writes.plan_accounts(["acme"]).invalid is not None
     too_many = [str(100000001 + i) for i in range(writes.MAX_ACCOUNTS_PER_CALL + 1)]
     assert "At most" in (writes.plan_accounts(too_many).invalid or "")
+
+
+async def test_each_account_takes_the_status_sales_navigator_gave_it(
+    ledger, monkeypatch
+):
+    page = _Page(
+        [
+            _saved(
+                ("100000001", "SUCCESS"),
+                ("100000002", "CONFLICT"),
+                ("100000003", "EXCEED_LIMIT"),
+            )
+        ]
+    )
+    writer, _ = _writer(page, monkeypatch, record=_account_list())
+    result = await writer.add_accounts(
+        LIST, ["100000001", "100000002", "100000003"], confirm_send=True
+    )
+    assert result["status"] == "partly_added"
+    assert [(a["status"], a.get("detail")) for a in result["accounts"]] == [
+        ("added", None),
+        ("already_in_list", None),
+        ("refused", "EXCEED_LIMIT"),
+    ]
+
+
+async def test_an_account_the_answer_does_not_name_is_never_added(ledger, monkeypatch):
+    page = _Page([_saved(("100000001", "SUCCESS"))])
+    writer, _ = _writer(page, monkeypatch, record=_account_list())
+    result = await writer.add_accounts(
+        LIST, ["100000001", "100000002"], confirm_send=True
+    )
+    assert result["status"] == "add_unconfirmed"
+    assert result["retry_safe"] is False
+    assert [a["status"] for a in result["accounts"]] == ["added", "unconfirmed"]
+
+
+async def test_a_2xx_without_a_readable_answer_is_unconfirmed(ledger, monkeypatch):
+    page = _Page([{"status": 200, "payload": {}, "restliId": None}])
+    writer, _ = _writer(page, monkeypatch, record=_account_list())
+    result = await writer.add_accounts(LIST, ["100000001"], confirm_send=True)
+    assert result["status"] == "add_unconfirmed"
+    assert result["accounts"][0]["status"] == "unconfirmed"
