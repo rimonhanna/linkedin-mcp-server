@@ -69,6 +69,8 @@ PUBLIC_SIGNATURES = {
     "get_sales_navigator_account": "(self, company_id: 'str') -> 'dict[str, Any]'",
     "list_sales_navigator_account_lists": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "get_sales_navigator_account_list": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "list_page_follow_candidates": "(self, company_id: 'str', *, keywords: 'str | None' = None, limit: 'int' = 20, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "invite_to_follow_page": "(self, company_id: 'str', people: 'list[str]', *, confirm_send: 'bool', deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
     "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
 }
@@ -115,6 +117,8 @@ DELEGATES = {
     "get_sales_navigator_account": ("_sales_navigator", "get_account"),
     "list_sales_navigator_account_lists": ("_sales_navigator", "list_account_lists"),
     "get_sales_navigator_account_list": ("_sales_navigator", "get_account_list"),
+    "list_page_follow_candidates": ("_page_invites", "list_follow_candidates"),
+    "invite_to_follow_page": ("_page_invites", "invite_to_follow"),
 }
 
 DELEGATE_CALLS = {
@@ -163,6 +167,14 @@ DELEGATE_CALLS = {
     "get_sales_navigator_account_list": (
         "self._sales_navigator.get_account_list(list_id, page, deadline=deadline)"
     ),
+    "list_page_follow_candidates": (
+        "self._page_invites.list_follow_candidates(company_id, keywords=keywords, "
+        "limit=limit, deadline=deadline)"
+    ),
+    "invite_to_follow_page": (
+        "self._page_invites.invite_to_follow(company_id, people, "
+        "confirm_send=confirm_send, deadline=deadline)"
+    ),
 }
 
 FACADE_STATE = {
@@ -179,6 +191,7 @@ FACADE_STATE = {
     "_feed",
     "_jobs",
     "_message_sender",
+    "_page_invites",
     "_person",
     "_posts",
     "_sales_navigator",

@@ -22,6 +22,9 @@ work, health checks, or background maintenance.
   actions. Use them only when the user explicitly authorizes the
   exact recipient and action (for a reply, the exact thread). Confirm the
   final message or connection note unless the user has already supplied it.
+- `invite_to_follow_page` invites people to follow a page as the user. Call it
+  with `confirm_send` false first, show the user who would be invited and the
+  credits it uses, and confirm only the people they approved.
 - `update_campaign`, `set_campaign_status`, `update_campaign_targeting`,
   `create_campaign_draft`, `add_post_to_campaign`,
   `create_company_list_audience` and `create_saved_audience` change the
@@ -101,6 +104,8 @@ instances, clear profiles, or replace the user's browser session.
   `search_sales_navigator_accounts`, `search_sales_navigator_leads`,
   `get_sales_navigator_account`, `list_sales_navigator_account_lists` and
   `get_sales_navigator_account_list`.
+- Company pages you administer: `list_page_follow_candidates` (read-only)
+  and `invite_to_follow_page`.
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
   InMail included, by its thread ID) and `connect_with_person`, and the
   Campaign Manager writes (`update_campaign`, `set_campaign_status`,

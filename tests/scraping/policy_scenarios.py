@@ -32,6 +32,7 @@ from linkedin_mcp_server.scraping import feed as feed_module
 from linkedin_mcp_server.scraping import job_pages as job_pages_module
 from linkedin_mcp_server.scraping import jobs as jobs_module
 from linkedin_mcp_server.scraping import navigation as navigation_module
+from linkedin_mcp_server.scraping import page_invites as page_invites_module
 from linkedin_mcp_server.scraping import person as person_module
 from linkedin_mcp_server.scraping import session as session_module
 from linkedin_mcp_server.scraping.messaging_api import MessagingApiCapture
@@ -1979,6 +1980,8 @@ TOOL_FACADE_METHODS = {
     "get_sales_navigator_account",
     "list_sales_navigator_account_lists",
     "get_sales_navigator_account_list",
+    "list_page_follow_candidates",
+    "invite_to_follow_page",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
 
@@ -2856,6 +2859,118 @@ async def _cm_saved_audience_scenario() -> dict[str, Any]:
     )
 
 
+_PI_COMPANY = "100000701"
+_PI_COMMUNITY = f"urn:li%3Afs_normalized_company%3A{_PI_COMPANY}"
+_PI_API = "https://www.linkedin.com/voyager/api/"
+
+
+def _pi_response(path: str, payload: Any) -> ScriptedCmResponse:
+    return ScriptedCmResponse(ScriptedCmRequest(_PI_API + path), payload)
+
+
+def _pi_dialog_responses(profiles: list[str]) -> list[ScriptedCmResponse]:
+    urns = [f"urn:li:fsd_profile:{profile}" for profile in profiles]
+    return [
+        _pi_response(
+            "voyagerRelationshipsDashCommunityInviterStatistics?q=community"
+            f"&community={_PI_COMMUNITY}",
+            {
+                "data": {
+                    "elements": [
+                        {
+                            "remainingCredit": 1,
+                            "initialCreditGrant": 100,
+                            "nextCreditGrantOn": {"year": 2026, "month": 12, "day": 1},
+                        }
+                    ],
+                    "paging": {"start": 0, "count": 10},
+                },
+                "included": [],
+            },
+        ),
+        _pi_response(
+            "voyagerRelationshipsDashCommunityInviteeSuggestions?q=community"
+            f"&useCase=INVITEE_PICKER&community={_PI_COMMUNITY}&start=0&count=20",
+            {
+                "data": {
+                    "elements": [{"suggestedProfile": urn} for urn in urns],
+                    "paging": {"start": 0, "count": len(urns)},
+                },
+                "included": [
+                    {
+                        "entityUrn": urn,
+                        "firstName": "Example",
+                        "lastName": f"Person {index}",
+                        "headline": "Example headline",
+                        "publicIdentifier": f"example-person-{index}",
+                    }
+                    for index, urn in enumerate(urns)
+                ],
+            },
+        ),
+        _pi_response(
+            "voyagerRelationshipsDashCommunityInviteeSuggestionStatus"
+            f"?q=communityAndInvitees&community={_PI_COMMUNITY}",
+            {
+                "data": {
+                    "elements": [
+                        {"suggestedProfile": urn, "ableToBeInvited": index != 2}
+                        for index, urn in enumerate(urns)
+                    ],
+                    "paging": {"start": 0, "count": 10},
+                },
+                "included": [],
+            },
+        ),
+    ]
+
+
+async def _page_invite_run(
+    name: str, method: str, arguments: dict[str, Any], call: Any
+) -> dict[str, Any]:
+    page = _page(TraceRecorder(name, _COMMON_ALLOWED))
+    profiles = ["ACoAAExample0", "ACoAAExample1", "ACoAAExample2"]
+    page.script(
+        "goto",
+        lambda: [page.emit("response", r) for r in _pi_dialog_responses(profiles)],
+    )
+    recorder = page.recorder
+    clock = FakeClock(recorder)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        # Fixed headroom: the real one reads the clock and the schedule.
+        with (
+            patch.object(
+                page_invites_module, "_pacing_headroom", lambda _now: (20, None)
+            ),
+            recorder.context(method, name),
+        ):
+            result = await call(extractor)
+    page.assert_clean(retained_invite_guard=True)
+    return recorder.trace({"method": method, "arguments": arguments}, result)
+
+
+async def _page_follow_candidates_scenario() -> dict[str, Any]:
+    return await _page_invite_run(
+        "list_page_follow_candidates__first_page",
+        "list_page_follow_candidates",
+        {"company_id": _PI_COMPANY, "limit": 2},
+        lambda extractor: extractor.list_page_follow_candidates(_PI_COMPANY, limit=2),
+    )
+
+
+async def _page_invite_dry_run_scenario() -> dict[str, Any]:
+    people = ["ACoAAExample0", "ACoAAExample1", "ACoAAExample2", "ACoAAMissing"]
+    return await _page_invite_run(
+        "invite_to_follow_page__dry_run",
+        "invite_to_follow_page",
+        {"company_id": _PI_COMPANY, "people": people, "confirm_send": False},
+        lambda extractor: extractor.invite_to_follow_page(
+            _PI_COMPANY, people, confirm_send=False
+        ),
+    )
+
+
 async def build_policy_traces() -> dict[str, dict[str, Any]]:
     traces = {
         "facade-contract.json": await _facade_contract_trace(),
@@ -2963,6 +3078,8 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "sn-account-lists.json": await _sn_account_lists_scenario(),
         "sn-account-list.json": await _sn_account_list_scenario(),
         "sn-no-seat.json": await _sn_no_seat_scenario(),
+        "page-follow-candidates.json": await _page_follow_candidates_scenario(),
+        "page-invite-dry-run.json": await _page_invite_dry_run_scenario(),
     }
     return traces
 

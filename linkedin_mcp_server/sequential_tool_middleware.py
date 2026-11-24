@@ -94,6 +94,7 @@ class SequentialToolExecutionMiddleware(Middleware):
             "send_message",
             "reply_to_conversation",
             "withdraw_invitations",
+            "invite_to_follow_page",
             "update_campaign",
             "set_campaign_status",
             "update_campaign_targeting",
