@@ -88,6 +88,8 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `get_sales_navigator_inbox` | Recent Sales Navigator inbox conversations (1 to 1,000), in any inbox view: all, unread, sent, InMail awaiting response, accepted or declined, archived. Unread conversations stay unread. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_conversation` | One Sales Navigator conversation by `thread_id`, or by `lead_id` (matched on the lead id only, never by name), with up to 40 of its newest messages. Unread stays unread. Needs a Sales Navigator seat. Read-only |
 | `search_sales_navigator_conversations` | Search Sales Navigator messages by keyword through the inbox's own search box (up to 50 conversations). Unread stays unread. Needs a Sales Navigator seat. Read-only |
+| `send_sales_navigator_message` | Send a new Sales Navigator message to one lead by lead id, a connection (free) or not (an InMail: needs a `subject` and, unless the lead has an Open Profile, one InMail credit, which needs `spend_inmail_credit` on top of `confirm_send`). A dry run types nothing and reports `delivery` (`kind`, `creditCost`, `creditsRemaining`). Needs a Sales Navigator seat |
+| `reply_to_sales_navigator_conversation` | Reply inside an existing Sales Navigator conversation by its thread id (requires confirmation; verifies the conversation and its reply box first, and a dry run leaves an unread conversation unread). Needs a Sales Navigator seat |
 | `start_enrichment_job` | Queue a resumable bulk profile-enrichment job from a list of usernames or profile URLs |
 | `run_enrichment_bunch` | Visit the next few profiles in a job, paced with randomized delays, a rolling 24h action budget and working hours; returns when to call it again. A bunch that loses its browser relaunches it and retries once; a profile that never loaded is left pending and is not charged |
 | `get_enrichment_status` | Progress and collected results for an enrichment job, or list all jobs |
@@ -258,7 +260,7 @@ refused outside working hours like invitations and messages.
 The Sales Navigator tools need a Sales Navigator seat on the signed-in
 account. Without one, LinkedIn shows another page and the tool says so.
 
-They only read. Each call opens a Sales Navigator page in your browser and
+The read tools only read. Each call opens a Sales Navigator page in your browser and
 takes its data from the responses that page loads. The one request of their
 own is `get_sales_navigator_conversation` asking for older messages: it repeats
 the page's own older-messages request, with the page's own headers, for at
@@ -283,6 +285,25 @@ types the keywords into the inbox's search box, because Sales Navigator has no
 search address, and clicks no result. A `lead_id` passed to
 `get_sales_navigator_conversation` is looked for in the 200 most recent
 conversations of the inbox, not in archived ones.
+
+`send_sales_navigator_message` and `reply_to_sales_navigator_conversation`
+write as you. A new message opens Sales Navigator's message box for the lead
+(`/sales/inbox/mobile-compose/<lead>`, a Sales Navigator page, not a lead
+page), and a reply opens the conversation. Until a confirmed send, the
+conversation's read state is left alone, and the page's own data must name
+exactly that lead or conversation. Both need `confirm_send`; call with it
+false first to see who the message goes to and what it costs. A message to a
+connection is free; anyone else gets an InMail, which needs a one-line
+`subject` and uses one InMail credit unless the lead has an Open Profile.
+Spending a credit also needs `spend_inmail_credit=true`, and without it the
+answer is `inmail_credit_required` with the credits left. The balance comes
+from Sales Navigator itself; when it is zero the answer is
+`no_inmail_credits`, and when the page did not report it,
+`inmail_credits_unknown`. A send is confirmed only by Sales Navigator's own
+answer to its send request. A reply box that asks for a subject would start a
+new InMail and is refused. Sales Navigator sends are counted against
+`SALES_NAVIGATOR_MESSAGES_MAX` (50 per rolling 24 h), separate from
+`MESSAGES_MAX`, and wait for working hours like other messages.
 
 Each search page counts against `SEARCH_PAGES_MAX`, the same cap as classic
 people and company search. Other Sales Navigator pages are counted but have no
@@ -1012,6 +1033,7 @@ off.
 | `SEARCH_PAGES_MAX` | `100` | Search result pages per rolling 24 h, Sales Navigator search pages included; may be raised or lowered |
 | `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / per calendar week (resets Monday 00:00 local time); both may be raised or lowered |
 | `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may be raised or lowered |
+| `SALES_NAVIGATOR_MESSAGES_MAX` | `50` | Sales Navigator messages and replies per rolling 24 h, counted apart from `MESSAGES_MAX`; may be raised or lowered |
 | `CAMPAIGN_WRITES_MAX` | `30` | Campaign Manager writes per rolling 24 h; may be raised or lowered |
 | `WORKING_HOURS_DISABLED` | off | `1` lets invitations, messages and Campaign Manager writes go outside working hours and lifts the halved read caps |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one |
@@ -1041,8 +1063,8 @@ off.
 
 Two consecutive tool calls are spaced by a random gap drawn log-uniformly
 from 8–20 s for tools that only read and 20–60 s for `connect_with_person`,
-`send_message`, `reply_to_conversation`, `withdraw_invitations` and the
-Campaign Manager writes. The middleware reports progress while it waits, so a client
+`send_message`, `reply_to_conversation`, the two Sales Navigator send tools,
+`withdraw_invitations` and the Campaign Manager writes. The middleware reports progress while it waits, so a client
 never sees a silent server. `TOOL_CALL_GAP_SECONDS` replaces the read minimum
 and scales every other bound with it.
 

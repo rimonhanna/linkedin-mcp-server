@@ -120,6 +120,10 @@
         "coroutine": true,
         "signature": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'"
       },
+      "reply_to_sales_navigator_conversation": {
+        "coroutine": true,
+        "signature": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
       "scrape_company": {
         "coroutine": true,
         "signature": "(self, company_name: 'str', requested: 'set[str]', callbacks: 'ProgressCallback | None' = None) -> 'dict[str, Any]'"
@@ -172,6 +176,10 @@
         "coroutine": true,
         "signature": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'"
       },
+      "send_sales_navigator_message": {
+        "coroutine": true,
+        "signature": "(self, lead_id: 'str', message: 'str', *, confirm_send: 'bool', subject: 'str | None' = None, spend_inmail_credit: 'bool' = False) -> 'dict[str, Any]'"
+      },
       "set_campaign_status": {
         "coroutine": true,
         "signature": "(self, account_id: 'str', campaign_id: 'str', *, status: 'str', confirm_send: 'bool') -> 'dict[str, Any]'"
@@ -215,6 +223,7 @@
       "list_sales_navigator_account_lists",
       "list_sponsorable_posts",
       "reply_to_conversation",
+      "reply_to_sales_navigator_conversation",
       "scrape_company",
       "scrape_job",
       "scrape_person",
@@ -228,6 +237,7 @@
       "search_sales_navigator_leads",
       "search_targeting_entities",
       "send_message",
+      "send_sales_navigator_message",
       "set_campaign_status",
       "update_campaign",
       "update_campaign_targeting",
@@ -1346,6 +1356,35 @@
           "type": "object"
         }
       },
+      "reply_to_sales_navigator_conversation": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "confirm_send": {
+              "description": "Must be True to send. False is a dry run that\nverifies the conversation and reply box, types nothing, and\nsays who the reply would go to.",
+              "type": "boolean"
+            },
+            "message": {
+              "description": "Message text to send, read as send_sales_navigator_message\nreads it.",
+              "type": "string"
+            },
+            "thread_id": {
+              "description": "Sales Navigator conversation id, or its /sales/inbox/<id>\nURL, as get_sales_navigator_inbox returned it",
+              "type": "string"
+            }
+          },
+          "required": [
+            "thread_id",
+            "message",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "run_enrichment_bunch": {
         "input": {
           "additionalProperties": false,
@@ -2126,6 +2165,52 @@
           },
           "required": [
             "linkedin_username",
+            "message",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "send_sales_navigator_message": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "confirm_send": {
+              "description": "Must be True to send. False is a dry run.",
+              "type": "boolean"
+            },
+            "lead_id": {
+              "description": "The lead's id as search_sales_navigator_leads or\nget_sales_navigator_inbox returned it, or its fs_salesProfile\nURN or /sales/lead/ URL",
+              "type": "string"
+            },
+            "message": {
+              "description": "Message text to send. Line breaks (LF or CRLF) are typed\nas Shift+Enter; three or more in a row collapse to one blank\nline. Other C0 control characters and DEL are rejected.",
+              "type": "string"
+            },
+            "spend_inmail_credit": {
+              "default": false,
+              "description": "Must be True for a send that uses an InMail\ncredit. Without it such a send returns inmail_credit_required\nand nothing is typed.",
+              "type": "boolean"
+            },
+            "subject": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The InMail subject, one line. Required for an InMail;\nrefused for a message to a connection, which has none."
+            }
+          },
+          "required": [
+            "lead_id",
             "message",
             "confirm_send"
           ],

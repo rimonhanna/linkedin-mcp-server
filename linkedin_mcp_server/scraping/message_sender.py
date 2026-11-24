@@ -210,14 +210,6 @@ _PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 1_000
 _SEND_PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 10_000
 _MESSAGE_SUBMIT_READY_TIMEOUT_MS = 1_000
 _MESSAGE_CLEANUP_TIMEOUT_SECONDS = 1.0
-# A send that may already have left has to answer. FastMCP runs a tool inside
-# `anyio.fail_after()`, and a deadline landing after the click discards
-# whatever the send would have returned, so the work after dispatch stops this
-# far ahead of the deadline the call runs under and answers `send_unconfirmed`
-# itself. A sixth of the time left, capped so a long TOOL_TIMEOUT does not cut
-# confirmation short for nothing.
-_SEND_REPLY_RESERVE_FRACTION = 1 / 6
-_SEND_REPLY_RESERVE_SECONDS = 5.0
 
 _MESSAGE_COMPOSER_INSPECT_JS = r"""
     const visible = element => {
@@ -1404,22 +1396,6 @@ class _SendConfirmation:
     text: str | None = None
 
 
-def _line_breaks_lost(message: str, delivered: str | None) -> bool:
-    """True when the delivered text equals the message except for its line breaks."""
-    if delivered is None:
-        return False
-
-    def lines(text: str) -> list[str]:
-        text = contracts.normalize_message_line_breaks(text)
-        return [line.strip() for line in text.split("\n") if line.strip()]
-
-    # A blank line between <p> elements is extra, not lost; only fewer
-    # non-empty lines than the message means breaks were dropped.
-    return len(lines(delivered)) < len(lines(message)) and " ".join(
-        message.split()
-    ) == " ".join(delivered.split())
-
-
 def _confirmation_from_snapshot(
     snapshot: Any, target: _MessageTarget | None = None
 ) -> _SendConfirmation | None:
@@ -1530,17 +1506,6 @@ def _profile_urn_from_compose_url(value: str, *, base: str | None = None) -> str
     if len(identifiers) != 1:
         return None
     return identifiers.pop()
-
-
-def _send_budget_deadline() -> float:
-    """When the work after dispatch has to stop, on the event loop's clock."""
-    deadline = anyio.current_effective_deadline()
-    if math.isinf(deadline):
-        return deadline
-    remaining = max(0.0, deadline - anyio.current_time())
-    return deadline - min(
-        _SEND_REPLY_RESERVE_SECONDS, remaining * _SEND_REPLY_RESERVE_FRACTION
-    )
 
 
 def _message_page_url_is_safe(value: str, profile_urn: str) -> bool:
@@ -2076,7 +2041,7 @@ class MessageSender:
         profile_url = person_profile_url(linkedin_username, "/")
         # Read while the whole call is still ahead, so the reserve is a share
         # of the tool's time rather than of whatever navigation left over.
-        budget_deadline = _send_budget_deadline()
+        budget_deadline = contracts.send_budget_deadline()
 
         await self._navigator._navigate_to_page(profile_url)
         await self._session.check_rate_limit()
@@ -2423,7 +2388,7 @@ class MessageSender:
                             if isinstance(target, _ProfileMessageTarget)
                             else {}
                         )
-                        if _line_breaks_lost(message, confirmed.text):
+                        if contracts.line_breaks_lost(message, confirmed.text):
                             return respond(
                                 self._page.url,
                                 "sent_flattened",
@@ -2535,7 +2500,7 @@ class MessageSender:
 
         respond = respond_for(None)
         # Read while the whole call is still ahead, as send_message does.
-        budget_deadline = _send_budget_deadline()
+        budget_deadline = contracts.send_budget_deadline()
         # Opening a thread is a read until the reply is confirmed: a refusal
         # or a dry run must leave the thread unread, so every step up to that
         # decision runs with LinkedIn's read-state writes blocked.

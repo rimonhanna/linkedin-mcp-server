@@ -2146,6 +2146,8 @@ TOOL_FACADE_METHODS = {
     "get_sales_navigator_inbox",
     "get_sales_navigator_conversation",
     "search_sales_navigator_conversations",
+    "send_sales_navigator_message",
+    "reply_to_sales_navigator_conversation",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
 

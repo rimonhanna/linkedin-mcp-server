@@ -126,6 +126,9 @@ SEARCH_PAGES_MAX = 100  # SEARCH_PAGES_MAX, per 24 h (Linked Helper's recommenda
 INVITES_MAX = 20  # INVITES_MAX, per 24 h
 INVITES_WEEKLY_MAX = 160  # INVITES_WEEKLY_MAX, per calendar week (resets Monday 00:00)
 MESSAGES_MAX = 50  # MESSAGES_MAX, per 24 h
+# SALES_NAVIGATOR_MESSAGES_MAX, per 24 h. Sales Navigator sends have their own
+# cap beside the regular one; InMail credits are LinkedIn's own limit on top.
+SALES_NAVIGATOR_MESSAGES_MAX = 50
 CAMPAIGN_WRITES_MAX = 30  # CAMPAIGN_WRITES_MAX, per 24 h
 
 # Kinds a navigation is filed under, by URL. Only ``profile`` and ``search``
@@ -158,6 +161,8 @@ WITHDRAWALS = "withdrawals"
 # A Campaign Manager write that left the browser (a budget, status, targeting
 # or audience change): a write like the others, with its own daily cap.
 CAMPAIGN_WRITES = "campaign_writes"
+# A Sales Navigator message or reply: a write with its own daily cap.
+SALES_NAVIGATOR_MESSAGES = "sales_navigator_messages"
 
 # Slice shaved off the daily cap by the per-day draw (DAILY_CAP_JITTER):
 # uniform(1 - jitter, 1.0), so the total is never a round number.
@@ -265,6 +270,17 @@ def kind_caps(kind: str) -> tuple[tuple[int, int], ...]:
             (
                 env_int(
                     EnvironmentKeys.CAMPAIGN_WRITES_MAX, CAMPAIGN_WRITES_MAX, minimum=1
+                ),
+                WINDOW_SECONDS,
+            ),
+        )
+    if kind == SALES_NAVIGATOR_MESSAGES:
+        return (
+            (
+                env_int(
+                    EnvironmentKeys.SALES_NAVIGATOR_MESSAGES_MAX,
+                    SALES_NAVIGATOR_MESSAGES_MAX,
+                    minimum=1,
                 ),
                 WINDOW_SECONDS,
             ),
@@ -983,7 +999,13 @@ def refuse_if_limited(
     off_hours, caps = _effective_caps(
         budget, kind, now, ignore_schedule=ignore_schedule
     )
-    if off_hours and kind in (INVITES, MESSAGES, WITHDRAWALS, CAMPAIGN_WRITES):
+    if off_hours and kind in (
+        INVITES,
+        MESSAGES,
+        WITHDRAWALS,
+        CAMPAIGN_WRITES,
+        SALES_NAVIGATOR_MESSAGES,
+    ):
         raise ActionLimitError(
             kind,
             limit=0,
