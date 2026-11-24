@@ -672,8 +672,8 @@ async def test_new_message_into_a_thread_with_a_non_connection_sends_with_the_fl
 # --- Every profile response counts -----------------------------------------
 
 
-async def test_a_later_profile_response_with_the_open_profile_badge_counts(dom):
-    responses = [_profile(2), _profile(None, open_link=True), _credits(7)]
+async def test_any_profile_response_with_the_open_profile_badge_counts(dom):
+    responses = [_profile(None, open_link=True), _profile(2), _credits(7)]
 
     result = await send(
         dom,
@@ -700,7 +700,7 @@ async def test_profile_responses_that_disagree_on_degree_name_no_connection(dom)
 
 
 async def test_teamlink_inmail_is_free_and_needs_no_spend_flag(dom):
-    responses = [_profile(None, colleague=False), _profile(3, colleague=True)]
+    responses = [_profile(3, colleague=True), _profile(None, colleague=False)]
 
     result = await send(
         dom, composer_page(subject=True), [*responses, _credits(7)], subject="Hello"
@@ -803,4 +803,19 @@ async def test_another_button_changing_while_typing_stops_the_send(dom):
     assert result["status"] == "send_unavailable"
     assert result["retry_safe"] is True
     assert await _clicks(dom) == 0
+    assert dom.sends == []
+
+
+async def test_a_send_window_the_click_left_unused_is_closed(dom, monkeypatch):
+    monkeypatch.setattr(sales_navigator_sender, "_SEND_RESPONSE_SECONDS", 1.0)
+    html = composer_page().replace("fetch('/sales-api/", "void('/sales-api/")
+
+    result = await send(dom, html, [_profile(1)])
+    late = await dom.page.evaluate(
+        "fetch('/sales-api/salesApiMessageActions?action=createMessage',"
+        " {method: 'POST', body: '{}'}).then(() => 'sent', () => 'blocked')"
+    )
+
+    assert result["status"] == "send_unconfirmed"
+    assert late == "blocked"
     assert dom.sends == []

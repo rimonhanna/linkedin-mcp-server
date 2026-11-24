@@ -130,6 +130,18 @@ async def test_a_send_seen_by_the_request_listener_first_keeps_the_window(mock_p
     assert await _verdict(actions, first) == "passed"
 
 
+async def test_a_closed_send_window_passes_nothing(mock_page):
+    handlers = await _handlers(mock_page)
+    actions = handlers["**/sales-api/salesApiMessageActions**"]
+    async with without_read_state_writes(mock_page):
+        pass
+
+    open_one_sales_send(mock_page)
+    close_sales_send(mock_page)
+
+    assert await _verdict(actions, _Request(SN + WRITES[-1])) == "aborted"
+
+
 async def test_a_send_window_cannot_open_inside_a_read(mock_page):
     await _handlers(mock_page)
     async with without_read_state_writes(mock_page):
