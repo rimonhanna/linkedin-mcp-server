@@ -84,9 +84,10 @@ def register_sales_navigator_tools(
         company name costs extra navigations to resolve; pass numeric ids to
         avoid them. Sales Navigator returns at most 1,000 results per search
         (40 pages of 25): split a larger search into narrower ones, each under
-        1,000, then page each. The filters sent are checked against what
-        Sales Navigator applied; a filter it ignored is an error, never
-        silently unfiltered results. Display-text fields (industry, size
+        1,000, then page each. The request the page sent is checked against
+        the filters asked: a filter the page drops or rewrites is an error,
+        never silently unfiltered results. That check cannot show the server
+        applied a filter or that an id is right. Display-text fields (industry, size
         range, seniority name) are in the member's UI language; ids carry
         identity.
 
@@ -199,9 +200,10 @@ def register_sales_navigator_tools(
         company name costs extra navigations to resolve; pass numeric ids to
         avoid them. Sales Navigator returns at most 1,000 results per search
         (40 pages of 25): split a larger search into narrower ones, each under
-        1,000, then page each. The filters sent are checked against what
-        Sales Navigator applied; a filter it ignored is an error, never
-        silently unfiltered results. Display-text fields (industry, size
+        1,000, then page each. The request the page sent is checked against
+        the filters asked: a filter the page drops or rewrites is an error,
+        never silently unfiltered results. That check cannot show the server
+        applied a filter or that an id is right. Display-text fields (industry, size
         range, seniority name) are in the member's UI language; ids carry
         identity.
 
@@ -236,18 +238,21 @@ def register_sales_navigator_tools(
                 current company.
             account_list: One or a list of account list ids, as
                 list_sales_navigator_account_lists returned them: leads at
-                the companies in those lists.
+                the companies in those lists. A list id Sales Navigator does
+                not know is not an error; it may return no leads.
             lead_list: One or a list of lead list ids, as
                 list_sales_navigator_lead_lists returned them: only leads in
-                those lists.
-            exclude_lead_list: Lead list ids whose leads are left out.
+                those lists. A list id Sales Navigator does not know is not
+                an error; it may return no leads.
+            exclude_lead_list: Lead list ids whose leads are left out. An
+                unknown id is not an error; it may exclude nothing.
             page: Result page, 1 to 40 (25 results each).
 
         Returns:
             Dict with url, sections (leads -> one line per lead), leads (id,
-            salesProfileUrn, profileUrl, memberUrn, fullName, firstName,
-            lastName, geoRegion, degree, premium, openLink, seniority,
-            currentPositions, summary), paging
+            profileUrl, memberUrn, fullName, firstName, lastName, geoRegion,
+            degree, premium, openLink, seniority, currentPositions, summary),
+            paging
             (page, start, count, total, resultCap, capped, more) and withheld
             ({count, reason}, present only when a lead was left out).
         """
@@ -593,10 +598,19 @@ def register_sales_navigator_tools(
         each page of 25 is one search page against the daily search cap, at
         most 1,000 leads of a list can be read (40 pages) and the rows are the
         same records search_sales_navigator_leads returns, with the same
-        identifiers. One call reads pages from page until the list is covered
-        or the call's time limit is near (then next_page is set). Leads who
-        blocked third-party data sharing are left out and only counted in
-        withheld. section_errors.leads is set when the result is partial.
+        identifiers. One call reads pages from page until the list is
+        covered, 20 pages (500 leads, a fifth of the daily search cap) are
+        read, a pacing cap refuses the next page or the call's time limit is
+        near; each of the last three sets next_page, and a cap refusal keeps
+        the leads already read and names the cap and resume_at in
+        section_errors.leads. Leads who blocked third-party data sharing are
+        left out and only counted in withheld. section_errors.leads is set
+        whenever the result is partial.
+
+        lead_list carries the list's name and entityCount only when the page
+        also sent the list's own record. Otherwise it is the id alone, and an
+        id Sales Navigator does not know returns 0 leads, not an error: check
+        the id against list_sales_navigator_lead_lists.
 
         Args:
             list_id: Numeric lead list id, as list_sales_navigator_lead_lists
@@ -608,9 +622,10 @@ def register_sales_navigator_tools(
 
         Returns:
             Dict with url, sections (leads -> one line per lead), lead_list
-            ({id}), leads (id, salesProfileUrn, profileUrl, memberUrn,
-            fullName, firstName, lastName, geoRegion, degree, premium,
-            openLink, seniority, currentPositions, summary), paging (page,
+            ({id}, plus name and entityCount when confirmed), leads (id,
+            profileUrl, memberUrn, fullName, firstName, lastName, geoRegion,
+            degree, premium, openLink, seniority, currentPositions, summary),
+            paging (page,
             start, count = leads returned, total as LinkedIn reports it,
             resultCap, capped, more, next_page), next_page when more pages
             remain, and withheld ({count, reason}) when a lead was left out.

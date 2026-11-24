@@ -73,6 +73,7 @@ __all__ = [
     "normalize_thread_id",
     "normalize_website",
     "person_profile_url",
+    "refuse_opaque_member_id",
     "sales_account_list_url",
     "sales_company_url",
 ]
@@ -395,6 +396,31 @@ def normalize_person_identifier(value: str, *, allow_self_alias: bool = False) -
             "user, or pass someone's own /in/ public identifier."
         )
     return reference
+
+
+# A member id LinkedIn mints, not a public identifier: ``ACo...`` (the member
+# URN's id) or ``ACw...`` (a Sales Navigator profile id). Case-sensitive and
+# at least 20 characters after the prefix, like the ids LinkedIn returns, so a
+# vanity name that merely starts with "aco" passes.
+_OPAQUE_MEMBER_ID = re.compile(r"^AC[ow][A-Za-z0-9_-]{20,}$")
+
+
+def refuse_opaque_member_id(username: str, *, tool: str) -> None:
+    """Refuse an opaque member id where `tool` needs the public identifier.
+
+    The invite and message writes confirm their result against the member's
+    ``/in/<public identifier>/`` address (the sent-invitations list, the
+    custom-invite deeplink's ``vanityName``). An opaque id never matches that
+    address, so a sent invitation would read as unconfirmed and a retry could
+    invite twice. Raised before any page load.
+    """
+    if _OPAQUE_MEMBER_ID.fullmatch(username):
+        raise InvalidReferenceError(
+            f"{tool} needs the member's public identifier (the part after /in/ "
+            'in their own profile address, for example "williamhgates"), not '
+            "an ACo... or ACw... member id such as a Sales Navigator lead id. "
+            "Nothing was sent."
+        )
 
 
 def normalize_company_identifier(value: str) -> str:

@@ -41,6 +41,7 @@ from linkedin_mcp_server.scraping.contracts import (
 )
 from linkedin_mcp_server.scraping.identifiers import (
     normalize_person_identifier,
+    refuse_opaque_member_id,
     normalize_profile_urn,
     normalize_thread_id,
 )
@@ -342,6 +343,7 @@ def register_messaging_tools(
             if confirm_send:
                 refuse_action(JobStore(), MESSAGES, datetime.now().astimezone())
             linkedin_username = normalize_person_identifier(linkedin_username)
+            refuse_opaque_member_id(linkedin_username, tool="send_message")
             if profile_urn is not None:
                 profile_urn = normalize_profile_urn(profile_urn)
             extractor = extractor or await get_ready_extractor(

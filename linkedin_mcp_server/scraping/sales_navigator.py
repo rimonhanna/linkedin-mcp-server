@@ -18,7 +18,11 @@ from linkedin_mcp_server.core.exceptions import (
     InvalidReferenceError,
     LinkedInScraperException,
 )
-from linkedin_mcp_server.scraping.contracts import FilterValidationError
+from linkedin_mcp_server.exceptions import ActionLimitError
+from linkedin_mcp_server.scraping.contracts import (
+    FilterValidationError,
+    limit_exceeded_section_error,
+)
 from linkedin_mcp_server.scraping.facets import FacetResolver
 from linkedin_mcp_server.scraping.identifiers import (
     SALES_ACCOUNT_LISTS_URL,
@@ -109,6 +113,10 @@ _SEAT_REFUSED = frozenset({401, 403})
 # What LinkedIn answers for an entity the member cannot open or that is gone.
 _REFUSED_STATUSES = frozenset({403, 404})
 _LIST_PATH = "/sales/accounts/dashboard"
+# Search pages one get_lead_list call may load: a fifth of the default
+# SEARCH_PAGES_MAX (100 per 24 h), the share enrich_companies takes per call
+# (BUNCH_SEARCHES_MAX), so one long list cannot spend the day's search cap.
+_LEAD_LIST_PAGES_PER_CALL = 20
 _HEADCOUNT_FIELDS = ("employeeCount", "employeeCountRange", "employeeDisplayCount")
 _NO_SEAT_ADVICE = (
     "This account may have no Sales Navigator seat, or needs a contract chosen "
@@ -502,7 +510,7 @@ class SalesNavigatorReader:
         filters: Sequence[tuple[str, SearchFilter]],
         page: int,
     ) -> tuple[str, SnResponse]:
-        """Load one search page and return the response for exactly what was asked."""
+        """Load one search page; return the response whose request sent exactly the criteria asked."""
         url, response = await self._search_page(
             kind, resource, keywords, filters, page, required=True
         )
@@ -519,8 +527,14 @@ class SalesNavigatorReader:
         page: int,
         *,
         required: bool,
+        also: tuple[str, ...] = (),
+        on_loaded: Callable[[SalesNavigatorCapture], None] | None = None,
     ) -> tuple[str, SnResponse | None]:
-        """``_search``; with ``required=False`` a page that never answered is None."""
+        """``_search``; with ``required=False`` a page that never answered is None.
+
+        ``also`` names more resources to capture, handed to ``on_loaded``
+        once the page answered; nothing waits for them.
+        """
         criteria = [search_filter for _, search_filter in filters]
         url = search_page_url(kind, build_search_query(keywords, criteria), page)
         start = (page - 1) * PAGE_SIZE
@@ -530,7 +544,7 @@ class SalesNavigatorReader:
                 response, start
             )
 
-        async with self._capture(resource) as capture:
+        async with self._capture(resource, *also) as capture:
             found = await self._open(
                 capture,
                 url,
@@ -540,6 +554,8 @@ class SalesNavigatorReader:
             )
         if found is None:
             return url, None
+        if on_loaded is not None:
+            on_loaded(capture)
         responses = capture.matching(is_page)
         for response in responses:
             sent = response.call.params.get("query", "")
@@ -550,16 +566,17 @@ class SalesNavigatorReader:
         sent = responses[0].call.params.get("query", "")
         names = {search_filter.type: field for field, search_filter in filters}
         if missing := missing_echoes(keywords, criteria, sent):
-            ignored = ", ".join(names.get(item, item) for item in missing)
+            dropped = ", ".join(names.get(item, item) for item in missing)
             raise LinkedInScraperException(
-                f"Sales Navigator ignored the {ignored} filter, so the results "
-                "were not filtered as asked and nothing was reported."
+                f"The Sales Navigator page dropped or rewrote the {dropped} "
+                "filter, so the results would not be filtered as asked and "
+                "nothing was reported."
             )
         added = ", ".join(unrequested_echoes(keywords, criteria, sent))
         raise LinkedInScraperException(
-            f"Sales Navigator also applied the {added} filter, which was not "
-            "asked for, so the results were not filtered as asked and nothing "
-            "was reported."
+            f"The Sales Navigator page also sent the {added} filter, which was "
+            "not asked for, so the results would not be filtered as asked and "
+            "nothing was reported."
         )
 
     @staticmethod
@@ -899,8 +916,15 @@ class SalesNavigatorReader:
 
         Sales Navigator's lead search filtered to the list, one search page of
         25 per load, so the rows are the same lead records a search returns
-        and the 1,000-result cap of a search applies. Fewer pages when the
-        next one would not finish before ``deadline``.
+        and the 1,000-result cap of a search applies. One call loads at most
+        ``_LEAD_LIST_PAGES_PER_CALL`` pages, and fewer when the next one would
+        not finish before ``deadline`` or a pacing cap refuses it; each stop
+        leaves ``next_page``.
+
+        The list itself is confirmed only when the first page also sent its
+        ``salesApiLists`` record; ``lead_list`` then carries its name and
+        entityCount. Otherwise ``lead_list`` is the id alone, and a list id
+        Sales Navigator does not know reads as 0 leads, not as an error.
         """
         list_ref = normalize_sales_list_id(list_id)
         self._check_page(page)
@@ -909,30 +933,76 @@ class SalesNavigatorReader:
         seen: set[str] = set()
         withheld = 0
         total: int | None = None
-        limit: dict[str, str] | None = None
+        limit: dict[str, Any] | None = None
         next_page: int | None = None
+        lead_list: AccountList = {"id": list_ref}
         slowest = 0.0
         current = page
         first_url = ""
-        while True:
-            if (
-                deadline is not None
-                and current > page
-                and time.monotonic() + slowest > deadline
+
+        def read_list(capture: SalesNavigatorCapture) -> None:
+            nonlocal lead_list
+            for response in capture.matching(
+                lambda r: _is(r, _LISTS) and r.call.entity_id == list_ref
             ):
-                limit = _page_limit(
-                    "leads",
-                    total or 0,
-                    len(leads),
-                    f"this call ran out of time after {current - page} pages (pass "
-                    f"next_page={current} to continue)",
+                record = build_account_list(envelope_record(response.payload))
+                if record is not None and record.get("id") == list_ref:
+                    lead_list = record
+                    return
+
+        while True:
+            if current > page:
+                if current > MAX_PAGE:
+                    limit = _page_limit(
+                        "leads",
+                        total or 0,
+                        len(leads),
+                        f"a search shows at most {RESULT_CAP:,}",
+                    )
+                    break
+                if current - page == _LEAD_LIST_PAGES_PER_CALL:
+                    limit = _page_limit(
+                        "leads",
+                        total or 0,
+                        len(leads),
+                        f"one call reads at most {_LEAD_LIST_PAGES_PER_CALL} pages "
+                        f"(pass next_page={current} to continue)",
+                    )
+                    next_page = current
+                    break
+                if deadline is not None and time.monotonic() + slowest > deadline:
+                    limit = _page_limit(
+                        "leads",
+                        total or 0,
+                        len(leads),
+                        f"this call ran out of time after {current - page} pages "
+                        f"(pass next_page={current} to continue)",
+                    )
+                    next_page = current
+                    break
+            began = time.monotonic()
+            try:
+                url, response = await self._search_page(
+                    "people",
+                    _LEAD_SEARCH,
+                    None,
+                    filters,
+                    current,
+                    required=current == page,
+                    also=(_LISTS,) if current == page else (),
+                    on_loaded=read_list if current == page else None,
                 )
+            except ActionLimitError as exc:
+                # Refused before the load, so nothing was charged; the first
+                # page has no rows to keep and raises.
+                if current == page:
+                    raise
+                limit = {
+                    **limit_exceeded_section_error(exc),
+                    "next_page": current,
+                }
                 next_page = current
                 break
-            began = time.monotonic()
-            url, response = await self._search_page(
-                "people", _LEAD_SEARCH, None, filters, current, required=current == page
-            )
             first_url = first_url or url
             if response is None:
                 limit = _page_limit(
@@ -985,10 +1055,14 @@ class SalesNavigatorReader:
         reported = total or 0
         start = (page - 1) * PAGE_SIZE
         read = len(leads) + withheld
+        if limit is None and start + read < min(reported, RESULT_CAP):
+            limit = _page_limit(
+                "leads", reported, len(leads), "the pages returned fewer rows"
+            )
         result: dict[str, Any] = {
             "url": first_url,
             "sections": {},
-            "lead_list": {"id": list_ref},
+            "lead_list": lead_list,
             "leads": leads,
         }
         if text := render_leads(leads):

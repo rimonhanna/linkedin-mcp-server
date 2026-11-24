@@ -2,8 +2,9 @@
 
 A filter is sent as the id Sales Navigator's search URL carries for it, never
 as a label: labels are in the member's UI language. Names here are this
-server's. Whether Sales Navigator applied a filter is still decided by the
-echo check in ``SalesNavigatorReader._search``.
+server's. The echo check in ``SalesNavigatorReader._search`` makes a filter
+the page drops or rewrites an error; it cannot show that the server applied
+the filter or that an id names what was meant.
 """
 
 from __future__ import annotations

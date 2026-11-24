@@ -82,7 +82,9 @@ async def test_a_filter_the_page_dropped_is_named_and_nothing_reported(mock_page
     )
     browser.loads[url] = [*_boot(), _search("salesApiLeadSearch", sent, 0, [], 0)]
 
-    with pytest.raises(LinkedInScraperException, match="ignored the lead_list"):
+    with pytest.raises(
+        LinkedInScraperException, match="dropped or rewrote the lead_list"
+    ):
         await _run(mock_page, browser, lambda r: r.search_leads(**ICP_ARGS))
 
 
@@ -145,13 +147,13 @@ def test_an_unknown_function_id_is_refused():
         function_ids(["27"])
 
 
-def test_a_lead_carries_the_identifiers_other_tools_take():
+def test_a_lead_carries_its_id_and_link_but_not_the_viewer_token():
     lead = build_lead(_lead("ACwAAA0001", "A", degree=1))
 
     assert lead is not None
-    assert (
-        lead["salesProfileUrn"] == "urn:li:fs_salesProfile:(ACwAAA0001,NAME_SEARCH,abc)"
-    )
+    assert lead["id"] == "ACwAAA0001"
+    assert "salesProfileUrn" not in lead
+    assert "abc" not in repr(lead)
     assert lead["profileUrl"] == "https://www.linkedin.com/in/ACwAAA0001"
     assert lead["memberUrn"] == "urn:li:member:100000011"
     assert lead["degree"] == 1
