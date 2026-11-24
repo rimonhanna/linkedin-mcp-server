@@ -6,22 +6,31 @@ account-lists page for a create, the list's own page for an add or a delete,
 whose ``salesApiLists/<id>`` record must name an account list (and, for a
 delete, carry exactly the expected name) before anything is sent.
 
-The write itself is the one request the app would make for it, sent from the
-page with the headers the app's own Sales Navigator requests carry. That keeps
-it DOM-free (no visible text, no layout selectors) and makes an add one
-request however many accounts it carries. ``sales_navigator_list_guard``
-holds the page for the whole call, so the app's own writes are aborted, and
-admits only that one planned request. Success is reported only from Sales
-Navigator's answer to it; an answer that does not arrive is an unknown
-outcome, reported with ``retry_safe`` false and never sent again.
+A create goes through Sales Navigator's own form: the account-lists page's
+create-list form is opened, the name and description typed, and its Create
+button pressed. ``sales_navigator_list_guard`` holds the page for the whole
+call, so every write is aborted, and the window around that press admits the
+app's own request only when it is exactly the planned one. The new list is
+then read back from its own page before it is reported created.
+
+An add and a delete are sent from the page as a request shaped like the
+app's own (see AGENTS.md, Scraping Rules, for why these two are not driven
+through the app's controls), with the headers its Sales Navigator requests
+carry, and the guard admits only that one planned request. For every write,
+success is reported only from Sales Navigator's answer; an answer that does
+not arrive, or an error after the request left, is an unknown outcome,
+reported with ``retry_safe`` false and never sent again.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -46,12 +55,14 @@ from linkedin_mcp_server.scraping.identifiers import (
 )
 from linkedin_mcp_server.scraping.restli import envelope_record
 from linkedin_mcp_server.scraping.sales_navigator_list_guard import (
+    ListWriteWindow,
     PlannedListWrite,
     explicit_list_write,
     without_sales_list_writes,
 )
 from linkedin_mcp_server.scraping.sales_navigator_list_payload import (
     ACCOUNT_LIST_TYPE,
+    COMPANIES,
     LISTS,
     MAX_ACCOUNTS_PER_CALL,
     add_request,
@@ -67,6 +78,10 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
 )
 
 logger = logging.getLogger(__name__)
+
+CREATE_TOOL = "create_sales_navigator_account_list"
+ADD_TOOL = "add_accounts_to_sales_navigator_list"
+DELETE_TOOL = "delete_sales_navigator_account_list"
 
 # What the browser itself sets on a request; everything else the app's own
 # request carried (its CSRF token, tracking and identity headers) is sent.
@@ -90,23 +105,43 @@ _LISTS_PATH = "/sales/lists/company"
 _LIST_PATH = "/sales/accounts/dashboard"
 _ORIGIN = "https://www.linkedin.com"
 
+# The account-lists page's create-list form, by the app's own data-x
+# attributes (untranslated), measured 2026-11-24.
+_CREATE_OPENER = "button[data-x--list-nav--create-list-dropdown-trigger]"
+_CREATE_BUTTON = "button[data-x--lists--create-modal-save-button]"
+_CREATE_FORM = f"[role=dialog]:has({_CREATE_BUTTON})"
+_NAME_FIELD = f"{_CREATE_FORM} input[data-x--text-input-field]"
+_DESCRIPTION_FIELD = f"{_CREATE_FORM} textarea"
+_FORM_TIMEOUT_MS = 10_000
+# Typed key by key: a value set in one input event (``fill``) left the form's
+# Create button disabled when measured.
+_TYPE_DELAY_MS = 20
+# How long the app has to send its request once Create is pressed, and
+# Sales Navigator to answer a request that left.
+_SEND_TIMEOUT = 10.0
+_ANSWER_TIMEOUT = 30.0
+
+# The answer is read as text and parsed here: a JSON number past 2^53 (a
+# list id is a 19-digit long) would be rounded by response.json() in the page.
 _FETCH_JS = """async ({ url, method, headers, body }) => {
     /* linkedin-mcp:sn-list-write */
     try {
         const init = { method, credentials: 'same-origin', headers };
         if (body !== null) init.body = body;
         const response = await fetch(url, init);
-        let payload = null;
-        try { payload = await response.json(); } catch (_) {}
+        let text = null;
+        try { text = await response.text(); } catch (_) {}
         return {
             status: response.status,
-            payload,
+            text,
             restliId: response.headers.get('x-restli-id'),
         };
     } catch (_) {
-        return { status: 0, payload: null, restliId: null };
+        return { status: 0, text: null, restliId: null };
     }
 }"""
+
+Transmit = Callable[[ListWriteWindow], Awaitable[Any]]
 
 
 @dataclass(slots=True)
@@ -152,8 +187,9 @@ def list_write_result(
     dry_run: bool,
     retry_safe: bool = True,
     list_id: str | None = None,
-    account_list: dict[str, Any] | None = None,
+    account_list: Mapping[str, Any] | None = None,
     accounts: list[dict[str, Any]] | None = None,
+    accounts_status: str | None = None,
 ) -> dict[str, Any]:
     """The one result shape of the three list-write tools."""
     target = dict(account_list or {})
@@ -175,6 +211,8 @@ def list_write_result(
         result["list"] = target
     if accounts is not None:
         result["accounts"] = accounts
+    if accounts_status is not None:
+        result["accounts_status"] = accounts_status
     return result
 
 
@@ -201,8 +239,120 @@ def _set_statuses(rows: list[dict[str, Any]], status: str, detail: str = "") -> 
                 row["detail"] = detail
 
 
+def _parse(text: Any) -> Any:
+    if not isinstance(text, str) or not text:
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
 class _Stopped(Exception):
-    """A pacing stop before anything was sent: the cap or a cooldown."""
+    """A stop before anything was sent: the cap, a cooldown or the form."""
+
+
+class ListWriteLedger:
+    """What one tool call sent, for the tool's error path.
+
+    The flows turn every answer into a result, but a Playwright error, a
+    closed page or a failed read-back after a request left escapes them. The
+    tool layer reads this ledger then: with a request admitted the outcome
+    is ``*_unconfirmed`` (or ``created`` when the list was already read
+    back), never an error the agent retries. Each admitted request was
+    counted against the cap by its window already.
+    """
+
+    def __init__(self, tool: str) -> None:
+        self.tool = tool
+        self.windows: list[ListWriteWindow] = []
+        self.rows: list[dict[str, Any]] = []
+        self.account_list: dict[str, Any] = {}
+        self.created = False
+
+    @property
+    def admitted(self) -> bool:
+        return any(window.admitted for window in self.windows)
+
+    def unconfirmed(self, error: BaseException) -> dict[str, Any]:
+        """The result for ``error`` raised after a request was admitted."""
+        stopped = (
+            f"then the tool stopped on an unexpected error ({type(error).__name__})"
+        )
+        add_sent = any(
+            window.admitted and window.planned.resource == COMPANIES
+            for window in self.windows
+        )
+        if self.tool == ADD_TOOL or (self.created and add_sent):
+            _set_statuses(self.rows, "unconfirmed")
+        else:
+            _set_statuses(self.rows, "not_sent")
+
+        def result(status: str, message: str, **extra: Any) -> dict[str, Any]:
+            return list_write_result(
+                self.tool,
+                status,
+                message,
+                dry_run=False,
+                retry_safe=False,
+                account_list=self.account_list,
+                accounts=self.rows if self.tool != DELETE_TOOL else None,
+                **extra,
+            )
+
+        if self.tool == CREATE_TOOL and self.created:
+            return result(
+                "created",
+                "Sales Navigator created the list. "
+                + (
+                    f"The accounts were sent, {stopped}; read the list with "
+                    "get_sales_navigator_account_list before adding them again."
+                    if add_sent
+                    else "The accounts were not sent: the tool stopped on an "
+                    f"unexpected error ({type(error).__name__}) first."
+                ),
+                accounts_status="add_unconfirmed" if add_sent else "not_sent",
+            )
+        if self.tool == CREATE_TOOL:
+            return result(
+                "create_unconfirmed",
+                f"The list was sent, {stopped}, so whether Sales Navigator "
+                "created it is unknown. Check list_sales_navigator_account_lists "
+                "before trying again; a repeat could create the list twice.",
+            )
+        if self.tool == ADD_TOOL:
+            return result(
+                "add_unconfirmed",
+                f"The accounts were sent, {stopped}. Read the list with "
+                "get_sales_navigator_account_list before trying again.",
+            )
+        return result(
+            "delete_unconfirmed",
+            f"The delete was sent, {stopped}. Check "
+            "list_sales_navigator_account_lists before trying again.",
+        )
+
+
+_ledger: ContextVar[ListWriteLedger | None] = ContextVar(
+    "sales_list_write_ledger", default=None
+)
+
+
+@contextmanager
+def tracking_list_writes(tool: str) -> Iterator[ListWriteLedger]:
+    """Collect the write windows one tool call opens into one ledger."""
+    ledger = ListWriteLedger(tool)
+    token = _ledger.set(ledger)
+    try:
+        yield ledger
+    finally:
+        _ledger.reset(token)
+
+
+def _current_ledger() -> ListWriteLedger:
+    # A writer called outside the tools (the policy scenarios) keeps a
+    # ledger nobody reads.
+    return _ledger.get() or ListWriteLedger("")
 
 
 class SalesNavigatorListWriter:
@@ -210,10 +360,7 @@ class SalesNavigatorListWriter:
 
     def __init__(self, reader: Any):
         self._reader = reader
-
-    @property
-    def _page(self) -> Any:
-        return self._reader._session.page
+        self._session = reader._session
 
     async def _open(
         self, url: str, *, list_id: str | None
@@ -221,7 +368,7 @@ class SalesNavigatorListWriter:
         """Load ``url`` and return the app's request headers and the list record.
 
         The headers are None when the page sent no Sales Navigator request
-        carrying a CSRF token; only a write needs them.
+        carrying a CSRF token; only a sent request needs them.
 
         ``list_id`` None loads the account-lists page and waits for its first
         list page; otherwise the list's page and its ``salesApiLists/<id>``
@@ -262,7 +409,7 @@ class SalesNavigatorListWriter:
 
         from linkedin_mcp_server.scraping.sales_navigator import _Refusal
 
-        page = self._page
+        page = self._session.page
         page.on("request", remember)
         try:
             async with reader._capture(LISTS) as capture:
@@ -306,28 +453,101 @@ class SalesNavigatorListWriter:
         except ActionLimitError as exc:
             raise _Stopped(f"{exc} Nothing was sent.") from exc
 
-    async def _send(
-        self, planned: PlannedListWrite, headers: dict[str, str]
-    ) -> _Answer:
-        """Send ``planned`` once, inside its window, and read the answer."""
-        url = _ORIGIN + planned.path
+    def _fetch(self, planned: PlannedListWrite, headers: dict[str, str]) -> Transmit:
+        """Send ``planned`` from the page, shaped like the app's request."""
         body = None
         send_headers = dict(headers)
         if planned.body is not None:
             body = json.dumps(planned.body, separators=(",", ":"), ensure_ascii=False)
             send_headers["content-type"] = _BODY_TYPE
-        raw: Any = None
-        async with explicit_list_write(self._page, planned) as window:
-            try:
-                raw = await self._page.evaluate(
-                    _FETCH_JS,
-                    {
-                        "url": url,
-                        "method": planned.method,
-                        "headers": send_headers,
-                        "body": body,
-                    },
+
+        async def transmit(_window: ListWriteWindow) -> Any:
+            return await self._session.page.evaluate(
+                _FETCH_JS,
+                {
+                    "url": _ORIGIN + planned.path,
+                    "method": planned.method,
+                    "headers": send_headers,
+                    "body": body,
+                },
+            )
+
+        return transmit
+
+    async def _fill_create_form(self, planned: PlannedListWrite) -> Any:
+        """Open the create-list form and type the plan; its Create button.
+
+        Raises ``_Stopped`` when the form is not there or does not hold
+        exactly the plan; nothing is pressed then.
+        """
+        page = self._session.page
+        opener = page.locator(_CREATE_OPENER)
+        if await opener.count() != 1:
+            raise _Stopped(
+                "Sales Navigator did not show its create-list button, so nothing "
+                "was sent."
+            )
+        await opener.first.click()
+        name_field = page.locator(_NAME_FIELD).first
+        try:
+            await name_field.wait_for(state="visible", timeout=_FORM_TIMEOUT_MS)
+        except Exception:
+            raise _Stopped(
+                "Sales Navigator did not open its create-list form, so nothing "
+                "was sent."
+            ) from None
+        typed = [(name_field, planned.body["name"])]
+        if "description" in planned.body:
+            typed.append(
+                (page.locator(_DESCRIPTION_FIELD).first, planned.body["description"])
+            )
+        for form_field, text in typed:
+            await form_field.press_sequentially(text, delay=_TYPE_DELAY_MS)
+            if await form_field.input_value() != text:
+                await page.keyboard.press("Escape")
+                raise _Stopped(
+                    "Sales Navigator's create-list form did not take the name "
+                    "and description as given, so nothing was sent."
                 )
+        button = page.locator(_CREATE_BUTTON).first
+        if not await button.is_enabled():
+            await page.keyboard.press("Escape")
+            raise _Stopped(
+                "Sales Navigator's create-list form did not accept the list, so "
+                "nothing was sent."
+            )
+        return button
+
+    @staticmethod
+    def _press(button: Any) -> Transmit:
+        """Press the form's Create button; the app sends its own request."""
+
+        async def transmit(window: ListWriteWindow) -> Any:
+            await button.click()
+            async with asyncio.timeout(_SEND_TIMEOUT):
+                await window.decided.wait()
+            request = window.request
+            if request is None:
+                return None
+            async with asyncio.timeout(_ANSWER_TIMEOUT):
+                response = await request.response()
+                if response is None:
+                    return {"status": 0}
+                return {
+                    "status": response.status,
+                    "text": await response.text(),
+                    "restliId": await response.header_value("x-restli-id"),
+                }
+
+        return transmit
+
+    async def _send(self, planned: PlannedListWrite, transmit: Transmit) -> _Answer:
+        """Let ``planned`` through once, inside its window, and read the answer."""
+        raw: Any = None
+        async with explicit_list_write(self._session.page, planned) as window:
+            _current_ledger().windows.append(window)
+            try:
+                raw = await transmit(window)
             except Exception:
                 logger.warning("The Sales Navigator list write failed", exc_info=True)
                 raw = None
@@ -351,29 +571,37 @@ class SalesNavigatorListWriter:
         return _Answer(
             sent=True,
             status=status,
-            payload=result.get("payload"),
+            payload=_parse(result.get("text")),
             restli_id=restli_id if isinstance(restli_id, str) else None,
         )
 
     async def _write(
         self,
         planned: PlannedListWrite,
-        headers: dict[str, str] | None,
+        transmit: Transmit | None,
         on_unknown: Callable[[str], dict[str, Any]],
         on_refused: Callable[[str], dict[str, Any]],
         on_not_sent: Callable[[str], dict[str, Any]],
+        *,
+        prepare: Callable[[], Awaitable[Transmit]] | None = None,
     ) -> _Answer | dict[str, Any]:
-        """The answer to ``planned``, or the finished result when there is none."""
-        if headers is None:
+        """The answer to ``planned``, or the finished result when there is none.
+
+        ``prepare``, run once the caps admit the write, readies the app's
+        form and returns how to send it, in place of ``transmit``.
+        """
+        try:
+            self._admit()
+            if prepare is not None:
+                transmit = await prepare()
+        except _Stopped as exc:
+            return on_not_sent(str(exc))
+        if transmit is None:
             return on_not_sent(
                 "Sales Navigator sent no request this tool could take its "
                 "headers from, so nothing was sent."
             )
-        try:
-            self._admit()
-        except _Stopped as exc:
-            return on_not_sent(str(exc))
-        answer = await self._send(planned, headers)
+        answer = await self._send(planned, transmit)
         if not answer.sent:
             return on_not_sent(
                 "The request did not match the plan and was stopped in the "
@@ -402,114 +630,133 @@ class SalesNavigatorListWriter:
         name: str,
         *,
         description: str | None = None,
-        accounts: Sequence[str] = (),
+        accounts: Sequence[Mapping[str, Any]] = (),
         confirm_send: bool,
     ) -> dict[str, Any]:
-        tool = "create_sales_navigator_account_list"
-        rows = [
-            {"input": company_id, "id": company_id, "status": "planned"}
-            for company_id in accounts
-        ]
-        planned_list: dict[str, Any] = {"name": name}
-        if description:
-            planned_list["description"] = description
+        tool = CREATE_TOOL
+        rows = [dict(row) for row in accounts]
+        planned = create_request(name, description)
+        planned_list: dict[str, Any] = {
+            key: planned.body[key]
+            for key in ("name", "description")
+            if key in planned.body
+        }
+        to_add = any(row["status"] == "planned" for row in rows)
         if not confirm_send:
             _set_statuses(rows, "would_add")
-            requests = 1 + bool(rows)
+            requests = 1 + to_add
             return list_write_result(
                 tool,
                 "dry_run",
                 f"Nothing was created. confirm_send true sends {requests} "
                 f"request{'s' if requests > 1 else ''}: one creating the list"
-                + (", one adding the accounts marked would_add." if rows else "."),
+                + (", one adding the accounts marked would_add." if to_add else "."),
                 dry_run=True,
                 account_list=planned_list,
                 accounts=rows,
             )
-        page = self._page
+        ledger = _current_ledger()
+        ledger.rows = rows
+        ledger.account_list = planned_list
+        page = self._session.page
         async with without_sales_list_writes(page):
-            headers, _ = await self._open(SALES_ACCOUNT_LISTS_URL, list_id=None)
+            await self._open(SALES_ACCOUNT_LISTS_URL, list_id=None)
+
+            def finish(status: str, message: str, **extra: Any) -> dict[str, Any]:
+                return list_write_result(
+                    tool,
+                    status,
+                    message,
+                    dry_run=False,
+                    account_list=ledger.account_list,
+                    accounts=rows,
+                    **extra,
+                )
 
             def not_sent(message: str) -> dict[str, Any]:
                 _set_statuses(rows, "not_sent")
-                return list_write_result(
-                    tool,
-                    "not_sent",
-                    message,
-                    dry_run=False,
-                    account_list=planned_list,
-                    accounts=rows,
-                )
+                return finish("not_sent", message)
 
             def unknown(what: str) -> dict[str, Any]:
                 _set_statuses(rows, "not_sent")
-                return list_write_result(
-                    tool,
+                return finish(
                     "create_unconfirmed",
                     f"The list was sent but {what}. Check "
                     "list_sales_navigator_account_lists before trying again; a "
                     "repeat could create the list twice.",
-                    dry_run=False,
                     retry_safe=False,
-                    account_list=planned_list,
-                    accounts=rows,
                 )
 
             def refused(what: str) -> dict[str, Any]:
                 _set_statuses(rows, "not_sent")
-                return list_write_result(
-                    tool,
+                return finish(
                     "refused_by_linkedin",
                     f"{what}; no list was created.",
-                    dry_run=False,
                     retry_safe=False,
-                    account_list=planned_list,
-                    accounts=rows,
                 )
 
+            async def prepare() -> Transmit:
+                return self._press(await self._fill_create_form(planned))
+
             answer = await self._write(
-                create_request(name, description), headers, unknown, refused, not_sent
+                planned, None, unknown, refused, not_sent, prepare=prepare
             )
             if isinstance(answer, dict):
                 return answer
             list_id = created_list_id(answer.restli_id, answer.payload)
             if list_id is None:
                 return unknown("its answer named no list id")
-            planned_list = {"id": list_id, **planned_list}
-            if not rows:
-                return list_write_result(
-                    tool,
+            ledger.account_list = {"id": list_id, **planned_list}
+            headers, record = await self._open(
+                sales_account_list_url(list_id), list_id=list_id
+            )
+            if (
+                record is None
+                or _not_an_account_list(dict(record)) is not None
+                or record.get("name") != planned.body["name"]
+            ):
+                return unknown(
+                    "the list's own page does not show it as the account list "
+                    "that was asked for"
+                )
+            ledger.account_list = dict(record)
+            ledger.created = True
+            if not to_add:
+                return finish(
                     "created",
                     "Sales Navigator created the list.",
-                    dry_run=False,
                     retry_safe=False,
-                    account_list=planned_list,
-                    accounts=rows,
                 )
-            result = await self._add(
-                tool, list_id, rows, headers, account_list=planned_list
+            added = await self._add(
+                tool, list_id, rows, headers, account_list=ledger.account_list
             )
-            result["message"] = "Sales Navigator created the list. " + result["message"]
-            if result["status"] == "added":
-                result["status"] = "created"
             # The list exists whatever happened to the accounts.
-            result["retry_safe"] = False
-            return result
+            return finish(
+                "created",
+                "Sales Navigator created the list. " + added["message"],
+                retry_safe=False,
+                accounts_status=added["status"],
+            )
 
     async def add_accounts(
-        self, list_id: str, accounts: Sequence[str], *, confirm_send: bool
+        self,
+        list_id: str,
+        accounts: Sequence[Mapping[str, Any]],
+        *,
+        confirm_send: bool,
     ) -> dict[str, Any]:
-        tool = "add_accounts_to_sales_navigator_list"
-        rows = [
-            {"input": company_id, "id": company_id, "status": "planned"}
-            for company_id in accounts
-        ]
-        page = self._page
+        tool = ADD_TOOL
+        rows = [dict(row) for row in accounts]
+        ledger = _current_ledger()
+        ledger.rows = rows
+        ledger.account_list = {"id": list_id}
+        page = self._session.page
         async with without_sales_list_writes(page):
             headers, record = await self._open(
                 sales_account_list_url(list_id), list_id=list_id
             )
             account_list = dict(record or {"id": list_id})
+            ledger.account_list = account_list
             refusal = _not_an_account_list(account_list)
             if refusal is not None:
                 _set_statuses(rows, "not_sent")
@@ -579,8 +826,13 @@ class SalesNavigatorListWriter:
                 retry_safe=False,
             )
 
+        planned = add_request(list_id, ids)
         answer = await self._write(
-            add_request(list_id, ids), headers, unknown, refused, not_sent
+            planned,
+            None if headers is None else self._fetch(planned, headers),
+            unknown,
+            refused,
+            not_sent,
         )
         if isinstance(answer, dict):
             return answer
@@ -620,13 +872,16 @@ class SalesNavigatorListWriter:
     async def delete_account_list(
         self, list_id: str, *, expected_name: str, confirm_send: bool
     ) -> dict[str, Any]:
-        tool = "delete_sales_navigator_account_list"
-        page = self._page
+        tool = DELETE_TOOL
+        ledger = _current_ledger()
+        ledger.account_list = {"id": list_id}
+        page = self._session.page
         async with without_sales_list_writes(page):
             headers, record = await self._open(
                 sales_account_list_url(list_id), list_id=list_id
             )
             account_list = dict(record or {"id": list_id})
+            ledger.account_list = account_list
 
             def finish(
                 status: str, message: str, *, retry_safe: bool = True
@@ -655,9 +910,10 @@ class SalesNavigatorListWriter:
                     "Nothing was deleted. confirm_send true sends one request "
                     "deleting this list; its accounts are not affected.",
                 )
+            planned = delete_request(list_id)
             answer = await self._write(
-                delete_request(list_id),
-                headers,
+                planned,
+                None if headers is None else self._fetch(planned, headers),
                 lambda what: finish(
                     "delete_unconfirmed",
                     f"The delete was sent but {what}. Check "
@@ -686,7 +942,7 @@ def _error_message(payload: Any) -> str | None:
     )
 
 
-def _not_an_account_list(account_list: dict[str, Any]) -> str | None:
+def _not_an_account_list(account_list: Mapping[str, Any]) -> str | None:
     list_type = account_list.get("listType")
     if list_type != ACCOUNT_LIST_TYPE:
         return (

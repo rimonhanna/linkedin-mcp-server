@@ -58,12 +58,15 @@ async def test_a_dry_run_owes_the_cap_nothing(mock_context, refuse):
     extractor = _extractor()
     fn = await _fn("create_sales_navigator_account_list")
     result = await fn(
-        "Example list", False, mock_context, accounts=["1"], extractor=extractor
+        "Example list", False, mock_context, accounts=["100000001"], extractor=extractor
     )
     assert result == RESULT
     refuse.assert_not_called()
     extractor.create_sales_navigator_account_list.assert_awaited_once_with(
-        "Example list", description=None, accounts=["1"], confirm_send=False
+        "Example list",
+        description=None,
+        accounts=[{"input": "100000001", "id": "100000001", "status": "planned"}],
+        confirm_send=False,
     )
 
 
@@ -99,7 +102,17 @@ async def test_accounts_are_normalized_and_deduplicated_before_delegation(
         extractor=extractor,
     )
     extractor.add_accounts_to_sales_navigator_list.assert_awaited_once_with(
-        "100000301", ["100000001", "100000002"], confirm_send=True
+        "100000301",
+        [
+            {"input": "100000001", "id": "100000001", "status": "planned"},
+            {
+                "input": "urn:li:organization:100000001",
+                "id": "100000001",
+                "status": "duplicate",
+            },
+            {"input": "100000002", "id": "100000002", "status": "planned"},
+        ],
+        confirm_send=True,
     )
 
 

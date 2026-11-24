@@ -2,22 +2,31 @@
 LinkedIn Sales Navigator account-list write tools.
 
 Each tool loads one Sales Navigator page in the signed-in member's browser to
-verify its target, then sends the one planned request and nothing else (see
-``sales_navigator_list_guard``). ``confirm_send=False`` is a dry run that
+verify its target, then lets the one planned request through and nothing else
+(see ``sales_navigator_list_guard``). ``confirm_send=False`` is a dry run that
 changes nothing.
 """
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
+import anyio
 from fastmcp import Context, FastMCP
 
 from linkedin_mcp_server.config.schema import DEFAULT_TOOL_TIMEOUT_SECONDS
 from linkedin_mcp_server.core.exceptions import AuthenticationError
 from linkedin_mcp_server.dependencies import get_ready_extractor, handle_auth_error
 from linkedin_mcp_server.error_handler import raise_tool_error
-from linkedin_mcp_server.pacing import SALES_LIST_WRITES, JobStore, refuse_action
+from linkedin_mcp_server.pacing import (
+    SALES_LIST_WRITES,
+    JobStore,
+    load_account_budget,
+    refuse_action,
+    refuse_if_limited,
+)
+from linkedin_mcp_server.scraping.contracts import before_the_reply_deadline
 from linkedin_mcp_server.scraping.identifiers import normalize_sales_list_id
 from linkedin_mcp_server.scraping.sales_navigator_list_payload import (
     refuse_invalid_list_text,
@@ -25,6 +34,7 @@ from linkedin_mcp_server.scraping.sales_navigator_list_payload import (
 from linkedin_mcp_server.scraping.sales_navigator_list_writes import (
     list_write_result,
     plan_accounts,
+    tracking_list_writes,
 )
 from linkedin_mcp_server.tools.person import StrList
 
@@ -34,10 +44,63 @@ _ANNOTATIONS = {"destructiveHint": True, "openWorldHint": True}
 _TAGS = {"sales_navigator", "actions"}
 
 
-def _refuse_before_the_browser(confirm_send: bool) -> None:
+def _refuse_before_the_browser(confirm_send: bool, *, requests: int = 1) -> None:
+    """Refuse a call whose ``requests`` do not all fit under the cap now."""
     # A dry run sends nothing and owes nothing.
-    if confirm_send:
-        refuse_action(JobStore(), SALES_LIST_WRITES, datetime.now().astimezone())
+    if not confirm_send:
+        return
+    now = datetime.now().astimezone()
+    refuse_action(JobStore(), SALES_LIST_WRITES, now)
+    if requests > 1:
+        # A create with accounts sends two: refused here, a create that
+        # leaves the accounts behind on the cap is not started.
+        budget = load_account_budget(JobStore(), now)
+        for _ in range(requests - 1):
+            budget.ledger.record_kind(SALES_LIST_WRITES, now)
+        refuse_if_limited(budget, SALES_LIST_WRITES, now)
+
+
+async def _run(
+    ctx: Context,
+    tool: str,
+    *,
+    confirm_send: bool,
+    requests: int,
+    extractor: Any | None,
+    message: str,
+    call: Callable[[Any], Awaitable[dict[str, Any]]],
+) -> dict[str, Any]:
+    _refuse_before_the_browser(confirm_send, requests=requests)
+    extractor = extractor or await get_ready_extractor(ctx, tool_name=tool)
+    logger.info("%s (confirm_send=%s)", tool, confirm_send)
+    await ctx.report_progress(progress=0, total=100, message=message)
+    # The one place an error after an admitted request becomes an outcome.
+    # Each admitted request was counted by its window as it left, so a
+    # cancellation (the tool timeout) needs nothing here and goes on up.
+    with tracking_list_writes(tool) as ledger:
+        try:
+            result = await call(extractor)
+        except Exception as exc:
+            if not ledger.admitted:
+                raise
+            logger.warning("%s failed after a request was sent", tool, exc_info=True)
+            result = ledger.unconfirmed(exc)
+    try:
+        # The last await before the deadline: landing there would discard a
+        # result that may say a write landed, so it gives up first, and is
+        # skipped once the deadline has passed (see send_message).
+        if anyio.current_time() < anyio.current_effective_deadline():
+            with before_the_reply_deadline():
+                await ctx.report_progress(progress=100, total=100, message="Complete")
+    except BaseException:
+        if result.get("retry_safe") is False:
+            logger.warning(
+                "%s was interrupted after a request was sent; check Sales "
+                "Navigator before calling it again",
+                tool,
+            )
+        raise
+    return result
 
 
 def register_sales_navigator_list_tools(
@@ -66,12 +129,18 @@ def register_sales_navigator_list_tools(
 
         confirm_send False is a dry run: nothing is created or added, and the
         result reports the planned list and each account's status
-        (would_add, duplicate). confirm_send True creates the list, then adds
-        the accounts in one request, as add_accounts_to_sales_navigator_list
-        does. Success is only reported from Sales Navigator's own answer. When an outcome is unknown, retry_safe is
-        false: check list_sales_navigator_account_lists before calling again,
-        or the list can be created twice. Each request sent counts against
-        the daily sales_list_writes cap.
+        (would_add, duplicate). confirm_send True creates the list through
+        Sales Navigator's own create-list form, reads the new list back from
+        its page, then adds the accounts in one request, as
+        add_accounts_to_sales_navigator_list does. Status created is only
+        reported from Sales Navigator's answer and that read-back, and stays
+        created whatever happened to the accounts: accounts_status then says
+        how the add went (added, partly_added, add_unconfirmed,
+        refused_by_linkedin, not_sent). When an outcome is unknown, retry_safe
+        is false: check list_sales_navigator_account_lists before calling
+        again, or the list can be created twice. Each request sent counts
+        against the daily sales_list_writes cap, and a call with accounts
+        needs room for both.
 
         Args:
             name: The list's name, as it will show in Sales Navigator, up to 75
@@ -88,7 +157,8 @@ def register_sales_navigator_list_tools(
         Returns:
             Dict with url, status, message, dry_run, retry_safe, list ({id,
             name, description}; id only once Sales Navigator answered with
-            it) and accounts (input, id, status, detail when there is one).
+            it), accounts (input, id, status, detail when there is one) and,
+            when accounts were sent for, accounts_status.
         """
         tool = "create_sales_navigator_account_list"
         try:
@@ -104,18 +174,20 @@ def register_sales_navigator_list_tools(
                     dry_run=not confirm_send,
                     accounts=planned.rows,
                 )
-            _refuse_before_the_browser(confirm_send)
-            extractor = extractor or await get_ready_extractor(ctx, tool_name=tool)
-            logger.info("%s (confirm_send=%s)", tool, confirm_send)
-            await ctx.report_progress(progress=0, total=100, message="Creating list")
-            result = await extractor.create_sales_navigator_account_list(
-                name,
-                description=description,
-                accounts=planned.ids,
+            return await _run(
+                ctx,
+                tool,
                 confirm_send=confirm_send,
+                requests=1 + bool(planned.ids),
+                extractor=extractor,
+                message="Creating list",
+                call=lambda extractor: extractor.create_sales_navigator_account_list(
+                    name,
+                    description=description,
+                    accounts=planned.rows,
+                    confirm_send=confirm_send,
+                ),
             )
-            await ctx.report_progress(progress=100, total=100, message="Complete")
-            return result
         except AuthenticationError as e:
             try:
                 await handle_auth_error(e, ctx)
@@ -185,15 +257,17 @@ def register_sales_navigator_list_tools(
                     list_id=list_id,
                     accounts=planned.rows,
                 )
-            _refuse_before_the_browser(confirm_send)
-            extractor = extractor or await get_ready_extractor(ctx, tool_name=tool)
-            logger.info("%s %s (confirm_send=%s)", tool, list_id, confirm_send)
-            await ctx.report_progress(progress=0, total=100, message="Adding accounts")
-            result = await extractor.add_accounts_to_sales_navigator_list(
-                list_id, planned.ids, confirm_send=confirm_send
+            return await _run(
+                ctx,
+                tool,
+                confirm_send=confirm_send,
+                requests=1,
+                extractor=extractor,
+                message="Adding accounts",
+                call=lambda extractor: extractor.add_accounts_to_sales_navigator_list(
+                    list_id, planned.rows, confirm_send=confirm_send
+                ),
             )
-            await ctx.report_progress(progress=100, total=100, message="Complete")
-            return result
         except AuthenticationError as e:
             try:
                 await handle_auth_error(e, ctx)
@@ -256,15 +330,17 @@ def register_sales_navigator_list_tools(
                     dry_run=not confirm_send,
                     list_id=list_id,
                 )
-            _refuse_before_the_browser(confirm_send)
-            extractor = extractor or await get_ready_extractor(ctx, tool_name=tool)
-            logger.info("%s %s (confirm_send=%s)", tool, list_id, confirm_send)
-            await ctx.report_progress(progress=0, total=100, message="Deleting list")
-            result = await extractor.delete_sales_navigator_account_list(
-                list_id, expected_name=expected_name, confirm_send=confirm_send
+            return await _run(
+                ctx,
+                tool,
+                confirm_send=confirm_send,
+                requests=1,
+                extractor=extractor,
+                message="Deleting list",
+                call=lambda extractor: extractor.delete_sales_navigator_account_list(
+                    list_id, expected_name=expected_name, confirm_send=confirm_send
+                ),
             )
-            await ctx.report_progress(progress=100, total=100, message="Complete")
-            return result
         except AuthenticationError as e:
             try:
                 await handle_auth_error(e, ctx)

@@ -202,3 +202,42 @@ async def test_a_failed_registration_refuses_every_later_hold():
     with pytest.raises(LinkedInScraperException, match="registration failed"):
         async with guard.without_sales_list_writes(page):
             pass
+
+
+async def test_a_delete_carrying_any_body_is_not_the_planned_delete():
+    page = _Page()
+    delete = _Request(DELETE_PATH, method="DELETE")
+    delete.post_data = "not json"
+    async with guard.without_sales_list_writes(page):
+        async with guard.explicit_list_write(page, DELETE) as window:
+            assert await _send(page, delete) == "aborted"
+    assert window.refused == ["body differs from the plan"], (
+        "a DELETE planned without a body must refuse any body, even unreadable"
+    )
+
+
+async def test_a_request_whose_window_closed_while_it_was_read_is_aborted():
+    import asyncio
+
+    gate = asyncio.Event()
+
+    class _Slow(_Request):
+        async def all_headers(self) -> dict[str, str]:
+            await gate.wait()
+            return {}
+
+    page = _Page()
+    async with guard.without_sales_list_writes(page):
+        async with guard.explicit_list_write(page, PLANNED) as first:
+            pending = asyncio.ensure_future(
+                _send(page, _Slow("salesApiCompanies?action=save", PLANNED.body))
+            )
+            await asyncio.sleep(0)
+        async with guard.explicit_list_write(page, PLANNED) as second:
+            gate.set()
+            assert await pending == "aborted"
+    assert first.admitted == 0
+    assert second.admitted == 0, (
+        "a request read under a closed window must not count for a later one"
+    )
+    assert first.refused == ["window closed"]

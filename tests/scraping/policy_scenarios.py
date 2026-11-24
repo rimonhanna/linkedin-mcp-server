@@ -33,6 +33,7 @@ from linkedin_mcp_server.scraping import job_pages as job_pages_module
 from linkedin_mcp_server.scraping import jobs as jobs_module
 from linkedin_mcp_server.scraping import navigation as navigation_module
 from linkedin_mcp_server.scraping import person as person_module
+from linkedin_mcp_server.scraping.sales_navigator_list_writes import plan_accounts
 from linkedin_mcp_server.scraping import session as session_module
 from linkedin_mcp_server.scraping.messaging_api import MessagingApiCapture
 from linkedin_mcp_server.scraping.sales_navigator_lead_filters import LEAD_LIST
@@ -1983,7 +1984,9 @@ async def _sn_create_list_dry_run_scenario() -> dict[str, Any]:
         _SN_CREATE_LIST,
         {"name": "Example list", "accounts": [_SN_COMPANY], "confirm_send": False},
         lambda extractor: extractor.create_sales_navigator_account_list(
-            "Example list", accounts=[_SN_COMPANY], confirm_send=False
+            "Example list",
+            accounts=plan_accounts([_SN_COMPANY]).rows,
+            confirm_send=False,
         ),
     )
     # A dry run of a create needs no page at all.
@@ -1999,7 +2002,7 @@ async def _sn_add_accounts_dry_run_scenario() -> dict[str, Any]:
         "add_accounts_to_sales_navigator_list",
         {"list_id": _SN_LIST, "accounts": [_SN_COMPANY], "confirm_send": False},
         lambda extractor: extractor.add_accounts_to_sales_navigator_list(
-            _SN_LIST, [_SN_COMPANY], confirm_send=False
+            _SN_LIST, plan_accounts([_SN_COMPANY]).rows, confirm_send=False
         ),
     )
     assert trace["result"]["status"] == "dry_run", trace["result"]

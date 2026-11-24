@@ -603,18 +603,25 @@ class LinkedInExtractor:
         name: str,
         *,
         description: str | None = None,
-        accounts: Sequence[str] = (),
+        accounts: Sequence[Mapping[str, Any]] = (),
         confirm_send: bool,
     ) -> dict[str, Any]:
-        """Create a Sales Navigator account list, optionally with accounts."""
+        """Create a Sales Navigator account list, optionally with accounts.
+
+        ``accounts`` are ``plan_accounts`` rows, kept in the result as given.
+        """
         return await self._sales_navigator_lists.create_account_list(
             name, description=description, accounts=accounts, confirm_send=confirm_send
         )
 
     async def add_accounts_to_sales_navigator_list(
-        self, list_id: str, accounts: Sequence[str], *, confirm_send: bool
+        self,
+        list_id: str,
+        accounts: Sequence[Mapping[str, Any]],
+        *,
+        confirm_send: bool,
     ) -> dict[str, Any]:
-        """Add accounts to one Sales Navigator account list."""
+        """Add accounts (``plan_accounts`` rows) to one account list."""
         return await self._sales_navigator_lists.add_accounts(
             list_id, accounts, confirm_send=confirm_send
         )

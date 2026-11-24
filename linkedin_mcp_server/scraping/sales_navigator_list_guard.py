@@ -4,9 +4,10 @@ While a list-write tool holds the page, every non-GET request to the Sales
 Navigator API is aborted, the app's own included, except inside
 ``explicit_list_write``, which admits exactly one request: the planned method
 on the planned resource and entity, with exactly the planned query and JSON
-body. A second
-request, a different list, a different set of accounts or a request the app
-sends on its own never leaves the browser.
+body (and no body at all when the plan has none). A second request, a
+different list, a different set of accounts or any other request the app
+sends never leaves the browser. A window opened around the app's own form
+admits the app's request when, and only when, it is exactly the plan.
 
 The one exception outside a window is the boot record every Sales Navigator
 page load posts (``salesApiWebAppBoot?action=recordBoot``): the reads let it
@@ -68,14 +69,18 @@ class ListWriteWindow:
     planned: PlannedListWrite
     admitted: int = 0
     refused: list[str] = field(default_factory=list)
+    # The admitted request, for its answer.
+    request: Any = None
+    # Set once a request was admitted or refused, for a write the app sends.
+    decided: asyncio.Event = field(default_factory=asyncio.Event)
 
 
-def _json_body(request: Any) -> Any:
+def _body_text(request: Any) -> str | None:
     try:
         text = request.post_data
-        return json.loads(text) if text else None
     except (TypeError, ValueError):
         return None
+    return text if isinstance(text, str) else None
 
 
 def _effective_method(method: str, headers: dict[str, str]) -> str:
@@ -85,7 +90,7 @@ def _effective_method(method: str, headers: dict[str, str]) -> str:
 
 
 def admission_refusal(
-    window: ListWriteWindow, method: str, url: str, body: Any
+    window: ListWriteWindow, method: str, url: str, text: str | None
 ) -> str | None:
     """Why a request must not leave, or None when it is the planned one."""
     if window.admitted:
@@ -103,6 +108,15 @@ def admission_refusal(
     sent = sorted(tuple(pair.partition("=")[::2]) for pair in _query(url))
     if sent != sorted(planned.query):
         return "query differs from the plan"
+    if planned.body is None:
+        # Compared raw: an unreadable body would decode to None and match.
+        if text:
+            return "body differs from the plan"
+        return None
+    try:
+        body = json.loads(text) if text else None
+    except ValueError:
+        return "body differs from the plan"
     if body != planned.body:
         return "body differs from the plan"
     return None
@@ -131,6 +145,9 @@ class _PageGuard:
         if request.method.upper() == "GET" or not self.holders:
             await route.fallback()
             return
+        # Judged by the window open when it arrived: one that closes while
+        # the headers are read admits nothing, and a later one never sees it.
+        window = self.window
         # The tunnel header can be absent from ``request.headers`` while it is
         # provisional, so read the full set.
         headers = {
@@ -141,7 +158,6 @@ class _PageGuard:
         if method == "GET":
             await route.fallback()
             return
-        window = self.window
         if window is None:
             if method == "POST" and _is_boot(request.url):
                 await route.fallback()
@@ -150,16 +166,18 @@ class _PageGuard:
             await route.abort()
             return
         try:
-            reason = admission_refusal(window, method, request.url, _json_body(request))
+            reason = admission_refusal(window, method, request.url, _body_text(request))
         except Exception:
             reason = "admission error"
-        # The window can close while the headers are read.
         if reason is None and self.window is window:
             # Counted before it leaves, so a failed send still counts as sent.
             window.admitted += 1
+            window.request = request
+            window.decided.set()
             await route.fallback()
             return
         window.refused.append(reason or "window closed")
+        window.decided.set()
         await route.abort()
 
     async def install(self, page: Any) -> None:

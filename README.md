@@ -333,21 +333,29 @@ lists; nobody else is notified. Each one opens one Sales Navigator page to
 check its target first: an add or a delete needs an account list (a lead list
 is refused), and a delete goes ahead only when the list's current name is
 exactly `expected_name`. With `confirm_send: false` nothing is sent and the
-result says what would be. With `confirm_send: true` the tool sends exactly
-one request per step, the one Sales Navigator's own app sends for it, from
-your browser with the app's headers; every other change the page tries while
-the tool runs is stopped in the browser. A create with `accounts` is two
-requests: the list, then the accounts. Adding accounts also saves them, as
-Sales Navigator's own Save to list does, and each account's status comes from
+result says what would be. With `confirm_send: true` exactly one request per
+step leaves your browser; every other change the page tries while the tool
+runs is stopped in the browser. A create fills in and submits Sales
+Navigator's own create-list form, lets through only the request the app then
+sends when it is exactly the planned one, and reads the new list back from its
+page. An add or a delete has no such form for an arbitrary list or set of
+accounts, so the tool sends a request shaped like the app's own (the same
+endpoint, body and headers) from your browser. A create with `accounts` is two
+requests, the list, then the accounts, and is refused up front unless the
+daily cap has room for both; the result stays `created` whatever happens to
+the accounts, with `accounts_status` saying how the add went. Adding
+accounts also saves them, as Sales Navigator's own Save to list does, and each account's status comes from
 Sales Navigator's answer for it (`added`, `already_in_list`, `refused` with
 its reason, or `unconfirmed`). Deleting a list leaves its accounts saved.
 A list name is at most 75 characters and a description 350, the limits of
 Sales Navigator's own form.
 
-Success is only reported from Sales Navigator's own answer to that request.
-That answer says Sales Navigator accepted it, not what the list now holds:
-read the list back with `get_sales_navigator_account_list` for that. When no answer
-arrives the result is `*_unconfirmed` with `retry_safe: false`: check the
+Success is only reported from Sales Navigator's own answer to that request
+(and, for a create, the read-back). For an add that answer says Sales
+Navigator accepted it, not what the list now holds: read the list back with
+`get_sales_navigator_account_list` for that. When no answer arrives, or the
+tool stops on an error after the request left, the result is
+`*_unconfirmed` with `retry_safe: false`: check the
 lists before calling again, as a repeat could create a second list. Each
 request that left the browser counts against `SALES_LIST_WRITES_MAX` (30 per
 rolling 24 h) and the hourly cap, a dry run never does, and they wait for

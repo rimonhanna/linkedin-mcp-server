@@ -14,7 +14,7 @@
     "methods": {
       "add_accounts_to_sales_navigator_list": {
         "coroutine": true,
-        "signature": "(self, list_id: 'str', accounts: 'Sequence[str]', *, confirm_send: 'bool') -> 'dict[str, Any]'"
+        "signature": "(self, list_id: 'str', accounts: 'Sequence[Mapping[str, Any]]', *, confirm_send: 'bool') -> 'dict[str, Any]'"
       },
       "add_post_to_campaign": {
         "coroutine": true,
@@ -38,7 +38,7 @@
       },
       "create_sales_navigator_account_list": {
         "coroutine": true,
-        "signature": "(self, name: 'str', *, description: 'str | None' = None, accounts: 'Sequence[str]' = (), confirm_send: 'bool') -> 'dict[str, Any]'"
+        "signature": "(self, name: 'str', *, description: 'str | None' = None, accounts: 'Sequence[Mapping[str, Any]]' = (), confirm_send: 'bool') -> 'dict[str, Any]'"
       },
       "create_saved_audience": {
         "coroutine": true,
