@@ -210,10 +210,11 @@ async def test_a_delete_carrying_any_body_is_not_the_planned_delete():
     delete.post_data = "not json"
     async with guard.without_sales_list_writes(page):
         async with guard.explicit_list_write(page, DELETE) as window:
-            assert await _send(page, delete) == "aborted"
-    assert window.refused == ["body differs from the plan"], (
+            outcome = await _send(page, delete)
+    assert outcome == "aborted", (
         "a DELETE planned without a body must refuse any body, even unreadable"
     )
+    assert window.refused == ["body differs from the plan"]
 
 
 async def test_a_request_whose_window_closed_while_it_was_read_is_aborted():

@@ -105,6 +105,7 @@ class _Locator:
         if self._selector == writes._CREATE_OPENER:
             self._page.form_open = True
         elif self._selector == writes._CREATE_BUTTON:
+            self._page.submits += 1
             await self._page.app_creates()
 
     async def press_sequentially(self, text: str, *, delay: float) -> None:
@@ -133,6 +134,7 @@ class _Page:
         self.typing: Any = None
         self.missing: set[str] = set()
         self.form_open = False
+        self.submits = 0
         self.values: dict[str, str] = {}
         self.keyboard = _Keyboard()
         self.raise_after_admit: BaseException | None = None
@@ -623,6 +625,7 @@ async def test_a_form_that_holds_other_text_is_never_submitted(ledger, monkeypat
     page.typing = lambda text: text[:-1]
     writer, _ = _writer(page, monkeypatch, record=_created)
     result = await writer.create_account_list(NAME, confirm_send=True)
+    assert page.submits == 0, "a form holding other text must never be submitted"
     assert result["status"] == "not_sent"
     assert page.keyboard.pressed == ["Escape"]
     assert page.sent == []
@@ -635,7 +638,9 @@ async def test_an_app_request_other_than_the_plan_is_stopped_in_the_browser(
     page.app_body = lambda body: {**body, "listType": "LEAD"}
     writer, _ = _writer(page, monkeypatch, record=_created)
     result = await writer.create_account_list(NAME, confirm_send=True)
-    assert result["status"] == "not_sent"
+    assert result["status"] == "not_sent", (
+        "the app's create request must be stopped unless it is exactly the plan"
+    )
     assert "body differs from the plan" in result["message"]
     assert result["retry_safe"] is True
     assert page.sent == []
