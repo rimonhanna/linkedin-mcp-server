@@ -1900,7 +1900,7 @@
                 }
               ],
               "default": null,
-              "description": "One or a list of account list ids, as\nlist_sales_navigator_account_lists returned them: leads at\nthe companies in those lists."
+              "description": "One or a list of account list ids, as\nlist_sales_navigator_account_lists returned them: leads at\nthe companies in those lists. A list id Sales Navigator does\nnot know is not an error; it may return no leads."
             },
             "company_size": {
               "anyOf": [
@@ -1945,7 +1945,7 @@
                 }
               ],
               "default": null,
-              "description": "Lead list ids whose leads are left out."
+              "description": "Lead list ids whose leads are left out. An\nunknown id is not an error; it may exclude nothing."
             },
             "function": {
               "anyOf": [
@@ -2002,7 +2002,7 @@
                 }
               ],
               "default": null,
-              "description": "One or a list of lead list ids, as\nlist_sales_navigator_lead_lists returned them: only leads in\nthose lists."
+              "description": "One or a list of lead list ids, as\nlist_sales_navigator_lead_lists returned them: only leads in\nthose lists. A list id Sales Navigator does not know is not\nan error; it may return no leads."
             },
             "location": {
               "anyOf": [

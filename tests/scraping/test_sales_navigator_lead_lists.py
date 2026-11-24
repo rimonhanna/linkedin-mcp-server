@@ -102,7 +102,7 @@ async def test_a_lead_list_is_read_as_a_search_filtered_to_it(mock_page):
     last = result["leads"][-1]
     assert last["degree"] == 2
     assert last["profileUrl"] == "https://www.linkedin.com/in/ACwAAA0025"
-    assert last["salesProfileUrn"].startswith("urn:li:fs_salesProfile:(ACwAAA0025,")
+    assert "salesProfileUrn" not in last
     assert result["paging"] == {
         "page": 1,
         "start": 0,

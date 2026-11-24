@@ -154,7 +154,6 @@ class Seniority(TypedDict):
 
 class Lead(TypedDict, total=False):
     id: str
-    salesProfileUrn: str
     profileUrl: str
     memberUrn: str
     fullName: str
@@ -404,8 +403,12 @@ def missing_echoes(
 ) -> list[str]:
     """Criteria the captured API ``query`` does not carry; ``[]`` = all echoed.
 
-    The response does not echo applied filters and LinkedIn silently ignores an
-    unknown filter, so the request the page sent is the only evidence.
+    What this proves is narrow: the page sent the request with the filter
+    as built here, so a filter the page drops or rewrites is an error. It
+    does not prove the server applied the filter, nor that an id names the
+    entity meant: the response does not echo applied filters, and LinkedIn
+    answers an id it does not know (an unknown list id, say) as an empty or
+    unfiltered result, not as an error.
     """
     captured = _record(captured_query)
     missing: list[str] = []
@@ -449,8 +452,9 @@ def unrequested_echoes(
 ) -> list[str]:
     """Criteria the captured API ``query`` carries that were not asked for.
 
-    A page that kept a filter from an earlier search would narrow the results
-    past what was asked, which the echo of the asked criteria cannot show.
+    A page that kept a filter from an earlier search would send it on top of
+    the asked ones, which the echo of the asked criteria cannot show. Like
+    ``missing_echoes`` this reads the request, not what the server did.
     """
     captured = _record(captured_query)
     extra: list[str] = []
@@ -540,9 +544,10 @@ def build_lead(element: Any) -> Lead | None:
     profile_id = sales_profile_id(record.get("entityUrn")) if record else None
     if record is None or profile_id is None or is_withheld(record):
         return None
+    # Not the whole entityUrn: its third part is a token minted for this
+    # viewer, and the Sales Navigator tools address a lead by the id alone.
     lead: dict[str, Any] = {
         "id": profile_id,
-        "salesProfileUrn": record["entityUrn"],
         "profileUrl": person_profile_url(profile_id),
     }
     member_urn = as_str(record.get("objectUrn"))
