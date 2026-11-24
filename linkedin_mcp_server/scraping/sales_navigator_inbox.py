@@ -21,7 +21,6 @@ from urllib.parse import quote, unquote, urlencode, urlparse
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
-from linkedin_mcp_server.core.humanize import human_type
 from linkedin_mcp_server.pacing import note_throttle_signal
 from linkedin_mcp_server.scraping.identifiers import (
     SALES_INBOX_URL,
@@ -166,6 +165,47 @@ def _is_list(finder: str, key: str, value: str) -> Callable[[SnResponse], bool]:
         )
 
     return match
+
+
+def _keyword_key(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _is_search(keywords: str) -> Callable[[SnResponse], bool]:
+    """A search page for exactly ``keywords``: never one for a partial word.
+
+    The app may also answer an earlier value of the box, so the sent keyword
+    (URL-decoded once) must equal the typed one, ignoring case and spacing.
+    """
+    wanted = _keyword_key(keywords)
+
+    def match(response: SnResponse) -> bool:
+        call = response.call
+        return (
+            response.ok
+            and call.method == "GET"
+            and call.resource == THREADS
+            and call.entity_id is None
+            and call.finder == SEARCH_FINDER
+            and _keyword_key(unquote(call.params.get("keyword", ""))) == wanted
+        )
+
+    return match
+
+
+def _search_miss(capture: SalesNavigatorCapture) -> LinkedInScraperException:
+    others = [
+        unquote(response.call.params.get("keyword", ""))
+        for response in capture.responses
+        if response.call.resource == THREADS and response.call.finder == SEARCH_FINDER
+    ]
+    # The keywords are the user's own query; they stay out of the warning.
+    logger.debug("Sales Navigator search answered other keywords: %r", others)
+    return LinkedInScraperException(
+        "Sales Navigator did not return results for these keywords in time "
+        f"({len(others)} search response(s) were for other keywords), so "
+        "nothing was reported."
+    )
 
 
 def _is_thread(thread_id: str) -> Callable[[SnResponse], bool]:
@@ -700,7 +740,9 @@ class SalesNavigatorInboxReader:
                 await box.click(timeout=5000)
             except PlaywrightTimeoutError:
                 continue
-            await human_type(page, keywords)
+            # One insert, one input event: typed key by key, the app searched
+            # a partial word at a pause and never the full keywords.
+            await page.keyboard.insert_text(keywords)
             return
         raise LinkedInScraperException(
             "The Sales Navigator inbox search box was not found on the page; "
@@ -717,7 +759,7 @@ class SalesNavigatorInboxReader:
                 "keywords must contain at least one letter or digit"
             )
         is_inbox = _is_list(LIST_FINDER, "filter", FILTERS["all"][1])
-        is_page = _is_list(SEARCH_FINDER, "keyword", keywords)
+        is_page = _is_search(keywords)
         async with self._guard():
             async with _InboxCapture(self._session.page) as capture:
                 await self._open(capture, SALES_INBOX_URL, is_inbox)
@@ -729,6 +771,8 @@ class SalesNavigatorInboxReader:
                         throttle=False,
                         wanted=(THREADS,),
                     )
+                except LinkedInScraperException as exc:
+                    raise _search_miss(capture) from exc
                 finally:
                     await self._session.check_rate_limit()
                 await capture.settle()

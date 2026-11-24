@@ -1960,15 +1960,9 @@ async def _sn_inbox_run(
     recorder = page.recorder
     clock = FakeClock(recorder)
     extractor = _extractor(page)
-
-    async def typed(typed_page: Any, text: str) -> None:
-        # The real helper draws jittered delays from an unseeded RNG.
-        await typed_page.keyboard.type(text)
-
-    with patch.object(sn_inbox_module, "human_type", typed):
-        async with boundaries(recorder, clock):
-            with recorder.context(method, name):
-                result = await call(extractor)
+    async with boundaries(recorder, clock):
+        with recorder.context(method, name):
+            result = await call(extractor)
     # The read-state guard stays latched for late requests.
     page.assert_clean(retained_read_guard=True)
     return recorder.trace(
@@ -2055,7 +2049,7 @@ async def _sn_search_conversations_scenario() -> dict[str, Any]:
     )
     page.script("sn_search_box_first.click", None)
     page.script(
-        "keyboard.type",
+        "keyboard.insert_text",
         lambda: _sn_emit(
             page,
             [_sn_threads("q=keyword&keyword=engine", [_sn_thread(1)], 20)],

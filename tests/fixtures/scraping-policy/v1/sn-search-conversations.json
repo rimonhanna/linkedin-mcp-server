@@ -184,8 +184,7 @@
     },
     {
       "call": "search_sales_navigator_conversations",
-      "delay_ms": null,
-      "kind": "keyboard.type",
+      "kind": "keyboard.insert_text",
       "section": "search_results",
       "text": "engine"
     },
