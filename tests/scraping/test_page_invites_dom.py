@@ -32,6 +32,9 @@ def _row(profile_id: str, *, disabled: bool = False) -> str:
     )
 
 
+# The layout measured live: Invite is the last button, with one text span
+# that reads "Invite" and then "Invite <n>"; ticking a row adds an empty button
+# just before it, so "Unselect all" is no longer next to it.
 def _page(rows: str, *, extra: str = "") -> str:
     return (
         '<!DOCTYPE html><html><body><div role="dialog" id="other">'
@@ -41,12 +44,14 @@ def _page(rows: str, *, extra: str = "") -> str:
         f'<ul role="listbox">{rows}</ul>{extra}'
         '<button onclick="document.body.dataset.more=1">Show more results</button>'
         '<button id="unselect">Unselect all</button>'
-        '<button id="invite-btn" onclick="document.body.dataset.pressed=1">Invite'
-        "</button></div>"
+        '<span id="added"></span>'
+        '<button id="invite-btn" onclick="document.body.dataset.pressed=1">'
+        '<span class="artdeco-button__text">Invite</span></button></div>'
         "<script>document.querySelector('#invite').addEventListener('change',()=>{"
         "const any=[...document.querySelectorAll('#invite input:checked')].length;"
         "const b=document.getElementById('invite-btn');"
-        "b.disabled=!any;b.textContent='Invite ('+any+')';});"
+        "document.getElementById('added').innerHTML=any?'<button></button>':'';"
+        "b.disabled=!any;b.firstChild.textContent=any?'Invite '+any:'Invite';});"
         "document.getElementById('invite-btn').disabled=true;</script>"
         "</body></html>"
     )
@@ -135,10 +140,25 @@ async def test_invite_is_pressed_only_when_it_shows_the_selected_count(dom_page)
     await _load(dom_page, _page(_row("ACoAAone1") + _row("ACoAAtwo2")))
     await dom_page.evaluate(pi._TICK_JS, "ACoAAone1")
 
-    # The last button reads "Invite (1)": a plan of two must not press it.
+    # The last button reads "Invite 1": a plan of two must not press it.
     assert await dom_page.evaluate(pi._PRESS_INVITE_JS, 2) == "count_mismatch"
     assert await dom_page.evaluate("document.body.dataset.pressed ?? null") is None
     # Nor may a last button with no count at all, whatever its position.
     await dom_page.evaluate("document.getElementById('invite-btn').textContent='Go'")
     assert await dom_page.evaluate(pi._PRESS_INVITE_JS, 1) == "count_mismatch"
     assert await dom_page.evaluate("document.body.dataset.pressed ?? null") is None
+
+
+async def test_invite_needs_its_count_as_a_whole_token(dom_page):
+    await _load(dom_page, _page(_row("ACoAAone1")))
+    await dom_page.evaluate(pi._TICK_JS, "ACoAAone1")
+    text = "document.querySelector('#invite-btn span').textContent="
+
+    # A credits figure beside the count, or the count inside another number,
+    # does not stand for it.
+    for shown in ("'Invite 1 of 100'", "'Invite 11'", "'Invite 1/20'"):
+        await dom_page.evaluate(text + shown)
+        assert await dom_page.evaluate(pi._PRESS_INVITE_JS, 1) == "count_mismatch"
+    assert await dom_page.evaluate("document.body.dataset.pressed ?? null") is None
+    await dom_page.evaluate(text + "' Invite  1 '")
+    assert await dom_page.evaluate(pi._PRESS_INVITE_JS, 1) == "clicked"

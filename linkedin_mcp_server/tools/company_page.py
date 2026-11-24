@@ -119,8 +119,9 @@ def register_company_page_tools(
             Dict with url, company_id, sections (candidates -> one line each),
             candidates (profileId, name, headline, publicIdentifier when known,
             profileUrl, invitable: true, false or null when LinkedIn did not
-            say), credits (remaining, total, nextGrantOn; null with
-            section_errors.credits when not shown) and paging (count, more,
+            say, with section_errors.invitable then), credits (remaining,
+            total, nextGrantOn; null with section_errors.credits when not
+            shown) and paging (count, more,
             reason: limit, complete, search, max_pages, deadline,
             more_control_not_found or page_not_loaded).
         """
@@ -217,7 +218,9 @@ def register_company_page_tools(
             stopped before the end; says how many were read and why) or
             unmatchable_identifier (a Sales Navigator id that names no
             dialog row). A refused detail is the HTTP status, or
-            rate_limited when LinkedIn answered 429.
+            rate_limited when LinkedIn answered 429. An invitability_unknown
+            detail is status_not_received: LinkedIn did not say whether the
+            person can be invited, so they were not; calling again may.
         """
         try:
             company_id = normalize_page_company_id(company_id)

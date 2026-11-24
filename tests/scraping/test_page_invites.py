@@ -8,6 +8,7 @@ value is synthetic.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from typing import Any, cast
@@ -111,6 +112,7 @@ class _DialogPage:
         send_path: str | None = "voyagerRelationshipsDashInvitations",
         press_outcome: str = "clicked",
         row_ids: list[str] | None = None,
+        status_delay: float | None = 0.0,
     ):
         self.url = "about:blank"
         self.rows = row_ids if row_ids is not None else IDS[:rows]
@@ -122,6 +124,8 @@ class _DialogPage:
         # Where Invite sends the batch; None sends nothing the guard sees.
         self.send_path = send_path
         self.press_outcome = press_outcome
+        # How long after its page each status response arrives; None: never.
+        self.status_delay = status_delay
         self.press_args: list[Any] = []
         self.listeners: dict[str, list[Any]] = {}
         self.routes: list[tuple[str, Any]] = []
@@ -210,6 +214,19 @@ class _DialogPage:
             f"&community={COMMUNITY}&start={start}&count={count}",
             self._page_payload(ids, start),
         )
+        self._emit_statuses(ids)
+
+    def _emit_statuses(self, ids: list[str]) -> None:
+        if self.status_delay is None:
+            return
+        if self.status_delay:
+            asyncio.get_running_loop().call_later(
+                self.status_delay, self._emit_statuses_now, ids
+            )
+        else:
+            self._emit_statuses_now(ids)
+
+    def _emit_statuses_now(self, ids: list[str]) -> None:
         self._emit(
             "voyagerRelationshipsDashCommunityInviteeSuggestionStatus"
             f"?q=communityAndInvitees&community={COMMUNITY}",
@@ -281,6 +298,7 @@ class _DialogPage:
                 "included": [],
             },
         )
+        self._emit_statuses([IDS[24]])
 
     async def _send(self) -> None:
         if self.send_path is None:
@@ -348,6 +366,7 @@ def writes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(pi.random, "uniform", lambda _a, _b: 0)
     monkeypatch.setattr(pi, "_SEND_TIMEOUT", 0.2)
     monkeypatch.setattr(pi, "_SEARCH_SETTLE_SECONDS", 0.05)
+    monkeypatch.setattr(pi, "_STATUS_TIMEOUT", 0.3)
     monkeypatch.setattr(PageInviteCapture, "_note_throttle", lambda *_a, **_k: None)
     return recorded
 
@@ -716,3 +735,61 @@ async def test_an_id_no_dialog_row_can_have_does_not_page(writes):
         ("would_invite", None),
         ("not_found", "unmatchable_identifier"),
     ]
+
+
+async def test_the_list_waits_for_a_status_that_arrives_after_the_rows(writes):
+    page = _DialogPage(rows=25, invitable={IDS[21]: False}, status_delay=0.1)
+    actions, _ = _actions(page)
+    result = await actions.list_follow_candidates(COMPANY, limit=22)
+
+    invitable = [c["invitable"] for c in result["candidates"]]
+    assert invitable == [True] * 21 + [False]
+    assert "section_errors" not in result
+
+
+async def test_a_list_with_no_status_says_invitability_is_unknown(writes):
+    page = _DialogPage(rows=3, status_delay=None)
+    actions, _ = _actions(page)
+    result = await actions.list_follow_candidates(COMPANY, limit=20)
+
+    assert [c["invitable"] for c in result["candidates"]] == [None, None, None]
+    error = result["section_errors"]["invitable"]
+    assert error["error_type"] == "unavailable"
+    assert "3 of 3" in error["error_message"]
+
+
+async def test_an_invite_waits_for_a_late_status_before_planning(writes):
+    # On the second page: the first one's status lands while the dialog opens.
+    page = _DialogPage(rows=25, invitable={IDS[22]: False}, status_delay=0.1)
+    result = await _invite(page, [IDS[21], IDS[22]], confirm=True)
+
+    assert page.sent == [[IDS[21]]]
+    assert [(p["status"], p.get("detail")) for p in result["people"]] == [
+        ("invited", None),
+        ("not_invitable", "linkedin_declined"),
+    ]
+
+
+async def test_no_one_is_invited_whose_status_never_arrived(writes):
+    page = _DialogPage(rows=3, status_delay=None)
+    result = await _invite(page, [IDS[0], IDS[1]], confirm=True)
+
+    assert page.sent == []
+    assert "tick" not in " ".join(page.events)
+    assert result["status"] == "nothing_to_invite"
+    assert result["retry_safe"] is True
+    assert [(p["status"], p.get("detail")) for p in result["people"]] == [
+        ("invitability_unknown", "status_not_received"),
+        ("invitability_unknown", "status_not_received"),
+    ]
+    assert writes == []
+
+
+async def test_a_row_linkedin_says_is_not_invitable_is_never_ticked(writes):
+    page = _DialogPage(rows=3, invitable={IDS[0]: False, IDS[1]: False})
+    result = await _invite(page, [IDS[0], IDS[1]], confirm=True)
+
+    assert page.sent == []
+    assert "tick" not in " ".join(page.events)
+    assert result["status"] == "nothing_to_invite"
+    assert {p["status"] for p in result["people"]} == {"not_invitable"}

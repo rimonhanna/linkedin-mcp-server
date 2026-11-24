@@ -100,6 +100,9 @@ _POLL_SECONDS = 0.25
 # A name search fires per keystroke; the last result set is the one shown once
 # no new one has arrived for this long.
 _SEARCH_SETTLE_SECONDS = 1.5
+# How long to wait for the dialog's status response once the candidates are in:
+# it follows its suggestions page by about half a second (measured 0.24-0.54 s).
+_STATUS_TIMEOUT = 3.0
 
 
 # Each "Show more results" adds 10 candidates after the first 20.
@@ -165,11 +168,13 @@ _TICK_JS = (
 """
 )
 
-# Press the dialog's last button, its Invite action (measured: after "Unselect
-# all", disabled until a row is ticked), only when a number in its text is the
-# count selected: position alone could press another control, and digits are
-# not a locale's words. Answers "clicked", "disabled", "count_mismatch" or
-# "not_found".
+# Press the dialog's last button, its Invite action, only when its text holds
+# exactly one whole number and that number is the count selected. Measured:
+# disabled until a row is ticked, then its one text span reads "Invite 1" (no
+# brackets, no aria-label), and a ticked row adds a button just before it, so
+# it stays last while "Unselect all" is no longer next to it. Position alone
+# could press another control, and digits are not a locale's words.
+# Answers "clicked", "disabled", "count_mismatch" or "not_found".
 _PRESS_INVITE_JS = (
     "(count) => { // linkedin-mcp:page-invite-press\n"
     + _DIALOG_JS
@@ -180,8 +185,9 @@ _PRESS_INVITE_JS = (
   const invite = buttons[buttons.length - 1];
   if (!invite) return 'not_found';
   if (invite.disabled || invite.getAttribute('aria-disabled') === 'true') return 'disabled';
-  const numbers = (invite.innerText || invite.textContent || '').match(/\d+/g) || [];
-  if (!numbers.includes(String(count))) return 'count_mismatch';
+  const tokens = (invite.innerText || invite.textContent || '').trim().split(/\s+/);
+  const numbers = tokens.filter((t) => /^\d+$/.test(t));
+  if (numbers.length !== 1 || numbers[0] !== String(count)) return 'count_mismatch';
   invite.click();
   return 'clicked';
 }
@@ -467,6 +473,39 @@ class PageInviteActions:
                 return rows, True, stop
             pages += 1
 
+    async def _await_statuses(
+        self,
+        capture: PageInviteCapture,
+        dialog: _Dialog,
+        company_id: str,
+        rows: list[Candidate],
+        deadline: float | None,
+    ) -> list[str]:
+        """Wait, briefly, for the status of every row; the ids still unknown."""
+        wanted = {row["profileId"] for row in rows}
+
+        def covered(response: InviteResponse) -> bool:
+            return (
+                response.call.resource == STATUSES
+                and _from_dialog(response, company_id)
+                and wanted <= dialog.invitable().keys()
+            )
+
+        timeout = _STATUS_TIMEOUT
+        if deadline is not None:
+            timeout = min(timeout, deadline - time.monotonic())
+        if wanted and timeout > 0 and not capture.matching(covered):
+            try:
+                # A miss is reported per row, not read as a throttle.
+                await capture.wait_for(
+                    covered, timeout=timeout, throttle=False, wanted=(STATUSES,)
+                )
+            except LinkedInScraperException:
+                pass
+            await capture.settle()
+        known = dialog.invitable()
+        return [row["profileId"] for row in rows if row["profileId"] not in known]
+
     async def _search(
         self, capture: PageInviteCapture, dialog: _Dialog, keywords: str
     ) -> list[Candidate]:
@@ -520,6 +559,9 @@ class PageInviteActions:
                 )
                 more = more or len(rows) > limit
                 rows = rows[:limit]
+            unknown = await self._await_statuses(
+                capture, dialog, company_id, rows, deadline
+            )
             candidates = _decorate(rows, dialog.invitable())
             credits = dialog.credits()
         result: dict[str, Any] = {
@@ -532,14 +574,22 @@ class PageInviteActions:
         }
         if keywords:
             result["keywords"] = keywords
+        errors: dict[str, Any] = {}
         if credits is None:
-            result["section_errors"] = {
-                "credits": {
-                    "error_type": "unavailable",
-                    "error_message": "LinkedIn did not return the page's "
-                    "invitation credits.",
-                }
+            errors["credits"] = {
+                "error_type": "unavailable",
+                "error_message": "LinkedIn did not return the page's "
+                "invitation credits.",
             }
+        if unknown:
+            errors["invitable"] = {
+                "error_type": "unavailable",
+                "error_message": f"LinkedIn did not say whether {len(unknown)} of "
+                f"{len(candidates)} candidates can be invited; their invitable "
+                "is null. Listing again may show it.",
+            }
+        if errors:
+            result["section_errors"] = errors
         return result
 
     async def invite_to_follow(
@@ -571,6 +621,11 @@ class PageInviteActions:
                 await self._open(capture, company_id)
             except NotPageAdminError as exc:
                 return report.finish("not_page_admin", str(exc))
+            plan_deadline = (
+                deadline - _SEND_BUDGET_SECONDS
+                if deadline is not None and confirm_send
+                else deadline
+            )
             rows, _more, reason = await self._load_until(
                 capture,
                 dialog,
@@ -581,10 +636,13 @@ class PageInviteActions:
                     or any(ref_matches(ref, row) for row in found)
                     for ref in refs
                 ),
-                deadline=deadline - _SEND_BUDGET_SECONDS
-                if deadline is not None and confirm_send
-                else deadline,
+                deadline=plan_deadline,
                 most=MAX_INVITE_CANDIDATES,
+            )
+            # Only the rows asked for need a status; the rest are not planned.
+            asked = [row for row in rows if any(ref_matches(r, row) for r in refs)]
+            await self._await_statuses(
+                capture, dialog, company_id, asked, plan_deadline
             )
             report.credits = dialog.credits()
             if report.credits is None:
@@ -782,7 +840,9 @@ class _Report:
             seen.add(profile_id)
             able = invitable.get(profile_id)
             if able is None:
+                # Never invited on a guess: LinkedIn may say false once it answers.
                 self.statuses[index] = "invitability_unknown"
+                self.details[index] = "status_not_received"
             elif not able:
                 self.statuses[index] = "not_invitable"
                 label = labels.get(profile_id)
