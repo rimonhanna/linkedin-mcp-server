@@ -120,11 +120,11 @@ async def test_the_boot_record_passes_only_outside_a_window():
     ("request_", "reason"),
     [
         (
-            _add({"companyIds": [100000001], "lists": [100000302]}),
+            _add({"companyIds": [100000001], "lists": ["100000302"]}),
             "body differs from the plan",
         ),
         (
-            _add({"companyIds": [100000001, 100000002], "lists": [int(LIST)]}),
+            _add({"companyIds": [100000001, 100000002], "lists": [LIST]}),
             "body differs from the plan",
         ),
         (_add(path="salesApiCompanies?action=unsave"), "query differs from the plan"),

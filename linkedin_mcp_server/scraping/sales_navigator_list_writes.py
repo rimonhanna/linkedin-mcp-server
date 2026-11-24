@@ -389,7 +389,12 @@ class SalesNavigatorListWriter:
             )
             return on_unknown(what)
         if not answer.ok:
-            return on_refused(f"Sales Navigator refused it (HTTP {answer.status})")
+            reason = _error_message(answer.payload)
+            return on_refused(
+                f"Sales Navigator refused it (HTTP {answer.status}"
+                + (f": {reason}" if reason else "")
+                + ")"
+            )
         return answer
 
     async def create_account_list(
@@ -671,6 +676,14 @@ class SalesNavigatorListWriter:
             return finish(
                 "deleted", "Sales Navigator deleted the list.", retry_safe=False
             )
+
+
+def _error_message(payload: Any) -> str | None:
+    """The reason in a Rest.li error answer, clipped; never the request."""
+    message = payload.get("message") if isinstance(payload, dict) else None
+    return (
+        message.strip()[:200] if isinstance(message, str) and message.strip() else None
+    )
 
 
 def _not_an_account_list(account_list: dict[str, Any]) -> str | None:

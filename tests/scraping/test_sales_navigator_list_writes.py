@@ -304,7 +304,7 @@ async def test_add_sends_one_request_with_exactly_the_planned_accounts(
     assert [a["status"] for a in result["accounts"]] == ["added", "added"]
     (sent,) = page.sent
     assert sent["method"] == "POST"
-    assert _body(sent) == {"companyIds": [100000001, 100000002], "lists": [int(LIST)]}
+    assert _body(sent) == {"companyIds": [100000001, 100000002], "lists": [LIST]}
     assert _path(sent) == "/sales-api/salesApiCompanies?action=save"
     assert _spent(ledger) == 1
 
@@ -358,7 +358,7 @@ async def test_a_create_dry_run_touches_no_page(ledger, monkeypatch):
 async def test_create_then_add_to_the_id_sales_navigator_answered(ledger, monkeypatch):
     page = _Page(
         [
-            {"status": 201, "payload": {"id": 100000399}, "restliId": None},
+            {"status": 201, "payload": {"id": 7530000000000000399}, "restliId": None},
             _saved(("100000001", "SUCCESS")),
         ]
     )
@@ -367,7 +367,7 @@ async def test_create_then_add_to_the_id_sales_navigator_answered(ledger, monkey
         NAME, description=" Example ", accounts=["100000001"], confirm_send=True
     )
     assert result["status"] == "created"
-    assert result["list"]["id"] == "100000399"
+    assert result["list"]["id"] == "7530000000000000399"
     assert result["accounts"][0]["status"] == "added"
     create, add = page.sent
     assert _body(create) == {
@@ -376,7 +376,7 @@ async def test_create_then_add_to_the_id_sales_navigator_answered(ledger, monkey
         "role": "OWNER",
         "description": "Example",
     }
-    assert _body(add)["lists"] == [100000399]
+    assert _body(add)["lists"] == ["7530000000000000399"]
     assert _spent(ledger) == 2
 
 
@@ -398,7 +398,11 @@ async def test_a_failed_add_after_a_create_still_says_the_list_exists(
     page = _Page(
         [
             {"status": 201, "payload": None, "restliId": "100000399"},
-            {"status": 400, "payload": None, "restliId": None},
+            {
+                "status": 400,
+                "payload": {"status": 400, "message": "Invalid input"},
+                "restliId": None,
+            },
         ]
     )
     writer, _ = _writer(page, monkeypatch)
@@ -408,6 +412,9 @@ async def test_a_failed_add_after_a_create_still_says_the_list_exists(
     assert result["status"] == "refused_by_linkedin"
     assert result["list"]["id"] == "100000399"
     assert result["message"].startswith("Sales Navigator created the list.")
+    assert result["accounts"][0]["detail"] == (
+        "Sales Navigator refused it (HTTP 400: Invalid input)"
+    )
     assert result["retry_safe"] is False
 
 

@@ -72,7 +72,10 @@ def add_request(list_id: str, company_ids: Sequence[str]) -> PlannedListWrite:
         resource=COMPANIES,
         entity_id=None,
         query=(("action", "save"),),
-        body={"companyIds": [int(c) for c in company_ids], "lists": [int(list_id)]},
+        # A list id is a 19-digit long, past what a JavaScript number holds
+        # exactly, so it goes as a string; company ids are small and the app
+        # parseInt's them. A numeric list id was answered HTTP 400 live.
+        body={"companyIds": [int(c) for c in company_ids], "lists": [list_id]},
     )
 
 
