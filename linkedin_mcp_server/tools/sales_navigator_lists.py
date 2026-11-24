@@ -223,7 +223,9 @@ def register_sales_navigator_list_tools(
         duplicate). With confirm_send True each account's status is taken
         from Sales Navigator's answer for it: added, already_in_list, refused
         (detail names Sales Navigator's reason, such as EXCEED_LIMIT) or
-        unconfirmed when the answer does not name it. When an outcome is unknown, retry_safe is false: read the list
+        unconfirmed when the answer does not name it. When the answer names
+        no account, the list's first page is read once and the accounts
+        found there are added. When an outcome is unknown, retry_safe is false: read the list
         with get_sales_navigator_account_list before calling again. The one
         request counts against the daily sales_list_writes cap.
 

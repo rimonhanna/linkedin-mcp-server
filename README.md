@@ -351,7 +351,8 @@ A list name is at most 75 characters and a description 350, the limits of
 Sales Navigator's own form.
 
 Success is only reported from Sales Navigator's own answer to that request
-(and, for a create, the read-back). For an add that answer says Sales
+(and, for a create, the read-back; for an add whose answer names no
+account, one read of the list's first page). For an add that answer says Sales
 Navigator accepted it, not what the list now holds: read the list back with
 `get_sales_navigator_account_list` for that. When no answer arrives, or the
 tool stops on an error after the request left, the result is

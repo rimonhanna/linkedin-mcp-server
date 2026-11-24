@@ -61,14 +61,27 @@ Why not the app's controls:
   refused for that list id (the reader's `_Refusal` on `salesApiLists/<id>`,
   a 403/404 with no OK answer for the same id). A page that still loads the
   list, or does not answer either way, is `delete_unconfirmed`.
-- Add: Sales Navigator's own per-account answer is the confirmation, with no
-  read-back. The save action answers one `listEntityActionResponses` entry per
-  account (`SUCCESS`, `CONFLICT` or a failure), so each account's status comes
-  from LinkedIn and an account it does not name stays `unconfirmed`. The
-  list's `entityCount` is not used: it is one number for the whole list, so it
-  cannot say which accounts went in, `CONFLICT` accounts leave it unchanged,
-  and another writer (the member in another tab) moves it at the same time.
-  Reading the rows back would cost a page load per 25 rows on every add.
+- Add: Sales Navigator's own per-account answer is the confirmation. The save
+  action answers `{value: {listEntityActionResponses, failed, successful,
+  status}}` (measured live 2026-11-24, HTTP 200, no `x-restli-id`). Each
+  `listEntityActionResponses` entry is `{entity, entityUnion: {organization},
+  list, status}` with `entity` an `urn:li:organization:<id>` (the same number
+  as the account's `urn:li:fs_salesCompany:<id>`), `list` the
+  `urn:li:fs_salesList:<id>` and `status` `SUCCESS`, `CONFLICT` or a failure.
+  `successful` holds `{companyUrn}` records and the top-level `status` is the
+  whole call's; neither is per list, so neither adds an account. An account
+  the entries do not name stays `unconfirmed`. The first version read `entity`
+  as an `fs_salesCompany` URN only, so a live add that landed was reported
+  `add_unconfirmed`.
+- Add, when a 2xx answer names no account at all: the list is read once (its
+  first page, one charged page load, up to 25 rows) and each account found
+  there is `added`, with a `detail` saying it was confirmed by read-back. An
+  account not found, or a read-back that fails, stays `unconfirmed`. Only
+  this case pays for the read: an answer that names the accounts is enough,
+  and a full read costs a page load per 25 rows. The list's `entityCount` is
+  not used: it is one number for the whole list, so it cannot say which
+  accounts went in, `CONFLICT` accounts leave it unchanged, and another writer
+  (the member in another tab) moves it at the same time.
 
 ## The `lists` element is a string
 

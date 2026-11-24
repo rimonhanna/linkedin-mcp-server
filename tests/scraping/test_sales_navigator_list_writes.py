@@ -724,6 +724,11 @@ async def test_an_account_the_answer_does_not_name_is_never_added(ledger, monkey
 async def test_a_2xx_without_a_readable_answer_is_unconfirmed(ledger, monkeypatch):
     page = _Page([{"status": 200, "payload": {}, "restliId": None}])
     writer, _ = _writer(page, monkeypatch, record=_account_list())
+
+    async def read_back(list_id: str, page: int = 1, *, deadline=None):
+        return {"account_list": _account_list(), "accounts": []}
+
+    writer._reader.get_account_list = read_back
     result = await writer.add_accounts(LIST, _rows("100000001"), confirm_send=True)
     assert result["status"] == "add_unconfirmed"
     assert result["accounts"][0]["status"] == "unconfirmed"

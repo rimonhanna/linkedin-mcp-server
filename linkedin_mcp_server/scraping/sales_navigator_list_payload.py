@@ -35,6 +35,7 @@ AccountStatus = Literal["added", "already_in_list", "refused", "unconfirmed"]
 # all mean the account is not in the list.
 _ADDED = "SUCCESS"
 _ALREADY = "CONFLICT"
+_ORGANIZATION_URN = "urn:li:organization:"
 
 
 def refuse_invalid_list_text(name: str, description: str | None) -> str | None:
@@ -107,6 +108,35 @@ def created_list_id(restli_id: Any, payload: Any) -> str | None:
     return None
 
 
+def _answered_company_id(entry: Any) -> str | None:
+    """The account a save's answer names, by either URN it uses for it.
+
+    Measured 2026-11-24: ``listEntityActionResponses[].entity`` (and
+    ``entityUnion.organization``) is ``urn:li:organization:<id>``, while
+    ``successful[].companyUrn`` is ``urn:li:fs_salesCompany:<id>``; the id is
+    the same number.
+    """
+    if isinstance(entry, str):
+        return sales_company_id(entry) or _organization_id(entry)
+    record = as_mapping(entry) or {}
+    for urn in (
+        record.get("entity"),
+        (as_mapping(record.get("entityUnion")) or {}).get("organization"),
+        record.get("companyUrn"),
+    ):
+        company_id = sales_company_id(urn) or _organization_id(urn)
+        if company_id is not None:
+            return company_id
+    return None
+
+
+def _organization_id(urn: Any) -> str | None:
+    if not isinstance(urn, str) or not urn.startswith(_ORGANIZATION_URN):
+        return None
+    tail = urn[len(_ORGANIZATION_URN) :]
+    return tail if tail.isdigit() else None
+
+
 def add_statuses(
     payload: Any, company_ids: Sequence[str]
 ) -> dict[str, tuple[AccountStatus, str | None]] | None:
@@ -114,7 +144,8 @@ def add_statuses(
 
     The per-list answer decides: SUCCESS is added, CONFLICT was already in the
     list, any other status is refused. An account the answer does not name is
-    unconfirmed, never added.
+    unconfirmed, never added. The answer's top-level ``status`` and its
+    ``successful`` list are not per-list, so neither adds an account.
     """
     value = as_mapping((as_mapping(payload) or {}).get("value"))
     if value is None:
@@ -122,12 +153,12 @@ def add_statuses(
     statuses: dict[str, tuple[AccountStatus, str | None]] = {
         company_id: ("unconfirmed", None) for company_id in company_ids
     }
-    for urn in value.get("failed") or []:
-        company_id = sales_company_id(urn)
+    for item in value.get("failed") or []:
+        company_id = _answered_company_id(item)
         if company_id in statuses:
             statuses[company_id] = ("refused", as_str(value.get("status")))
     for entry in as_dicts(value.get("listEntityActionResponses")):
-        company_id = sales_company_id(entry.get("entity"))
+        company_id = _answered_company_id(entry)
         status = as_str(entry.get("status"))
         if company_id not in statuses or status is None:
             continue

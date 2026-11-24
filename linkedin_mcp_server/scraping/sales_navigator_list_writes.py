@@ -63,6 +63,7 @@ from linkedin_mcp_server.scraping.sales_navigator_list_guard import (
 )
 from linkedin_mcp_server.scraping.sales_navigator_list_payload import (
     ACCOUNT_LIST_TYPE,
+    AccountStatus,
     COMPANIES,
     LISTS,
     MAX_ACCOUNTS_PER_CALL,
@@ -121,6 +122,9 @@ _TYPE_DELAY_MS = 20
 # Sales Navigator to answer a request that left.
 _SEND_TIMEOUT = 10.0
 _ANSWER_TIMEOUT = 30.0
+_READ_BACK = (
+    "Sales Navigator's answer named no account; found on the list when read back."
+)
 
 # The answer is read as text and parsed here: a JSON number past 2^53 (a
 # list id is a 19-digit long) would be rounded by response.json() in the page.
@@ -845,8 +849,10 @@ class SalesNavigatorListWriter:
         if isinstance(answer, dict):
             return answer
         statuses = add_statuses(answer.payload, ids)
-        if statuses is None:
-            return unknown("its answer named no account")
+        if statuses is None or all(s == "unconfirmed" for s, _ in statuses.values()):
+            statuses = await self._confirm_by_reading(list_id, ids)
+            if statuses is None:
+                return unknown("its answer named no account")
         for row in rows:
             if row["status"] != "planned":
                 continue
@@ -869,13 +875,45 @@ class SalesNavigatorListWriter:
                 "Sales Navigator added none of the accounts; see each one's detail.",
                 retry_safe=False,
             )
+        read_back = any(detail == _READ_BACK for _, detail in statuses.values())
         return finish(
             "added" if not counts["refused"] else "partly_added",
-            "Sales Navigator answered for every account: "
+            (
+                "Sales Navigator accepted the add and the list, read back, "
+                "shows every account: "
+                if read_back
+                else "Sales Navigator answered for every account: "
+            )
             + ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in sorted(counts.items()))
             + ".",
             retry_safe=False,
         )
+
+    async def _confirm_by_reading(
+        self, list_id: str, ids: list[str]
+    ) -> dict[str, tuple[AccountStatus, str | None]] | None:
+        """Each account found on the list's first page is added, the rest unconfirmed.
+
+        For a 2xx whose answer names no account. One page load: an account the
+        first 25 rows do not show stays unconfirmed, never refused. None when
+        the list could not be read.
+        """
+        result: dict[str, Any] | None = None
+        with before_the_reply_deadline():
+            try:
+                # A deadline already past reads the first page and no other.
+                result = await self._reader.get_account_list(list_id, deadline=0.0)
+            except LinkedInScraperException as exc:
+                logger.info("add read-back of list %s failed: %s", list_id, exc)
+        if result is None:
+            return None
+        found = {row.get("id") for row in result.get("accounts") or []}
+        return {
+            company_id: (
+                ("added", _READ_BACK) if company_id in found else ("unconfirmed", None)
+            )
+            for company_id in ids
+        }
 
     async def delete_account_list(
         self, list_id: str, *, expected_name: str, confirm_send: bool
