@@ -37,7 +37,8 @@ async def test_a_lead_repeated_on_one_page_is_counted_once(mock_page):
 
     result = await _run(mock_page, browser, lambda r: r.get_lead_list(LEAD_LIST_ID))
 
-    error = result["section_errors"]["leads"]
+    error = result.get("section_errors", {}).get("leads")
+    assert error is not None, "a repeated lead hid a lead that was not read"
     assert error["error_type"] == "page_limit"
     assert "the pages returned fewer rows" in error["error_message"]
 
