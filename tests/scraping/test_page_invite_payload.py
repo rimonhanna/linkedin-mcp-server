@@ -268,3 +268,12 @@ def test_a_reference_matches_by_identifier_only():
     assert p.ref_matches(p.InviteeRef("x", "vanity", "some-person"), candidate)
     no_public: p.Candidate = {"profileId": _encoded(0x2A, 42), "name": "some-person"}
     assert not p.ref_matches(p.InviteeRef("x", "vanity", "some-person"), no_public)
+
+
+def test_a_given_profile_id_matches_exactly_without_the_decoding():
+    undecodable = "ACoAzzzzzzzzzz"
+    assert p.member_id_of(undecodable) is None
+    ref = p.invitee_ref(undecodable)
+    assert ref is not None and ref.exact == undecodable
+    assert p.ref_matches(ref, {"profileId": undecodable})
+    assert not p.ref_matches(ref, {"profileId": "ACoAyyyyyyyyyy"})

@@ -312,12 +312,14 @@ def inviter_allowed(url: str, company_id: str) -> bool:
 
 
 # LinkedIn's opaque member ids (``ACoA...`` in ``fsd_profile`` URNs, ``ACwA...``
-# in Sales Navigator ``fs_salesProfile`` URNs) are base64url of a 4-byte header
-# (``00 2a 00 00`` / ``00 2c 00 00``) followed by the member's numeric id as 4
-# bytes, then bytes of their own. Measured 2026-11-24 against ``/voyager/api/me``
-# (``plainId`` beside its ``fsd_profile``) and Sales Navigator lead results
-# (``objectUrn`` beside the lead URN). The numeric id is what every form
-# shares, so it is the identity people are matched by.
+# in Sales Navigator ``fs_salesProfile`` URNs) read as base64url of a 4-byte
+# header (``00 2a 00 00`` / ``00 2c 00 00``), the member's numeric id as 4
+# bytes, then bytes of their own. Inferred 2026-11-24 from the dialog's ids,
+# not yet checked against a known member id (``/voyager/api/me``'s ``plainId``,
+# a Sales Navigator lead's ``objectUrn``); that live check is listed in the PR.
+# The numeric id is what every form shares, so it is what Sales Navigator and
+# member forms are matched by; an ``ACoA`` id given as such is also matched
+# exactly, so it never depends on the inference.
 _ENCODED_ID = re.compile(r"^AC[A-Za-z0-9_-]{8,78}$")
 _MEMBER_ID = re.compile(r"^[0-9]{1,12}$")
 _PROFILE_URNS = ("urn:li:fsd_profile:", "urn:li:fs_profile:", "urn:li:fs_miniProfile:")
@@ -351,15 +353,18 @@ class InviteeRef:
     given: str
     kind: str
     key: str
+    # The ``ACoA`` id itself when the caller gave one, matched exactly first.
+    exact: str | None = None
 
 
 def _encoded_ref(given: str, encoded: str) -> InviteeRef | None:
     if not _ENCODED_ID.fullmatch(encoded):
         return None
     member = member_id_of(encoded)
+    exact = encoded if encoded.startswith("ACoA") else None
     if member is not None:
-        return InviteeRef(given, "member", member)
-    return InviteeRef(given, "profile", encoded)
+        return InviteeRef(given, "member", member, exact)
+    return InviteeRef(given, "profile", encoded, exact)
 
 
 def _path_ref(given: str, path: str) -> InviteeRef | None:
@@ -427,6 +432,8 @@ def invitee_ref(value: str) -> InviteeRef | None:
 
 def ref_matches(ref: InviteeRef, candidate: Candidate) -> bool:
     """Whether ``candidate`` is the person ``ref`` names, by identifier only."""
+    if ref.exact is not None and candidate["profileId"] == ref.exact:
+        return True
     if ref.kind == "member":
         return member_id_of(candidate["profileId"]) == ref.key
     if ref.kind == "profile":
