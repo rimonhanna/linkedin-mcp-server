@@ -337,7 +337,9 @@ your browser with the app's headers; every other change the page tries while
 the tool runs is stopped in the browser. A create with `accounts` is two
 requests: the list, then the accounts.
 
-Success is only reported from Sales Navigator's own answer. When no answer
+Success is only reported from Sales Navigator's own answer to that request.
+That answer says Sales Navigator accepted it, not what the list now holds:
+read the list back with `get_sales_navigator_account_list` for that. When no answer
 arrives the result is `*_unconfirmed` with `retry_safe: false`: check the
 lists before calling again, as a repeat could create a second list. Each
 request that left the browser counts against `SALES_LIST_WRITES_MAX` (30 per

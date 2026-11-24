@@ -1,5 +1,6 @@
 """The Sales Navigator account-list write tools at the tool layer."""
 
+from datetime import datetime
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -75,7 +76,7 @@ async def test_a_real_write_is_refused_by_the_cap_before_the_browser(
         "sales_list_writes",
         limit=30,
         window="24 h",
-        resume_at=__import__("datetime").datetime(2099, 1, 1),
+        resume_at=datetime(2099, 1, 1),
     )
     extractor = _extractor()
     fn = await _fn("add_accounts_to_sales_navigator_list")

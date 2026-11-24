@@ -16,7 +16,6 @@ import pytest
 
 from linkedin_mcp_server import pacing
 from linkedin_mcp_server.pacing import SALES_LIST_WRITES, JobStore
-from linkedin_mcp_server.scraping import sales_navigator_list_guard as guard
 from linkedin_mcp_server.scraping import sales_navigator_list_writes as writes
 
 LIST = "100000301"
