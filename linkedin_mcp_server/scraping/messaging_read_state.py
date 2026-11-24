@@ -206,6 +206,14 @@ def open_one_sales_send(page: Any) -> None:
     state.send_allowance = 1
 
 
+def allowed_sales_send(page: Any, requests: list[Any]) -> Any | None:
+    """The request among ``requests`` that the send window let through."""
+    state = _GUARDS.get(page)
+    if state is None:
+        return None
+    return next((request for request in requests if request in state.allowed), None)
+
+
 def close_sales_send(page: Any) -> None:
     """End a send window: nothing more passes, and the latch is on."""
     state = _GUARDS.get(page)

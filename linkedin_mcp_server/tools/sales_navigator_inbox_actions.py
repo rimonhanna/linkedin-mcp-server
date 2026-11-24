@@ -141,8 +141,9 @@ def register_sales_navigator_inbox_action_tools(
         lead is verified from the page's own profile data and the page is
         pinned to that lead through every step. To a connection this is a
         free message. To anyone else it is an InMail: it needs a subject and,
-        unless the lead has an Open Profile or is a TeamLink colleague, uses
-        one InMail credit, which needs spend_inmail_credit=true on top of
+        unless the lead has an Open Profile, uses one InMail credit (a
+        TeamLink colleague's cost is not yet confirmed, so it is treated as
+        unknown), which needs spend_inmail_credit=true on top of
         confirm_send=true. A message into an existing conversation with
         someone who is not a connection has a cost the page does not show
         (creditCost null): it needs spend_inmail_credit=true and a known
@@ -183,7 +184,7 @@ def register_sales_navigator_inbox_action_tools(
             ``inmail_credit_required``, ``no_inmail_credits``,
             ``inmail_credits_unknown``, ``inmail_reply_cost_unknown`` and
             ``subject_required``, all before anything is typed, and
-            ``send_blocked_no_credits``: an Open Profile or TeamLink message
+            ``send_blocked_no_credits``: an Open Profile message
             whose Send Sales Navigator kept disabled while no InMail credits
             were left, so nothing was sent.
         """

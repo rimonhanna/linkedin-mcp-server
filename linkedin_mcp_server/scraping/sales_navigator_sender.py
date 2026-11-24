@@ -10,7 +10,8 @@ response, and the route is pinned through every later step.
 
 What a send costs is read from the page, never inferred: the composer shows a
 subject field only for an InMail, the profile says whether the lead has an
-Open Profile or is a TeamLink colleague (both free), and the page's credit
+Open Profile (free) or is a TeamLink colleague (cost not yet confirmed, so
+treated as unknown), and the page's credit
 response gives the balance. A send that spends a credit needs
 ``spend_inmail_credit`` on top of ``confirm_send``. A message into an existing
 conversation is free only when the page shows it is: a conversation with a
@@ -51,6 +52,7 @@ from linkedin_mcp_server.scraping.identifiers import (
 )
 from linkedin_mcp_server.scraping.messaging_read_state import (
     close_sales_send,
+    allowed_sales_send,
     open_one_sales_send,
     without_read_state_writes,
 )
@@ -121,15 +123,17 @@ def _route_path(url: str) -> str:
 
 def _free_at_zero_credits(delivery: Delivery) -> bool:
     """A free InMail kind while the account shows no credits left."""
-    return (
-        delivery["kind"] in {"open_profile", "teamlink"}
-        and delivery["creditsRemaining"] == 0
-    )
+    return delivery["kind"] == "open_profile" and delivery["creditsRemaining"] == 0
 
 
 def _cost_text(delivery: Delivery) -> str:
     cost = delivery["creditCost"]
     credits = delivery["creditsRemaining"]
+    if delivery["kind"] == "teamlink":
+        return (
+            f"It is a TeamLink InMail to a colleague. Its cost is not yet "
+            f"confirmed, so it may use 1 of {credits} InMail credits."
+        )
     if cost is None:
         return (
             f"It may use 1 of {credits} InMail credits: Sales Navigator did not "
@@ -137,8 +141,6 @@ def _cost_text(delivery: Delivery) -> str:
         )
     if cost:
         return f"It would use 1 of {credits} InMail credits."
-    if delivery["kind"] == "teamlink":
-        return "It is a TeamLink InMail to a colleague and uses no InMail credit."
     return "It uses no InMail credit."
 
 
@@ -310,7 +312,8 @@ class SalesNavigatorMessageSender:
                     elif profile["memberBadges"]["openLink"] is True:
                         kind, cost = "open_profile", 0
                     elif profile["colleague"] is True:
-                        kind, cost = "teamlink", 0
+                        # Nothing live proves a colleague InMail is free.
+                        kind, cost = "teamlink", None
                     else:
                         kind, cost = "inmail", 1
                     delivery: Delivery = {
@@ -801,8 +804,8 @@ class SalesNavigatorMessageSender:
                 try:
                     # A click can dispatch before the evaluate call reports an
                     # error, so an exception from this round trip is ambiguous.
-                    may_have_submitted = True
                     open_one_sales_send(self._page)
+                    may_have_submitted = True
                     clicked = await owner.evaluate(js.SUBMIT_JS, argument)
                 except Exception:
                     logger.debug("Send click did not complete", exc_info=True)
@@ -854,12 +857,9 @@ class SalesNavigatorMessageSender:
                         f"{answer.status}. " + zero + _UNCONFIRMED,
                         retry_safe=False,
                     )
-                # The guard let only the first send request leave the page.
-                delivered = (
-                    sent_body(capture.send_requests[0])
-                    if capture.send_requests
-                    else None
-                )
+                # An earlier createMessage the guard aborted is not the sent one.
+                sent_request = allowed_sales_send(self._page, capture.send_requests)
+                delivered = sent_body(sent_request) if sent_request else None
                 if contracts.line_breaks_lost(message, delivered):
                     return respond(
                         self._page.url,

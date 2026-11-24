@@ -699,39 +699,64 @@ async def test_profile_responses_that_disagree_on_degree_name_no_connection(dom)
 # --- TeamLink --------------------------------------------------------------
 
 
-async def test_teamlink_inmail_is_free_and_needs_no_spend_flag(dom):
+async def test_teamlink_cost_is_unknown_and_needs_the_spend_flag(dom):
     responses = [_profile(3, colleague=True), _profile(None, colleague=False)]
 
-    result = await send(
+    refused = await send(
         dom, composer_page(subject=True), [*responses, _credits(7)], subject="Hello"
     )
 
-    assert result["status"] == "sent", result
-    assert result["delivery"] == {
+    assert refused["status"] == "inmail_reply_cost_unknown", refused
+    assert refused["delivery"] == {
         "kind": "teamlink",
-        "creditCost": 0,
+        "creditCost": None,
         "creditsRemaining": 7,
     }
-    assert dom.sends == [{"message": {"body": TWO_LINES, "subject": "Hello"}}]
+    assert dom.sends == []
 
 
-async def test_teamlink_send_kept_disabled_at_zero_credits_is_reported_as_such(dom):
-    html = composer_page(subject=True).replace(
-        "send.disabled = !box.value.trim()", "send.disabled = true || !box.value.trim()"
-    )
+async def test_teamlink_send_with_the_spend_flag_goes_out(dom):
+    responses = [_profile(3, colleague=True), _profile(None, colleague=False)]
 
     result = await send(
         dom,
-        html,
-        [_profile(3, colleague=True), _credits(0)],
+        composer_page(subject=True),
+        [*responses, _credits(7)],
         subject="Hello",
+        spend_inmail_credit=True,
     )
 
-    assert result["status"] == "send_blocked_no_credits"
-    assert result["retry_safe"] is True
+    assert result["status"] == "sent", result
+    assert result["delivery"]["kind"] == "teamlink"
+    assert result["delivery"]["creditCost"] is None
+    assert dom.sends == [{"message": {"body": TWO_LINES, "subject": "Hello"}}]
+
+
+async def test_teamlink_at_zero_credits_is_refused_before_typing(dom):
+    result = await send(
+        dom,
+        composer_page(subject=True),
+        [_profile(3, colleague=True), _credits(0)],
+        subject="Hello",
+        spend_inmail_credit=True,
+    )
+
+    assert result["status"] == "no_inmail_credits"
     assert result["delivery"]["kind"] == "teamlink"
     assert await _box(dom) == ""
-    assert await _clicks(dom) == 0
+    assert dom.sends == []
+
+
+async def test_teamlink_without_a_known_balance_is_refused(dom):
+    result = await send(
+        dom,
+        composer_page(subject=True),
+        [_profile(3, colleague=True)],
+        subject="Hello",
+        spend_inmail_credit=True,
+    )
+
+    assert result["status"] == "inmail_credits_unknown"
     assert dom.sends == []
 
 
@@ -771,6 +796,24 @@ async def test_a_second_send_request_from_one_click_is_aborted(dom):
     await dom.page.wait_for_function("document.body.dataset.second !== undefined")
 
     assert await dom.page.evaluate("document.body.dataset.second") == "blocked"
+    assert result["status"] == "sent", result
+    assert dom.sends == [{"message": {"body": TWO_LINES, "subject": None}}]
+
+
+async def test_an_aborted_earlier_create_message_is_not_the_sent_one(dom):
+    # A createMessage made before the click is aborted by the guard; the body
+    # checked for flattening must be the one that actually left.
+    html = composer_page().replace(
+        "box.addEventListener('input', sync);",
+        "box.addEventListener('input', sync);"
+        "box.addEventListener('input', () => {"
+        " fetch('/sales-api/salesApiMessageActions?action=createMessage',"
+        " {method: 'POST', body: JSON.stringify({message: {body: 'First line Second line'}})})"
+        ".catch(() => {}); });",
+    )
+
+    result = await reply(dom, html, [_thread()])
+
     assert result["status"] == "sent", result
     assert dom.sends == [{"message": {"body": TWO_LINES, "subject": None}}]
 

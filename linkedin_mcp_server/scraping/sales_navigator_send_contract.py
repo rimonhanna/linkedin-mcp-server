@@ -32,7 +32,7 @@ SUBJECT_REQUIRED = "subject_required"
 # A message into a conversation whose cost the page does not show: an InMail
 # the lead has not answered, or a thread with someone who is not a connection.
 INMAIL_REPLY_COST_UNKNOWN = "inmail_reply_cost_unknown"
-# A free InMail (Open Profile, TeamLink) whose Send stayed disabled while the
+# A free InMail (Open Profile) whose Send stayed disabled while the
 # account had no InMail credits left.
 SEND_BLOCKED_NO_CREDITS = "send_blocked_no_credits"
 
