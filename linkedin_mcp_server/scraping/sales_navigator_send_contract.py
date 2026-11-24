@@ -59,9 +59,10 @@ class Delivery(TypedDict):
 def sales_profile_urn(lead_id: str) -> str:
     """The ``fs_salesProfile`` URN the composer route takes for ``lead_id``.
 
-    A full URN, or a ``/sales/lead/<id>,<authType>,<token>`` URL, keeps its
-    own parts. A bare id, as the search and inbox tools return it, gets empty
-    ones: Sales Navigator resolves the lead from the id alone.
+    A bare id, a full URN and a ``/sales/lead/<id>,<authType>,<token>`` URL
+    all become ``(<id>,,)``: Sales Navigator resolves the lead from the id
+    alone, so a caller's auth type and token are checked for shape and then
+    dropped, never passed on to the page.
     """
     value = lead_id.strip()
     parts: list[str] | None = None
@@ -82,7 +83,7 @@ def sales_profile_urn(lead_id: str) -> str:
             "lead_id is not a Sales Navigator lead id. Pass the id exactly as "
             "search_sales_navigator_leads or get_sales_navigator_inbox returned it."
         )
-    return f"{_SALES_PROFILE_URN}{','.join(parts)})"
+    return f"{_SALES_PROFILE_URN}{profile_id},,)"
 
 
 def sales_compose_url(profile_urn: str) -> str:

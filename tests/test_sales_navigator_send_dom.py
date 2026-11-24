@@ -54,7 +54,7 @@ def _profile(
     degree: int | None,
     *,
     open_link: bool = False,
-    colleague: bool | None = None,
+    teamlink: bool | None = None,
     urn: str = LEAD_URN,
 ) -> CapturedResponse:
     record: dict[str, Any] = {
@@ -64,8 +64,8 @@ def _profile(
     }
     if degree is not None:
         record["degree"] = degree
-    if colleague is not None:
-        record["colleague"] = colleague
+    if teamlink is not None:
+        record["teamlink"] = teamlink
     return _response(
         f"{API}/salesApiProfiles/(profileId:{LEAD},authType:NAME_SEARCH,authToken:abcd)",
         {"data": record, "included": []},
@@ -165,13 +165,16 @@ def composer_page(
     )
     subject_html = '<input type="text" aria-label="Subject">' if subject else ""
     # Extra buttons the form shows: one that is never disabled, and as many
-    # more disabled ones as asked, to make the Send control ambiguous.
+    # more Send-shaped ones (each the last of its own actions bar) as asked,
+    # to make the Send control ambiguous.
     others = '<button type="button" id="attach">Attach</button>' + "".join(
-        f'<button type="button" disabled id="other{index}">X</button>'
+        '<fieldset><button type="button" disabled aria-disabled="false"'
+        f' id="other{index}">X</button></fieldset>'
         for index in range(quiet_buttons - 1)
     )
+    # Sales Navigator leaves aria-disabled "false" on Send while disabled.
     send = (
-        '<button type="button" id="send">Send</button>'
+        '<button type="button" id="send" aria-disabled="false">Send</button>'
         if quiet_buttons
         else '<span id="send"></span>'
     )
@@ -700,7 +703,7 @@ async def test_profile_responses_that_disagree_on_degree_name_no_connection(dom)
 
 
 async def test_teamlink_cost_is_unknown_and_needs_the_spend_flag(dom):
-    responses = [_profile(3, colleague=True), _profile(None, colleague=False)]
+    responses = [_profile(3, teamlink=True), _profile(None, teamlink=False)]
 
     refused = await send(
         dom, composer_page(subject=True), [*responses, _credits(7)], subject="Hello"
@@ -716,7 +719,7 @@ async def test_teamlink_cost_is_unknown_and_needs_the_spend_flag(dom):
 
 
 async def test_teamlink_send_with_the_spend_flag_goes_out(dom):
-    responses = [_profile(3, colleague=True), _profile(None, colleague=False)]
+    responses = [_profile(3, teamlink=True), _profile(None, teamlink=False)]
 
     result = await send(
         dom,
@@ -736,7 +739,7 @@ async def test_teamlink_at_zero_credits_is_refused_before_typing(dom):
     result = await send(
         dom,
         composer_page(subject=True),
-        [_profile(3, colleague=True), _credits(0)],
+        [_profile(3, teamlink=True), _credits(0)],
         subject="Hello",
         spend_inmail_credit=True,
     )
@@ -751,7 +754,7 @@ async def test_teamlink_without_a_known_balance_is_refused(dom):
     result = await send(
         dom,
         composer_page(subject=True),
-        [_profile(3, colleague=True)],
+        [_profile(3, teamlink=True)],
         subject="Hello",
         spend_inmail_credit=True,
     )
@@ -823,7 +826,7 @@ async def test_an_aborted_earlier_create_message_is_not_the_sent_one(dom):
 
 async def test_a_disabled_submit_type_button_is_never_the_send_button(dom):
     html = composer_page().replace(
-        '<button type="button" id="send">', '<button id="send">'
+        '<button type="button" id="send"', '<button id="send"'
     )
 
     result = await send(dom, html, [_profile(1)])

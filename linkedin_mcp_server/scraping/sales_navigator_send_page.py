@@ -228,14 +228,16 @@ def merged_profile(responses: list[SnResponse], lead_id: str) -> dict[str, Any]:
     """The lead's profile across every profile response the page loaded.
 
     Responses differ in decoration, so a field one leaves out another may
-    carry: ``memberBadges.openLink`` and ``colleague`` are true when any
+    carry: ``memberBadges.openLink`` and ``teamlink`` are true when any
     response says so, and ``degree`` is kept only when every response that
-    gives one gives the same.
+    gives one gives the same. TeamLink is read from ``teamlink``, which the
+    composer's profile responses carry; their ``colleague`` is left out even
+    when asked for.
     """
     merged: dict[str, Any] = {}
     degrees: set[int] = set()
     open_link = False
-    colleague = False
+    teamlink = False
     for response in responses:
         record = profile_of(response, lead_id)
         if record is None:
@@ -246,7 +248,7 @@ def merged_profile(responses: list[SnResponse], lead_id: str) -> dict[str, Any]:
             degrees.add(degree)
         badges = as_mapping(record.get("memberBadges")) or {}
         open_link = open_link or badges.get("openLink") is True
-        colleague = colleague or record.get("colleague") is True
+        teamlink = teamlink or record.get("teamlink") is True
     merged.pop("degree", None)
     if len(degrees) == 1:
         merged["degree"] = next(iter(degrees))
@@ -254,7 +256,7 @@ def merged_profile(responses: list[SnResponse], lead_id: str) -> dict[str, Any]:
         **(as_mapping(merged.get("memberBadges")) or {}),
         "openLink": open_link,
     }
-    merged["colleague"] = colleague
+    merged["teamlink"] = teamlink
     return merged
 
 

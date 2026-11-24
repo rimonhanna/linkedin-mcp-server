@@ -164,7 +164,7 @@
       "call": "send_sales_navigator_message",
       "kind": "evaluate_handle",
       "operation": "sn_composer_pin",
-      "program_digest": "00a7769e8aaa",
+      "program_digest": "0f52afaaa8af",
       "section": "message"
     },
     {
@@ -179,7 +179,7 @@
       "handle": "handle-1",
       "kind": "handle.evaluate",
       "operation": "sn_composer_state",
-      "program_digest": "a13108e24237",
+      "program_digest": "7b0f7f2c2763",
       "section": "message"
     },
     {

@@ -81,7 +81,7 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `create_company_list_audience` | Upload a list of companies (name, and optionally website and LinkedIn page) as a matched audience. Confirming accepts LinkedIn's Ads Agreement for the upload. `confirm_send` |
 | `create_saved_audience` | Save a campaign's (UI "Ad set") targeting as a named saved audience (1 to 25 characters). `confirm_send` |
 | `search_sales_navigator_accounts` | Search Sales Navigator accounts (companies) by keywords, industry, headquarters location, headcount and headcount growth; one page of 25 per call (`page` 1 to 40). Needs a Sales Navigator seat. Read-only |
-| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company, location and industry; one page of 25 per call. Leads who opted out of third-party data sharing are left out and counted in `withheld`. Needs a Sales Navigator seat. Read-only |
+| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company, location and industry; one page of 25 per call. Leads who opted out of third-party data sharing are left out and counted in `withheld`. A lead's `openLink` is not an Open Profile signal (the search does not fill it in); the send tools read Open Profile themselves. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account` | One company's Sales Navigator account page: description, industry, website, headquarters, revenue range, headcount and headcount growth. Needs a Sales Navigator seat. Read-only |
 | `list_sales_navigator_account_lists` | Every Sales Navigator account list of the member, with its size. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account_list` | One Sales Navigator account list and every company in it. Needs a Sales Navigator seat. Read-only |
@@ -297,8 +297,10 @@ exactly that lead or conversation. Both need `confirm_send`; call with it
 false first to see who the message goes to and what it costs. A message to a
 connection is free; anyone else gets an InMail, which needs a one-line
 `subject` and uses one InMail credit unless the lead has an Open Profile
-(`kind: open_profile`) or is a TeamLink colleague (`kind: teamlink`, from the
-profile's `colleague`; its cost is not yet confirmed, so `creditCost` is null and
+(`kind: open_profile`, from the message box's own profile data, never from
+the `openLink` a lead search row carries, which the search does not fill in
+and is always false) or is a TeamLink colleague (`kind: teamlink`, from the
+profile's `teamlink`; its cost is not yet confirmed, so `creditCost` is null and
 it needs `spend_inmail_credit` like any unknown cost). Spending a credit also needs
 `spend_inmail_credit=true`, and without it the answer is
 `inmail_credit_required` with the credits left. The balance comes from Sales

@@ -311,8 +311,8 @@ class SalesNavigatorMessageSender:
                         cost = 0 if degree == CONNECTION_DEGREE else None
                     elif profile["memberBadges"]["openLink"] is True:
                         kind, cost = "open_profile", 0
-                    elif profile["colleague"] is True:
-                        # Nothing live proves a colleague InMail is free.
+                    elif profile["teamlink"] is True:
+                        # Nothing live proves a TeamLink InMail is free.
                         kind, cost = "teamlink", None
                     else:
                         kind, cost = "inmail", 1

@@ -17,15 +17,15 @@ THREAD = "2-MTAwMDAwMDAxXzEwMDAwMDAwMg=="
 
 
 @pytest.mark.parametrize(
-    ("value", "expected"),
+    "value",
     [
-        (LEAD, f"urn:li:fs_salesProfile:({LEAD},,)"),
-        (FULL, FULL),
-        (f"https://www.linkedin.com/sales/lead/{LEAD},NAME_SEARCH,abcd", FULL),
+        LEAD,
+        FULL,
+        f"https://www.linkedin.com/sales/lead/{LEAD},NAME_SEARCH,abcd",
     ],
 )
-def test_every_lead_form_becomes_one_urn(value, expected):
-    assert sales_profile_urn(value) == expected
+def test_every_lead_form_becomes_the_bare_urn(value):
+    assert sales_profile_urn(value) == f"urn:li:fs_salesProfile:({LEAD},,)"
 
 
 @pytest.mark.parametrize(

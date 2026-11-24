@@ -4,13 +4,20 @@ The composer (new message and reply alike) is a ``form`` holding one
 ``textarea[name=message]``, an optional one-line subject ``input`` for an
 InMail, and a Send ``button[type=button]`` that stays disabled while the form
 is empty. There is no submit-type button and no Press Enter to Send setting,
-so the Send control is recognised by structure alone: the one visible
-``type=button`` button of the form that is disabled while nothing is typed.
-A form where that is not exactly one button is never sent from. The disabled
-state of every visible button of the form is recorded when it is pinned, and
-Send is clicked only when, after typing, exactly that button went from
-disabled to enabled and no other button changed; a button's label is never
-read.
+so the Send control is recognised by structure alone. Its actions bar is the
+``fieldset`` around it (the form itself when there is none), and Send is the
+last visible button of that bar, disabled while nothing is typed, with no
+icon, and carrying an ``aria-disabled`` attribute (Sales Navigator leaves it
+"false" even while the button is disabled). The new-message composer also
+shows a disabled icon button there (copy to clipboard), which carries no
+``aria-disabled``. A form where that rule matches other than exactly one
+button is never sent from. The disabled state of every visible button of the
+actions bar is recorded when it is pinned, and Send is clicked only when,
+after typing, Send went from disabled to enabled and no other button of the
+bar changed, except that a disabled icon button may become enabled too (the
+copy button enables with Send). Buttons outside the bar, such as the draft
+and help buttons over an empty new-message box, go away on typing and are
+not compared. A button's label is never read.
 
 ``PIN_JS`` records the form's parts on the form element itself, and every
 later script works on those recorded elements and refuses when the page no
@@ -48,11 +55,17 @@ _COMMON_JS = r"""
         return pinned;
     };
     const field = (pinned, name) => name === 'subject' ? pinned.subject : pinned.editor;
-    const buttons = form => Array.from(form.querySelectorAll('button')).filter(visible);
-    // 'same', 'flipped' (only the Send button went from disabled to enabled)
-    // or 'changed' (a button came, went or changed state otherwise).
+    const buttons = root => Array.from(root.querySelectorAll('button')).filter(visible);
+    const icon = button => !!button.querySelector('svg, li-icon');
+    const barOf = (form, button) => {
+        const set = button.closest('fieldset');
+        return set && form.contains(set) ? set : form;
+    };
+    // 'same', 'flipped' (Send went from disabled to enabled) or 'changed'
+    // (a button of the bar came, went or changed state otherwise).
     const compareButtons = (owner, pinned) => {
-        const now = buttons(owner);
+        if (!pinned.bar.isConnected || !owner.contains(pinned.bar)) return 'changed';
+        const now = buttons(pinned.bar);
         const before = pinned.buttons;
         if (now.length !== before.length) return 'changed';
         let flipped = false;
@@ -61,10 +74,11 @@ _COMMON_JS = r"""
             if (now[index] !== button) return 'changed';
             const is = disabled(button);
             if (is === was) continue;
-            if (button === pinned.button && was && !is) {
+            if (was && !is && button === pinned.button) {
                 flipped = true;
                 continue;
             }
+            if (was && !is && icon(button)) continue;
             return 'changed';
         }
         return flipped ? 'flipped' : 'same';
@@ -85,17 +99,27 @@ PIN_JS = (
         const fields = subjects(form);
         if (fields.length > 1) return null;
         const shownButtons = buttons(form);
-        const quiet = shownButtons
-            .filter(button => button.type === 'button')
-            .filter(disabled);
+        const lastOfBar = button => {
+            const bar = barOf(form, button);
+            const inBar = shownButtons.filter(other => bar.contains(other));
+            return inBar[inBar.length - 1] === button;
+        };
+        const quiet = shownButtons.filter(button =>
+            button.type === 'button' && disabled(button) &&
+            button.hasAttribute('aria-disabled') && !icon(button) &&
+            lastOfBar(button)
+        );
+        // Only an empty form identifies its Send button; a draft enables
+        // it, and such a form is reported occupied anyway.
+        const button = quiet.length === 1 ? quiet[0] : null;
+        const bar = button ? barOf(form, button) : form;
         form.__linkedinMcpSnComposer = {
             editor,
             subject: fields[0] || null,
-            // Only an empty form identifies its Send button; a draft
-            // enables it, and such a form is reported occupied anyway.
-            button: quiet.length === 1 ? quiet[0] : null,
+            button,
+            bar,
             sendCount: quiet.length,
-            buttons: shownButtons.map(button => [button, disabled(button)]),
+            buttons: buttons(bar).map(each => [each, disabled(each)]),
             written: {message: '', subject: ''},
         };
         return form;
