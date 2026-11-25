@@ -21,7 +21,6 @@ from urllib.parse import quote, unquote, urlencode, urlparse
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
-from linkedin_mcp_server.core.humanize import human_type
 from linkedin_mcp_server.pacing import note_throttle_signal
 from linkedin_mcp_server.scraping.identifiers import (
     SALES_INBOX_URL,
@@ -79,6 +78,9 @@ _SCROLL_PAUSE = 1.2
 # How long one scroll waits for the next list page before it counts as stalled.
 _PAGE_WAIT = 6.0
 _SEARCH_WAIT = 12.0
+# The box searches on key events, debounced: an even pace well under the
+# debounce makes it search once, on the full keywords.
+_SEARCH_KEY_DELAY_MS = 90
 _MAX_OLDER_BATCHES = 3
 # One older-messages fetch is aborted in the page after this long, so a batch
 # is started only while this much of the call's time is left.
@@ -168,6 +170,47 @@ def _is_list(finder: str, key: str, value: str) -> Callable[[SnResponse], bool]:
     return match
 
 
+def _keyword_key(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _is_search(keywords: str) -> Callable[[SnResponse], bool]:
+    """A search page for exactly ``keywords``: never one for a partial word.
+
+    The app may also answer an earlier value of the box, so the sent keyword
+    (URL-decoded once) must equal the typed one, ignoring case and spacing.
+    """
+    wanted = _keyword_key(keywords)
+
+    def match(response: SnResponse) -> bool:
+        call = response.call
+        return (
+            response.ok
+            and call.method == "GET"
+            and call.resource == THREADS
+            and call.entity_id is None
+            and call.finder == SEARCH_FINDER
+            and _keyword_key(unquote(call.params.get("keyword", ""))) == wanted
+        )
+
+    return match
+
+
+def _search_miss(capture: SalesNavigatorCapture) -> LinkedInScraperException:
+    others = [
+        unquote(response.call.params.get("keyword", ""))
+        for response in capture.responses
+        if response.call.resource == THREADS and response.call.finder == SEARCH_FINDER
+    ]
+    # The keywords are the user's own query; they stay out of the warning.
+    logger.debug("Sales Navigator search answered other keywords: %r", others)
+    return LinkedInScraperException(
+        "Sales Navigator did not return results for these keywords in time "
+        f"({len(others)} search response(s) were for other keywords), so "
+        "nothing was reported."
+    )
+
+
 def _is_thread(thread_id: str) -> Callable[[SnResponse], bool]:
     def match(response: SnResponse) -> bool:
         call = response.call
@@ -181,6 +224,16 @@ def _is_thread(thread_id: str) -> Callable[[SnResponse], bool]:
         )
 
     return match
+
+
+def _is_opened_thread(response: SnResponse) -> bool:
+    call = response.call
+    return (
+        call.method == "GET"
+        and call.resource == THREADS
+        and call.entity_id is not None
+        and call.sub_path is None
+    )
 
 
 def _marked_read(responses: list[SnResponse]) -> list[str]:
@@ -692,6 +745,21 @@ class SalesNavigatorInboxReader:
             "scan_marked_read": scan_marked_read,
         }
 
+    @staticmethod
+    async def _auto_opened(capture: _InboxCapture) -> None:
+        """Wait for the conversation the app opens on its own after the list.
+
+        Opening it moves the focus off the search box, so keys typed before
+        then land in the conversation instead. An empty inbox opens none.
+        """
+        try:
+            await capture.wait_for(
+                _is_opened_thread, timeout=_PAGE_WAIT, throttle=False, wanted=(THREADS,)
+            )
+        except LinkedInScraperException:
+            return
+        await capture.settle()
+
     async def _type_search(self, keywords: str) -> None:
         page = self._session.page
         for selector in _SEARCH_BOX_SELECTORS:
@@ -700,7 +768,17 @@ class SalesNavigatorInboxReader:
                 await box.click(timeout=5000)
             except PlaywrightTimeoutError:
                 continue
-            await human_type(page, keywords)
+            # Typed, not inserted: an insert fires no key event and the app
+            # never searched. No typo or pause either: at a pause the app
+            # searched a partial word.
+            await page.keyboard.type(keywords, delay=_SEARCH_KEY_DELAY_MS)
+            if _keyword_key(await box.input_value(timeout=5000)) != _keyword_key(
+                keywords
+            ):
+                raise LinkedInScraperException(
+                    "The Sales Navigator inbox search box did not take the "
+                    "keywords as typed, so nothing was searched."
+                )
             return
         raise LinkedInScraperException(
             "The Sales Navigator inbox search box was not found on the page; "
@@ -717,10 +795,11 @@ class SalesNavigatorInboxReader:
                 "keywords must contain at least one letter or digit"
             )
         is_inbox = _is_list(LIST_FINDER, "filter", FILTERS["all"][1])
-        is_page = _is_list(SEARCH_FINDER, "keyword", keywords)
+        is_page = _is_search(keywords)
         async with self._guard():
             async with _InboxCapture(self._session.page) as capture:
                 await self._open(capture, SALES_INBOX_URL, is_inbox)
+                await self._auto_opened(capture)
                 await self._type_search(keywords)
                 try:
                     await capture.wait_for(
@@ -729,6 +808,8 @@ class SalesNavigatorInboxReader:
                         throttle=False,
                         wanted=(THREADS,),
                     )
+                except LinkedInScraperException as exc:
+                    raise _search_miss(capture) from exc
                 finally:
                     await self._session.check_rate_limit()
                 await capture.settle()

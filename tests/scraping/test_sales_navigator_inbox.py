@@ -138,6 +138,11 @@ class _Inbox(_Browser):
         box.click = AsyncMock()
         page.locator = MagicMock(return_value=box)
         page.keyboard.press = AsyncMock()
+        page.keyboard.type = AsyncMock(side_effect=self.type)
+        page.keyboard.insert_text = AsyncMock()
+        box.input_value = AsyncMock(
+            side_effect=lambda **_: self.typed[-1] if self.typed else ""
+        )
 
     async def _routed(self, request: SimpleNamespace) -> bool:
         """Run a request through the routes the page registered; False if aborted."""
@@ -187,7 +192,7 @@ class _Inbox(_Browser):
             return self.history.pop(0)
         raise AssertionError(f"unexpected program {program[:60]!r}")
 
-    async def type(self, page: Any, text: str, **_: Any) -> None:
+    async def type(self, text: str, *, delay: int | None = None) -> None:
         self.typed.append(text)
         for response in self.searched.get(text, []):
             await self.emit(response)
@@ -199,7 +204,6 @@ class _Inbox(_Browser):
             patch.object(ScrapingSession, "delay", new_callable=AsyncMock),
             patch.object(inbox_module, "_PAGE_WAIT", 0.05),
             patch.object(inbox_module, "_SEARCH_WAIT", 0.2),
-            patch.object(inbox_module, "human_type", self.type),
         ):
             yield
 

@@ -22,6 +22,11 @@ from linkedin_mcp_server.core.exceptions import (
     LinkedInScraperException,
 )
 import linkedin_mcp_server.scraping.contracts as contracts
+from linkedin_mcp_server.scraping.enter_to_send import (
+    ENTER_TO_SEND_ENABLED,
+    ENTER_TO_SEND_JS,
+    ENTER_TO_SEND_MESSAGE,
+)
 from linkedin_mcp_server.scraping.identifiers import (
     messaging_thread_url,
     normalize_person_identifier,
@@ -209,9 +214,12 @@ _PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 1_000
 # without one would hold the browser for the full ten seconds.
 _SEND_PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 10_000
 _MESSAGE_SUBMIT_READY_TIMEOUT_MS = 1_000
+_ENTER_TO_SEND_SETTLE_TIMEOUT_MS = 1_000
 _MESSAGE_CLEANUP_TIMEOUT_SECONDS = 1.0
 
-_MESSAGE_COMPOSER_INSPECT_JS = r"""
+_MESSAGE_COMPOSER_INSPECT_JS = (
+    ENTER_TO_SEND_JS
+    + r"""
     const visible = element => {
         const visibility = element && getComputedStyle(element).visibility;
         return !!(
@@ -384,6 +392,7 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
             localScope,
             owner,
             buttons,
+            enterToSend: enterToSendOn(localScope, buttons.length, visible),
             active: document.activeElement === editor,
             empty: !(editor.innerText || '').replace(/\s+/g, ' ').trim(),
             messageRoute: messageRoute(target),
@@ -410,6 +419,7 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
         return owner;
     };
 """
+)
 
 _MESSAGE_COMPOSER_OWNER_JS = (
     "(arg) => {"
@@ -923,6 +933,7 @@ _MESSAGE_COMPOSER_STATE_JS = (
             active: state.active === true,
             empty: state.empty === true,
             submitCount: state.buttons ? state.buttons.length : 0,
+            enterToSend: state.enterToSend === true,
             submitUsable: state.buttons?.length === 1 &&
                 !state.buttons[0].disabled &&
                 (state.buttons[0].getAttribute('aria-disabled') || '').toLowerCase()
@@ -936,6 +947,17 @@ _MESSAGE_COMPOSER_READY_JS = (
     + _MESSAGE_COMPOSER_INSPECT_JS
     + """
         return inspect(target).status === 'valid';
+    }"""
+)
+
+# Resolves once the composer no longer reads as Press Enter to Send, which a
+# Send button rendering after the editor and its toggle does.
+_MESSAGE_ENTER_TO_SEND_SETTLED_JS = (
+    "(target) => {"
+    + _MESSAGE_COMPOSER_INSPECT_JS
+    + """
+        const state = inspect(target);
+        return !(state.status === 'valid' && state.enterToSend);
     }"""
 )
 
@@ -1687,6 +1709,22 @@ class MessageSender:
         )
         return state if isinstance(state, dict) else {"status": "invalid"}
 
+    async def _enter_to_send_persists(self, target: _MessageTarget) -> bool:
+        """Whether Press Enter to Send still reads as on once a late Send
+        button has had time to render."""
+        try:
+            await self._page.wait_for_function(
+                _MESSAGE_ENTER_TO_SEND_SETTLED_JS,
+                arg=self._message_target_argument(target),
+                timeout=_ENTER_TO_SEND_SETTLE_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            pass
+        except Exception:
+            logger.debug("Could not wait for a late Send button", exc_info=True)
+        state = await self._read_message_composer_state(target)
+        return state.get("status") == "valid" and state.get("enterToSend") is True
+
     async def _focus_verified_message_editor(self, target: _MessageTarget) -> bool:
         """Focus the same editor after local contradiction checks."""
         focused = await self._page.evaluate(
@@ -2148,6 +2186,15 @@ class MessageSender:
                 "The local composer did not identify exactly the requested profile.",
             )
         recipient_selected = True
+        if state.get("enterToSend") is True and await self._enter_to_send_persists(
+            target
+        ):
+            return contracts.message_action_result(
+                self._page.url,
+                ENTER_TO_SEND_ENABLED,
+                ENTER_TO_SEND_MESSAGE,
+                recipient_selected=recipient_selected,
+            )
 
         if not confirm_send:
             return contracts.message_action_result(
@@ -2211,6 +2258,8 @@ class MessageSender:
                 "compose_interact_failed",
                 "The verified message composer changed before text entry.",
             )
+        if state.get("enterToSend") is True:
+            return respond(self._page.url, ENTER_TO_SEND_ENABLED, ENTER_TO_SEND_MESSAGE)
         if state.get("submitCount") != 1:
             return respond(
                 self._page.url,
@@ -2553,6 +2602,15 @@ class MessageSender:
                     "The thread URL changed while its title was read.",
                 )
             respond = respond_for(participant)
+            if state.get("enterToSend") is True and await self._enter_to_send_persists(
+                target
+            ):
+                return respond(
+                    self._page.url,
+                    ENTER_TO_SEND_ENABLED,
+                    ENTER_TO_SEND_MESSAGE,
+                    recipient_selected=True,
+                )
 
             if not confirm_send:
                 return respond(
