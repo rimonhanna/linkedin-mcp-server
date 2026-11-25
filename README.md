@@ -83,10 +83,12 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `create_company_list_audience` | Upload a list of companies (name, and optionally website and LinkedIn page) as a matched audience. Confirming accepts LinkedIn's Ads Agreement for the upload. `confirm_send` |
 | `create_saved_audience` | Save a campaign's (UI "Ad set") targeting as a named saved audience (1 to 25 characters). `confirm_send` |
 | `search_sales_navigator_accounts` | Search Sales Navigator accounts (companies) by keywords, industry, headquarters location, headcount and headcount growth; one page of 25 per call (`page` 1 to 40). Needs a Sales Navigator seat. Read-only |
-| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company, location and industry; one page of 25 per call. Leads who opted out of third-party data sharing are left out and counted in `withheld`. A lead's `openLink` is not an Open Profile signal (the search does not fill it in); the send tools read Open Profile themselves. Needs a Sales Navigator seat. Read-only |
+| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company, location, industry, connection degree (`network`), function, company headcount, years in the current role or at the current company, account lists and lead lists (in or not in); one page of 25 per call. Each lead carries its Sales Navigator `id`, a `profileUrl` link and its connection `degree`. Leads who opted out of third-party data sharing are left out and counted in `withheld`. Lead rows carry no Open Profile flag (the search does not ask for one); the send tools read Open Profile themselves. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account` | One company's Sales Navigator account page: description, industry, website, headquarters, revenue range, headcount and headcount growth. Needs a Sales Navigator seat. Read-only |
 | `list_sales_navigator_account_lists` | Every Sales Navigator account list of the member, with its size. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account_list` | One Sales Navigator account list and every company in it. Needs a Sales Navigator seat. Read-only |
+| `list_sales_navigator_lead_lists` | Every Sales Navigator lead list of the member, with its size. Needs a Sales Navigator seat. Read-only |
+| `get_sales_navigator_lead_list` | The leads of one Sales Navigator lead list, read as a lead search filtered to the list (up to 1,000), with the same lead records and ids as lead search. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_inbox` | Recent Sales Navigator inbox conversations (1 to 1,000), in any inbox view: all, unread, sent, InMail awaiting response, accepted or declined, archived. Unread conversations stay unread. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_conversation` | One Sales Navigator conversation by `thread_id`, or by `lead_id` (matched on the lead id only, never by name), with up to 40 of its newest messages. Unread stays unread. Needs a Sales Navigator seat. Read-only |
 | `search_sales_navigator_conversations` | Search Sales Navigator messages by keyword through the inbox's own search box (up to 50 conversations). Unread stays unread. Needs a Sales Navigator seat. Read-only |
@@ -304,8 +306,7 @@ false first to see who the message goes to and what it costs. A message to a
 connection is free; anyone else gets an InMail, which needs a one-line
 `subject` and uses one InMail credit unless the lead has an Open Profile
 (`kind: open_profile`, from the message box's own profile data, never from
-the `openLink` a lead search row carries, which the search does not fill in
-and is always false) or is a TeamLink colleague (`kind: teamlink`, from the
+a lead search row, which carries no Open Profile flag because the search does not ask for one) or is a TeamLink colleague (`kind: teamlink`, from the
 profile's `teamlink`; its cost is not yet confirmed, so `creditCost` is null and
 it needs `spend_inmail_credit` like any unknown cost). Spending a credit also needs
 `spend_inmail_credit=true`, and without it the answer is
@@ -338,9 +339,11 @@ to look up; pass numeric ids to avoid them.
 A Sales Navigator search shows at most 1,000 results (40 pages of 25). When a
 search reports more, split it into narrower searches that each stay under
 1,000, for example by region (`hq_location` or `location`) or by company size
-(`size`), and page through each one. The searches check that Sales Navigator
-applied every filter you passed; a filter it ignored is an error, not
-unfiltered results.
+(`size`), and page through each one. The searches check the request the
+Sales Navigator page sent: a filter the page drops or rewrites is an error,
+not unfiltered results. That check cannot show that LinkedIn applied the
+filter or that an id is right: a list id Sales Navigator does not know is not
+an error and may return no leads.
 
 Leads who asked LinkedIn not to share their data with third-party tools are
 left out of lead search results. The result only counts them, under
@@ -353,6 +356,37 @@ page would not finish within the call's time limit; it then returns what it
 read with `next_page`, and the next call continues from there. The companies of a list can be passed, by
 name, to `create_company_list_audience` to target them in Campaign Manager.
 
+`list_sales_navigator_lead_lists` reads lead lists the same way.
+`get_sales_navigator_lead_list` reads a list's leads as a lead search filtered
+to that list, so each page of 25 counts against `SEARCH_PAGES_MAX` and at most
+1,000 leads of one list can be read. One call reads at most 20 pages (500
+leads, a fifth of the default daily search cap); pass `next_page` to continue.
+A pacing cap that refuses a later page keeps the leads already read and names
+the cap and `resume_at` under `section_errors.leads`. The result confirms the
+list (its name and size under `lead_list`) only when the page also sent the
+list's own record; otherwise a list id Sales Navigator does not know returns
+0 leads, so check the id against `list_sales_navigator_lead_lists`.
+
+To build an audience from an ideal customer profile, narrow
+`search_sales_navigator_leads` with its filters, or save the people to a lead
+list in Sales Navigator and read it with `get_sales_navigator_lead_list`. The
+`account_list` filter finds the people at the companies of an account list.
+Every lead row carries:
+
+- `id`: the Sales Navigator profile id (an `ACw...` id), which the Sales
+  Navigator tools take;
+- `profileUrl`: `https://www.linkedin.com/in/<id>`, a link to open the
+  profile in a browser. Neither it nor the id is a public identifier.
+  `send_message` accepts the id as `linkedin_username`: it messages the
+  member the profile page opens, read from that page and its Message action.
+  `connect_with_person` refuses an `ACw...` or `ACo...` id, because it
+  confirms the invite against the member's `/in/<public identifier>/`
+  address; pass it the public identifier (the part after `/in/` in the
+  member's own profile address) instead;
+- `memberUrn`: `urn:li:member:<n>`;
+- `degree`: 1, 2 or 3 for the connection degree. Filter with `network: ["F"]`
+  for 1st-degree connections only, for example to invite them to follow a
+  company page.
 ### Company page follow invites
 
 `list_page_follow_candidates` and `invite_to_follow_page` work on a company

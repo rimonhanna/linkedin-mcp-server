@@ -1,0 +1,278 @@
+{
+  "call": {
+    "arguments": {
+      "list_id": "100000311"
+    },
+    "method": "get_sales_navigator_lead_list"
+  },
+  "events": [
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/lists/people",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/lists/people",
+      "requested_url": "https://www.linkedin.com/sales/lists/people",
+      "section": "lead_list",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "wait_for_load_state",
+      "section": "lead_list",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "description": "goto https://www.linkedin.com/sales/lists/people",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/lists/people",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "boundary.rate_limit",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+      "requested_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+      "section": "lead_list",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "wait_for_load_state",
+      "section": "lead_list",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "description": "goto https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "kind": "boundary.rate_limit",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "lead_list"
+    },
+    {
+      "call": "get_sales_navigator_lead_list",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "lead_list"
+    }
+  ],
+  "result": {
+    "lead_list": {
+      "entityCount": 2,
+      "id": "100000311",
+      "listType": "LEAD",
+      "name": "Example lead list"
+    },
+    "leads": [
+      {
+        "currentPositions": [
+          {
+            "companyId": "100000001",
+            "companyName": "Example Company",
+            "current": true,
+            "title": "Example title"
+          }
+        ],
+        "degree": 1,
+        "fullName": "Example Person",
+        "geoRegion": "Example region",
+        "id": "ACwAAA0001",
+        "memberUrn": "urn:li:member:100000011",
+        "profileUrl": "https://www.linkedin.com/in/ACwAAA0001",
+        "seniority": [
+          {
+            "id": "310",
+            "name": "CXO"
+          }
+        ]
+      }
+    ],
+    "paging": {
+      "capped": false,
+      "count": 1,
+      "more": false,
+      "next_page": null,
+      "page": 1,
+      "resultCap": 1000,
+      "start": 0,
+      "total": 2
+    },
+    "section_names": [
+      "leads"
+    ],
+    "sections": {
+      "leads": "Example Person (id ACwAAA0001): Example title, Example Company, Example region"
+    },
+    "url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ALEAD_LIST,values%3AList((id%3A100000311,selectionType%3AINCLUDED)))))",
+    "withheld": {
+      "count": 1,
+      "reason": "These members asked LinkedIn not to share their data with third-party tools."
+    }
+  },
+  "scenario": "get_sales_navigator_lead_list__one_withheld",
+  "schema_version": 1
+}

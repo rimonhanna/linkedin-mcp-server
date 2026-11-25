@@ -52,6 +52,7 @@ __all__ = [
     "CAMPAIGN_MANAGER_ACCOUNTS_URL",
     "SALES_ACCOUNT_LISTS_URL",
     "SALES_INBOX_URL",
+    "SALES_LEAD_LISTS_URL",
     "campaign_manager_date_range",
     "campaign_manager_url",
     "company_page_url",
@@ -75,6 +76,7 @@ __all__ = [
     "normalize_thread_id",
     "normalize_website",
     "person_profile_url",
+    "refuse_opaque_member_id",
     "sales_account_list_url",
     "sales_company_url",
     "sales_inbox_thread_url",
@@ -401,6 +403,31 @@ def normalize_person_identifier(value: str, *, allow_self_alias: bool = False) -
     return reference
 
 
+# A member id LinkedIn mints, not a public identifier: ``ACoAA...`` (the
+# member URN's id) or ``ACwAA...`` (a Sales Navigator profile id). LinkedIn's
+# are 39 characters, 34 after the prefix; this asks for 30 or more, and is
+# case-sensitive, so a vanity name that starts with "aco" or "ACo" passes.
+_OPAQUE_MEMBER_ID = re.compile(r"^AC[ow]AA[A-Za-z0-9_-]{30,}$")
+
+
+def refuse_opaque_member_id(username: str, *, tool: str) -> None:
+    """Refuse an opaque member id where `tool` needs the public identifier.
+
+    The invite write confirms its result against the member's
+    ``/in/<public identifier>/`` address (the sent-invitations list, the
+    custom-invite deeplink's ``vanityName``). An opaque id never matches that
+    address, so a sent invitation would read as unconfirmed and a retry could
+    invite twice. Raised before any page load.
+    """
+    if _OPAQUE_MEMBER_ID.fullmatch(username):
+        raise InvalidReferenceError(
+            f"{tool} needs the member's public identifier (the part after /in/ "
+            'in their own profile address, for example "williamhgates"), not '
+            "an ACo... or ACw... member id such as a Sales Navigator lead id. "
+            "Nothing was sent."
+        )
+
+
 def normalize_company_identifier(value: str) -> str:
     """The page slug for an organization, from a link or from the slug itself.
 
@@ -626,8 +653,10 @@ def campaign_manager_url(account_id: str, suffix: str = "") -> str:
 
 
 SALES_ACCOUNT_LISTS_URL = "https://www.linkedin.com/sales/lists/company"
+SALES_LEAD_LISTS_URL = "https://www.linkedin.com/sales/lists/people"
 _SALES_COMPANY_URNS = ("urn:li:fs_salesCompany:", "urn:li:organization:")
 _SALES_LIST_ROUTES = (["sales", "accounts", "dashboard"], ["sales", "lists", "company"])
+_SALES_LEAD_LIST_ROUTE = ["sales", "lists", "people"]
 
 
 def normalize_sales_company_id(value: str) -> str:
@@ -655,11 +684,18 @@ def normalize_sales_company_id(value: str) -> str:
 
 
 def normalize_sales_list_id(value: str) -> str:
-    """The numeric id of a Sales Navigator account list, from the id or its URL."""
+    """The numeric id of a Sales Navigator list, from the id or its URL."""
     value = value.strip()
     if _NUMERIC_ID.fullmatch(value):
         return value
     segments = _linkedin_segments(value, want="list_id")
+    if (
+        segments is not None
+        and len(segments) == 4
+        and [part.lower() for part in segments[:3]] == _SALES_LEAD_LIST_ROUTE
+        and _NUMERIC_ID.fullmatch(segments[3])
+    ):
+        return segments[3]
     if (
         segments is not None
         and [part.lower() for part in segments] in _SALES_LIST_ROUTES

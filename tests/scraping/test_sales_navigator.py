@@ -188,7 +188,7 @@ async def test_search_accounts_reads_the_requested_page(mock_page):
     assert result["paging"] == {
         "page": 2,
         "start": 25,
-        "count": 25,
+        "count": 1,
         "total": 1500,
         "resultCap": 1000,
         "capped": True,
@@ -219,7 +219,7 @@ async def test_search_accounts_refuses_results_missing_a_filter(mock_page):
     ]
 
     with pytest.raises(
-        LinkedInScraperException, match="ignored the hq_location filter"
+        LinkedInScraperException, match="dropped or rewrote the hq_location filter"
     ):
         await _run(mock_page, browser, _account_search())
 
@@ -235,7 +235,7 @@ async def test_search_accounts_refuses_results_with_an_extra_filter(mock_page):
     ]
 
     with pytest.raises(
-        LinkedInScraperException, match="also applied the SENIORITY_LEVEL filter"
+        LinkedInScraperException, match="also sent the SENIORITY_LEVEL filter"
     ):
         await _run(mock_page, browser, _account_search())
 

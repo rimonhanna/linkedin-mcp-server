@@ -106,11 +106,15 @@ instances, clear profiles, or replace the user's browser session.
 - Sales Navigator (read-only, needs a Sales Navigator seat):
   `search_sales_navigator_accounts`, `search_sales_navigator_leads`,
   `get_sales_navigator_account`, `list_sales_navigator_account_lists`,
-  `get_sales_navigator_account_list`, and the inbox reads
+  `get_sales_navigator_account_list`, `list_sales_navigator_lead_lists`,
+  `get_sales_navigator_lead_list`, and the inbox reads
   `get_sales_navigator_inbox`, `get_sales_navigator_conversation` (by
   `thread_id`, or `lead_id` as lead search returns it) and
   `search_sales_navigator_conversations`, which leave unread conversations
-  unread.
+  unread. A lead's `id` (`ACw...`) is for the Sales
+  Navigator tools and its `profileUrl` is a link only. `send_message` accepts
+  it as `linkedin_username`; `connect_with_person` refuses an
+  `ACw...`/`ACo...` id, so pass it the member's public identifier.
 - Company pages you administer: `list_page_follow_candidates` (read-only)
   and `invite_to_follow_page`.
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,

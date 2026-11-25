@@ -37,6 +37,7 @@ from linkedin_mcp_server.scraping import person as person_module
 from linkedin_mcp_server.scraping import session as session_module
 from linkedin_mcp_server.scraping import sales_navigator_inbox as sn_inbox_module
 from linkedin_mcp_server.scraping.messaging_api import MessagingApiCapture
+from linkedin_mcp_server.scraping.sales_navigator_lead_filters import LEAD_LIST
 from linkedin_mcp_server.scraping.sales_navigator_payload import (
     COMPANY_HEADCOUNT,
     INDUSTRY,
@@ -1897,6 +1898,72 @@ async def _sn_account_list_scenario() -> dict[str, Any]:
     return trace
 
 
+async def _sn_lead_lists_scenario() -> dict[str, Any]:
+    page = _sn_page("list_sales_navigator_lead_lists__one_page")
+    entry = {**_sn_list_entry(100000311, "Example lead list", 2), "listType": "LEAD"}
+    page.script(
+        "goto",
+        lambda: _sn_emit(
+            page,
+            [
+                *_sn_boot(),
+                _sn_response(
+                    "salesApiLists?q=listType&listType=LEAD&start=0&count=25",
+                    {
+                        "elements": [entry],
+                        "paging": {"start": 0, "count": 25, "total": 1},
+                    },
+                ),
+            ],
+        ),
+    )
+    return await _sales_navigator_run(
+        "lead_lists",
+        page,
+        "list_sales_navigator_lead_lists",
+        {},
+        lambda extractor: extractor.list_sales_navigator_lead_lists(),
+    )
+
+
+async def _sn_lead_list_scenario() -> dict[str, Any]:
+    page = _sn_page("get_sales_navigator_lead_list__one_withheld")
+    list_id = "100000311"
+    query = build_search_query(None, [SearchFilter(LEAD_LIST, ids=(list_id,))])
+    leads = [
+        _sn_lead("ACwAAA0001", "Example Person", degree=1),
+        _sn_lead("ACwAAA0002", "Withheld Person", blockThirdPartyDataSharing=True),
+    ]
+    entry = {**_sn_list_entry(int(list_id), "Example lead list", 2), "listType": "LEAD"}
+    page.script(
+        "goto",
+        # The id is looked up among the member's lead lists before the search.
+        lambda: _sn_emit(
+            page,
+            [
+                *_sn_boot(),
+                _sn_response(
+                    "salesApiLists?q=listType&listType=LEAD&start=0&count=25",
+                    {
+                        "elements": [entry],
+                        "paging": {"start": 0, "count": 25, "total": 1},
+                    },
+                ),
+            ],
+        ),
+        lambda: _sn_emit(page, [_sn_search("salesApiLeadSearch", query, 0, leads, 2)]),
+    )
+    trace = await _sales_navigator_run(
+        "lead_list",
+        page,
+        "get_sales_navigator_lead_list",
+        {"list_id": list_id},
+        lambda extractor: extractor.get_sales_navigator_lead_list(list_id),
+    )
+    assert "Withheld" not in json.dumps(trace["result"]), trace["result"]
+    return trace
+
+
 async def _sn_no_seat_scenario() -> dict[str, Any]:
     page = _sn_page("list_sales_navigator_account_lists__no_seat")
     page.goto_landings.append("https://www.linkedin.com/premium/products/?from=x")
@@ -2233,6 +2300,8 @@ TOOL_FACADE_METHODS = {
     "get_sales_navigator_account",
     "list_sales_navigator_account_lists",
     "get_sales_navigator_account_list",
+    "list_sales_navigator_lead_lists",
+    "get_sales_navigator_lead_list",
     "list_page_follow_candidates",
     "invite_to_follow_page",
     "get_sales_navigator_inbox",
@@ -3335,6 +3404,8 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "sn-account.json": await _sn_account_scenario(),
         "sn-account-lists.json": await _sn_account_lists_scenario(),
         "sn-account-list.json": await _sn_account_list_scenario(),
+        "sn-lead-lists.json": await _sn_lead_lists_scenario(),
+        "sn-lead-list.json": await _sn_lead_list_scenario(),
         "sn-no-seat.json": await _sn_no_seat_scenario(),
         "page-follow-candidates.json": await _page_follow_candidates_scenario(),
         "page-invite-dry-run.json": await _page_invite_dry_run_scenario(),

@@ -44,7 +44,7 @@ a page-owning collaborator.
 | `feed` | `FeedScraper` | `page-owning` |
 | `feed_payload` | `POST_SLUG_URL_RE`, `build_feed_references()`, `is_feed_payload_response()` | `browser-free` |
 | `fields` | `COMPANY_SECTIONS`, `PERSON_SECTIONS`, `parse_company_sections()`, `parse_person_sections()` | `browser-free` |
-| `identifiers` | `CAMPAIGN_MANAGER_ACCOUNTS_URL`, `SALES_ACCOUNT_LISTS_URL`, `SALES_INBOX_URL`, `campaign_manager_date_range()`, `campaign_manager_url()`, `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_ad_account_id()`, `normalize_campaign_group_id()`, `normalize_campaign_id()`, `normalize_company_identifier()`, `normalize_company_page_url()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_page_company_id()`, `normalize_person_identifier()`, `normalize_post_urn()`, `normalize_profile_urn()`, `normalize_sales_company_id()`, `normalize_sales_lead_id()`, `normalize_sales_list_id()`, `normalize_sales_thread_id()`, `normalize_targeting_urn()`, `normalize_thread_id()`, `normalize_website()`, `person_profile_url()`, `sales_account_list_url()`, `sales_company_url()`, `sales_inbox_thread_url()`, `sales_inbox_url()` | `browser-free` |
+| `identifiers` | `CAMPAIGN_MANAGER_ACCOUNTS_URL`, `SALES_ACCOUNT_LISTS_URL`, `SALES_INBOX_URL`, `SALES_LEAD_LISTS_URL`, `campaign_manager_date_range()`, `campaign_manager_url()`, `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_ad_account_id()`, `normalize_campaign_group_id()`, `normalize_campaign_id()`, `normalize_company_identifier()`, `normalize_company_page_url()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_page_company_id()`, `normalize_person_identifier()`, `normalize_post_urn()`, `normalize_profile_urn()`, `normalize_sales_company_id()`, `normalize_sales_lead_id()`, `normalize_sales_list_id()`, `normalize_sales_thread_id()`, `normalize_targeting_urn()`, `normalize_thread_id()`, `normalize_website()`, `person_profile_url()`, `refuse_opaque_member_id()`, `sales_account_list_url()`, `sales_company_url()`, `sales_inbox_thread_url()`, `sales_inbox_url()` | `browser-free` |
 | `invitation_withdrawal` | `InvitationWithdrawer`, `MAX_WITHDRAWALS_LIMIT`, `age_text()`, `normalize_exclusions()`, `parse_age_days()`, `plan_withdrawals()`, `username_from_href()` | `browser-free` |
 | `job_pages` | `APPLY_SIGNALS_JS`, `JOB_IDS_JS`, `JobApplySignals`, `JobPageCapture`, `JobPageReader`, `ORGANIC_BEFORE_NOTICE_JS`, `PROMOTED_JOB_IDS_JS` | `page-owning` |
 | `job_policy` | `AI_SEARCH_PATH`, `ApplyType`, `JOB_SEARCH_PATHS`, `JobsTrackerStage`, `LOCATION_RESOLUTION_MIN`, `LOCATION_RESOLUTION_RESERVE`, `RESULTS_PER_LINKEDIN_PAGE`, `SAFETY_REDIRECT_PATH`, `SAVED_JOBS_PAGE_SIZE`, `SAVED_JOBS_PATHS`, `SAVED_JOBS_URL`, `SCROLL_BUDGET_TOTAL`, `SCROLL_DEADLINE_MAX`, `SEARCH_TIMEOUT_FRACTION`, `ai_search_section_error()`, `apply_link_missing_section_error()`, `dropped_filters_section_error()`, `dropped_offset_section_error()`, `dropped_stage_section_error()`, `employer_apply_url()`, `label_similar_jobs()`, `lost_keywords_section_error()`, `missing_description_section_error()`, `no_matching_jobs_section_error()`, `posting_state()`, `reaches_the_public_internet()`, `reconcile_search_references()`, `route()`, `same_job_search()`, `unresolved_location_section_error()` | `browser-free` |
@@ -69,6 +69,7 @@ a page-owning collaborator.
 | `sales_navigator_composer_js` | `CLEANUP_JS`, `DISPOSE_JS`, `FIELD_JS`, `FOCUS_CHECK_JS`, `PIN_JS`, `PREPARE_WRITE_JS`, `SETTLE_WRITE_JS`, `STATE_JS`, `SUBMIT_JS`, `SUBMIT_READY_JS` | `browser-free` |
 | `sales_navigator_inbox` | `SalesNavigatorInboxReader` | `page-owning` |
 | `sales_navigator_inbox_payload` | `ACCESS`, `FILTERS`, `InboxConversation`, `InboxFilter`, `InboxMessage`, `LIST_FINDER`, `MESSAGE_BATCH`, `MESSAGE_DECORATION`, `NAV_CHROME`, `Participant`, `SEARCH_FINDER`, `SalesConversation`, `THREADS`, `ThreadHistory`, `ViewerCheck`, `build_conversation_row()`, `build_conversation_rows()`, `build_message()`, `build_messages()`, `build_older_messages()`, `build_participants()`, `build_thread()`, `chrome_viewer()`, `no_inbox_access()`, `render_conversation()`, `render_conversations()`, `strip_delivered_at()`, `viewer_of()` | `browser-free` |
+| `sales_navigator_lead_filters` | `ACCOUNT_LIST`, `FUNCTION`, `FUNCTION_IDS`, `LEAD_LIST`, `RELATIONSHIP`, `TENURE_IDS`, `TenureBucket`, `YEARS_AT_CURRENT_COMPANY`, `YEARS_IN_CURRENT_POSITION`, `function_ids()`, `tenure_ids()` | `browser-free` |
 | `sales_navigator_payload` | `Account`, `AccountCard`, `AccountList`, `COMPANY_FILTER_ID`, `COMPANY_HEADCOUNT`, `COMPANY_HEADCOUNT_GROWTH`, `CURRENT_COMPANY`, `CURRENT_TITLE`, `EmployeeGrowth`, `Headquarters`, `INDUSTRY`, `Lead`, `ListedAccount`, `MAX_PAGE`, `PAGE_SIZE`, `Position`, `REGION`, `RESULT_CAP`, `RevenueRange`, `SENIORITY_IDS`, `SENIORITY_LEVEL`, `SN_API_PREFIX`, `SearchFilter`, `SearchPaging`, `Seniority`, `SeniorityLevel`, `SnCall`, `SnMoney`, `T`, `WITHHELD_REASON`, `Withheld`, `build_account()`, `build_account_card()`, `build_account_list()`, `build_elements()`, `build_lead()`, `build_leads()`, `build_listed_account()`, `build_paging()`, `build_search_query()`, `build_withheld()`, `is_withheld()`, `missing_echoes()`, `parse_sn_call()`, `render_account()`, `render_account_cards()`, `render_account_lists()`, `render_leads()`, `render_listed_accounts()`, `restli_value()`, `sales_company_id()`, `sales_profile_id()`, `search_page_url()`, `unrequested_echoes()` | `browser-free` |
 | `sales_navigator_send_contract` | `Delivery`, `DeliveryKind`, `INMAIL_CREDITS_UNKNOWN`, `INMAIL_CREDIT_REQUIRED`, `INMAIL_REPLY_COST_UNKNOWN`, `NO_INMAIL_CREDITS`, `Recipient`, `SEND_BLOCKED_NO_CREDITS`, `SUBJECT_REQUIRED`, `compose_route_urn()`, `refuse_an_invalid_sales_message()`, `refuse_an_invalid_sales_reply()`, `sales_compose_url()`, `sales_message_result()`, `sales_profile_urn()`, `sales_reply_result()` | `browser-free` |
 | `sales_navigator_send_page` | `CONNECTION_DEGREE`, `CREDITS`, `SendCapture`, `THREADS`, `existing_thread()`, `inbox_refused()`, `inmail_credits()`, `is_profile()`, `is_send()`, `merged_profile()`, `profile_name()`, `profile_of()`, `reply_cost()`, `sent_body()`, `thread_of()`, `thread_participant()`, `thread_viewer()` | `browser-free` |
@@ -130,11 +131,12 @@ a page-owning collaborator.
 - `profile_page` -> `session`
 - `rate_limit` -> _(none)_
 - `restli` -> _(none)_
-- `sales_navigator` -> `contracts`, `facets`, `identifiers`, `navigation`, `restli`, `sales_navigator_api`, `sales_navigator_payload`, `search_urls`, `session`
+- `sales_navigator` -> `contracts`, `facets`, `identifiers`, `navigation`, `restli`, `sales_navigator_api`, `sales_navigator_lead_filters`, `sales_navigator_payload`, `search_urls`, `session`
 - `sales_navigator_api` -> `api_capture`, `sales_navigator_payload`
 - `sales_navigator_composer_js` -> _(none)_
 - `sales_navigator_inbox` -> `identifiers`, `messaging_read_state`, `restli`, `sales_navigator`, `sales_navigator_api`, `sales_navigator_inbox_payload`, `sales_navigator_payload`, `session`
 - `sales_navigator_inbox_payload` -> `restli`, `sales_navigator_payload`
+- `sales_navigator_lead_filters` -> `contracts`
 - `sales_navigator_payload` -> `identifiers`, `restli`
 - `sales_navigator_send_contract` -> `contracts`, `identifiers`
 - `sales_navigator_send_page` -> `restli`, `sales_navigator_api`, `sales_navigator_inbox_payload`, `sales_navigator_payload`
@@ -166,6 +168,7 @@ a page-owning collaborator.
 - `get_sales_navigator_account_list`
 - `get_sales_navigator_conversation`
 - `get_sales_navigator_inbox`
+- `get_sales_navigator_lead_list`
 - `get_saved_jobs`
 - `get_sidebar_profiles`
 - `invite_to_follow_page`
@@ -174,6 +177,7 @@ a page-owning collaborator.
 - `list_campaigns`
 - `list_page_follow_candidates`
 - `list_sales_navigator_account_lists`
+- `list_sales_navigator_lead_lists`
 - `list_sponsorable_posts`
 - `reply_to_conversation`
 - `reply_to_sales_navigator_conversation`

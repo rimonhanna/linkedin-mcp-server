@@ -293,7 +293,7 @@ def register_messaging_tools(
         retry is safe.
 
         Args:
-            linkedin_username: LinkedIn username of the recipient; a full profile URL is accepted too
+            linkedin_username: LinkedIn username of the recipient; a full profile URL or a profile id (ACo..., or an ACw... Sales Navigator lead id) is accepted too, and the recipient is the member that profile page opens
             message: Message text to send. Line breaks (LF or CRLF) are
                 supported and typed as Shift+Enter; three or more in a row
                 collapse to one blank line. Other C0 control characters

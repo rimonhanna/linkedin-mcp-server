@@ -549,6 +549,14 @@ class LinkedInExtractor:
         current_company: Sequence[str] | None = None,
         location: Sequence[str] | None = None,
         industry: Sequence[str] | None = None,
+        network: Sequence[str] | None = None,
+        function: Sequence[str] | None = None,
+        company_size: Sequence[str] | None = None,
+        years_in_current_role: Sequence[str] | None = None,
+        years_at_current_company: Sequence[str] | None = None,
+        account_list: Sequence[str] | None = None,
+        lead_list: Sequence[str] | None = None,
+        exclude_lead_list: Sequence[str] | None = None,
         page: int = 1,
     ) -> dict[str, Any]:
         """One page of Sales Navigator lead search results."""
@@ -559,6 +567,14 @@ class LinkedInExtractor:
             current_company=current_company,
             location=location,
             industry=industry,
+            network=network,
+            function=function,
+            company_size=company_size,
+            years_in_current_role=years_in_current_role,
+            years_at_current_company=years_at_current_company,
+            account_list=account_list,
+            lead_list=lead_list,
+            exclude_lead_list=exclude_lead_list,
             page=page,
         )
 
@@ -577,6 +593,20 @@ class LinkedInExtractor:
     ) -> dict[str, Any]:
         """One Sales Navigator account list and up to 1,000 of its accounts."""
         return await self._sales_navigator.get_account_list(
+            list_id, page, deadline=deadline
+        )
+
+    async def list_sales_navigator_lead_lists(
+        self, page: int = 1, *, deadline: float | None = None
+    ) -> dict[str, Any]:
+        """The member's Sales Navigator lead lists, up to 1,000 per call."""
+        return await self._sales_navigator.list_lead_lists(page, deadline=deadline)
+
+    async def get_sales_navigator_lead_list(
+        self, list_id: str, page: int = 1, *, deadline: float | None = None
+    ) -> dict[str, Any]:
+        """The leads of one Sales Navigator lead list, up to 1,000 per call."""
+        return await self._sales_navigator.get_lead_list(
             list_id, page, deadline=deadline
         )
 
