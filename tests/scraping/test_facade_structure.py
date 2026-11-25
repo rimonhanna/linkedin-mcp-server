@@ -76,6 +76,8 @@ PUBLIC_SIGNATURES = {
     "search_sales_navigator_conversations": "(self, keywords: 'str', limit: 'int' = 20, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
     "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
+    "send_sales_navigator_message": "(self, lead_id: 'str', message: 'str', *, confirm_send: 'bool', subject: 'str | None' = None, spend_inmail_credit: 'bool' = False) -> 'dict[str, Any]'",
+    "reply_to_sales_navigator_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool', spend_inmail_credit: 'bool' = False) -> 'dict[str, Any]'",
 }
 
 DELEGATES = {
@@ -125,6 +127,11 @@ DELEGATES = {
     "get_sales_navigator_inbox": ("_sales_inbox", "get_inbox"),
     "get_sales_navigator_conversation": ("_sales_inbox", "get_conversation"),
     "search_sales_navigator_conversations": ("_sales_inbox", "search_conversations"),
+    "send_sales_navigator_message": ("_sales_navigator_sender", "send_message"),
+    "reply_to_sales_navigator_conversation": (
+        "_sales_navigator_sender",
+        "reply_to_conversation",
+    ),
 }
 
 DELEGATE_CALLS = {
@@ -190,6 +197,8 @@ DELEGATE_CALLS = {
     "search_sales_navigator_conversations": (
         "self._sales_inbox.search_conversations(keywords, limit, deadline=deadline)"
     ),
+    "send_sales_navigator_message": "self._sales_navigator_sender.send_message(lead_id, message, confirm_send=confirm_send, subject=subject, spend_inmail_credit=spend_inmail_credit)",
+    "reply_to_sales_navigator_conversation": "self._sales_navigator_sender.reply_to_conversation(thread_id, message, confirm_send=confirm_send, spend_inmail_credit=spend_inmail_credit)",
 }
 
 FACADE_STATE = {
@@ -211,6 +220,7 @@ FACADE_STATE = {
     "_posts",
     "_sales_inbox",
     "_sales_navigator",
+    "_sales_navigator_sender",
 }
 
 PERMANENT_ALIASES = {

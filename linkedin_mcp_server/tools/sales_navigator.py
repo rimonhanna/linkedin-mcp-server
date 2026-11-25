@@ -217,6 +217,9 @@ def register_sales_navigator_tools(
             premium, openLink, seniority, currentPositions, summary), paging
             (page, start, count, total, resultCap, capped, more) and withheld
             ({count, reason}, present only when a lead was left out).
+            A lead's openLink is not an Open Profile signal: the search
+            does not fill it in. send_sales_navigator_message reads Open
+            Profile from the message box itself.
         """
         try:
             industry_list = industry_ids(industry)

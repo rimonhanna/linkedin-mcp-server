@@ -18,8 +18,11 @@ work, health checks, or background maintenance.
 - Never enable the plugin or its MCP server, edit Codex configuration, or start
   a login flow merely because LinkedIn might be useful. If either component is
   disabled, explain that state and stop.
-- `send_message`, `reply_to_conversation` and `connect_with_person` are write
-  actions. Use them only when the user explicitly authorizes the
+- `send_message`, `reply_to_conversation`, `send_sales_navigator_message`,
+  `reply_to_sales_navigator_conversation` and `connect_with_person` are write
+  actions. A Sales Navigator InMail also spends a credit, and a
+  send whose cost is unknown may: set `spend_inmail_credit` only when the user
+  approved spending one. Use them only when the user explicitly authorizes the
   exact recipient and action (for a reply, the exact thread). Confirm the
   final message or connection note unless the user has already supplied it.
 - `invite_to_follow_page` invites people to follow a page as the user. Call it
@@ -111,7 +114,9 @@ instances, clear profiles, or replace the user's browser session.
 - Company pages you administer: `list_page_follow_candidates` (read-only)
   and `invite_to_follow_page`.
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
-  InMail included, by its thread ID) and `connect_with_person`, and the
+  InMail included, by its thread ID), `send_sales_navigator_message` (a lead
+  by lead id; dry run first to see the InMail cost),
+  `reply_to_sales_navigator_conversation` and `connect_with_person`, and the
   Campaign Manager writes (`update_campaign`, `set_campaign_status`,
   `update_campaign_targeting`, `create_campaign_draft`,
   `add_post_to_campaign`, `create_company_list_audience`,

@@ -225,6 +225,14 @@
       "description": "Search Sales Navigator messages by keyword through the inbox search box; unread stays unread (read-only)"
     },
     {
+      "name": "send_sales_navigator_message",
+      "description": "Send a new Sales Navigator message to a lead with explicit confirmation; a dry run reports the message type, its InMail cost and the credits left, and spending an InMail credit needs spend_inmail_credit"
+    },
+    {
+      "name": "reply_to_sales_navigator_conversation",
+      "description": "Reply inside an existing Sales Navigator conversation by thread ID with explicit confirmation; verifies the conversation and its reply box first"
+    },
+    {
       "name": "close_session",
       "description": "Properly close browser session and clean up resources"
     },

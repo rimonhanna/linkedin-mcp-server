@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from weakref import WeakKeyDictionary, WeakSet
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
@@ -38,6 +38,16 @@ _READ_STATE_PATHS = (
 # creation, before their first navigation (``register_read_state_routes``);
 # this bound covers a page that reaches a read without that.
 _REGISTRATION_TIMEOUT_SECONDS = 15.0
+# The one request a Sales Navigator send window lets through.
+_SALES_SEND_PATH = "/sales-api/salesApiMessageActions"
+_SALES_SEND_ACTION = "createMessage"
+
+
+def _is_sales_send(request: Any) -> bool:
+    parsed = urlparse(request.url)
+    return parsed.path == _SALES_SEND_PATH and parse_qs(parsed.query).get("action") == [
+        _SALES_SEND_ACTION
+    ]
 
 
 class _PageGuard:
@@ -50,15 +60,35 @@ class _PageGuard:
         self.registration: asyncio.Task[None] | None = None
         self.registration_failed = False
         self.protected: WeakSet[Any] = WeakSet()
+        # A Sales Navigator send window: one createMessage may pass while
+        # read_mode stays on, and the request that took it is remembered.
+        self.send_allowance = 0
+        self.allowed: WeakSet[Any] = WeakSet()
         # Store stable callback identities; readers are recreated for each tool.
         self.request_listener = self.observe
         self.route_handler = self.handle
+
+    def _takes_the_send(self, request: Any) -> bool:
+        """Whether ``request`` is the one send the open window lets through.
+
+        Asked from both callbacks, in either order, with the same answer.
+        """
+        if request in self.allowed:
+            return True
+        if request in self.protected or not self.send_allowance:
+            return False
+        if request.method.upper() != "POST" or not _is_sales_send(request):
+            return False
+        self.send_allowance = 0
+        self.allowed.add(request)
+        return True
 
     def observe(self, request: Any) -> None:
         if (
             self.read_mode
             and request.method.upper() == "POST"
             and urlparse(request.url).path.startswith(_READ_STATE_PATHS)
+            and not self._takes_the_send(request)
         ):
             self.protected.add(request)
 
@@ -66,8 +96,10 @@ class _PageGuard:
         request = route.request
         # A request notification can precede its asynchronous route callback.
         # Remember the notification's read scope even if that scope has exited.
-        if request.method.upper() == "POST" and (
-            self.read_mode or request in self.protected
+        if (
+            request.method.upper() == "POST"
+            and (self.read_mode or request in self.protected)
+            and not self._takes_the_send(request)
         ):
             await route.abort()
         else:
@@ -156,3 +188,36 @@ def allow_explicit_message_write(page: Any) -> None:
             "Cannot compose while a passive messaging read is active."
         )
     state.read_mode = False
+
+
+def open_one_sales_send(page: Any) -> None:
+    """Let exactly one Sales Navigator ``createMessage`` POST leave the page.
+
+    Unlike ``allow_explicit_message_write`` the latch stays on: a mark-read,
+    an archive or any later ``createMessage`` is still aborted. Close the
+    window with ``close_sales_send`` whether or not the send happened.
+    """
+    state = _guard_for(page)
+    if state.depth:
+        raise LinkedInScraperException(
+            "Cannot compose while a passive messaging read is active."
+        )
+    state.read_mode = True
+    state.send_allowance = 1
+
+
+def allowed_sales_send(page: Any, requests: list[Any]) -> Any | None:
+    """The request among ``requests`` that the send window let through."""
+    state = _GUARDS.get(page)
+    if state is None:
+        return None
+    return next((request for request in requests if request in state.allowed), None)
+
+
+def close_sales_send(page: Any) -> None:
+    """End a send window: nothing more passes, and the latch is on."""
+    state = _GUARDS.get(page)
+    if state is None:
+        return
+    state.send_allowance = 0
+    state.read_mode = True

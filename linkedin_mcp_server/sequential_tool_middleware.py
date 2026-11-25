@@ -93,6 +93,8 @@ class SequentialToolExecutionMiddleware(Middleware):
             "connect_with_person",
             "send_message",
             "reply_to_conversation",
+            "send_sales_navigator_message",
+            "reply_to_sales_navigator_conversation",
             "withdraw_invitations",
             "invite_to_follow_page",
             "update_campaign",
