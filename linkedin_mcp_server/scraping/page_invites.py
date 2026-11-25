@@ -436,6 +436,7 @@ PersonStatus = Literal[
     "not_sent",
     "not_invitable",
     "not_found",
+    "not_checked",
     "invitability_unknown",
     "no_credits",
     "pacing_cap",
@@ -803,7 +804,7 @@ class PageInviteActions:
                     plan_deadline is not None
                     and time.monotonic() + unspent_ticks + cost >= plan_deadline
                 ):
-                    report.not_searched(index, "name_search_not_run (deadline)")
+                    report.not_checked(index, "name_search_not_run (deadline)")
                     continue
                 try:
                     found = await self._search(
@@ -1052,6 +1053,12 @@ class _Report:
         self.statuses[index] = "not_found"
         self.details[index] = detail
 
+    def not_checked(self, index: int, detail: str) -> None:
+        """A person the call ran out of time for: never looked up, so not
+        known absent, and left for the caller to retry."""
+        self.statuses[index] = "not_checked"
+        self.details[index] = detail
+
     def place(
         self,
         index: int,
@@ -1187,6 +1194,13 @@ class _Report:
             "people": people,
             "credits": credits,
         }
+        unchecked = sum(p["status"] == "not_checked" for p in people)
+        if unchecked:
+            result["not_checked"] = unchecked
+            who = "1 person was" if unchecked == 1 else f"{unchecked} people were"
+            result["message"] = (
+                f"{message} {who} not checked in this call; call again with them."
+            )
         if self.pacing:
             result["pacing"] = self.pacing
         if self.schedule:

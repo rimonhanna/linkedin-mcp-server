@@ -457,7 +457,10 @@ theirs, never by name alone. With
 exactly that list, and only then presses Invite; the browser lets through a
 single invitation request, and only one naming exactly those people. People
 past the page's remaining credits or the account's `PAGE_INVITES_MAX` are not
-invited, and every person gets their own status. When LinkedIn does not show
+invited, and every person gets their own status. A person the call ran out of
+time to search for is reported `not_checked`, not `not_found`: they were never
+looked up and never ticked, and the result's `not_checked` count and message
+say to call again with them. When LinkedIn does not show
 the credits, `credits` is null and `section_errors.credits` says why: a dry run
 still reports each person, with `would_invite` not limited by credits, and a
 send refuses with `credits_unavailable` and invites no one. A result with `retry_safe`

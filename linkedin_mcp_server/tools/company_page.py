@@ -238,6 +238,8 @@ def register_company_page_tools(
         Returns:
             Dict with url, company_id, status, message, dry_run, retry_safe,
             people and credits (remaining, total, nextGrantOn, needed), plus
+            not_checked (how many people were not looked up in this call,
+            also said in message; call again with them) when any were, plus
             pacing when a cap or cooldown held people back (prefixed
             outside_working_hours when only the schedule did), and schedule
             on a dry run outside working hours. When LinkedIn
@@ -253,7 +255,8 @@ def register_company_page_tools(
             request may have left the browser.
             Each people entry has input (as passed), status (would_invite,
             invited, refused, unconfirmed, not_sent, not_invitable, not_found,
-            invitability_unknown, no_credits, pacing_cap or duplicate), and
+            not_checked, invitability_unknown, no_credits, pacing_cap or
+            duplicate), and
             profileId, name, headline, publicIdentifier and detail when known.
             A not_invitable detail is not_a_candidate (the whole list was
             read, or the person's name search returned, and no row matched
@@ -261,12 +264,15 @@ def register_company_page_tools(
             (more than one row matched it, so none was chosen) or
             linkedin_declined (LinkedIn's own status label follows when it
             gave one). A not_found detail is not_in_candidates_read (paging
-            stopped before the end; says how many were read and why) or
+            stopped before the end; says how many were read and why),
             unmatchable_identifier (a Sales Navigator id that names no
-            dialog row), name_search_not_run (deadline) (too little time
-            was left to search for them) or name_search_failed (the search
+            dialog row) or name_search_failed (the search
             did not answer, answered in an unknown shape or the browser
-            failed in it; the cause follows). Credits and the cap go first to the people the
+            failed in it; the cause follows). A not_checked person was
+            never looked up, not found absent: too little of the call's time
+            was left for their name search (detail name_search_not_run
+            (deadline)), so they were not ticked or sent; call again with
+            them. Credits and the cap go first to the people the
             candidate list shows, then to those found by search, in order,
             and a dry run plans exactly what a send would. A refused detail is the HTTP status, or
             rate_limited when LinkedIn answered 429. An invitability_unknown

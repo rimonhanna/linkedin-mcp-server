@@ -174,7 +174,7 @@ async def test_a_five_person_send_sends_three_and_marks_the_two_it_skipped(
     assert writes == ["page_invites"] * 3
     assert _statuses(result) == {
         **dict.fromkeys(FIVE_PEOPLE[:3], "invited"),
-        **dict.fromkeys(FIVE_PEOPLE[3:], "not_found"),
+        **dict.fromkeys(FIVE_PEOPLE[3:], "not_checked"),
     }
     assert [p.get("detail") for p in result["people"][3:]] == [
         "name_search_not_run (deadline)"
@@ -196,7 +196,7 @@ async def test_the_dry_run_predicts_the_same_cut(writes, monkeypatch):  # noqa: 
     assert page.sent == []
     assert _statuses(result) == {
         **dict.fromkeys(FIVE_PEOPLE[:3], "would_invite"),
-        **dict.fromkeys(FIVE_PEOPLE[3:], "not_found"),
+        **dict.fromkeys(FIVE_PEOPLE[3:], "not_checked"),
     }
 
 
@@ -333,7 +333,7 @@ async def test_the_dry_run_counts_the_list_ticks_a_send_would_spend(
 
     assert _statuses(result) == {
         **dict.fromkeys(MIXED_PEOPLE[:5], "would_invite"),
-        MIXED_PEOPLE[5]: "not_found",
+        MIXED_PEOPLE[5]: "not_checked",
     }, "a dry run must not plan a searched person the send would not reach"
     assert result["people"][5]["detail"] == "name_search_not_run (deadline)"
 
