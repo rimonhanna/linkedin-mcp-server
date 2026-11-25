@@ -272,8 +272,19 @@ def _is_search(response: InviteResponse) -> bool:
 # The value runs to the next ``,<field>:`` or the closing brackets, not to the
 # first ``,`` or ``)``: once the query string is decoded, a bracket or comma in
 # the text typed is literal there.
-_TYPED_KEYWORDS = re.compile(r"[(,]keywords:(.*?)(?=,\w+:|\)*$)")
+_TYPED_KEYWORDS = re.compile(r"[(,]keywords:(.*?)(?=,\w+:|\)$)")
 _BRACKETED = re.compile(r"[(\[{][^)\]}]*(?:[)\]}]|$)")
+# What follows one of these in a display name is a headline, a title or
+# credentials, not the name.
+_NAME_END = re.compile(r",| \| | - |[\u2022\u00b7]")
+_HONORIFICS = frozenset({"dr", "mr", "mrs", "ms", "miss", "mx", "prof", "sir"})
+_SUFFIXES = frozenset(
+    {
+        "jr", "sr", "ii", "iii", "iv", "phd", "dphil", "mba", "mbbs", "msc",
+        "bsc", "md", "llm", "meng", "beng", "mph", "cpa", "cfa", "pmp", "esq",
+        "frcs", "mrcp", "acca", "fca",
+    }
+)  # fmt: skip
 _KEYCAP = re.compile("[0-9#*]\ufe0f?\u20e3")
 _NAME_PUNCTUATION = frozenset("-'\u2019.")
 
@@ -293,14 +304,24 @@ def _name_char(char: str) -> bool:
     return category in ("Mn", "Mc") and not variation
 
 
+def _bare(word: str) -> str:
+    return word.replace(".", "").casefold()
+
+
 def _search_text(name: str) -> str:
-    """What the dialog's search box is given for ``name``: its first and last
-    words, without a bracketed part, emoji, symbols or the credentials after
-    a comma. The search only finds the person; the match is by id."""
-    head = _KEYCAP.sub(" ", _BRACKETED.sub(" ", name.split(",", 1)[0]))
+    """What the dialog's search box is given for ``name``: its words, without
+    a bracketed part, emoji, symbols, an honorific or suffix, or what follows
+    a comma, " | ", " - ", "•" or "·". The search only finds the
+    person; the match is by id."""
+    head = _NAME_END.split(unicodedata.normalize("NFKC", name), maxsplit=1)[0]
+    head = _KEYCAP.sub(" ", _BRACKETED.sub(" ", head))
     kept = "".join(char if _name_char(char) else " " for char in head)
     words = [word for word in kept.split() if any(char.isalnum() for char in word)]
-    return " ".join(words[:1] + words[1:][-1:])
+    while len(words) > 1 and _bare(words[0]) in _HONORIFICS:
+        words.pop(0)
+    while len(words) > 1 and _bare(words[-1]) in _SUFFIXES:
+        words.pop()
+    return " ".join(words)
 
 
 def _typed(response: InviteResponse) -> str | None:
@@ -642,31 +663,33 @@ class PageInviteActions:
         timeout = 12.0
         if end is not None:
             timeout = max(end - time.monotonic() - _SEARCH_SETTLE_SECONDS, 0.1)
-        try:
-            # The miss is judged below: only a search nothing answered counts.
-            await capture.wait_for(
-                _is_search_for(keywords),
-                after=after,
-                timeout=timeout,
-                throttle=False,
-                wanted=(TYPEAHEAD,),
-            )
-        except LinkedInScraperException:
-            answered = capture.matching(_is_search, after)
-            if answered:
-                # LinkedIn answered, for other text than was typed: a mismatch
-                # on this side, no evidence of a throttle.
+
+        def missed() -> bool:
+            """Whether the miss counts its half signal: not when LinkedIn
+            answered text that is no earlier keystroke of this search, which
+            is a mismatch on this side. Earlier keystrokes answered with the
+            last one silent still count."""
+            other = [
+                response
+                for response in capture.matching(_is_search, after)
+                if not _words(keywords).startswith(_words(_typed(response) or ""))
+            ]
+            if other:
                 logger.info(
                     "The dialog's name search answered other keywords than "
                     "typed (%r): %s",
                     keywords,
-                    ", ".join(sorted({repr(_typed(r)) for r in answered})),
+                    ", ".join(sorted({repr(_typed(r)) for r in other})),
                 )
-            else:
-                # Nothing answered any keystroke: the same half signal as
-                # any other missed payload.
-                capture._note_throttle("payload_timeout", half=True)
-            raise
+            return not other
+
+        await capture.wait_for(
+            _is_search_for(keywords),
+            after=after,
+            timeout=timeout,
+            throttle=missed,
+            wanted=(TYPEAHEAD,),
+        )
         # The status call for the result set follows it.
         await asyncio.sleep(_SEARCH_SETTLE_SECONDS)
         await capture.settle()

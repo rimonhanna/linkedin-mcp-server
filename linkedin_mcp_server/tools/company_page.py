@@ -269,9 +269,10 @@ def register_company_page_tools(
             answered and no row matched this identifier) or
             name_search_failed (the search did not answer the name typed,
             answered in an unknown shape or the browser failed in it; the
-            cause follows). The name is searched by its first and last
-            words only, without brackets, emoji or credentials after a
-            comma. A not_checked person was
+            cause follows). The search is given the name's own words only:
+            no bracketed part, emoji, symbol, honorific (Dr., Prof.) or
+            suffix (Jr., PhD), and nothing after a comma, " | ", " - ",
+            "•" or "·". A not_checked person was
             never looked up, not found absent: too little of the call's time
             was left for their name search (detail name_search_not_run
             (deadline)), so they were not ticked or sent; call again with

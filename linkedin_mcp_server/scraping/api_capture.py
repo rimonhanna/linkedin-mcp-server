@@ -144,13 +144,14 @@ class ApiResponseCapture(Generic[_C]):
         *,
         after: int = 0,
         timeout: float = 12.0,
-        throttle: bool = True,
+        throttle: bool | Callable[[], bool] = True,
         wanted: Iterable[str] = (),
     ) -> CapturedResponse[_C]:
         """Wait for the first captured response, from ``after`` on, that matches.
 
         ``throttle=False`` is for a wait whose miss has another explanation
         (an optional request the page may not make): no throttle evidence.
+        A callable decides once the wait has timed out, from what arrived.
         ``wanted`` names the resources the predicate looks for, so a failure's
         notes show every response of theirs.
         """
@@ -167,7 +168,7 @@ class ApiResponseCapture(Generic[_C]):
         except TimeoutError as exc:
             seen = ", ".join(sorted(self.seen_resources)) or "none"
             logger.warning("No matching %s response; seen: %s", self.label, seen)
-            if throttle:
+            if throttle if isinstance(throttle, bool) else throttle():
                 # A half signal: one missing reply is also what a slow proxy
                 # looks like; two within ten minutes make a throttle.
                 self._note_throttle("payload_timeout", half=True)
