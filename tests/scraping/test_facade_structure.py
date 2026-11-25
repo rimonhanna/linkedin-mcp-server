@@ -72,7 +72,7 @@ PUBLIC_SIGNATURES = {
     "list_sales_navigator_lead_lists": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "get_sales_navigator_lead_list": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "list_page_follow_candidates": "(self, company_id: 'str', *, keywords: 'str | None' = None, limit: 'int' = 20, deadline: 'float | None' = None) -> 'dict[str, Any]'",
-    "invite_to_follow_page": "(self, company_id: 'str', people: 'list[str]', *, confirm_send: 'bool', deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "invite_to_follow_page": "(self, company_id: 'str', people: 'list[str]', *, confirm_send: 'bool', names: 'list[str | None] | None' = None, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "get_sales_navigator_inbox": "(self, limit: 'int' = 20, filter: 'InboxFilter' = 'all', *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "get_sales_navigator_conversation": "(self, thread_id: 'str | None' = None, lead_id: 'str | None' = None, index: 'int' = 0, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "search_sales_navigator_conversations": "(self, keywords: 'str', limit: 'int' = 20, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
@@ -208,7 +208,7 @@ DELEGATE_CALLS = {
     ),
     "invite_to_follow_page": (
         "self._page_invites.invite_to_follow(company_id, people, "
-        "confirm_send=confirm_send, deadline=deadline)"
+        "confirm_send=confirm_send, names=names, deadline=deadline)"
     ),
     "get_sales_navigator_inbox": (
         "self._sales_inbox.get_inbox(limit, filter, deadline=deadline)"

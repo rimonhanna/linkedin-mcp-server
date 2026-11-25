@@ -114,7 +114,7 @@
       },
       "invite_to_follow_page": {
         "coroutine": true,
-        "signature": "(self, company_id: 'str', people: 'list[str]', *, confirm_send: 'bool', deadline: 'float | None' = None) -> 'dict[str, Any]'"
+        "signature": "(self, company_id: 'str', people: 'list[str]', *, confirm_send: 'bool', names: 'list[str | None] | None' = None, deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
       "list_ad_accounts": {
         "coroutine": true,
@@ -1311,6 +1311,21 @@
             "confirm_send": {
               "description": "Must be true to send; false is a dry run.",
               "type": "boolean"
+            },
+            "names": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional display names, one per person in the order of\npeople (\"\" for none). Used only to search the dialog for a\nperson its candidate list does not show; the match is still\nby id. A search result carries no username, so a person\ngiven as a username or /in/<username>/ URL is not searched\nfor: pass their id or URN."
             },
             "people": {
               "description": "The people to invite (1 to 20), in any form the other tools\nreturn: a profileId from list_page_follow_candidates, a\nprofile URL or username, a Sales Navigator lead id, lead URN\n(urn:li:fs_salesProfile:(...)) or lead URL, or a\nurn:li:member URN (a lead's memberUrn).",

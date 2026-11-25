@@ -447,7 +447,11 @@ invitation is accepted; credits are shared by all admins and granted
 monthly). `invite_to_follow_page` invites only the people you pass, found in the
 dialog's candidate list by paging through it (up to 300 candidates, never by
 typing) and matched by member id or public profile name. It takes the
-identifiers the other tools return, including Sales Navigator lead results. With
+identifiers the other tools return, including Sales Navigator lead results.
+The dialog lists only about the oldest 100 connections, so pass `names` (one
+per person) for anyone else: a person not among the candidates is looked up
+once with the dialog's own name search, and a result counts only when its id is
+theirs, never by name alone. With
 `confirm_send` false it ticks nothing and reports what it would do. With
 `confirm_send` true it ticks those rows, checks that the dialog's selection is
 exactly that list, and only then presses Invite; the browser lets through a
