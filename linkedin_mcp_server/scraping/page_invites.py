@@ -105,9 +105,12 @@ _POLL_SECONDS = 0.25
 # no new one has arrived for this long.
 _SEARCH_SETTLE_SECONDS = 1.5
 _TYPE_DELAY_MS = 120
-# Besides typing: the pause before it, the results arriving and their status
-# call following, with a margin.
+# Besides typing: the results arriving, their status call following
+# (``_SEARCH_SETTLE_SECONDS``), the capture settling and, on a send, the tick
+# after, with a margin. The pause before a search is spent before its check.
 _SEARCH_OVERHEAD_SECONDS = 7.0
+# The longest pause before a tick (``_tick``).
+_TICK_PAUSE_MAX = 1.0
 
 
 def _search_seconds(keywords: str) -> float:
@@ -787,26 +790,30 @@ class PageInviteActions:
                     if failed is not None:
                         return failed
             searched = False
+            # A send has spent its ticks by the time each search is checked; a
+            # dry run counts them at their longest, so it never plans a
+            # searched person a send would not reach.
+            unspent_ticks = 0.0 if confirm_send else len(chosen) * _TICK_PAUSE_MAX
             for index in lookups:
                 if report.full() is not None:
                     report.held_back(index)
                     continue
                 keywords = named[index]
                 cost = _search_seconds(keywords)
-                if (
-                    plan_deadline is not None
-                    and time.monotonic() + cost >= plan_deadline
-                ):
-                    report.not_searched(index, "name_search_not_run (deadline)")
-                    continue
                 if searched:
                     # A person reads one result set before typing the next name.
                     await asyncio.sleep(random.uniform(0.8, 2.0))
+                if (
+                    plan_deadline is not None
+                    and time.monotonic() + unspent_ticks + cost >= plan_deadline
+                ):
+                    report.not_searched(index, "name_search_not_run (deadline)")
+                    continue
                 try:
                     found = await self._search(
                         capture, dialog, keywords, clear=searched, budget=cost
                     )
-                except LinkedInScraperException as exc:
+                except (LinkedInScraperException, PlaywrightError) as exc:
                     logger.warning(
                         "The dialog's name search for person %d failed: %s",
                         index,
@@ -824,6 +831,8 @@ class PageInviteActions:
                 profile_id = report.place(
                     index, matches, dialog.invitable(), dialog.labels()
                 )
+                if profile_id is not None and not confirm_send:
+                    unspent_ticks += _TICK_PAUSE_MAX
                 if profile_id is not None and confirm_send:
                     # Now, while this search's rows are the ones shown.
                     failed = await self._tick(report, profile_id)
@@ -854,7 +863,7 @@ class PageInviteActions:
     async def _tick(self, report: _Report, profile_id: str) -> dict[str, Any] | None:
         """Tick one planned row; the finished result when it could not be."""
         if report.ticked:
-            await asyncio.sleep(random.uniform(0.4, 1.0))
+            await asyncio.sleep(random.uniform(0.4, _TICK_PAUSE_MAX))
         outcome = await self._page.evaluate(_TICK_JS, profile_id)
         if outcome != "ticked":
             return report.finish(

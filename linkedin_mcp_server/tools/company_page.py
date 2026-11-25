@@ -265,8 +265,8 @@ def register_company_page_tools(
             unmatchable_identifier (a Sales Navigator id that names no
             dialog row), name_search_not_run (deadline) (too little time
             was left to search for them) or name_search_failed (the search
-            did not answer, or answered in an unknown shape; the cause
-            follows). Credits and the cap go first to the people the
+            did not answer, answered in an unknown shape or the browser
+            failed in it; the cause follows). Credits and the cap go first to the people the
             candidate list shows, then to those found by search, in order,
             and a dry run plans exactly what a send would. A refused detail is the HTTP status, or
             rate_limited when LinkedIn answered 429. An invitability_unknown

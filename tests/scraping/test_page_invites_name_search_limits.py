@@ -11,6 +11,8 @@ import logging
 import time
 from typing import Any
 
+from patchright.async_api import Error as PlaywrightError
+
 from linkedin_mcp_server.scraping import page_invites as pi
 
 from .test_page_invites import (
@@ -273,3 +275,89 @@ async def test_a_username_given_with_a_name_is_not_searched(writes):  # noqa: F8
 
     assert page.searches == []
     assert _statuses(result) == dict.fromkeys(people, "not_invitable")
+
+
+class _TickingTimedPage(_TimedPage):
+    """Each tick takes a second, as the send's pause before it may."""
+
+    async def evaluate(self, program: str, arg: Any = None) -> Any:
+        if "page-invite-tick" in program:
+            self.clock.now += 1.0
+        return await super().evaluate(program, arg)
+
+
+MIXED_PEOPLE = IDS[:3] + FIVE_PEOPLE[:3]
+MIXED_NAMES: list[str | None] = [None, None, None, *FIVE_NAMES[:3]]
+
+
+def _deadline_after_three_ticks(clock: _Clock) -> float:
+    # Three list ticks (3 s), two searches with their ticks (9 s each), and
+    # less than a third search's cost.
+    return clock.now + pi._SEND_BUDGET_SECONDS + 3 + 9 + 9 + 7.5
+
+
+async def test_a_send_with_list_people_reaches_two_searched_people(
+    writes,  # noqa: F811
+    monkeypatch,
+):
+    clock = _Clock()
+    monkeypatch.setattr(pi, "time", clock)
+    page = _TickingTimedPage(clock, 8.0, directory=FIVE, rows=3)
+    result = await _invite(
+        page,
+        MIXED_PEOPLE,
+        MIXED_NAMES,
+        confirm=True,
+        deadline=_deadline_after_three_ticks(clock),
+    )
+
+    assert result["status"] == "sent"
+    assert page.sent == [MIXED_PEOPLE[:5]]
+    assert result["people"][5]["detail"] == "name_search_not_run (deadline)"
+
+
+async def test_the_dry_run_counts_the_list_ticks_a_send_would_spend(
+    writes,  # noqa: F811
+    monkeypatch,
+):
+    clock = _Clock()
+    monkeypatch.setattr(pi, "time", clock)
+    page = _TickingTimedPage(clock, 8.0, directory=FIVE, rows=3)
+    result = await _invite(
+        page,
+        MIXED_PEOPLE,
+        MIXED_NAMES,
+        confirm=False,
+        deadline=_deadline_after_three_ticks(clock),
+    )
+
+    assert _statuses(result) == {
+        **dict.fromkeys(MIXED_PEOPLE[:5], "would_invite"),
+        MIXED_PEOPLE[5]: "not_found",
+    }, "a dry run must not plan a searched person the send would not reach"
+    assert result["people"][5]["detail"] == "name_search_not_run (deadline)"
+
+
+class _BrokenBoxPage(_SearchPage):
+    """The browser failing while a name is typed into the search box."""
+
+    def on_type(self, text: str) -> None:
+        if self.box + text == "Person 0":
+            raise PlaywrightError("Target page, context or browser has been closed")
+        super().on_type(text)
+
+
+async def test_a_browser_error_in_the_search_box_fails_only_that_person(
+    writes,  # noqa: F811
+    caplog,
+):
+    page = _BrokenBoxPage(FIVE, rows=3)
+    with caplog.at_level(logging.WARNING, logger=pi.__name__):
+        result = await _invite(page, FIVE_PEOPLE[:2], FIVE_NAMES[:2], confirm=True)
+
+    assert _statuses(result) == {FIVE_PEOPLE[0]: "not_found", IDS[11]: "invited"}
+    assert result["people"][0]["detail"] == (
+        "name_search_failed (Target page, context or browser has been closed)"
+    )
+    assert page.sent == [[IDS[11]]]
+    assert "name search for person 0 failed" in caplog.text
