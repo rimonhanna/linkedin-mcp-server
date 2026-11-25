@@ -63,6 +63,17 @@ def test_every_write_kind_names_the_schedule(kind, monkeypatch):
     )
 
 
+@pytest.mark.parametrize("kind", WRITE_KINDS)
+def test_working_hours_disabled_refuses_no_write_kind_off_hours(kind, monkeypatch):
+    monkeypatch.setenv(EnvironmentKeys.WORKING_HOURS_DISABLED, "1")
+    budget = Job(
+        name=ACCOUNT_BUDGET_JOB,
+        started_on=date(2020, 1, 1),
+        schedule=Schedule.business_hours(),
+    )
+    refuse_if_limited(budget, kind, WED_8PM)
+
+
 @pytest.mark.parametrize(
     ("tool", "kind"),
     [("connect_with_person", INVITES), ("send_message", MESSAGES)],
