@@ -255,3 +255,28 @@ class TestNoNote:
         assert await _clicks(dom_page) == ["send-without"]
         assert result[:3] == (True, False, None)
         assert result[4] is None
+
+
+class TestQuotaProbe:
+    async def test_the_probe_opens_a_note_control_that_is_not_a_button(self, dom_page):
+        # The probe runs on profiles the write gate refused, so it may open
+        # the note editor but must never send. Here the editor is replaced by
+        # LinkedIn's Premium upsell, whose text is what the probe returns.
+        upsell = (
+            '<template id="upsell"><p>You are out of free personalized'
+            ' invitations. <a href="/premium/products/">Try Premium</a></p>'
+            "</template>"
+        )
+        footer = (
+            '<a href="#" onclick="event.preventDefault(); record(\'add-note\');'
+            " document.getElementById('content').replaceChildren("
+            "document.getElementById('upsell').content.cloneNode(true));\">"
+            "Add a note</a>" + _SEND_WITHOUT
+        )
+        await dom_page.set_content(_page(footer + upsell))
+
+        message = await _actions(dom_page)._probe_invite_note_limit()
+
+        assert await _clicks(dom_page) == ["add-note"]
+        assert message is not None and "out of free personalized" in message
+        assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1

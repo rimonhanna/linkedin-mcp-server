@@ -1154,22 +1154,17 @@ class ConnectionActions:
             await self._dismiss_dialog()
             return None
 
-        buttons = dialog.locator(_DIALOG_BUTTONS)
+        clicked, report = await self._click_note_control(dialog)
+        if not clicked:
+            logger.info("Invite note control not found during quota probe: %s", report)
+            await self._dismiss_dialog()
+            return None
         try:
-            btn_count = await buttons.count()
-        except Exception:
-            btn_count = 0
-        if btn_count >= 3:
-            try:
-                await buttons.nth(btn_count - 2).click()
-            except Exception:
-                logger.debug("Could not open invite note editor", exc_info=True)
-            try:
-                await dialog.locator(_DIALOG_TEXTAREA).first.wait_for(
-                    state="visible", timeout=3000
-                )
-            except PlaywrightTimeoutError:
-                logger.debug("Note textarea did not appear during quota probe")
+            await dialog.locator(_DIALOG_TEXTAREA).first.wait_for(
+                state="visible", timeout=3000
+            )
+        except PlaywrightTimeoutError:
+            logger.info("Note textarea did not appear during quota probe. %s", report)
 
         note_limit_message = await self._get_premium_upsell_message()
         await self._dismiss_dialog()

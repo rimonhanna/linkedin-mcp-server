@@ -1553,9 +1553,9 @@ class TestInviteDialog:
 
         It runs only on profiles the write gate already refused, so a click
         on the dialog's *last* button would send the invitation this workflow
-        decided not to send. The index ``btn_count - 2`` is the whole of that
-        guarantee, and nothing else held it: every case that drives the probe
-        through ``connect_with_person`` replaces it wholesale.
+        decided not to send. The click goes through ``_click_note_control``,
+        which never picks the primary (``tests/test_invite_note_control_dom.py``
+        holds that against a real DOM); no button is pressed by position.
         """
         actions = _actions(mock_page)
         clicks: list[int] = []
@@ -1591,13 +1591,20 @@ class TestInviteDialog:
                 side_effect=[None, PREMIUM_MESSAGE],
             ),
             patch.object(
+                actions,
+                "_click_note_control",
+                new_callable=AsyncMock,
+                return_value=(True, "listing"),
+            ) as mock_note_control,
+            patch.object(
                 actions, "_dismiss_dialog", new_callable=AsyncMock
             ) as mock_dismiss,
         ):
             message = await actions._probe_invite_note_limit()
 
         assert message == PREMIUM_MESSAGE
-        assert clicks == [1]
+        assert clicks == []
+        mock_note_control.assert_awaited_once()
         textarea.wait_for.assert_awaited_once_with(state="visible", timeout=3000)
         mock_dismiss.assert_awaited_once()
 
