@@ -70,6 +70,7 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
     Lead,
     ListedAccount,
     SearchFilter,
+    SearchPaging,
     SeniorityLevel,
     build_account,
     build_account_card,
@@ -80,6 +81,7 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
     build_paging,
     build_search_query,
     build_withheld,
+    dropped_filters,
     missing_echoes,
     render_account,
     render_account_cards,
@@ -242,6 +244,54 @@ def _read_paging(
 
 def _criteria(values: Sequence[str] | None) -> list[str]:
     return [value.strip() for value in values or () if value.strip()]
+
+
+def _field(name: str, included: Sequence[str], excluded: Sequence[str]) -> str:
+    """The parameter names behind one filter, as a caller passed them."""
+    return "/".join(
+        label
+        for label, values in ((name, included), (f"exclude_{name}", excluded))
+        if values
+    )
+
+
+def _relaxed(
+    payload: Any,
+    filters: Sequence[tuple[str, SearchFilter]],
+    paging: SearchPaging,
+    rows: str,
+) -> tuple[SearchPaging, dict[str, str]] | None:
+    """Empty paging and a note when Sales Navigator dropped an asked filter.
+
+    Its rows then match a looser search than the one asked, so none of them
+    is reported as a match.
+    """
+    asked = {search_filter.type: field for field, search_filter in filters}
+    dropped = list(
+        dict.fromkeys(asked[kind] for kind in dropped_filters(payload) if kind in asked)
+    )
+    if not dropped:
+        return None
+    if len(dropped) > 1:
+        named = f"{', '.join(dropped[:-1])} and {dropped[-1]} filters"
+        those = "those filters"
+    else:
+        named = f"{dropped[0]} filter"
+        those = "that filter"
+    note = _error(
+        "filters_relaxed",
+        f"No {rows} match every filter. Sales Navigator dropped the {named} "
+        f"to show {paging['total']} near matches instead, which are not "
+        f"reported. Widen or remove {those} to see them.",
+    )
+    empty: SearchPaging = {
+        **paging,
+        "count": 0,
+        "total": 0,
+        "capped": False,
+        "more": False,
+    }
+    return empty, note
 
 
 class SalesNavigatorReader:
@@ -588,16 +638,22 @@ class SalesNavigatorReader:
         *,
         keywords: str | None = None,
         industry: Sequence[str] | None = None,
+        exclude_industry: Sequence[str] | None = None,
         hq_location: Sequence[str] | None = None,
         size: Sequence[str] | None = None,
         headcount_growth_min: int | None = None,
         headcount_growth_max: int | None = None,
         page: int = 1,
     ) -> dict[str, Any]:
-        """One page (25) of Sales Navigator account search results."""
+        """One page (25) of Sales Navigator account search results.
+
+        When Sales Navigator dropped an asked filter to find anything, no
+        account is reported and ``section_errors.accounts`` says which.
+        """
         self._check_page(page)
         keywords = (keywords or "").strip() or None
         industries = industry_ids(_criteria(industry))
+        not_industries = industry_ids(_criteria(exclude_industry))
         sizes = company_size_letters(_criteria(size))
         locations = _criteria(hq_location)
         growth = headcount_growth_min is not None or headcount_growth_max is not None
@@ -609,14 +665,25 @@ class SalesNavigatorReader:
             raise FilterValidationError(
                 "headcount_growth_min must not be greater than headcount_growth_max."
             )
-        if not (keywords or industries or sizes or locations or growth):
+        if not (
+            keywords or industries or not_industries or sizes or locations or growth
+        ):
             raise FilterValidationError(
                 "Give at least one search criterion: keywords, industry, "
-                "hq_location, size or a headcount growth bound."
+                "exclude_industry, hq_location, size or a headcount growth bound."
             )
         filters: list[tuple[str, SearchFilter]] = []
-        if industries:
-            filters.append(("industry", SearchFilter(INDUSTRY, ids=tuple(industries))))
+        if industries or not_industries:
+            filters.append(
+                (
+                    _field("industry", industries, not_industries),
+                    SearchFilter(
+                        INDUSTRY,
+                        ids=tuple(industries),
+                        excluded_ids=tuple(not_industries),
+                    ),
+                )
+            )
         if locations:
             geo = await self._geo_ids(locations, "hq_location")
             filters.append(("hq_location", SearchFilter(REGION, ids=tuple(geo))))
@@ -641,6 +708,15 @@ class SalesNavigatorReader:
         paging = build_paging(response.payload, page, len(cards or ()))
         if cards is None or paging is None:
             raise _unverified("the account search results")
+        if relaxed := _relaxed(response.payload, filters, paging, "accounts"):
+            empty, note = relaxed
+            return {
+                "url": url,
+                "sections": {},
+                "accounts": [],
+                "section_errors": {"accounts": note},
+                "paging": empty,
+            }
         result: dict[str, Any] = {"url": url, "sections": {}, "accounts": cards}
         if text := render_account_cards(cards):
             result["sections"]["accounts"] = text
@@ -654,8 +730,10 @@ class SalesNavigatorReader:
         title: Sequence[str] | None = None,
         seniority: Sequence[str] | None = None,
         current_company: Sequence[str] | None = None,
+        exclude_current_company: Sequence[str] | None = None,
         location: Sequence[str] | None = None,
         industry: Sequence[str] | None = None,
+        exclude_industry: Sequence[str] | None = None,
         network: Sequence[str] | None = None,
         function: Sequence[str] | None = None,
         company_size: Sequence[str] | None = None,
@@ -669,7 +747,9 @@ class SalesNavigatorReader:
         """One page (25) of Sales Navigator lead search results.
 
         Leads with LinkedIn's third-party sharing block are left out and
-        counted in ``withheld``.
+        counted in ``withheld``. When Sales Navigator dropped an asked filter
+        to find anyone, no lead is reported and ``section_errors.leads`` says
+        which.
         """
         self._check_page(page)
         keywords = (keywords or "").strip() or None
@@ -682,8 +762,10 @@ class SalesNavigatorReader:
                 f"{list(SENIORITY_IDS)!r}."
             )
         companies = _criteria(current_company)
+        not_companies = _criteria(exclude_current_company)
         locations = _criteria(location)
         industries = industry_ids(_criteria(industry))
+        not_industries = industry_ids(_criteria(exclude_industry))
         degrees = network_tokens(_criteria(network))
         functions = function_ids(_criteria(function))
         sizes = company_size_letters(_criteria(company_size))
@@ -701,8 +783,10 @@ class SalesNavigatorReader:
             or titles
             or levels
             or companies
+            or not_companies
             or locations
             or industries
+            or not_industries
             or degrees
             or functions
             or sizes
@@ -714,8 +798,8 @@ class SalesNavigatorReader:
         ):
             raise FilterValidationError(
                 "Give at least one search criterion: keywords, title, seniority, "
-                "current_company, location, industry, network, function, "
-                "company_size, years_in_current_role, years_at_current_company, "
+                "current_company, exclude_current_company, location, industry, "
+                "exclude_industry, network, function, company_size, years_in_current_role, years_at_current_company, "
                 "account_list, lead_list or exclude_lead_list."
             )
         if lead_lists or not_lead_lists:
@@ -728,16 +812,31 @@ class SalesNavigatorReader:
         if levels:
             ids = tuple(SENIORITY_IDS[cast(SeniorityLevel, level)] for level in levels)
             filters.append(("seniority", SearchFilter(SENIORITY_LEVEL, ids=ids)))
-        if companies:
-            company_ids = tuple(await self._company_ids(companies))
+        if companies or not_companies:
             filters.append(
-                ("current_company", SearchFilter(CURRENT_COMPANY, ids=company_ids))
+                (
+                    _field("current_company", companies, not_companies),
+                    SearchFilter(
+                        CURRENT_COMPANY,
+                        ids=tuple(await self._company_ids(companies)),
+                        excluded_ids=tuple(await self._company_ids(not_companies)),
+                    ),
+                )
             )
         if locations:
             geo = await self._geo_ids(locations, "location")
             filters.append(("location", SearchFilter(REGION, ids=tuple(geo))))
-        if industries:
-            filters.append(("industry", SearchFilter(INDUSTRY, ids=tuple(industries))))
+        if industries or not_industries:
+            filters.append(
+                (
+                    _field("industry", industries, not_industries),
+                    SearchFilter(
+                        INDUSTRY,
+                        ids=tuple(industries),
+                        excluded_ids=tuple(not_industries),
+                    ),
+                )
+            )
         if degrees:
             filters.append(("network", SearchFilter(RELATIONSHIP, ids=tuple(degrees))))
         if functions:
@@ -784,6 +883,15 @@ class SalesNavigatorReader:
         paging = build_paging(response.payload, page, len(built[0]) if built else 0)
         if built is None or paging is None:
             raise _unverified("the lead search results")
+        if relaxed := _relaxed(response.payload, filters, paging, "leads"):
+            empty, note = relaxed
+            return {
+                "url": url,
+                "sections": {},
+                "leads": [],
+                "section_errors": {"leads": note},
+                "paging": empty,
+            }
         leads, withheld = built
         result: dict[str, Any] = {"url": url, "sections": {}, "leads": leads}
         if text := render_leads(leads):

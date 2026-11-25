@@ -113,6 +113,7 @@ class TestDelegation:
         extractor.search_sales_navigator_accounts.assert_awaited_once_with(
             keywords="cloud",
             industry=["106"],
+            exclude_industry=None,
             hq_location=["102890719"],
             size=["B"],
             headcount_growth_min=5,
@@ -127,6 +128,7 @@ class TestDelegation:
         extractor.search_sales_navigator_accounts.assert_awaited_once_with(
             keywords="cloud",
             industry=None,
+            exclude_industry=None,
             hq_location=None,
             size=None,
             headcount_growth_min=None,
@@ -152,8 +154,10 @@ class TestDelegation:
             title=["Example title"],
             seniority=["cxo", "director"],
             current_company=["100000001"],
+            exclude_current_company=None,
             location=["102890719"],
             industry=["106"],
+            exclude_industry=None,
             network=None,
             function=None,
             company_size=None,

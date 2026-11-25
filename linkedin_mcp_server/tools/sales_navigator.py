@@ -68,6 +68,7 @@ def register_sales_navigator_tools(
         ctx: Context,
         keywords: str | None = None,
         industry: StrList | None = None,
+        exclude_industry: StrList | None = None,
         hq_location: StrList | None = None,
         size: StrList | None = None,
         headcount_growth_min: int | None = None,
@@ -91,12 +92,19 @@ def register_sales_navigator_tools(
         range, seniority name) are in the member's UI language; ids carry
         identity.
 
+        When no account matches every filter, Sales Navigator drops a filter
+        and shows near matches instead. Those are not reported: the result
+        has no accounts, paging.total 0 and section_errors.accounts
+        (filters_relaxed) naming the dropped filter.
+
         At least one of keywords or a filter is required.
 
         Args:
             ctx: FastMCP context for progress reporting
             keywords: Free-text keywords.
             industry: One or a list of industries, numeric ids or names.
+            exclude_industry: Industries whose accounts are left out, numeric
+                ids or names.
             hq_location: One or a list of headquarters locations, numeric geo
                 ids, urn:li:geo URNs or names.
             size: One or a list of company headcount buckets or facet letters
@@ -109,15 +117,18 @@ def register_sales_navigator_tools(
             Dict with url, sections (accounts -> one line per account),
             accounts (id, name, industry, employeeCountRange,
             employeeDisplayCount, description, saved, listCount,
-            salesNavigatorUrl) and paging (page, start, count = accounts
-            returned, total, resultCap, capped, more).
+            salesNavigatorUrl), paging (page, start, count = accounts
+            returned, total, resultCap, capped, more) and, when a filter was
+            dropped, section_errors.accounts.
         """
         try:
             industry_list = industry_ids(industry)
+            exclude_industry_list = industry_ids(exclude_industry)
             size_list = company_size_letters(size)
             _require_criterion(
                 keywords,
                 industry_list,
+                exclude_industry_list,
                 hq_location,
                 size_list,
                 headcount_growth_min,
@@ -144,6 +155,7 @@ def register_sales_navigator_tools(
             result = await extractor.search_sales_navigator_accounts(
                 keywords=keywords,
                 industry=industry_list or None,
+                exclude_industry=exclude_industry_list or None,
                 hq_location=hq_location or None,
                 size=size_list or None,
                 headcount_growth_min=headcount_growth_min,
@@ -178,8 +190,10 @@ def register_sales_navigator_tools(
         title: StrList | None = None,
         seniority: list[SeniorityLevel] | None = None,
         current_company: StrList | None = None,
+        exclude_current_company: StrList | None = None,
         location: StrList | None = None,
         industry: StrList | None = None,
+        exclude_industry: StrList | None = None,
         network: StrList | None = None,
         function: StrList | None = None,
         company_size: StrList | None = None,
@@ -213,6 +227,11 @@ def register_sales_navigator_tools(
         it does not know; an id that is not one of them is refused before the
         search.
 
+        When no lead matches every filter, Sales Navigator drops a filter and
+        shows near matches instead. Those are not reported: the result has no
+        leads, paging.total 0 and section_errors.leads (filters_relaxed)
+        naming the dropped filter.
+
         Leads whose LinkedIn profile blocks third-party data sharing are left
         out and only counted in withheld. At least one of keywords or a filter
         is required.
@@ -227,9 +246,13 @@ def register_sales_navigator_tools(
                 owner_partner.
             current_company: One or a list of current companies, numeric
                 company ids, urn:li:organization URNs or names.
+            exclude_current_company: Companies whose current employees are
+                left out, in the same forms as current_company.
             location: One or a list of locations, numeric geo ids,
                 urn:li:geo URNs or names.
             industry: One or a list of industries, numeric ids or names.
+            exclude_industry: Industries whose leads are left out, numeric ids
+                or names.
             network: Connection degree, one or a list of "F" (1st-degree),
                 "S" (2nd-degree) and "O" (3rd-degree and beyond), the same
                 tokens as search_people. ["F"] finds the connections a company
@@ -257,13 +280,15 @@ def register_sales_navigator_tools(
             degree, premium, seniority, currentPositions, summary; no Open
             Profile flag, which the search does not carry),
             paging (page, start, count = leads returned, total,
-            resultCap, capped, more) and withheld
-            ({count, reason}, present only when a lead was left out).
+            resultCap, capped, more), withheld
+            ({count, reason}, present only when a lead was left out) and, when
+            a filter was dropped, section_errors.leads.
             send_sales_navigator_message reads Open Profile from the message
             box itself.
         """
         try:
             industry_list = industry_ids(industry)
+            exclude_industry_list = industry_ids(exclude_industry)
             network = network_tokens(network)
             function = function_ids(function or [])
             company_size = company_size_letters(company_size)
@@ -277,8 +302,10 @@ def register_sales_navigator_tools(
                 title,
                 seniority,
                 current_company,
+                exclude_current_company,
                 location,
                 industry_list,
+                exclude_industry_list,
                 network,
                 function,
                 company_size,
@@ -302,8 +329,10 @@ def register_sales_navigator_tools(
                 title=title or None,
                 seniority=seniority or None,
                 current_company=current_company or None,
+                exclude_current_company=exclude_current_company or None,
                 location=location or None,
                 industry=industry_list or None,
+                exclude_industry=exclude_industry_list or None,
                 network=network or None,
                 function=function or None,
                 company_size=company_size or None,
