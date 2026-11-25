@@ -32,6 +32,7 @@ from urllib.parse import quote_plus
 
 import asyncio
 import logging
+import re
 
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
@@ -145,6 +146,7 @@ _MODAL_DIALOG_INDEX_JS = (
 # control as not found. That is deliberate: the control beside Send cannot
 # be told apart from a "send without a note" by structure alone.
 _NOTE_CONTROL_MARK = "data-mcp-note-control"
+_SENDS_WITHOUT_NOTE = re.compile(r"without a note", re.IGNORECASE)
 _MARK_NOTE_CONTROL_JS = (
     "() => {"
     + _INVITE_MODAL_FNS_JS
@@ -742,6 +744,27 @@ class ConnectionActions:
             logger.debug("Primary dialog button read failed", exc_info=True)
             return None
 
+    async def _primary_sends_without_note(self, dialog) -> bool:
+        """Whether the primary reads "without a note" (English only).
+
+        A read that fails answers no: this is a cheap extra guard, and the
+        note-control finder already refused every layout it could not place.
+        """
+        primary = await self._primary_button(dialog)
+        if primary is None:
+            return False
+        try:
+            name = " ".join(
+                [
+                    await primary.inner_text(timeout=2000),
+                    await primary.get_attribute("aria-label", timeout=2000) or "",
+                ]
+            )
+        except Exception:
+            logger.debug("Primary dialog button name read failed", exc_info=True)
+            return False
+        return _SENDS_WITHOUT_NOTE.search(name) is not None
+
     async def _click_dialog_primary_button(self, *, timeout: int = 5000) -> bool:
         """Click the primary (Send) button in the open dialog.
 
@@ -1102,6 +1125,13 @@ class ConnectionActions:
                     return False, False, note_limit_message, dialog_text, None
                 await self._dismiss_dialog()
                 return False, False, None, dialog_text, None
+
+        if note and await self._primary_sends_without_note(dialog):
+            # The note editor mounted beside a gating footer that still ends
+            # in "Send without a note": that click would drop the note.
+            logger.info("Invite dialog's Send still reads 'without a note'")
+            await self._dismiss_dialog()
+            return False, False, None, dialog_text, None
 
         sent = await self._click_dialog_primary_button()
         if not sent:

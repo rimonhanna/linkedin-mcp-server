@@ -285,6 +285,25 @@ class TestNoteControlRefusal:
         assert len(logged) == 1
         assert "'text': 'Send without a note'" in logged[0]
 
+    async def test_send_without_a_note_left_last_after_the_editor_mounts(
+        self, dom_page
+    ):
+        # The editor mounts but the gating footer stays, still ending in
+        # "Send without a note": clicking it would drop the note.
+        footer = (
+            "<script>function mountKeepingFooter() { record('add-note');"
+            " const t = document.createElement('textarea');"
+            " document.querySelector('#content p').after(t); }</script>"
+            '<a href="#" onclick="event.preventDefault(); mountKeepingFooter()">'
+            "Add a note</a>" + _SEND_WITHOUT
+        )
+
+        result = await _submit(dom_page, _page(footer), NOTE)
+
+        assert await _clicks(dom_page) == ["add-note"]
+        assert result == (False, False, None, result[3], None)
+        assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1
+
 
 class TestNoNote:
     async def test_no_note_sends_through_the_primary_button(self, dom_page):
