@@ -35,6 +35,7 @@ from linkedin_mcp_server.scraping import navigation as navigation_module
 from linkedin_mcp_server.scraping import page_invites as page_invites_module
 from linkedin_mcp_server.scraping import person as person_module
 from linkedin_mcp_server.scraping import session as session_module
+from linkedin_mcp_server.scraping.sales_navigator_list_writes import plan_accounts
 from linkedin_mcp_server.scraping import sales_navigator_inbox as sn_inbox_module
 from linkedin_mcp_server.scraping.messaging_api import MessagingApiCapture
 from linkedin_mcp_server.scraping.sales_navigator_lead_filters import LEAD_LIST
@@ -1964,6 +1965,80 @@ async def _sn_lead_list_scenario() -> dict[str, Any]:
     return trace
 
 
+async def _sn_list_write_run(
+    name: str, page: ScriptedPage, method: str, arguments: dict[str, Any], call: Any
+) -> dict[str, Any]:
+    recorder = page.recorder
+    clock = FakeClock(recorder)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context(method, name):
+            result = await call(extractor)
+    page.assert_clean(retained_sales_list_guard=method != _SN_CREATE_LIST)
+    return recorder.trace({"method": method, "arguments": arguments}, result)
+
+
+_SN_CREATE_LIST = "create_sales_navigator_account_list"
+
+
+def _sn_list_record_page(name: str) -> ScriptedPage:
+    page = _sn_page(name)
+    record = _sn_response(
+        f"salesApiLists/{_SN_LIST}?decoration=example",
+        {**_sn_list_entry(int(_SN_LIST), "Example list", 2)},
+    )
+    page.script("goto", lambda: _sn_emit(page, [*_sn_boot(), record]))
+    return page
+
+
+async def _sn_create_list_dry_run_scenario() -> dict[str, Any]:
+    page = _sn_page("create_sales_navigator_account_list__dry_run")
+    trace = await _sn_list_write_run(
+        "create_account_list",
+        page,
+        _SN_CREATE_LIST,
+        {"name": "Example list", "accounts": [_SN_COMPANY], "confirm_send": False},
+        lambda extractor: extractor.create_sales_navigator_account_list(
+            "Example list",
+            accounts=plan_accounts([_SN_COMPANY]).rows,
+            confirm_send=False,
+        ),
+    )
+    # A dry run of a create needs no page at all.
+    assert not [e for e in trace["events"] if e["kind"] == "navigate"], trace
+    return trace
+
+
+async def _sn_add_accounts_dry_run_scenario() -> dict[str, Any]:
+    page = _sn_list_record_page("add_accounts_to_sales_navigator_list__dry_run")
+    trace = await _sn_list_write_run(
+        "add_accounts",
+        page,
+        "add_accounts_to_sales_navigator_list",
+        {"list_id": _SN_LIST, "accounts": [_SN_COMPANY], "confirm_send": False},
+        lambda extractor: extractor.add_accounts_to_sales_navigator_list(
+            _SN_LIST, plan_accounts([_SN_COMPANY]).rows, confirm_send=False
+        ),
+    )
+    assert trace["result"]["status"] == "dry_run", trace["result"]
+    return trace
+
+
+async def _sn_delete_list_dry_run_scenario() -> dict[str, Any]:
+    page = _sn_list_record_page("delete_sales_navigator_account_list__dry_run")
+    trace = await _sn_list_write_run(
+        "delete_account_list",
+        page,
+        "delete_sales_navigator_account_list",
+        {"list_id": _SN_LIST, "expected_name": "Example list", "confirm_send": False},
+        lambda extractor: extractor.delete_sales_navigator_account_list(
+            _SN_LIST, expected_name="Example list", confirm_send=False
+        ),
+    )
+    assert trace["result"]["status"] == "dry_run", trace["result"]
+    return trace
+
+
 async def _sn_no_seat_scenario() -> dict[str, Any]:
     page = _sn_page("list_sales_navigator_account_lists__no_seat")
     page.goto_landings.append("https://www.linkedin.com/premium/products/?from=x")
@@ -2309,6 +2384,9 @@ TOOL_FACADE_METHODS = {
     "search_sales_navigator_conversations",
     "send_sales_navigator_message",
     "reply_to_sales_navigator_conversation",
+    "create_sales_navigator_account_list",
+    "add_accounts_to_sales_navigator_list",
+    "delete_sales_navigator_account_list",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
 
@@ -3414,6 +3492,9 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "sn-search-conversations.json": await _sn_search_conversations_scenario(),
         "sn-send-dry-run.json": await _sn_send_dry_run_scenario(),
         "sn-reply-dry-run.json": await _sn_reply_dry_run_scenario(),
+        "sn-create-account-list-dry-run.json": await _sn_create_list_dry_run_scenario(),
+        "sn-add-accounts-dry-run.json": await _sn_add_accounts_dry_run_scenario(),
+        "sn-delete-account-list-dry-run.json": await _sn_delete_list_dry_run_scenario(),
     }
     return traces
 

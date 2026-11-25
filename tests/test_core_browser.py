@@ -371,12 +371,20 @@ class TestTheWindowlessLaunchEndToEnd:
         # The read-state routes are on the page callers get, not the one closed.
         from linkedin_mcp_server.scraping.campaign_manager_guard import _CM_ROUTES
         from linkedin_mcp_server.scraping.page_invite_guard import _ROUTE as _INVITE
+        from linkedin_mcp_server.scraping.sales_navigator_list_guard import (
+            _ROUTE as _SALES_LISTS,
+        )
         from linkedin_mcp_server.scraping.messaging_read_state import (
             _READ_STATE_WRITE_ROUTES,
         )
 
         assert manager.page is pages[-1]
-        assert pages[-1].routes == [*_READ_STATE_WRITE_ROUTES, *_CM_ROUTES, _INVITE]
+        assert pages[-1].routes == [
+            *_READ_STATE_WRITE_ROUTES,
+            *_CM_ROUTES,
+            _INVITE,
+            _SALES_LISTS,
+        ]
         assert pages[0].routes == []
 
     async def test_detached_groups_are_retained_before_page_setup(
@@ -1361,6 +1369,9 @@ class TestStartingAgainAfterAClose:
         """
         from linkedin_mcp_server.scraping.campaign_manager_guard import _CM_ROUTES
         from linkedin_mcp_server.scraping.page_invite_guard import _ROUTE as _INVITE
+        from linkedin_mcp_server.scraping.sales_navigator_list_guard import (
+            _ROUTE as _SALES_LISTS,
+        )
         from linkedin_mcp_server.scraping.messaging_read_state import (
             _READ_STATE_WRITE_ROUTES,
         )
@@ -1388,6 +1399,7 @@ class TestStartingAgainAfterAClose:
                 *_READ_STATE_WRITE_ROUTES,
                 *_CM_ROUTES,
                 _INVITE,
+                _SALES_LISTS,
             ]
             page.goto.assert_not_called()
 

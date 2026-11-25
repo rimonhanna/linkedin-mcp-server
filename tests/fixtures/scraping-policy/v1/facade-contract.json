@@ -12,6 +12,10 @@
       "get_page_text"
     ],
     "methods": {
+      "add_accounts_to_sales_navigator_list": {
+        "coroutine": true,
+        "signature": "(self, list_id: 'str', accounts: 'Sequence[Mapping[str, Any]]', *, confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
       "add_post_to_campaign": {
         "coroutine": true,
         "signature": "(self, account_id: 'str', campaign_id: 'str', post_urn: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'"
@@ -32,9 +36,17 @@
         "coroutine": true,
         "signature": "(self, account_id: 'str', name: 'str', companies: 'Sequence[Mapping[str, Any]]', *, confirm_send: 'bool') -> 'dict[str, Any]'"
       },
+      "create_sales_navigator_account_list": {
+        "coroutine": true,
+        "signature": "(self, name: 'str', *, description: 'str | None' = None, accounts: 'Sequence[Mapping[str, Any]]' = (), confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
       "create_saved_audience": {
         "coroutine": true,
         "signature": "(self, account_id: 'str', campaign_id: 'str', name: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
+      "delete_sales_navigator_account_list": {
+        "coroutine": true,
+        "signature": "(self, list_id: 'str', *, expected_name: 'str', confirm_send: 'bool') -> 'dict[str, Any]'"
       },
       "extract_feed": {
         "coroutine": true,
@@ -214,11 +226,14 @@
       }
     },
     "tool_methods": [
+      "add_accounts_to_sales_navigator_list",
       "add_post_to_campaign",
       "connect_with_person",
       "create_campaign_draft",
       "create_company_list_audience",
+      "create_sales_navigator_account_list",
       "create_saved_audience",
+      "delete_sales_navigator_account_list",
       "extract_feed",
       "extract_page",
       "get_campaign",
@@ -264,6 +279,38 @@
       "withdraw_invitations"
     ],
     "tool_schemas": {
+      "add_accounts_to_sales_navigator_list": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "accounts": {
+              "description": "Company ids to add, as search_sales_navigator_accounts\nor get_sales_navigator_account return them (URNs and Sales\nNavigator company URLs are accepted too), up to 25 per call.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "confirm_send": {
+              "description": "False for a dry run; True to add them.",
+              "type": "boolean"
+            },
+            "list_id": {
+              "description": "Numeric account list id, as\nlist_sales_navigator_account_lists or\ncreate_sales_navigator_account_list returned it. A Sales\nNavigator list URL carrying listId is accepted too.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "list_id",
+            "accounts",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "add_post_to_campaign": {
         "input": {
           "additionalProperties": false,
@@ -447,6 +494,57 @@
           "type": "object"
         }
       },
+      "create_sales_navigator_account_list": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "accounts": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional company ids to add, as\nsearch_sales_navigator_accounts or get_sales_navigator_account\nreturn them (a urn:li:fs_salesCompany or urn:li:organization\nURN or a Sales Navigator company URL is accepted too), up to\n25 per call."
+            },
+            "confirm_send": {
+              "description": "False for a dry run; True to create the list.",
+              "type": "boolean"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional list description, up to 350 characters."
+            },
+            "name": {
+              "description": "The list's name, as it will show in Sales Navigator, up to 75\ncharacters, one line.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "create_saved_audience": {
         "input": {
           "additionalProperties": false,
@@ -472,6 +570,35 @@
             "ad_account_id",
             "campaign_id",
             "name",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "delete_sales_navigator_account_list": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "confirm_send": {
+              "description": "False for a dry run; True to delete the list.",
+              "type": "boolean"
+            },
+            "expected_name": {
+              "description": "The list's exact current name, as\nlist_sales_navigator_account_lists or\nget_sales_navigator_account_list showed it.",
+              "type": "string"
+            },
+            "list_id": {
+              "description": "Numeric account list id, as\nlist_sales_navigator_account_lists returned it. A Sales\nNavigator list URL carrying listId is accepted too.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "list_id",
+            "expected_name",
             "confirm_send"
           ],
           "type": "object"

@@ -76,6 +76,9 @@ PUBLIC_SIGNATURES = {
     "get_sales_navigator_inbox": "(self, limit: 'int' = 20, filter: 'InboxFilter' = 'all', *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "get_sales_navigator_conversation": "(self, thread_id: 'str | None' = None, lead_id: 'str | None' = None, index: 'int' = 0, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "search_sales_navigator_conversations": "(self, keywords: 'str', limit: 'int' = 20, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "create_sales_navigator_account_list": "(self, name: 'str', *, description: 'str | None' = None, accounts: 'Sequence[Mapping[str, Any]]' = (), confirm_send: 'bool') -> 'dict[str, Any]'",
+    "add_accounts_to_sales_navigator_list": "(self, list_id: 'str', accounts: 'Sequence[Mapping[str, Any]]', *, confirm_send: 'bool') -> 'dict[str, Any]'",
+    "delete_sales_navigator_account_list": "(self, list_id: 'str', *, expected_name: 'str', confirm_send: 'bool') -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
     "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
     "send_sales_navigator_message": "(self, lead_id: 'str', message: 'str', *, confirm_send: 'bool', subject: 'str | None' = None, spend_inmail_credit: 'bool' = False) -> 'dict[str, Any]'",
@@ -135,6 +138,15 @@ DELEGATES = {
     "reply_to_sales_navigator_conversation": (
         "_sales_navigator_sender",
         "reply_to_conversation",
+    ),
+    "create_sales_navigator_account_list": (
+        "_sales_navigator_lists",
+        "create_account_list",
+    ),
+    "add_accounts_to_sales_navigator_list": ("_sales_navigator_lists", "add_accounts"),
+    "delete_sales_navigator_account_list": (
+        "_sales_navigator_lists",
+        "delete_account_list",
     ),
 }
 
@@ -209,6 +221,18 @@ DELEGATE_CALLS = {
     ),
     "send_sales_navigator_message": "self._sales_navigator_sender.send_message(lead_id, message, confirm_send=confirm_send, subject=subject, spend_inmail_credit=spend_inmail_credit)",
     "reply_to_sales_navigator_conversation": "self._sales_navigator_sender.reply_to_conversation(thread_id, message, confirm_send=confirm_send, spend_inmail_credit=spend_inmail_credit)",
+    "create_sales_navigator_account_list": (
+        "self._sales_navigator_lists.create_account_list(name, "
+        "description=description, accounts=accounts, confirm_send=confirm_send)"
+    ),
+    "add_accounts_to_sales_navigator_list": (
+        "self._sales_navigator_lists.add_accounts(list_id, accounts, "
+        "confirm_send=confirm_send)"
+    ),
+    "delete_sales_navigator_account_list": (
+        "self._sales_navigator_lists.delete_account_list(list_id, "
+        "expected_name=expected_name, confirm_send=confirm_send)"
+    ),
 }
 
 FACADE_STATE = {
@@ -230,6 +254,7 @@ FACADE_STATE = {
     "_posts",
     "_sales_inbox",
     "_sales_navigator",
+    "_sales_navigator_lists",
     "_sales_navigator_sender",
 }
 

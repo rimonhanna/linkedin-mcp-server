@@ -241,6 +241,18 @@
       "description": "Reply inside an existing Sales Navigator conversation by thread ID with explicit confirmation; verifies the conversation and its reply box first"
     },
     {
+      "name": "create_sales_navigator_account_list",
+      "description": "Create a Sales Navigator account list, optionally adding up to 25 accounts by the ids account search returns; confirm_send false is a dry run"
+    },
+    {
+      "name": "add_accounts_to_sales_navigator_list",
+      "description": "Add up to 25 accounts (company ids from account search) to one Sales Navigator account list in one request, with a status per account; confirm_send false is a dry run"
+    },
+    {
+      "name": "delete_sales_navigator_account_list",
+      "description": "Delete one Sales Navigator account list by its exact id, only when its current name equals expected_name; confirm_send false is a dry run"
+    },
+    {
       "name": "close_session",
       "description": "Properly close browser session and clean up resources"
     },

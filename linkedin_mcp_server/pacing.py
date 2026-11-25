@@ -134,6 +134,10 @@ CAMPAIGN_WRITES_MAX = 30  # CAMPAIGN_WRITES_MAX, per 24 h
 # invitations like a connection request does. LinkedIn's own monthly credits
 # bound the page, this bounds the account.
 PAGE_INVITES_MAX = 20  # PAGE_INVITES_MAX, per 24 h
+# One Sales Navigator account-list request that left the browser (a create, a
+# delete, or one batch of accounts added). Each touches only the member's own
+# lists, so the bound is on how busy the account looks, not on reach.
+SALES_LIST_WRITES_MAX = 30  # SALES_LIST_WRITES_MAX, per 24 h
 
 # Kinds a navigation is filed under, by URL. Only ``profile`` and ``search``
 # carry a cap; the rest, Campaign Manager and Sales Navigator pages included,
@@ -169,6 +173,9 @@ CAMPAIGN_WRITES = "campaign_writes"
 SALES_NAVIGATOR_MESSAGES = "sales_navigator_messages"
 # One member invited to follow a company page the account administers.
 PAGE_INVITES = "page_invites"
+# A Sales Navigator account-list write: a list created, accounts added, a list
+# deleted.
+SALES_LIST_WRITES = "sales_list_writes"
 
 # Slice shaved off the daily cap by the per-day draw (DAILY_CAP_JITTER):
 # uniform(1 - jitter, 1.0), so the total is never a round number.
@@ -286,6 +293,17 @@ def kind_caps(kind: str) -> tuple[tuple[int, int], ...]:
                 env_int(
                     EnvironmentKeys.SALES_NAVIGATOR_MESSAGES_MAX,
                     SALES_NAVIGATOR_MESSAGES_MAX,
+                    minimum=1,
+                ),
+                WINDOW_SECONDS,
+            ),
+        )
+    if kind == SALES_LIST_WRITES:
+        return (
+            (
+                env_int(
+                    EnvironmentKeys.SALES_LIST_WRITES_MAX,
+                    SALES_LIST_WRITES_MAX,
                     minimum=1,
                 ),
                 WINDOW_SECONDS,
@@ -1019,6 +1037,7 @@ def refuse_if_limited(
         CAMPAIGN_WRITES,
         SALES_NAVIGATOR_MESSAGES,
         PAGE_INVITES,
+        SALES_LIST_WRITES,
     ):
         raise ActionLimitError(
             kind,

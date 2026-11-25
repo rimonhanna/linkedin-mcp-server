@@ -646,6 +646,7 @@ class ScriptedPage:
         retained_read_guard: bool = False,
         retained_cm_guard: bool = False,
         retained_invite_guard: bool = False,
+        retained_sales_list_guard: bool = False,
     ) -> None:
         remaining = {
             name: len(values) for name, values in self.listeners.items() if values
@@ -663,6 +664,12 @@ class ScriptedPage:
                 f"{self.recorder.scenario}: listeners remain: {remaining}"
             )
             assert routed == {"**/voyager/api/**": 1}, routed
+        elif retained_sales_list_guard:
+            # The list-write guard is registered for the page's life.
+            assert not remaining, (
+                f"{self.recorder.scenario}: listeners remain: {remaining}"
+            )
+            assert routed == {"**/sales-api/**": 1}, routed
         elif retained_read_guard:
             assert remaining == {"request": 1}, remaining
             assert routed == {

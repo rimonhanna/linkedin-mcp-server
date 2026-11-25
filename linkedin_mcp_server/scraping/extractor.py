@@ -48,6 +48,9 @@ from linkedin_mcp_server.scraping.sales_navigator_inbox_payload import InboxFilt
 from linkedin_mcp_server.scraping.sales_navigator_sender import (
     SalesNavigatorMessageSender,
 )
+from linkedin_mcp_server.scraping.sales_navigator_list_writes import (
+    SalesNavigatorListWriter,
+)
 from linkedin_mcp_server.scraping.session import ScrapingSession
 from linkedin_mcp_server.scraping.text import (
     strip_conversation_chrome as strip_conversation_chrome,
@@ -106,6 +109,7 @@ class LinkedInExtractor:
         self._sales_navigator_sender = SalesNavigatorMessageSender(
             session, self._sales_navigator
         )
+        self._sales_navigator_lists = SalesNavigatorListWriter(self._sales_navigator)
 
     async def get_page_text(self) -> str:
         """Extract innerText from the main content area of the current page."""
@@ -699,4 +703,40 @@ class LinkedInExtractor:
             message,
             confirm_send=confirm_send,
             spend_inmail_credit=spend_inmail_credit,
+        )
+
+    async def create_sales_navigator_account_list(
+        self,
+        name: str,
+        *,
+        description: str | None = None,
+        accounts: Sequence[Mapping[str, Any]] = (),
+        confirm_send: bool,
+    ) -> dict[str, Any]:
+        """Create a Sales Navigator account list, optionally with accounts.
+
+        ``accounts`` are ``plan_accounts`` rows, kept in the result as given.
+        """
+        return await self._sales_navigator_lists.create_account_list(
+            name, description=description, accounts=accounts, confirm_send=confirm_send
+        )
+
+    async def add_accounts_to_sales_navigator_list(
+        self,
+        list_id: str,
+        accounts: Sequence[Mapping[str, Any]],
+        *,
+        confirm_send: bool,
+    ) -> dict[str, Any]:
+        """Add accounts (``plan_accounts`` rows) to one account list."""
+        return await self._sales_navigator_lists.add_accounts(
+            list_id, accounts, confirm_send=confirm_send
+        )
+
+    async def delete_sales_navigator_account_list(
+        self, list_id: str, *, expected_name: str, confirm_send: bool
+    ) -> dict[str, Any]:
+        """Delete one Sales Navigator account list whose name is expected_name."""
+        return await self._sales_navigator_lists.delete_account_list(
+            list_id, expected_name=expected_name, confirm_send=confirm_send
         )
