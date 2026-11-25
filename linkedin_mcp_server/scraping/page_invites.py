@@ -103,6 +103,9 @@ _POLL_SECONDS = 0.25
 # A name search fires per keystroke; the last result set is the one shown once
 # no new one has arrived for this long.
 _SEARCH_SETTLE_SECONDS = 1.5
+# What one name search takes: typing at 120 ms a key, the results settling and
+# their status call (1.5 s each), with a margin.
+_SEARCH_SECONDS = 8.0
 # How long to wait for the dialog's status response once the candidates are in:
 # it follows its suggestions page by about half a second (measured 0.24-0.54 s).
 _STATUS_TIMEOUT = 3.0
@@ -391,6 +394,12 @@ def _refusal(exc: ActionLimitError) -> str:
     return f"{prefix}: {exc}"
 
 
+def _searchable(ref: InviteeRef) -> bool:
+    """Whether a name search's rows could confirm ``ref``: they carry the
+    profile id, never the public identifier a vanity name is matched on."""
+    return can_match_a_row(ref) and ref.kind != "vanity"
+
+
 PersonStatus = Literal[
     "would_invite",
     "invited",
@@ -548,11 +557,18 @@ class PageInviteActions:
         return [row["profileId"] for row in rows if row["profileId"] not in known]
 
     async def _search(
-        self, capture: PageInviteCapture, dialog: _Dialog, keywords: str
+        self,
+        capture: PageInviteCapture,
+        dialog: _Dialog,
+        keywords: str,
+        *,
+        clear: bool = False,
     ) -> list[Candidate]:
         after = len(capture.responses)
         box = self._page.locator(_SEARCH_BOX)
         await box.click()
+        if clear:
+            await box.fill("")
         await self._page.keyboard.type(keywords, delay=120)
         await capture.wait_for(_is_search, after=after, wanted=(TYPEAHEAD,))
         seen = len(capture.matching(_is_search, after))
@@ -639,12 +655,17 @@ class PageInviteActions:
         people: list[str],
         *,
         confirm_send: bool,
+        names: list[str | None] | None = None,
         deadline: float | None = None,
     ) -> dict[str, Any]:
         """Invite exactly ``people`` to follow the page, or plan it on a dry run.
 
         Each person is any identifier ``invitee_ref`` reads, matched to a
         dialog row by member id or public identifier, never by name.
+        ``names``, in the order of ``people``, is only what the dialog's own
+        name search is asked for a person its candidate list does not show:
+        the dialog lists about the oldest 100 connections and no more. A row
+        that search returns is still taken only when its id is the person's.
         """
         refs: list[InviteeRef] = []
         for value in people:
@@ -680,8 +701,30 @@ class PageInviteActions:
                 deadline=plan_deadline,
                 most=MAX_INVITE_CANDIDATES,
             )
+            named = {i: name for i, name in enumerate(names or []) if name}
+            lookups = [
+                index
+                for index, ref in enumerate(refs)
+                if index in named and _searchable(ref) and not matching_rows(ref, rows)
+            ]
+            searched: dict[int, tuple[str, list[Candidate]]] = {}
+            for index in lookups:
+                if (
+                    plan_deadline is not None
+                    and time.monotonic() + _SEARCH_SECONDS >= plan_deadline
+                ):
+                    break
+                if searched:
+                    # A person reads one result set before typing the next name.
+                    await asyncio.sleep(random.uniform(0.8, 2.0))
+                found = await self._search(
+                    capture, dialog, named[index], clear=bool(searched)
+                )
+                searched[index] = (named[index], found)
             # Only the rows asked for need a status; the rest are not planned.
             asked = [row for row in rows if any(ref_matches(r, row) for r in refs)]
+            for index, (_name, found) in searched.items():
+                asked.extend(matching_rows(refs[index], found))
             await self._await_statuses(
                 capture, dialog, company_id, asked, plan_deadline
             )
@@ -706,6 +749,8 @@ class PageInviteActions:
                 dialog.labels(),
                 headroom=headroom,
                 paging_stop=reason,
+                lookups=set(lookups),
+                searched=searched,
             )
             if pacing_stop:
                 report.pacing = pacing_stop
@@ -728,25 +773,41 @@ class PageInviteActions:
                 return report.finish(
                     "nothing_to_invite", "No one asked for can be invited now."
                 )
-            return await self._send(capture, report, chosen, deadline)
+            return await self._send(capture, dialog, report, chosen, deadline)
 
     async def _send(
         self,
         capture: PageInviteCapture,
+        dialog: _Dialog,
         report: _Report,
         chosen: list[str],
         deadline: float | None,
     ) -> dict[str, Any]:
         page = self._page
-        if deadline is not None and deadline - time.monotonic() < _SEND_BUDGET_SECONDS:
+        shown = set((await self._dialog_state()).get("rows") or [])
+        # The people the dialog does not show now: each is searched for again
+        # by the name that found them, or their row's, before their tick.
+        hidden = [pid for pid in chosen if pid not in shown]
+        needed = _SEND_BUDGET_SECONDS + _SEARCH_SECONDS * len(hidden)
+        if deadline is not None and deadline - time.monotonic() < needed:
             return report.finish(
                 "deadline",
                 "Too little of the call's time was left to tick, invite and wait "
                 "for LinkedIn's answer, so nothing was ticked or sent. Call again.",
             )
-        for index, profile_id in enumerate(chosen):
+        ordered = [pid for pid in chosen if pid in shown] + hidden
+        for index, profile_id in enumerate(ordered):
             if index:
                 await asyncio.sleep(random.uniform(0.4, 1.0))
+            if profile_id in hidden:
+                keywords = report.search_name(profile_id)
+                if keywords is None:
+                    return report.finish(
+                        "selection_failed",
+                        "A planned person's row is no longer shown and has no "
+                        "name to search for, so nothing was sent.",
+                    )
+                await self._search(capture, dialog, keywords, clear=True)
             outcome = await page.evaluate(_TICK_JS, profile_id)
             if outcome != "ticked":
                 return report.finish(
@@ -756,7 +817,15 @@ class PageInviteActions:
                 )
         state = await self._dialog_state()
         checked = state.get("checked") or []
-        if set(checked) != set(chosen) or state.get("checkedTotal") != len(chosen):
+        if hidden:
+            # Rows ticked under an earlier search are not shown: what is shown
+            # must be planned, and Invite's own count must be the plan's.
+            matches = set(checked) <= set(chosen)
+        else:
+            matches = set(checked) == set(chosen)
+        if not matches or state.get("checkedTotal") != len(
+            checked if hidden else chosen
+        ):
             return report.finish(
                 "selection_mismatch",
                 "The dialog's selection did not match the plan, so nothing was sent.",
@@ -844,6 +913,8 @@ class _Report:
         self.pacing: str | None = None
         self.schedule: str | None = None
         self.resolved: dict[int, Candidate] = {}
+        # The name each person found only by the dialog's search was found by.
+        self.found_by: dict[str, str] = {}
         self.statuses: dict[int, PersonStatus] = {}
         self.details: dict[int, str] = {}
         self.retry_safe = True
@@ -864,14 +935,35 @@ class _Report:
         *,
         headroom: int,
         paging_stop: str,
+        lookups: set[int] | None = None,
+        searched: dict[int, tuple[str, list[Candidate]]] | None = None,
     ) -> list[str]:
-        """Each person's status; the ones to invite, within credits and pacing."""
+        """Each person's status; the ones to invite, within credits and pacing.
+
+        A person the candidates lack is looked for among the rows their name
+        search returned, by identifier alone, like any other row.
+        """
+        lookups = lookups or set()
+        searched = searched or {}
         # None only on a dry run: a send stops before planning without credits.
         credits = self.credits["remaining"] if self.credits else None
         chosen: list[str] = []
         seen: set[str] = set()
         for index, ref in enumerate(self.people):
             matches = matching_rows(ref, rows)
+            if not matches and index in searched:
+                name, found = searched[index]
+                matches = matching_rows(ref, found)
+                if not matches:
+                    self.statuses[index] = "not_invitable"
+                    self.details[index] = "not_a_candidate"
+                    continue
+                if len(matches) == 1:
+                    self.found_by[matches[0]["profileId"]] = name
+            elif not matches and index in lookups:
+                self.statuses[index] = "not_found"
+                self.details[index] = "name_search_not_run (deadline)"
+                continue
             if len(matches) > 1:
                 self.statuses[index] = "not_invitable"
                 self.details[index] = "ambiguous_identifier"
@@ -917,6 +1009,12 @@ class _Report:
                 self.statuses[index] = "would_invite" if self.dry_run else "not_sent"
                 chosen.append(profile_id)
         return chosen
+
+    def search_name(self, profile_id: str) -> str | None:
+        """What to search for to show this person's row again."""
+        if profile_id in self.found_by:
+            return self.found_by[profile_id]
+        return self.resolved[self._index(profile_id)].get("name")
 
     def sent_unknown(self, chosen: list[str], message: str) -> dict[str, Any]:
         self.retry_safe = False

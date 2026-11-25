@@ -639,11 +639,16 @@ class LinkedInExtractor:
         people: list[str],
         *,
         confirm_send: bool,
+        names: list[str | None] | None = None,
         deadline: float | None = None,
     ) -> dict[str, Any]:
         """Invite exactly these connections to follow the page (dry run unless confirmed)."""
         return await self._page_invites.invite_to_follow(
-            company_id, people, confirm_send=confirm_send, deadline=deadline
+            company_id,
+            people,
+            confirm_send=confirm_send,
+            names=names,
+            deadline=deadline,
         )
 
     async def get_sales_navigator_inbox(

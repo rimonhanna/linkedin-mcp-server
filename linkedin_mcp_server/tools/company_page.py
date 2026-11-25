@@ -68,6 +68,28 @@ def _people(values: list[str]) -> list[str]:
     return people
 
 
+def _names(values: list[str], names: list[str] | None) -> dict[str, str | None]:
+    """Each person's search name, keyed as ``_people`` keeps them."""
+    if names is None:
+        return {}
+    if len(names) != len(values):
+        raise ToolError(
+            "names must give one name per person, in the order of people "
+            "(an empty string for a person without one)."
+        )
+    by_person: dict[str, str | None] = {}
+    for index, (value, name) in enumerate(zip(values, names, strict=True)):
+        try:
+            clean = _keywords(name)
+        except ToolError:
+            raise ToolError(
+                f"names[{index}] must be plain text of at most "
+                f"{_MAX_KEYWORDS_LENGTH} characters."
+            ) from None
+        by_person.setdefault(value.strip(), clean)
+    return by_person
+
+
 def _keywords(value: str | None) -> str | None:
     if value is None or not value.strip():
         return None
@@ -161,6 +183,7 @@ def register_company_page_tools(
         people: StrList,
         confirm_send: bool,
         ctx: Context,
+        names: StrList | None = None,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -176,8 +199,11 @@ def register_company_page_tools(
         (PAGE_INVITES_MAX, default 20 per 24 h); people past the remaining
         credits or the cap are not invited. Each person is matched to a row of
         the dialog's candidate list by member id or public profile name, never
-        by display name; up to 300 candidates are paged through, never by
-        typing. Paging finds its control by its English label, so on a
+        by display name; up to 300 candidates are paged through. The dialog
+        lists only about the oldest 100 connections, so pass names for anyone
+        else: a person not among the candidates is looked up once with the
+        dialog's own name search, and a result is taken only when its id is
+        theirs. Paging finds its control by its English label, so on a
         LinkedIn interface in another language only the first 20 candidates
         are read, and anyone past them is reported not_found with
         "more_control_not_found" in the detail. Someone who is not a
@@ -200,6 +226,12 @@ def register_company_page_tools(
                 urn:li:member URN (a lead's memberUrn).
             confirm_send: Must be true to send; false is a dry run.
             ctx: FastMCP context for progress reporting
+            names: Optional display names, one per person in the order of
+                people ("" for none). Used only to search the dialog for a
+                person its candidate list does not show; the match is still
+                by id. A search result carries no username, so a person
+                given as a username or /in/<username>/ URL is not searched
+                for: pass their id or URN.
 
         Returns:
             Dict with url, company_id, status, message, dry_run, retry_safe,
@@ -222,19 +254,22 @@ def register_company_page_tools(
             invitability_unknown, no_credits, pacing_cap or duplicate), and
             profileId, name, headline, publicIdentifier and detail when known.
             A not_invitable detail is not_a_candidate (the whole list was
-            read and no row matched this identifier), ambiguous_identifier
+            read, or the person's name search returned, and no row matched
+            this identifier), ambiguous_identifier
             (more than one row matched it, so none was chosen) or
             linkedin_declined (LinkedIn's own status label follows when it
             gave one). A not_found detail is not_in_candidates_read (paging
             stopped before the end; says how many were read and why) or
             unmatchable_identifier (a Sales Navigator id that names no
-            dialog row). A refused detail is the HTTP status, or
+            dialog row) or name_search_not_run (deadline) (too little time
+            was left to search for them). A refused detail is the HTTP status, or
             rate_limited when LinkedIn answered 429. An invitability_unknown
             detail is status_not_received: LinkedIn did not say whether the
             person can be invited, so they were not; calling again may.
         """
         try:
             company_id = normalize_page_company_id(company_id)
+            search_names = _names(people, names)
             people = _people(people)
             if confirm_send:
                 # Before the browser: a refused invite must not spend a page load.
@@ -253,7 +288,11 @@ def register_company_page_tools(
                 progress=0, total=100, message="Opening the page's invite dialog"
             )
             result = await extractor.invite_to_follow_page(
-                company_id, people, confirm_send=confirm_send, deadline=deadline
+                company_id,
+                people,
+                confirm_send=confirm_send,
+                names=[search_names.get(p) for p in people] if search_names else None,
+                deadline=deadline,
             )
             retain_trace_for_failed_action(
                 "invite_to_follow_page",
