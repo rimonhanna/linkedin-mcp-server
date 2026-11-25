@@ -36,6 +36,11 @@ async def test_names_follow_their_people_through_the_dedupe(mock_context):
     assert kwargs["names"] == ["Example One", None]
 
 
+async def test_a_duplicate_keeps_the_name_it_was_given(mock_context):
+    extractor = await _call(mock_context, [FIRST, FIRST], ["", "Example One"])
+    assert extractor.invite_to_follow_page.call_args.kwargs["names"] == ["Example One"]
+
+
 async def test_no_names_passes_none(mock_context):
     extractor = await _call(mock_context, [FIRST], None)
     assert extractor.invite_to_follow_page.call_args.kwargs["names"] is None

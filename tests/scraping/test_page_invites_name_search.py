@@ -172,8 +172,6 @@ async def test_a_send_ticks_only_the_verified_people(writes):  # noqa: F811
             "Example Later": [IDS[10]],
             "Sam Same": [IDS[11], IDS[12]],
             "Example Missing": [IDS[14]],
-            # The list rows' own name, searched to show IDS[0] again.
-            "Example Person": IDS[:3],
         },
         rows=3,
     )

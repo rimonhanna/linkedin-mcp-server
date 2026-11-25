@@ -86,7 +86,9 @@ def _names(values: list[str], names: list[str] | None) -> dict[str, str | None]:
                 f"names[{index}] must be plain text of at most "
                 f"{_MAX_KEYWORDS_LENGTH} characters."
             ) from None
-        by_person.setdefault(value.strip(), clean)
+        # A duplicate's name fills in for an empty one, never replaces one.
+        if not by_person.get(value.strip()):
+            by_person[value.strip()] = clean
     return by_person
 
 
@@ -261,8 +263,12 @@ def register_company_page_tools(
             gave one). A not_found detail is not_in_candidates_read (paging
             stopped before the end; says how many were read and why) or
             unmatchable_identifier (a Sales Navigator id that names no
-            dialog row) or name_search_not_run (deadline) (too little time
-            was left to search for them). A refused detail is the HTTP status, or
+            dialog row), name_search_not_run (deadline) (too little time
+            was left to search for them) or name_search_failed (the search
+            did not answer, or answered in an unknown shape; the cause
+            follows). Credits and the cap go first to the people the
+            candidate list shows, then to those found by search, in order,
+            and a dry run plans exactly what a send would. A refused detail is the HTTP status, or
             rate_limited when LinkedIn answered 429. An invitability_unknown
             detail is status_not_received: LinkedIn did not say whether the
             person can be invited, so they were not; calling again may.
