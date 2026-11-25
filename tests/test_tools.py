@@ -367,6 +367,7 @@ _CONNECT_TRACE_KEPT = {
     "custom_note_limit_reached": True,
     "dialog_not_found": True,
     "not_sent": True,
+    "note_control_not_found": True,
     "pending": False,
     "send_failed": True,
     "send_unverified": True,

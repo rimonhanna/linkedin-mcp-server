@@ -254,7 +254,7 @@ class TestConnectWithPerson:
                 actions,
                 "_submit_invite_dialog",
                 new_callable=AsyncMock,
-                return_value=(True, True, None, DIALOG_TEXT),
+                return_value=(True, True, None, DIALOG_TEXT, None),
             ),
             patch.object(
                 actions,
@@ -547,7 +547,7 @@ class TestConnectWithPerson:
                 actions,
                 "_submit_invite_dialog",
                 new_callable=AsyncMock,
-                return_value=(False, False, None, LIMIT_DIALOG_TEXT),
+                return_value=(False, False, None, LIMIT_DIALOG_TEXT, None),
             ),
             patch.object(
                 actions, "_invitation_in_sent_list", new_callable=AsyncMock
@@ -632,7 +632,7 @@ class TestConnectWithPerson:
                 new_callable=AsyncMock,
                 # A successful submit, so a gate that stopped holding reports
                 # the send it made rather than crashing on the mock.
-                return_value=(True, False, None, DIALOG_TEXT),
+                return_value=(True, False, None, DIALOG_TEXT, None),
             ) as mock_submit,
             patch.object(
                 actions,
@@ -724,7 +724,7 @@ class TestConnectWithPerson:
                 actions,
                 "_submit_invite_dialog",
                 new_callable=AsyncMock,
-                return_value=(True, False, None, DIALOG_TEXT),
+                return_value=(True, False, None, DIALOG_TEXT, None),
             ) as mock_submit,
             patch.object(
                 actions,
@@ -1132,17 +1132,19 @@ class TestInviteDialog:
         textarea.wait_for = AsyncMock(
             side_effect=PlaywrightTimeoutError("textarea timeout")
         )
-        add_note_button = MagicMock()
-        add_note_button.click = AsyncMock(return_value=None)
         buttons = MagicMock()
-        buttons.count = AsyncMock(return_value=3)
-        buttons.nth.return_value = add_note_button
         _scope_dialog(mock_page, buttons=buttons, textarea=textarea)
 
         with (
             patch.object(
                 actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
             ),
+            patch.object(
+                actions,
+                "_click_note_control",
+                new_callable=AsyncMock,
+                return_value=(True, "listing"),
+            ) as mock_note_control,
             patch.object(
                 actions,
                 "_dialog_text",
@@ -1161,9 +1163,8 @@ class TestInviteDialog:
         ):
             result = await actions._submit_invite_dialog("Hello")
 
-        assert result == (False, False, PREMIUM_MESSAGE, DIALOG_TEXT)
-        buttons.nth.assert_called_once_with(1)
-        add_note_button.click.assert_awaited_once()
+        assert result == (False, False, PREMIUM_MESSAGE, DIALOG_TEXT, None)
+        mock_note_control.assert_awaited_once()
         textarea.wait_for.assert_awaited_once_with(state="visible", timeout=3000)
         mock_message.assert_awaited_once()
         mock_dismiss.assert_awaited_once()
@@ -1197,16 +1198,18 @@ class TestInviteDialog:
         # schedule after Send — both are plain "did not time out" waits, and
         # the Premium banner is present in the DOM throughout regardless.
         textarea.wait_for = AsyncMock(return_value=None)
-        add_note_button = MagicMock()
-        add_note_button.click = AsyncMock(return_value=None)
         buttons = MagicMock()
-        buttons.count = AsyncMock(return_value=2)
-        buttons.nth.return_value = add_note_button
         _scope_dialog(mock_page, buttons=buttons, textarea=textarea)
 
         with (
             patch.object(
                 actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
+            ),
+            patch.object(
+                actions,
+                "_click_note_control",
+                new_callable=AsyncMock,
+                return_value=(True, "listing"),
             ),
             patch.object(
                 actions, "_dialog_is_closed", new_callable=AsyncMock, return_value=True
@@ -1242,7 +1245,7 @@ class TestInviteDialog:
         # Proves the reveal-step bail is gone: the code must reach the fill
         # call rather than returning the instant the banner is detectable.
         mock_fill.assert_awaited_once_with("Hello")
-        assert result == (True, True, None, DIALOG_TEXT)
+        assert result == (True, True, None, DIALOG_TEXT, None)
         # Neither the reveal-step check nor the post-submit check calls
         # _get_premium_upsell_message on this path: the textarea appeared
         # (skips the reveal-step gate) and the dialog closed on schedule
@@ -1305,7 +1308,7 @@ class TestInviteDialog:
         ):
             result = await actions._submit_invite_dialog("Hello")
 
-        assert result == (False, False, None, DIALOG_TEXT)
+        assert result == (False, False, None, DIALOG_TEXT, None)
         mock_send.assert_not_called()
         mock_dismiss.assert_awaited_once()
 
@@ -1347,7 +1350,7 @@ class TestInviteDialog:
         ):
             result = await actions._submit_invite_dialog("Hello")
 
-        assert result == (False, False, PREMIUM_MESSAGE, DIALOG_TEXT)
+        assert result == (False, False, PREMIUM_MESSAGE, DIALOG_TEXT, None)
         mock_dismiss.assert_awaited_once()
 
     async def test_failed_fill_beside_a_hidden_textarea_is_a_note_limit(
@@ -1392,7 +1395,7 @@ class TestInviteDialog:
         ):
             result = await actions._submit_invite_dialog("Hello")
 
-        assert result == (False, False, PREMIUM_MESSAGE, DIALOG_TEXT)
+        assert result == (False, False, PREMIUM_MESSAGE, DIALOG_TEXT, None)
 
     async def test_reports_premium_after_send_click_failure(self, mock_page):
         """Premium upsell intercepting the Send click is a note-limit block.
@@ -1414,10 +1417,8 @@ class TestInviteDialog:
         textarea.fill = AsyncMock()
 
         buttons = MagicMock()
-        buttons.count = AsyncMock(return_value=2)
         primary_button = MagicMock()
         primary_button.focus = AsyncMock()
-        buttons.nth.return_value = primary_button
         _scope_dialog(mock_page, buttons=buttons, textarea=textarea)
         mock_page.keyboard = MagicMock()
         mock_page.keyboard.press = AsyncMock()
@@ -1449,6 +1450,12 @@ class TestInviteDialog:
             ),
             patch.object(
                 actions,
+                "_primary_button",
+                new_callable=AsyncMock,
+                return_value=primary_button,
+            ),
+            patch.object(
+                actions,
                 "_click_dialog_primary_button",
                 new_callable=AsyncMock,
                 return_value=False,
@@ -1465,8 +1472,7 @@ class TestInviteDialog:
         ):
             result = await actions._submit_invite_dialog("Hello")
 
-        assert result == (False, False, message, DIALOG_TEXT)
-        buttons.nth.assert_called_once_with(1)
+        assert result == (False, False, message, DIALOG_TEXT, None)
         primary_button.focus.assert_awaited_once()
         mock_page.keyboard.press.assert_awaited_once_with("Enter")
         mock_closed.assert_awaited_once_with(timeout=2000)
@@ -1537,66 +1543,13 @@ class TestInviteDialog:
         ):
             result = await actions._submit_invite_dialog("Hello")
 
-        assert result == (False, False, PREMIUM_MESSAGE, DIALOG_TEXT)
+        assert result == (False, False, PREMIUM_MESSAGE, DIALOG_TEXT, None)
         mock_message.assert_awaited_once()
         mock_dismiss.assert_awaited_once()
         # The close wait is what proves this is the blocked path: it is
         # attempted and answers "still open", which is the real signal
         # gating the premium check below it.
         mock_closed.assert_awaited_once_with(timeout=5000)
-
-    async def test_the_quota_probe_never_clicks_the_primary_button(self, mock_page):
-        """The probe opens the note editor and touches nothing else.
-
-        It runs only on profiles the write gate already refused, so a click
-        on the dialog's *last* button would send the invitation this workflow
-        decided not to send. The index ``btn_count - 2`` is the whole of that
-        guarantee, and nothing else held it: every case that drives the probe
-        through ``connect_with_person`` replaces it wholesale.
-        """
-        actions = _actions(mock_page)
-        clicks: list[int] = []
-
-        def button_at(index: int):
-            button = MagicMock()
-
-            async def click(*_args, **_kwargs):
-                clicks.append(index)
-
-            button.click = AsyncMock(side_effect=click)
-            return button
-
-        # The legacy three-button invite dialog: dismiss, "Add a note", Send.
-        buttons = MagicMock()
-        buttons.count = AsyncMock(return_value=3)
-        buttons.nth = MagicMock(side_effect=button_at)
-        textarea = MagicMock()
-        textarea.count = AsyncMock(return_value=0)
-        textarea.first = textarea
-        textarea.wait_for = AsyncMock()
-        _scope_dialog(mock_page, buttons=buttons, textarea=textarea)
-
-        with (
-            patch.object(
-                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
-            ),
-            patch.object(
-                actions,
-                "_get_premium_upsell_message",
-                new_callable=AsyncMock,
-                # Nothing before the note editor opens, the quota block after.
-                side_effect=[None, PREMIUM_MESSAGE],
-            ),
-            patch.object(
-                actions, "_dismiss_dialog", new_callable=AsyncMock
-            ) as mock_dismiss,
-        ):
-            message = await actions._probe_invite_note_limit()
-
-        assert message == PREMIUM_MESSAGE
-        assert clicks == [1]
-        textarea.wait_for.assert_awaited_once_with(state="visible", timeout=3000)
-        mock_dismiss.assert_awaited_once()
 
     async def test_the_quota_probe_touches_nothing_without_a_modal(self, mock_page):
         """Open dialogs that are all chat windows are no dialog to probe.
@@ -1667,101 +1620,12 @@ class TestInviteDialog:
         ):
             result = await actions._submit_invite_dialog("Hello")
 
-        assert result == (False, False, None, None)
+        assert result == (False, False, None, None, None)
         button.click.assert_not_awaited()
         button.focus.assert_not_awaited()
         textarea.fill.assert_not_awaited()
         mock_page.keyboard.press.assert_not_awaited()
         mock_page.locator.assert_not_called()
-
-    async def test_handles_two_button_gating_dialog(self, mock_page):
-        """Two-button "Add a note to your invitation?" gating dialog (issue
-        #455): nth(0) is "Add a note", nth(1) is "Send without a note".
-
-        Asserts the secondary-button click that reveals the textarea fires
-        even with btn_count == 2 (legacy guard required >= 3 and skipped
-        the click, leaving the textarea unmounted)."""
-        actions = _actions(mock_page)
-
-        # Track each button click so we can assert the "Add a note" path
-        # was taken to reveal the textarea.
-        clicks: list[int] = []
-
-        textarea_visible = {"value": False}
-
-        # Two button locators inside the gating dialog: nth(0) "Add a
-        # note" reveals the textarea, nth(1) "Send without a note".
-        button_locators = [MagicMock(), MagicMock()]
-        for idx, btn in enumerate(button_locators):
-
-            def make_click(i: int):
-                async def _click(*args, **kwargs):
-                    clicks.append(i)
-                    if i == 0:
-                        textarea_visible["value"] = True
-                    return None
-
-                return _click
-
-            btn.click = AsyncMock(side_effect=make_click(idx))
-            btn.focus = AsyncMock()
-
-        button_collection = MagicMock()
-        button_collection.count = AsyncMock(return_value=2)
-        button_collection.nth = MagicMock(side_effect=lambda i: button_locators[i])
-
-        textarea_locator = MagicMock()
-        textarea_locator.count = AsyncMock(
-            side_effect=lambda: 1 if textarea_visible["value"] else 0
-        )
-        textarea_locator.first = textarea_locator
-        textarea_locator.fill = AsyncMock()
-        textarea_locator.wait_for = AsyncMock()
-
-        _scope_dialog(mock_page, buttons=button_collection, textarea=textarea_locator)
-        mock_page.keyboard = MagicMock()
-        mock_page.keyboard.press = AsyncMock()
-
-        with (
-            patch.object(
-                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
-            ),
-            patch.object(
-                actions, "_dialog_is_closed", new_callable=AsyncMock, return_value=True
-            ) as mock_closed,
-            patch.object(
-                actions,
-                "_get_premium_upsell_message",
-                new_callable=AsyncMock,
-                return_value=None,
-            ),
-            patch.object(
-                actions,
-                "_dialog_text",
-                new_callable=AsyncMock,
-                return_value=DIALOG_TEXT,
-            ),
-        ):
-            (
-                submitted,
-                note_sent,
-                note_limit_message,
-                dialog_text,
-            ) = await actions._submit_invite_dialog("Hi from a test")
-
-        assert submitted is True
-        assert note_sent is True
-        assert note_limit_message is None
-        assert dialog_text == DIALOG_TEXT
-        # Clicked "Add a note" (index 0) to reveal the textarea, then the
-        # primary button (index 1) to send.
-        assert clicks == [0, 1]
-        textarea_locator.wait_for.assert_awaited_once_with(
-            state="visible", timeout=3000
-        )
-        textarea_locator.fill.assert_awaited_once()
-        # The delivered path waits for the modal to go, once, after the send.
-        mock_closed.assert_awaited_once_with(timeout=5000)
 
     async def test_returns_no_dialog_text_when_no_dialog_opened(self, mock_page):
         """``None`` for the text, not ``""``: the caller splits on it.
@@ -1780,7 +1644,7 @@ class TestInviteDialog:
         ):
             result = await actions._submit_invite_dialog(None)
 
-        assert result == (False, False, None, None)
+        assert result == (False, False, None, None, None)
         mock_text.assert_not_awaited()
 
     async def test_dialog_text_reads_the_open_dialog_and_collapses_whitespace(
