@@ -25,6 +25,7 @@ import logging
 import random
 import re
 import time
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Literal
 from urllib.parse import unquote, urlparse
@@ -268,11 +269,44 @@ def _is_search(response: InviteResponse) -> bool:
     )
 
 
-_TYPED_KEYWORDS = re.compile(r"[(,]keywords:([^,)]*)")
+# The value runs to the next ``,<field>:`` or the closing brackets, not to the
+# first ``,`` or ``)``: once the query string is decoded, a bracket or comma in
+# the text typed is literal there.
+_TYPED_KEYWORDS = re.compile(r"[(,]keywords:(.*?)(?=,\w+:|\)*$)")
+_BRACKETED = re.compile(r"[(\[{][^)\]}]*(?:[)\]}]|$)")
+_KEYCAP = re.compile("[0-9#*]\ufe0f?\u20e3")
+_NAME_PUNCTUATION = frozenset("-'\u2019.")
 
 
 def _words(text: str) -> str:
     return " ".join(text.split()).casefold()
+
+
+def _name_char(char: str) -> bool:
+    if char in _NAME_PUNCTUATION:
+        return True
+    category = unicodedata.category(char)
+    if category[0] == "L" or category == "Nd":
+        return True
+    # A vowel sign is a mark; a variation selector (an emoji's) is one too.
+    variation = "\ufe00" <= char <= "\ufe0f" or "\U000e0100" <= char <= "\U000e01ef"
+    return category in ("Mn", "Mc") and not variation
+
+
+def _search_text(name: str) -> str:
+    """What the dialog's search box is given for ``name``: its first and last
+    words, without a bracketed part, emoji, symbols or the credentials after
+    a comma. The search only finds the person; the match is by id."""
+    head = _KEYCAP.sub(" ", _BRACKETED.sub(" ", name.split(",", 1)[0]))
+    kept = "".join(char if _name_char(char) else " " for char in head)
+    words = [word for word in kept.split() if any(char.isalnum() for char in word)]
+    return " ".join(words[:1] + words[1:][-1:])
+
+
+def _typed(response: InviteResponse) -> str | None:
+    """The keywords a search response answered, as they were typed."""
+    found = _TYPED_KEYWORDS.search(response.call.params.get("variables", ""))
+    return None if found is None else unquote(found.group(1))
 
 
 def _is_search_for(keywords: str) -> Any:
@@ -282,8 +316,8 @@ def _is_search_for(keywords: str) -> Any:
     def matches(response: InviteResponse) -> bool:
         if not _is_search(response):
             return False
-        typed = _TYPED_KEYWORDS.search(response.call.params.get("variables", ""))
-        return typed is not None and _words(unquote(typed.group(1))) == _words(keywords)
+        typed = _typed(response)
+        return typed is not None and _words(typed) == _words(keywords)
 
     return matches
 
@@ -608,9 +642,31 @@ class PageInviteActions:
         timeout = 12.0
         if end is not None:
             timeout = max(end - time.monotonic() - _SEARCH_SETTLE_SECONDS, 0.1)
-        await capture.wait_for(
-            _is_search_for(keywords), after=after, timeout=timeout, wanted=(TYPEAHEAD,)
-        )
+        try:
+            # The miss is judged below: only a search nothing answered counts.
+            await capture.wait_for(
+                _is_search_for(keywords),
+                after=after,
+                timeout=timeout,
+                throttle=False,
+                wanted=(TYPEAHEAD,),
+            )
+        except LinkedInScraperException:
+            answered = capture.matching(_is_search, after)
+            if answered:
+                # LinkedIn answered, for other text than was typed: a mismatch
+                # on this side, no evidence of a throttle.
+                logger.info(
+                    "The dialog's name search answered other keywords than "
+                    "typed (%r): %s",
+                    keywords,
+                    ", ".join(sorted({repr(_typed(r)) for r in answered})),
+                )
+            else:
+                # Nothing answered any keystroke: the same half signal as
+                # any other missed payload.
+                capture._note_throttle("payload_timeout", half=True)
+            raise
         # The status call for the result set follows it.
         await asyncio.sleep(_SEARCH_SETTLE_SECONDS)
         await capture.settle()
@@ -733,7 +789,13 @@ class PageInviteActions:
                 deadline=plan_deadline,
                 most=MAX_INVITE_CANDIDATES,
             )
-            named = {i: name for i, name in enumerate(names or []) if name}
+            # The search text, not the name: brackets, emoji and credentials
+            # find no one in the dialog's search.
+            named = {
+                i: text
+                for i, name in enumerate(names or [])
+                if name and (text := _search_text(name))
+            }
             lookups = [
                 index
                 for index, ref in enumerate(refs)
@@ -1070,8 +1132,8 @@ class _Report:
         profile id when they are planned."""
         if not matches:
             # Only after a name search: the candidates were looked through first.
-            self.statuses[index] = "not_invitable"
-            self.details[index] = "not_a_candidate"
+            self.statuses[index] = "not_found"
+            self.details[index] = "name_search_no_match"
             return None
         if len(matches) > 1:
             self.statuses[index] = "not_invitable"

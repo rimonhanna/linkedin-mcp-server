@@ -129,13 +129,13 @@ async def test_without_a_name_the_person_is_not_searched_for(writes):  # noqa: F
     assert result["people"][0]["detail"] == "not_a_candidate"
 
 
-async def test_a_person_the_search_does_not_return_stays_not_a_candidate(writes):  # noqa: F811
+async def test_a_person_the_search_does_not_return_is_not_found_by_it(writes):  # noqa: F811
     page = _SearchPage({"Example Missing": [IDS[14]]}, rows=3)
     result = await _invite(page, [IDS[13]], ["Example Missing"], confirm=False)
 
     assert page.searches == ["Example Missing"]
-    assert _statuses(result) == {IDS[13]: "not_invitable"}
-    assert result["people"][0]["detail"] == "not_a_candidate"
+    assert _statuses(result) == {IDS[13]: "not_found"}
+    assert result["people"][0]["detail"] == "name_search_no_match"
     assert result["credits"]["needed"] == 0
 
 
@@ -150,9 +150,9 @@ async def test_a_shared_name_is_decided_by_id_and_never_by_name(writes):  # noqa
 
     assert _statuses(result) == {
         IDS[12]: "would_invite",
-        "urn:li:member:123456789": "not_invitable",
+        "urn:li:member:123456789": "not_found",
     }
-    assert result["people"][1]["detail"] == "not_a_candidate"
+    assert result["people"][1]["detail"] == "name_search_no_match"
     assert "profileId" not in result["people"][1]
 
 
@@ -196,5 +196,5 @@ async def test_a_send_ticks_only_the_verified_people(writes):  # noqa: F811
         IDS[0]: "invited",
         IDS[10]: "invited",
         IDS[12]: "invited",
-        IDS[13]: "not_invitable",
+        IDS[13]: "not_found",
     }
