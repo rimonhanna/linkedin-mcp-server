@@ -323,7 +323,11 @@ def register_messaging_tools(
             itself can say whether the message left. A ``status`` of
             ``sent_flattened`` means the message was delivered (``sent`` is
             true, ``retry_safe`` is false) but LinkedIn dropped its line
-            breaks; do not send it again.
+            breaks; do not send it again. A ``status`` of
+            ``enter_to_send_enabled`` (also on a dry run) means the composer
+            showed no Send button, most likely because LinkedIn's Press Enter
+            to Send setting is on; nothing was typed, and the setting has to
+            be turned off in LinkedIn messaging to send.
         """
         try:
             # Answered before a session is acquired. Caller-owned message
@@ -467,7 +471,8 @@ def register_messaging_tools(
             calling again while ``retry_safe`` is false can deliver the
             message twice. A ``status`` of
             ``outcome_unknown`` means the browser went away mid-call and only
-            LinkedIn can say whether the message left.
+            LinkedIn can say whether the message left. ``enter_to_send_enabled``,
+            also returned on a dry run, means what it means for send_message.
         """
         try:
             # Answered before a session is acquired, as in send_message, and

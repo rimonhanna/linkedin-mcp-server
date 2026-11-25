@@ -85,6 +85,14 @@
       "description": "List employees at a company from the LinkedIn /people/ page, with optional keyword filter by name, title, or skill"
     },
     {
+      "name": "list_page_follow_candidates",
+      "description": "For a company page you administer, list the 1st-degree connections its Invite to follow dialog offers, whether each can be invited, and the page's monthly invitation credits; read-only"
+    },
+    {
+      "name": "invite_to_follow_page",
+      "description": "Invite exactly the given people (profile ids, profile URLs, Sales Navigator lead ids or URNs, member URNs) to follow a company page you administer, matched by member id; confirm_send false is a dry run reporting who would be invited and the credits used; stops at the remaining credits and the daily cap, with a status per person"
+    },
+    {
       "name": "get_job_details",
       "description": "Retrieve specific job posting details using LinkedIn job IDs, including how the posting takes applications"
     },
@@ -211,6 +219,26 @@
     {
       "name": "get_sales_navigator_lead_list",
       "description": "Get the leads of one Sales Navigator lead list, up to 1,000 (read-only)"
+    },
+    {
+      "name": "get_sales_navigator_inbox",
+      "description": "List recent Sales Navigator inbox conversations in any inbox view (all, unread, sent, InMail states, archived); unread conversations stay unread (read-only)"
+    },
+    {
+      "name": "get_sales_navigator_conversation",
+      "description": "Read one Sales Navigator conversation by thread id or lead id, with up to 40 of its newest messages; unread stays unread (read-only)"
+    },
+    {
+      "name": "search_sales_navigator_conversations",
+      "description": "Search Sales Navigator messages by keyword through the inbox search box; unread stays unread (read-only)"
+    },
+    {
+      "name": "send_sales_navigator_message",
+      "description": "Send a new Sales Navigator message to a lead with explicit confirmation; a dry run reports the message type, its InMail cost and the credits left, and spending an InMail credit needs spend_inmail_credit"
+    },
+    {
+      "name": "reply_to_sales_navigator_conversation",
+      "description": "Reply inside an existing Sales Navigator conversation by thread ID with explicit confirmation; verifies the conversation and its reply box first"
     },
     {
       "name": "close_session",

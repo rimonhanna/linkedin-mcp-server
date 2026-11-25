@@ -1,0 +1,276 @@
+{
+  "call": {
+    "arguments": {
+      "filter": "unread",
+      "limit": 5
+    },
+    "method": "get_sales_navigator_inbox"
+  },
+  "events": [
+    {
+      "call": "get_sales_navigator_inbox",
+      "callback_id": "callback-1",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessengerConversations*",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessagingBadge*",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessagingThreads**",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessageActions**",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "callback_id": "callback-4",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/inbox?filter=UNREAD",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/inbox?filter=UNREAD",
+      "requested_url": "https://www.linkedin.com/sales/inbox?filter=UNREAD",
+      "section": "inbox",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "kind": "wait_for_load_state",
+      "section": "inbox",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "description": "goto https://www.linkedin.com/sales/inbox?filter=UNREAD",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/inbox?filter=UNREAD",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "kind": "boundary.rate_limit",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "kind": "evaluate",
+      "operation": "sn_inbox_scroll",
+      "program_digest": "53aeb206f7a8",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 1.2,
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "kind": "boundary.rate_limit",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "inbox"
+    },
+    {
+      "call": "get_sales_navigator_inbox",
+      "callback_id": "callback-4",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "inbox"
+    }
+  ],
+  "result": {
+    "conversations": [
+      {
+        "archived": false,
+        "id": "2-POLICY1",
+        "inmail": false,
+        "lastMessageAt": "2026-09-21T14:13:19Z",
+        "lastMessagePreview": "Example body m1",
+        "messageCount": 1,
+        "participants": [
+          {
+            "degree": 2,
+            "leadId": "ACwAAA0001",
+            "memberUrn": "urn:li:member:100000001",
+            "name": "Example Person"
+          }
+        ],
+        "unread": true,
+        "unreadCount": 2
+      },
+      {
+        "archived": false,
+        "id": "2-POLICY2",
+        "inmail": false,
+        "lastMessageAt": "2026-09-21T14:13:19Z",
+        "lastMessagePreview": "Example body m2",
+        "messageCount": 1,
+        "participants": [
+          {
+            "degree": 2,
+            "leadId": "ACwAAA0001",
+            "memberUrn": "urn:li:member:100000001",
+            "name": "Example Person"
+          }
+        ],
+        "unread": false,
+        "unreadCount": 0
+      },
+      {
+        "archived": false,
+        "id": "2-POLICY3",
+        "inmail": false,
+        "lastMessageAt": "2026-09-21T14:13:19Z",
+        "lastMessagePreview": "Example body m3",
+        "messageCount": 1,
+        "participants": [
+          {
+            "degree": 2,
+            "leadId": "ACwAAA0001",
+            "memberUrn": "urn:li:member:100000001",
+            "name": "Example Person"
+          }
+        ],
+        "unread": false,
+        "unreadCount": 0
+      }
+    ],
+    "marked_read": false,
+    "paging": {
+      "count": 3,
+      "more": false,
+      "reason": "complete"
+    },
+    "section_names": [
+      "inbox"
+    ],
+    "sections": {
+      "inbox": "Example Person (thread 2-POLICY1): 2026-09-21T14:13:19Z, unread 2, Example body m1\nExample Person (thread 2-POLICY2): 2026-09-21T14:13:19Z, Example body m2\nExample Person (thread 2-POLICY3): 2026-09-21T14:13:19Z, Example body m3"
+    },
+    "url": "https://www.linkedin.com/sales/inbox?filter=UNREAD"
+  },
+  "scenario": "get_sales_navigator_inbox__one_scroll_to_the_end",
+  "schema_version": 1
+}

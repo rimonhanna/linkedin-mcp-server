@@ -36,10 +36,18 @@ from linkedin_mcp_server.scraping.job_policy import JobsTrackerStage
 from linkedin_mcp_server.scraping.jobs import JobScraper
 from linkedin_mcp_server.scraping.message_sender import MessageSender
 from linkedin_mcp_server.scraping.navigation import PageNavigator
+from linkedin_mcp_server.scraping.page_invites import PageInviteActions
 from linkedin_mcp_server.scraping.person import PersonScraper
 from linkedin_mcp_server.scraping.posts import PostSearch
 from linkedin_mcp_server.scraping.profile_page import ProfilePageReader
 from linkedin_mcp_server.scraping.sales_navigator import SalesNavigatorReader
+from linkedin_mcp_server.scraping.sales_navigator_inbox import (
+    SalesNavigatorInboxReader,
+)
+from linkedin_mcp_server.scraping.sales_navigator_inbox_payload import InboxFilter
+from linkedin_mcp_server.scraping.sales_navigator_sender import (
+    SalesNavigatorMessageSender,
+)
 from linkedin_mcp_server.scraping.session import ScrapingSession
 from linkedin_mcp_server.scraping.text import (
     strip_conversation_chrome as strip_conversation_chrome,
@@ -90,6 +98,14 @@ class LinkedInExtractor:
         self._campaign_content = CampaignContentEditor(session, navigator)
         self._audiences = CampaignAudiences(session, navigator)
         self._sales_navigator = SalesNavigatorReader(session, navigator, facets)
+        self._page_invites = PageInviteActions(session, navigator)
+        self._sales_inbox = SalesNavigatorInboxReader(
+            session,
+            self._sales_navigator,
+        )
+        self._sales_navigator_sender = SalesNavigatorMessageSender(
+            session, self._sales_navigator
+        )
 
     async def get_page_text(self) -> str:
         """Extract innerText from the main content area of the current page."""
@@ -592,4 +608,95 @@ class LinkedInExtractor:
         """The leads of one Sales Navigator lead list, up to 1,000 per call."""
         return await self._sales_navigator.get_lead_list(
             list_id, page, deadline=deadline
+        )
+
+    async def list_page_follow_candidates(
+        self,
+        company_id: str,
+        *,
+        keywords: str | None = None,
+        limit: int = 20,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """Connections a page admin can invite to follow the page, and its credits."""
+        return await self._page_invites.list_follow_candidates(
+            company_id, keywords=keywords, limit=limit, deadline=deadline
+        )
+
+    async def invite_to_follow_page(
+        self,
+        company_id: str,
+        people: list[str],
+        *,
+        confirm_send: bool,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """Invite exactly these connections to follow the page (dry run unless confirmed)."""
+        return await self._page_invites.invite_to_follow(
+            company_id, people, confirm_send=confirm_send, deadline=deadline
+        )
+
+    async def get_sales_navigator_inbox(
+        self,
+        limit: int = 20,
+        filter: InboxFilter = "all",
+        *,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """The Sales Navigator inbox's most recent conversations in one view."""
+        return await self._sales_inbox.get_inbox(limit, filter, deadline=deadline)
+
+    async def get_sales_navigator_conversation(
+        self,
+        thread_id: str | None = None,
+        lead_id: str | None = None,
+        index: int = 0,
+        *,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """One Sales Navigator conversation, by thread id or lead id."""
+        return await self._sales_inbox.get_conversation(
+            thread_id, lead_id, index, deadline=deadline
+        )
+
+    async def search_sales_navigator_conversations(
+        self, keywords: str, limit: int = 20, *, deadline: float | None = None
+    ) -> dict[str, Any]:
+        """Sales Navigator conversations the inbox search finds for keywords."""
+        return await self._sales_inbox.search_conversations(
+            keywords, limit, deadline=deadline
+        )
+
+    async def send_sales_navigator_message(
+        self,
+        lead_id: str,
+        message: str,
+        *,
+        confirm_send: bool,
+        subject: str | None = None,
+        spend_inmail_credit: bool = False,
+    ) -> dict[str, Any]:
+        """Send a new Sales Navigator message to a lead, gated by confirmation."""
+        return await self._sales_navigator_sender.send_message(
+            lead_id,
+            message,
+            confirm_send=confirm_send,
+            subject=subject,
+            spend_inmail_credit=spend_inmail_credit,
+        )
+
+    async def reply_to_sales_navigator_conversation(
+        self,
+        thread_id: str,
+        message: str,
+        *,
+        confirm_send: bool,
+        spend_inmail_credit: bool = False,
+    ) -> dict[str, Any]:
+        """Reply inside a Sales Navigator conversation, gated by confirmation."""
+        return await self._sales_navigator_sender.reply_to_conversation(
+            thread_id,
+            message,
+            confirm_send=confirm_send,
+            spend_inmail_credit=spend_inmail_credit,
         )
