@@ -155,6 +155,10 @@ Line breaks in a message are typed as real Shift+Enter key presses. After a send
 is confirmed, the delivered text is compared with the message line by line. If
 only the line breaks differ, the status is `sent_flattened`: `sent` is true,
 `retry_safe` is false, and the message must not be sent again.
+With LinkedIn's Press Enter to Send setting on, the composer has no Send button
+and these tools never press plain Enter, so `send_message` and
+`reply_to_conversation` answer `enter_to_send_enabled` (a dry run too) before
+typing anything. Turn the setting off in LinkedIn messaging to send.
 The reader never discovers history by opening a row. Automatic read-flag and
 badge POSTs are blocked for the duration of inbox, conversation and search reads.
 The two route handlers are registered once per page and reused across reads.

@@ -128,7 +128,7 @@
       "call": "reply_to_conversation",
       "kind": "wait_for_function",
       "operation": "message_composer_ready",
-      "program_digest": "0f5b1c9a7b1f",
+      "program_digest": "60c8ed10f6be",
       "section": "message",
       "timeout_ms": null
     },
@@ -139,7 +139,7 @@
       "call": "reply_to_conversation",
       "kind": "evaluate",
       "operation": "message_composer_state",
-      "program_digest": "fef5dc478d3e",
+      "program_digest": "e5fb5e246675",
       "section": "message"
     },
     {

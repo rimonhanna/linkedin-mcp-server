@@ -38,6 +38,7 @@ a page-owning collaborator.
 | `content` | `PageContentReader` | `page-owning` |
 | `contracts` | `ExtractedSection`, `FilterValidationError`, `RATE_LIMITED_SECTION_TEXT`, `SEND_INTERRUPTED_WARNING`, `before_the_reply_deadline()`, `limit_exceeded_section_error()`, `message_action_result()`, `normalize_message_line_breaks()`, `rate_limited_section_error()`, `refuse_an_invalid_message()`, `refuse_an_invalid_reply()`, `reply_action_result()` | `browser-free` |
 | `conversations` | `ConversationReader` | `page-owning` |
+| `enter_to_send` | `ENTER_TO_SEND_ENABLED`, `ENTER_TO_SEND_JS`, `ENTER_TO_SEND_MESSAGE` | `browser-free` |
 | `extractor` | `LinkedInExtractor` | `page-owning` |
 | `facets` | `FacetResolver`, `GEO_ID_PATTERN`, `LOCATION_BOX_SELECTOR`, `SUGGESTION_SETTLE_INTERVAL`, `SUGGESTION_SETTLE_READS`, `TYPEAHEAD_TIMEOUT_MS`, `TYPEAHEAD_URL` | `page-owning` |
 | `feed` | `FeedScraper` | `page-owning` |
@@ -95,6 +96,7 @@ a page-owning collaborator.
 - `content` -> `session`, `text`
 - `contracts` -> `identifiers`, `link_metadata`
 - `conversations` -> `content`, `identifiers`, `link_metadata`, `messaging_api`, `messaging_payload`, `messaging_read_state`, `navigation`, `profile_page`, `session`, `text`
+- `enter_to_send` -> _(none)_
 - `extractor` -> `campaign_manager`, `campaign_manager_audiences`, `campaign_manager_content`, `campaign_manager_editor`, `campaign_manager_targeting`, `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `sales_navigator`, `sales_navigator_inbox`, `sales_navigator_inbox_payload`, `session`, `text`
 - `facets` -> `capture`, `company_parse`, `contracts`, `identifiers`, `job_policy`, `link_metadata`, `navigation`, `session`
 - `feed` -> `content`, `contracts`, `feed_payload`, `navigation`, `session`, `text`
@@ -106,7 +108,7 @@ a page-owning collaborator.
 - `job_policy` -> `link_metadata`, `text`
 - `jobs` -> `capture`, `contracts`, `facets`, `identifiers`, `job_pages`, `job_policy`, `link_metadata`, `navigation`, `search_urls`, `session`, `text`
 - `link_metadata` -> _(none)_
-- `message_sender` -> `contracts`, `identifiers`, `messaging_read_state`, `navigation`, `session`
+- `message_sender` -> `contracts`, `enter_to_send`, `identifiers`, `messaging_read_state`, `navigation`, `session`
 - `messaging_api` -> `messaging_payload`
 - `messaging_payload` -> `identifiers`, `link_metadata`
 - `messaging_read_state` -> _(none)_
