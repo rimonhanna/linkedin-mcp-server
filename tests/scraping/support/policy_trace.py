@@ -658,6 +658,8 @@ class ScriptedPage:
             assert routed == {
                 "**/voyager/api/voyagerMessagingDashMessengerConversations*": 1,
                 "**/voyager/api/voyagerMessagingDashMessagingBadge*": 1,
+                "**/sales-api/salesApiMessagingThreads**": 1,
+                "**/sales-api/salesApiMessageActions**": 1,
             }, routed
         else:
             assert not remaining, (
@@ -826,6 +828,8 @@ def semantic_program_id(program: str) -> str:
         # First, so a generic marker below that a Campaign Manager program
         # comes to contain (``rows.push({``, a dialog query) never claims it.
         ("linkedin-mcp:cm-anchor", "cm_anchor"),
+        ("linkedin-mcp:sn-inbox-scroll", "sn_inbox_scroll"),
+        ("linkedin-mcp:sn-inbox-history", "sn_inbox_history"),
         ("linkedin-mcp:cm-footer", "cm_footer"),
         ("linkedin-mcp:cm-calendar", "cm_calendar"),
         ("linkedin-mcp:cm-editor", "cm_editor"),

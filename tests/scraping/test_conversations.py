@@ -17,6 +17,7 @@ from linkedin_mcp_server.scraping.content import PageContentReader
 from linkedin_mcp_server.scraping.conversations import (
     ConversationReader,
 )
+from linkedin_mcp_server.scraping.messaging_read_state import _READ_STATE_WRITE_ROUTES
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.profile_page import ProfilePageReader
 from linkedin_mcp_server.scraping.session import ScrapingSession
@@ -477,6 +478,7 @@ class TestReadStateWrites:
         assert calls == [
             ("route", conversations, handler),
             ("route", badge, handler),
+            *(("route", pattern, handler) for pattern in _READ_STATE_WRITE_ROUTES[2:]),
             ("navigate", "https://www.linkedin.com/messaging/"),
         ], "read-flag routes remain page-scoped after navigation"
 

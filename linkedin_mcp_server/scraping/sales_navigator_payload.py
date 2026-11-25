@@ -88,6 +88,8 @@ class SnCall:
     finder: str | None
     method: str
     params: Mapping[str, str]
+    # What follows the entity id (``messages`` in ``<resource>/<id>/messages``).
+    sub_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +308,7 @@ def parse_sn_call(url: str, method: str) -> SnCall | None:
         finder=params.get("q"),
         method=method.upper(),
         params=params,
+        sub_path="/".join(segments[2:]) or None,
     )
 
 

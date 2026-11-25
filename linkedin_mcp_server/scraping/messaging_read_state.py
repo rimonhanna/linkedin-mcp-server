@@ -11,13 +11,22 @@ from weakref import WeakKeyDictionary, WeakSet
 
 from linkedin_mcp_server.core.exceptions import LinkedInScraperException
 
+# The Sales Navigator entries take every POST under its thread resource (mark
+# read or unread and the archive patch among them) and its message actions
+# (send); a thread id is a path segment, hence ``**``. Only these: the app's
+# other POSTs (boot, coach, heartbeats, telemetry) pass, since aborting them
+# protects nothing and makes the session look unlike a browser's.
 _READ_STATE_WRITE_ROUTES = (
     "**/voyager/api/voyagerMessagingDashMessengerConversations*",
     "**/voyager/api/voyagerMessagingDashMessagingBadge*",
+    "**/sales-api/salesApiMessagingThreads**",
+    "**/sales-api/salesApiMessageActions**",
 )
 _READ_STATE_PATHS = (
     "/voyager/api/voyagerMessagingDashMessengerConversations",
     "/voyager/api/voyagerMessagingDashMessagingBadge",
+    "/sales-api/salesApiMessagingThreads",
+    "/sales-api/salesApiMessageActions",
 )
 # Patchright's ``page.route`` for a page's first route (and ``unroute`` of its
 # last) re-sends ``Network.setCacheDisabled`` to every CDP session of the page

@@ -99,8 +99,12 @@ instances, clear profiles, or replace the user's browser session.
   campaign its "Ad set" and a creative its "Ad".
 - Sales Navigator (read-only, needs a Sales Navigator seat):
   `search_sales_navigator_accounts`, `search_sales_navigator_leads`,
-  `get_sales_navigator_account`, `list_sales_navigator_account_lists` and
-  `get_sales_navigator_account_list`.
+  `get_sales_navigator_account`, `list_sales_navigator_account_lists`,
+  `get_sales_navigator_account_list`, and the inbox reads
+  `get_sales_navigator_inbox`, `get_sales_navigator_conversation` (by
+  `thread_id`, or `lead_id` as lead search returns it) and
+  `search_sales_navigator_conversations`, which leave unread conversations
+  unread.
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
   InMail included, by its thread ID) and `connect_with_person`, and the
   Campaign Manager writes (`update_campaign`, `set_campaign_status`,

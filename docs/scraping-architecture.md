@@ -44,7 +44,7 @@ a page-owning collaborator.
 | `feed` | `FeedScraper` | `page-owning` |
 | `feed_payload` | `POST_SLUG_URL_RE`, `build_feed_references()`, `is_feed_payload_response()` | `browser-free` |
 | `fields` | `COMPANY_SECTIONS`, `PERSON_SECTIONS`, `parse_company_sections()`, `parse_person_sections()` | `browser-free` |
-| `identifiers` | `CAMPAIGN_MANAGER_ACCOUNTS_URL`, `SALES_ACCOUNT_LISTS_URL`, `campaign_manager_date_range()`, `campaign_manager_url()`, `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_ad_account_id()`, `normalize_campaign_group_id()`, `normalize_campaign_id()`, `normalize_company_identifier()`, `normalize_company_page_url()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_person_identifier()`, `normalize_post_urn()`, `normalize_profile_urn()`, `normalize_sales_company_id()`, `normalize_sales_list_id()`, `normalize_targeting_urn()`, `normalize_thread_id()`, `normalize_website()`, `person_profile_url()`, `sales_account_list_url()`, `sales_company_url()` | `browser-free` |
+| `identifiers` | `CAMPAIGN_MANAGER_ACCOUNTS_URL`, `SALES_ACCOUNT_LISTS_URL`, `SALES_INBOX_URL`, `campaign_manager_date_range()`, `campaign_manager_url()`, `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_ad_account_id()`, `normalize_campaign_group_id()`, `normalize_campaign_id()`, `normalize_company_identifier()`, `normalize_company_page_url()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_person_identifier()`, `normalize_post_urn()`, `normalize_profile_urn()`, `normalize_sales_company_id()`, `normalize_sales_lead_id()`, `normalize_sales_list_id()`, `normalize_sales_thread_id()`, `normalize_targeting_urn()`, `normalize_thread_id()`, `normalize_website()`, `person_profile_url()`, `sales_account_list_url()`, `sales_company_url()`, `sales_inbox_thread_url()`, `sales_inbox_url()` | `browser-free` |
 | `invitation_withdrawal` | `InvitationWithdrawer`, `MAX_WITHDRAWALS_LIMIT`, `age_text()`, `normalize_exclusions()`, `parse_age_days()`, `plan_withdrawals()`, `username_from_href()` | `browser-free` |
 | `job_pages` | `APPLY_SIGNALS_JS`, `JOB_IDS_JS`, `JobApplySignals`, `JobPageCapture`, `JobPageReader`, `ORGANIC_BEFORE_NOTICE_JS`, `PROMOTED_JOB_IDS_JS` | `page-owning` |
 | `job_policy` | `AI_SEARCH_PATH`, `ApplyType`, `JOB_SEARCH_PATHS`, `JobsTrackerStage`, `LOCATION_RESOLUTION_MIN`, `LOCATION_RESOLUTION_RESERVE`, `RESULTS_PER_LINKEDIN_PAGE`, `SAFETY_REDIRECT_PATH`, `SAVED_JOBS_PAGE_SIZE`, `SAVED_JOBS_PATHS`, `SAVED_JOBS_URL`, `SCROLL_BUDGET_TOTAL`, `SCROLL_DEADLINE_MAX`, `SEARCH_TIMEOUT_FRACTION`, `ai_search_section_error()`, `apply_link_missing_section_error()`, `dropped_filters_section_error()`, `dropped_offset_section_error()`, `dropped_stage_section_error()`, `employer_apply_url()`, `label_similar_jobs()`, `lost_keywords_section_error()`, `missing_description_section_error()`, `no_matching_jobs_section_error()`, `posting_state()`, `reaches_the_public_internet()`, `reconcile_search_references()`, `route()`, `same_job_search()`, `unresolved_location_section_error()` | `browser-free` |
@@ -62,6 +62,8 @@ a page-owning collaborator.
 | `restli` | `as_dicts()`, `as_int()`, `as_mapping()`, `as_str()`, `entity_id()`, `envelope_elements()`, `envelope_paging()`, `envelope_record()`, `envelope_total()`, `included_by_urn()`, `iso_from_ms()`, `normalized_elements()`, `plain_elements()`, `restli_list()`, `same_id()` | `browser-free` |
 | `sales_navigator` | `SalesNavigatorReader` | `page-owning` |
 | `sales_navigator_api` | `SalesNavigatorCapture` | `browser-free` |
+| `sales_navigator_inbox` | `SalesNavigatorInboxReader` | `page-owning` |
+| `sales_navigator_inbox_payload` | `ACCESS`, `FILTERS`, `InboxConversation`, `InboxFilter`, `InboxMessage`, `LIST_FINDER`, `MESSAGE_BATCH`, `MESSAGE_DECORATION`, `NAV_CHROME`, `Participant`, `SEARCH_FINDER`, `SalesConversation`, `THREADS`, `ThreadHistory`, `ViewerCheck`, `build_conversation_row()`, `build_conversation_rows()`, `build_message()`, `build_messages()`, `build_older_messages()`, `build_participants()`, `build_thread()`, `chrome_viewer()`, `no_inbox_access()`, `render_conversation()`, `render_conversations()`, `strip_delivered_at()`, `viewer_of()` | `browser-free` |
 | `sales_navigator_payload` | `Account`, `AccountCard`, `AccountList`, `COMPANY_FILTER_ID`, `COMPANY_HEADCOUNT`, `COMPANY_HEADCOUNT_GROWTH`, `CURRENT_COMPANY`, `CURRENT_TITLE`, `EmployeeGrowth`, `Headquarters`, `INDUSTRY`, `Lead`, `ListedAccount`, `MAX_PAGE`, `PAGE_SIZE`, `Position`, `REGION`, `RESULT_CAP`, `RevenueRange`, `SENIORITY_IDS`, `SENIORITY_LEVEL`, `SN_API_PREFIX`, `SearchFilter`, `SearchPaging`, `Seniority`, `SeniorityLevel`, `SnCall`, `SnMoney`, `T`, `WITHHELD_REASON`, `Withheld`, `build_account()`, `build_account_card()`, `build_account_list()`, `build_elements()`, `build_lead()`, `build_leads()`, `build_listed_account()`, `build_paging()`, `build_search_query()`, `build_withheld()`, `is_withheld()`, `missing_echoes()`, `parse_sn_call()`, `render_account()`, `render_account_cards()`, `render_account_lists()`, `render_leads()`, `render_listed_accounts()`, `restli_value()`, `sales_company_id()`, `sales_profile_id()`, `search_page_url()`, `unrequested_echoes()` | `browser-free` |
 | `search_pages` | `SearchPages`, `paginate_search()`, `search_rows()` | `browser-free` |
 | `search_parse` | `parse_company_cards()`, `parse_count()`, `parse_people_cards()`, `parse_result_count()` | `browser-free` |
@@ -95,7 +97,7 @@ a page-owning collaborator.
 - `contracts` -> `identifiers`, `link_metadata`
 - `conversations` -> `content`, `identifiers`, `link_metadata`, `messaging_api`, `messaging_payload`, `messaging_read_state`, `navigation`, `profile_page`, `session`, `text`
 - `enter_to_send` -> _(none)_
-- `extractor` -> `campaign_manager`, `campaign_manager_audiences`, `campaign_manager_content`, `campaign_manager_editor`, `campaign_manager_targeting`, `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `sales_navigator`, `session`, `text`
+- `extractor` -> `campaign_manager`, `campaign_manager_audiences`, `campaign_manager_content`, `campaign_manager_editor`, `campaign_manager_targeting`, `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `sales_navigator`, `sales_navigator_inbox`, `sales_navigator_inbox_payload`, `session`, `text`
 - `facets` -> `capture`, `company_parse`, `contracts`, `identifiers`, `job_policy`, `link_metadata`, `navigation`, `session`
 - `feed` -> `content`, `contracts`, `feed_payload`, `navigation`, `session`, `text`
 - `feed_payload` -> `link_metadata`
@@ -118,6 +120,8 @@ a page-owning collaborator.
 - `restli` -> _(none)_
 - `sales_navigator` -> `contracts`, `facets`, `identifiers`, `navigation`, `restli`, `sales_navigator_api`, `sales_navigator_payload`, `search_urls`, `session`
 - `sales_navigator_api` -> `api_capture`, `sales_navigator_payload`
+- `sales_navigator_inbox` -> `identifiers`, `messaging_read_state`, `restli`, `sales_navigator`, `sales_navigator_api`, `sales_navigator_inbox_payload`, `sales_navigator_payload`, `session`
+- `sales_navigator_inbox_payload` -> `restli`, `sales_navigator_payload`
 - `sales_navigator_payload` -> `identifiers`, `restli`
 - `search_pages` -> `capture`, `contracts`, `link_metadata`, `search_parse`, `session`
 - `search_parse` -> _(none)_
@@ -144,6 +148,8 @@ a page-owning collaborator.
 - `get_page_text`
 - `get_sales_navigator_account`
 - `get_sales_navigator_account_list`
+- `get_sales_navigator_conversation`
+- `get_sales_navigator_inbox`
 - `get_saved_jobs`
 - `get_sidebar_profiles`
 - `list_ad_accounts`
@@ -161,6 +167,7 @@ a page-owning collaborator.
 - `search_people`
 - `search_posts`
 - `search_sales_navigator_accounts`
+- `search_sales_navigator_conversations`
 - `search_sales_navigator_leads`
 - `search_targeting_entities`
 - `send_message`
@@ -186,6 +193,7 @@ a page-owning collaborator.
 - `_message_sender`
 - `_person`
 - `_posts`
+- `_sales_inbox`
 - `_sales_navigator`
 
 ## Dependency-direction violations

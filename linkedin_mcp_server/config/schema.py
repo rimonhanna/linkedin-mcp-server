@@ -27,6 +27,7 @@ DEFAULT_TOOL_TIMEOUT_SECONDS: float = 180.0
 # deadline does not cut the call short).
 PER_TOOL_TIMEOUT_SECONDS: dict[str, float] = {
     "get_inbox": 600.0,
+    "get_sales_navigator_inbox": 600.0,
     "withdraw_invitations": 600.0,
     "update_campaign_targeting": 300.0,
     "create_company_list_audience": 300.0,
