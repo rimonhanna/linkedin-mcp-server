@@ -27,6 +27,9 @@ class _NoCreditsPage(_DialogPage):
             return
         super()._emit(path, payload, **kwargs)
 
+    async def content(self) -> str:
+        return "<html><body></body></html>"
+
 
 async def test_a_dry_run_without_credits_still_reports_each_person(writes):  # noqa: F811
     page = _NoCreditsPage(rows=3, invitable={IDS[2]: False})

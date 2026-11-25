@@ -15,7 +15,11 @@ own; the invitation itself is one Rest.li ``batch_create`` POST. Measured
   page of candidates and every search.
 * ``voyagerRelationshipsDashCommunityInviterStatistics``: the page's
   invitation credits (``remainingCredit``, ``initialCreditGrant``,
-  ``nextCreditGrantOn``), shared by every admin and granted monthly.
+  ``nextCreditGrantOn``), shared by every admin and granted monthly. On a
+  direct load of the dialog URL (measured 2026-11-25) no request is made for
+  it: the server renders it into the page as a datalet, a
+  ``<code id="datalet-bpr-guid-N">`` naming the request and a
+  ``<code id="bpr-guid-N">`` holding its body.
 * GraphQL ``voyagerSearchDashReusableTypeahead`` (``type:CONNECTIONS``): the
   name search; one result set of up to 40, name in ``title.text``.
 
@@ -30,6 +34,8 @@ from __future__ import annotations
 
 import base64
 import binascii
+import html
+import json
 import re
 from dataclasses import dataclass
 from typing import Any, TypedDict
@@ -252,6 +258,55 @@ def page_credits(payload: Any) -> Credits | None:
         "total": as_int(element.get("initialCreditGrant")),
         "nextGrantOn": next_grant,
     }
+
+
+_CODE_BLOCK = re.compile(
+    r'<code\b[^>]*\bid="((?:datalet-)?bpr-guid-[0-9]+)"[^>]*>(.*?)</code>', re.S
+)
+
+
+def _json(text: str | None) -> Any:
+    if text is None:
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
+def embedded_credits(page_html: str, company_id: str) -> Credits | None:
+    """The page's credits from the statistics rendered into its HTML.
+
+    Only a datalet for this page's dialog community counts.
+    """
+    blocks = {
+        match.group(1): html.unescape(match.group(2))
+        for match in _CODE_BLOCK.finditer(page_html)
+    }
+    found: Credits | None = None
+    for block_id, text in blocks.items():
+        if not block_id.startswith("datalet-"):
+            continue
+        datalet = as_mapping(_json(text))
+        if datalet is None or datalet.get("status") != 200:
+            continue
+        request = as_str(datalet.get("request"))
+        method = as_str(datalet.get("method"))
+        body = as_str(datalet.get("body"))
+        if request is None or method is None or body is None:
+            continue
+        call = parse_invite_call(request, method)
+        if (
+            call is None
+            or call.resource != CREDITS
+            or call.method != "GET"
+            or call.params.get("community") != dialog_community(company_id)
+        ):
+            continue
+        credits = page_credits(_json(blocks.get(body)))
+        if credits is not None:
+            found = credits
+    return found
 
 
 def invitation_batch(body: Any) -> list[str] | None:
