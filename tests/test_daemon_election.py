@@ -640,18 +640,26 @@ class TestRetryPacing:
         auth_root = profile.parent
         stale = _publish_stale_owner(auth_root, profile, config)
 
-        published = threading.Event()
+        # The election's own clock, advanced only by the waits it takes. The
+        # replacement is published from inside the first of those waits, so the
+        # check below is a count of poll intervals rather than a race between a
+        # publisher thread and the loop under a loaded runner.
+        clock = [0.0]
+        start_returned = False
+        published_at: list[float] = []
         fresh: list[str] = []
+
+        def sleep(seconds: float) -> None:
+            if start_returned and not fresh:
+                published_at.append(clock[0])
+                fresh.append(_publish_stale_owner(auth_root, profile, config))
+            clock[0] += seconds
 
         def replace_after_burial(*_args: object, **_kwargs: object) -> _Attempt:
             # Stands in for the owner a real start would have produced: the
             # descriptor is replaced while the loop is inside its paced wait.
-            def publish_later() -> None:
-                time.sleep(0.1)
-                fresh.append(_publish_stale_owner(auth_root, profile, config))
-                published.set()
-
-            threading.Thread(target=publish_later, daemon=True).start()
+            nonlocal start_returned
+            start_returned = True
             return _Attempt.FAILED
 
         seen: list[str] = []
@@ -672,19 +680,25 @@ class TestRetryPacing:
         # At the production 0.2s the loop would come round again on its own and
         # a wait that simply slept would look identical to one that watched.
         monkeypatch.setattr(election_module, "_RETRY_SECONDS", 4.0)
+        monkeypatch.setattr(
+            election_module,
+            "time",
+            SimpleNamespace(monotonic=lambda: clock[0], sleep=sleep),
+        )
 
-        began = time.monotonic()
         outcome = obtain_owner(
             auth_root, profile, config, deadline_seconds=8.0, connect=reach
         )
-        elapsed = time.monotonic() - began
 
-        assert published.is_set()
+        assert published_at, "the paced wait never ran, so nothing was published"
         assert outcome.worth_connecting, "the replacement generation was never seen"
         assert seen == [stale, fresh[0]]
         # One poll interval past publication, not the whole of the wait it landed
         # in. Sleeping the wait out instead of polling it lands at 4s here.
-        assert elapsed < 2.0, f"the replacement took {elapsed:.2f}s to be noticed"
+        noticed_after = clock[0] - published_at[0]
+        assert noticed_after <= daemon_module._ATTACH_POLL_SECONDS, (
+            f"the replacement took {noticed_after:.2f}s to be noticed"
+        )
 
 
 class TestFailingFast:
@@ -764,27 +778,38 @@ class TestFailingFast:
             attempts += 1
             raise refusal
 
+        # The election's own clock, advanced only by the waits it takes, so "at
+        # once" is a count of zero seconds waited rather than a wall-clock bound
+        # a loaded runner can miss.
+        clock = [0.0]
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds
+
         monkeypatch.setattr(election_module, "_start_owner", refuse)
         # Paced as the neighbouring test paces it, so a version that retried
         # would get several attempts inside this budget rather than one.
         monkeypatch.setattr(election_module, "_OWNER_START_BURST", 1)
         monkeypatch.setattr(election_module, "_OWNER_START_RETRY_SECONDS", 0.05)
         monkeypatch.setattr(election_module, "_MAX_OWNER_START_RETRY_SECONDS", 0.2)
+        monkeypatch.setattr(
+            election_module,
+            "time",
+            SimpleNamespace(monotonic=lambda: clock[0], sleep=sleep),
+        )
 
-        started = time.monotonic()
         outcome = obtain_owner(
             auth_root,
             profile,
             config,
-            deadline_seconds=0.01,
+            deadline_seconds=1.0,
             settlement_seconds=0,
             connect=lambda attachment, timeout: Reach.REFUSED,
         )
-        elapsed = time.monotonic() - started
 
         assert not outcome.worth_connecting
         assert attempts == 1
-        assert elapsed < 0.5, f"the caller waited {elapsed:.2f}s for its fallback"
+        assert clock[0] == 0.0, f"the caller waited {clock[0]:.2f}s for its fallback"
 
     def test_one_blocked_descriptor_inspection_spans_the_whole_election(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
