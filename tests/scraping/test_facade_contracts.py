@@ -703,7 +703,7 @@ async def test_submitted_invite_verification_consults_the_sent_list(
             ConnectionActions,
             "_submit_invite_dialog",
             new_callable=AsyncMock,
-            return_value=(True, False, None, "Invite dialog"),
+            return_value=(True, False, None, "Invite dialog", None),
         ),
         patch.object(
             ConnectionActions,

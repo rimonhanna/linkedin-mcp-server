@@ -412,7 +412,8 @@ def register_person_tools(
             when include_profile is true.
             Statuses: pending, already_connected, connect_unavailable,
             unavailable, dialog_not_found, not_sent, send_unverified,
-            send_failed, custom_note_limit_reached, connected, or accepted.
+            send_failed, custom_note_limit_reached, note_control_not_found,
+            connected, or accepted.
 
             ``connected`` is returned only after the invitation was found
             on the sent-invitations list. ``not_sent`` means the invite
@@ -422,6 +423,11 @@ def register_person_tools(
             no dialog and no invitation reached the sent list; the
             ``message`` names the landing URL and any page notice. ``send_unverified`` means the dialog was submitted
             but the sent list could not be read; check it before retrying.
+
+            ``note_control_not_found`` means a note was given but the
+            invite dialog's "Add a note" control could not be identified, so
+            nothing was clicked and no invitation was sent; the ``message``
+            carries the dialog text and its clickable elements.
 
             When status is ``custom_note_limit_reached`` LinkedIn rejected
             personalized invite notes because the free note quota for the

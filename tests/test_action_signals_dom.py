@@ -1231,8 +1231,13 @@ class TestInviteDialogReadiness:
 
         result = await _actions(dom_page)._submit_invite_dialog("Hallo")
 
-        submitted, note_sent, limit, text = result
-        assert (submitted, note_sent, limit) == (False, False, None)
+        submitted, note_sent, limit, text, note_control_missing = result
+        assert (submitted, note_sent, limit, note_control_missing) == (
+            False,
+            False,
+            None,
+            None,
+        )
         assert text is not None and "Ohne Nachricht senden" in text
         assert await _clicks(dom_page) is None
         assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1

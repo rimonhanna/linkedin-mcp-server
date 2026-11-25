@@ -119,6 +119,93 @@ _MODAL_DIALOG_INDEX_JS = (
 """
 )
 
+# The control that opens the note editor, marked so the click lands on that
+# one element and nothing near it. Measured 2026-11-25: the "Add a note to
+# your invitation?" dialog renders "Add a note" as something other than a
+# <button>, its only buttons being Dismiss and "Send without a note", so the
+# old positional pick (second-to-last button) hit Dismiss.
+#
+# Never a candidate: the primary (the dialog's last button, its Send), any
+# element containing it or inside it, an icon-only control (Dismiss is one),
+# and anything named Dismiss/Close/Cancel or starting with "Send", since a
+# wrong click there sends the invite without the note. The pick must also sit
+# in the footer, the smallest ancestor of the primary holding a candidate, and
+# the primary must be the dialog's last clickable.
+#
+# Locale limit: the "Add a note" text match is English only. In another
+# locale the pick is the footer's single candidate; with more than one there
+# (a "Learn why" link beside it, say) nothing is clicked, and the same holds
+# for an English dialog where the match is ambiguous.
+_NOTE_CONTROL_MARK = "data-mcp-note-control"
+_MARK_NOTE_CONTROL_JS = (
+    "() => {"
+    + _INVITE_MODAL_FNS_JS
+    + r"""
+  const MARK = 'data-mcp-note-control';
+  const {dialog} = inviteModal();
+  if (!dialog) return {found: false, reason: 'no invite dialog is open', controls: []};
+  dialog.querySelectorAll('[' + MARK + ']').forEach((el) => el.removeAttribute(MARK));
+  const NATIVE = 'button, a, [role="button"], [role="link"], label';
+  const cursor = (el) => getComputedStyle(el).cursor;
+  // A span or div counts where the pointer cursor starts, not where it is
+  // merely inherited from a clickable parent.
+  const pointerStarts = (el) => cursor(el) === 'pointer'
+    && !(el.parentElement && cursor(el.parentElement) === 'pointer');
+  const clickable = ownControls(dialog, NATIVE + ', span, div').filter(
+    (el) => el.matches(NATIVE) || pointerStarts(el)
+  );
+  const outer = clickable.filter((el) => !clickable.some((o) => o !== el && o.contains(el)));
+  const words = (s) => (s || '').replace(/\s+/g, ' ').trim();
+  const text = (el) => words(el.innerText);
+  const label = (el) => words(el.getAttribute('aria-label'));
+  const buttons = ownControls(dialog, 'button, [role="button"]');
+  const primary = buttons.length ? buttons[buttons.length - 1] : null;
+  const isPrimary = (el) => !!primary && (el === primary || el.contains(primary) || primary.contains(el));
+  const FORBIDDEN = /^(dismiss|close|cancel)\b|^send/i;
+  const forbidden = (el) => FORBIDDEN.test(text(el)) || FORBIDDEN.test(label(el));
+  const controls = outer.map((el) => ({
+    tag: el.tagName.toLowerCase(),
+    role: el.getAttribute('role'),
+    label: label(el) || null,
+    text: text(el).slice(0, 40),
+    primary: isPrimary(el),
+  }));
+  const refuse = (reason) => ({found: false, reason, controls});
+  if (!primary) return refuse('the dialog has no Send button');
+  if (!isPrimary(outer[outer.length - 1])) {
+    return refuse('the Send button is not the last control in the dialog');
+  }
+  const eligible = outer.filter((el) => text(el) && !isPrimary(el) && !forbidden(el));
+  let footer = null;
+  for (let a = primary.parentElement; a && dialog.contains(a); a = a.parentElement) {
+    if (eligible.some((el) => a.contains(el))) {
+      footer = a;
+      break;
+    }
+  }
+  const inFooter = footer ? eligible.filter((el) => footer.contains(el)) : [];
+  const ADD_NOTE = /^add a note$/i;
+  const english = eligible.filter((el) => ADD_NOTE.test(text(el)) || ADD_NOTE.test(label(el)));
+  let pick = null;
+  if (english.length > 1) return refuse('more than one control reads "Add a note"');
+  if (english.length === 1) {
+    if (!inFooter.includes(english[0])) {
+      return refuse('the "Add a note" control is not beside the Send button');
+    }
+    pick = english[0];
+  } else if (inFooter.length === 1) {
+    pick = inFooter[0];
+  } else if (inFooter.length === 0) {
+    return refuse('no control other than Send and Dismiss is beside the Send button');
+  } else {
+    return refuse('several controls are beside the Send button and none reads "Add a note"');
+  }
+  pick.setAttribute(MARK, '');
+  return {found: true, reason: '', controls};
+}
+"""
+)
+
 # What the readiness wait compares between polls: the modal's position among
 # the dialogs, its control counts and its own text. Counts and presence only,
 # never a label: the email field is found by its input type.
@@ -638,6 +725,31 @@ class ConnectionActions:
             logger.debug("Primary dialog button click failed", exc_info=True)
             return False
 
+    async def _click_note_control(self, dialog) -> tuple[bool, str]:
+        """Click the invite dialog's "Add a note" control, or nothing.
+
+        Returns ``(clicked, report)``; the report names why nothing was
+        clicked, or what was, and lists every clickable element in the dialog.
+        """
+        try:
+            found = await self._session.page.evaluate(_MARK_NOTE_CONTROL_JS)
+        except Exception as exc:
+            return False, f"The invite dialog could not be read: {exc}"
+        reason = str(found.get("reason") or "") if isinstance(found, dict) else ""
+        controls = found.get("controls") if isinstance(found, dict) else None
+        listing = f"Clickable elements in the dialog: {controls}"
+        if not isinstance(found, dict) or not found.get("found"):
+            return False, f"{reason or 'the dialog read returned nothing'}. {listing}"
+        marked = dialog.locator(f"[{_NOTE_CONTROL_MARK}]")
+        try:
+            count = await marked.count()
+            if count != 1:
+                return False, f"{count} elements carry the note-control mark. {listing}"
+            await marked.click()
+        except Exception as exc:
+            return False, f"The note control click failed: {exc}. {listing}"
+        return True, listing
+
     async def _fill_dialog_textarea(self, value: str, *, timeout: int = 5000) -> bool:
         """Fill the first textarea inside the open dialog (structural)."""
         dialog = await self._invite_dialog()
@@ -831,10 +943,11 @@ class ConnectionActions:
 
     async def _submit_invite_dialog(
         self, note: str | None
-    ) -> tuple[bool, bool, str | None, str | None]:
+    ) -> tuple[bool, bool, str | None, str | None, str | None]:
         """Submit the invite dialog opened by the Connect click.
 
-        Returns ``(submitted, note_sent, note_limit_message, dialog_text)``.
+        Returns ``(submitted, note_sent, note_limit_message, dialog_text,
+        note_control_missing)``.
 
         ``dialog_text`` is the raw text of whatever dialog the click
         opened, read before anything is clicked, and ``None`` when no
@@ -850,21 +963,25 @@ class ConnectionActions:
         the upsell was detected; in that case ``submitted`` is False, the
         dialog is dismissed, and callers should surface that text directly.
 
-        All interaction uses structural selectors and positional indexing
-        — no localized text matching. Owns dialog cleanup: the dialog is
+        ``note_control_missing`` is set only when a note was asked for and
+        the "Add a note" control could not be identified (or clicked): then
+        nothing was clicked, the dialog is dismissed, and it holds the reason
+        and every clickable element in the dialog.
+
+        Owns dialog cleanup: the dialog is
         dismissed on every failure path, callers must not dismiss again.
         """
         ready = await self._ready_dialog()
         if ready is None:
             if await self._modal_index() < 0:
-                return False, False, None, None
+                return False, False, None, None, None
             # Present but still changing: nothing in it is safe to click.
             dialog_text = await self._dialog_text()
             await self._dismiss_dialog()
-            return False, False, None, dialog_text
+            return False, False, None, dialog_text, None
         dialog = await self._invite_dialog()
         if dialog is None:
-            return False, False, None, None
+            return False, False, None, None, None
         dialog_text = await self._dialog_text()
         logger.info("Invite dialog text: %s", dialog_text)
         try:
@@ -881,55 +998,43 @@ class ConnectionActions:
             # as one that could not be submitted.
             logger.info("Invite dialog asks for the member's email")
             await self._dismiss_dialog()
-            return False, False, None, dialog_text
+            return False, False, None, dialog_text, None
 
         note_filled = False
         if note:
             textarea_count = await dialog.locator(_DIALOG_TEXTAREA).count()
             if textarea_count == 0:
-                # Reveal the note textarea via the secondary action.
-                # Two layouts are now in the wild and both place "Add a
-                # note" at index ``btn_count - 2``:
-                #   * Legacy invite dialog (3 buttons): dismiss, secondary
-                #     "Add a note", primary "Send" -> nth(1) is secondary.
-                #   * "Add a note to your invitation?" gating dialog (2
-                #     buttons, rolled out 2026-05): "Add a note",
-                #     "Send without a note" -> nth(0) is the only path
-                #     that mounts the textarea. See issue #455.
-                # If LinkedIn ever serves a 2-button dismiss/primary
-                # no-note layout, the click below misroutes to dismiss;
-                # the textarea-presence recheck via _fill_dialog_textarea
-                # then fails and the caller returns connect_unavailable
-                # without sending — the same outcome as today.
-                buttons = dialog.locator(_DIALOG_BUTTONS)
-                btn_count = await buttons.count()
-                if btn_count >= 2:
-                    await buttons.nth(btn_count - 2).click()
-                    textarea_appeared = True
-                    try:
-                        await dialog.locator(_DIALOG_TEXTAREA).first.wait_for(
-                            state="visible", timeout=3000
-                        )
-                    except PlaywrightTimeoutError:
-                        logger.debug("Note textarea did not appear")
-                        textarea_appeared = False
-                    # LinkedIn now renders a persistent Premium nudge
-                    # banner on this step even when quota is NOT exhausted
-                    # (observed: "3 personalized invitations remaining this
-                    # month" alongside a live, fillable textarea). Bailing on
-                    # banner presence alone false-positives on every note
-                    # send. Only treat it as a real block when the textarea
-                    # never mounted at all — the one case where LinkedIn
-                    # actually replaces the note UI with the upsell instead of
-                    # showing both.
-                    if not textarea_appeared:
-                        note_limit_message = await self._get_premium_upsell_message()
-                        if note_limit_message is not None:
-                            logger.info(
-                                "Premium upsell blocked opening invite note editor"
-                            )
-                            await self._dismiss_dialog()
-                            return False, False, note_limit_message, dialog_text
+                clicked, report = await self._click_note_control(dialog)
+                if not clicked:
+                    logger.info("Invite note control not found: %s", report)
+                    await self._dismiss_dialog()
+                    return False, False, None, dialog_text, report
+                textarea_appeared = True
+                try:
+                    await dialog.locator(_DIALOG_TEXTAREA).first.wait_for(
+                        state="visible", timeout=3000
+                    )
+                except PlaywrightTimeoutError:
+                    logger.info(
+                        "Note textarea did not appear after the note control click. %s",
+                        report,
+                    )
+                    textarea_appeared = False
+                # LinkedIn now renders a persistent Premium nudge
+                # banner on this step even when quota is NOT exhausted
+                # (observed: "3 personalized invitations remaining this
+                # month" alongside a live, fillable textarea). Bailing on
+                # banner presence alone false-positives on every note
+                # send. Only treat it as a real block when the textarea
+                # never mounted at all — the one case where LinkedIn
+                # actually replaces the note UI with the upsell instead of
+                # showing both.
+                if not textarea_appeared:
+                    note_limit_message = await self._get_premium_upsell_message()
+                    if note_limit_message is not None:
+                        logger.info("Premium upsell blocked opening invite note editor")
+                        await self._dismiss_dialog()
+                        return False, False, note_limit_message, dialog_text, None
 
             note_filled = await self._fill_dialog_textarea(note)
             if not note_filled:
@@ -952,14 +1057,14 @@ class ConnectionActions:
                         "Invite note fill failed without evidence of a quota block"
                     )
                     await self._dismiss_dialog()
-                    return False, False, None, dialog_text
+                    return False, False, None, dialog_text, None
                 note_limit_message = await self._get_premium_upsell_message()
                 if note_limit_message is not None:
                     logger.info("Premium upsell blocked filling invite note")
                     await self._dismiss_dialog()
-                    return False, False, note_limit_message, dialog_text
+                    return False, False, note_limit_message, dialog_text, None
                 await self._dismiss_dialog()
-                return False, False, None, dialog_text
+                return False, False, None, dialog_text, None
 
         sent = await self._click_dialog_primary_button()
         if not sent:
@@ -990,9 +1095,9 @@ class ConnectionActions:
                             "Premium upsell modal intercepted invite submit click"
                         )
                         await self._dismiss_dialog()
-                        return False, False, note_limit_message, dialog_text
+                        return False, False, note_limit_message, dialog_text, None
                 await self._dismiss_dialog()
-                return False, False, None, dialog_text
+                return False, False, None, dialog_text, None
 
         dialog_closed = await self._dialog_is_closed(timeout=5000)
         if not dialog_closed:
@@ -1014,9 +1119,9 @@ class ConnectionActions:
             if note_limit_message is not None:
                 logger.info("Premium upsell modal intercepted invite submit")
                 await self._dismiss_dialog()
-                return False, False, note_limit_message, dialog_text
+                return False, False, note_limit_message, dialog_text, None
 
-        return True, note_filled, None, dialog_text
+        return True, note_filled, None, dialog_text, None
 
     async def _probe_invite_note_limit(self) -> str | None:
         """Open the note editor only to read a Premium note-quota message.
@@ -1259,7 +1364,18 @@ class ConnectionActions:
             note_sent,
             note_limit_message,
             dialog_text,
+            note_control_missing,
         ) = await self._submit_invite_dialog(note)
+        if note_control_missing is not None:
+            return _connection_result(
+                url,
+                "note_control_not_found",
+                "LinkedIn's invite dialog showed no control that could be told"
+                " apart as the one that adds a note, so nothing in it was clicked"
+                " and no invitation was sent."
+                f" Dialog text: {dialog_text}. {note_control_missing}",
+                profile=page_text,
+            )
         if note_limit_message is not None:
             return _connection_result(
                 url,
