@@ -30,6 +30,20 @@
     },
     {
       "call": "search_conversations",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessagingThreads**",
+      "section": "conversation"
+    },
+    {
+      "call": "search_conversations",
+      "callback_id": "callback-2",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessageActions**",
+      "section": "conversation"
+    },
+    {
+      "call": "search_conversations",
       "callback_id": "callback-3",
       "event": "response",
       "kind": "listener.add",

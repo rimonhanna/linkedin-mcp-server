@@ -213,6 +213,18 @@
       "description": "Get one Sales Navigator account list and every company in it (read-only)"
     },
     {
+      "name": "get_sales_navigator_inbox",
+      "description": "List recent Sales Navigator inbox conversations in any inbox view (all, unread, sent, InMail states, archived); unread conversations stay unread (read-only)"
+    },
+    {
+      "name": "get_sales_navigator_conversation",
+      "description": "Read one Sales Navigator conversation by thread id or lead id, with up to 40 of its newest messages; unread stays unread (read-only)"
+    },
+    {
+      "name": "search_sales_navigator_conversations",
+      "description": "Search Sales Navigator messages by keyword through the inbox search box; unread stays unread (read-only)"
+    },
+    {
       "name": "close_session",
       "description": "Properly close browser session and clean up resources"
     },

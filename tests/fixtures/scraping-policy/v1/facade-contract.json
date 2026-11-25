@@ -80,6 +80,14 @@
         "coroutine": true,
         "signature": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
+      "get_sales_navigator_conversation": {
+        "coroutine": true,
+        "signature": "(self, thread_id: 'str | None' = None, lead_id: 'str | None' = None, index: 'int' = 0, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
+      "get_sales_navigator_inbox": {
+        "coroutine": true,
+        "signature": "(self, limit: 'int' = 20, filter: 'InboxFilter' = 'all', *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
       "get_saved_jobs": {
         "coroutine": true,
         "signature": "(self, max_pages: 'int' = 3, stage: 'JobsTrackerStage' = 'saved') -> 'dict[str, Any]'"
@@ -156,6 +164,10 @@
         "coroutine": true,
         "signature": "(self, *, keywords: 'str | None' = None, industry: 'Sequence[str] | None' = None, hq_location: 'Sequence[str] | None' = None, size: 'Sequence[str] | None' = None, headcount_growth_min: 'int | None' = None, headcount_growth_max: 'int | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
       },
+      "search_sales_navigator_conversations": {
+        "coroutine": true,
+        "signature": "(self, keywords: 'str', limit: 'int' = 20, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
       "search_sales_navigator_leads": {
         "coroutine": true,
         "signature": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
@@ -201,6 +213,8 @@
       "get_my_profile",
       "get_sales_navigator_account",
       "get_sales_navigator_account_list",
+      "get_sales_navigator_conversation",
+      "get_sales_navigator_inbox",
       "get_saved_jobs",
       "get_sidebar_profiles",
       "invite_to_follow_page",
@@ -220,6 +234,7 @@
       "search_people",
       "search_posts",
       "search_sales_navigator_accounts",
+      "search_sales_navigator_conversations",
       "search_sales_navigator_leads",
       "search_targeting_entities",
       "send_message",
@@ -981,6 +996,81 @@
           "required": [
             "list_id"
           ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "get_sales_navigator_conversation": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "index": {
+              "default": 0,
+              "description": "0-based choice when the lead has several conversations,\nmost recent first. Ignored when thread_id is given.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "lead_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Lead id as search_sales_navigator_leads returned it (an\nfs_salesProfile URN or a /sales/lead/ URL is accepted too)"
+            },
+            "thread_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Sales Navigator thread id, or its /sales/inbox/ URL"
+            }
+          },
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "get_sales_navigator_inbox": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "filter": {
+              "default": "all",
+              "description": "The inbox view: all (default), unread, sent,\ninmail_pending, inmail_accepted, inmail_declined or archived",
+              "enum": [
+                "all",
+                "unread",
+                "sent",
+                "inmail_pending",
+                "inmail_accepted",
+                "inmail_declined",
+                "archived"
+              ],
+              "type": "string"
+            },
+            "limit": {
+              "default": 20,
+              "description": "Maximum number of conversations (1-1000, default 20)",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
           "type": "object"
         },
         "output": {
@@ -1902,6 +1992,33 @@
               "description": "One or a list of company headcount buckets or facet letters\n(A to I)."
             }
           },
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "search_sales_navigator_conversations": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "keywords": {
+              "description": "Search keywords",
+              "minLength": 1,
+              "type": "string"
+            },
+            "limit": {
+              "default": 20,
+              "description": "Maximum number of conversations (1-50, default 20)",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "keywords"
+          ],
           "type": "object"
         },
         "output": {

@@ -63,6 +63,9 @@ from linkedin_mcp_server.tools.messaging import register_messaging_tools
 from linkedin_mcp_server.tools.person import register_person_tools
 from linkedin_mcp_server.tools.post import register_post_tools
 from linkedin_mcp_server.tools.sales_navigator import register_sales_navigator_tools
+from linkedin_mcp_server.tools.sales_navigator_inbox import (
+    register_sales_navigator_inbox_tools,
+)
 
 if TYPE_CHECKING:
     from linkedin_mcp_server.daemon_proxy import DaemonProxyBackend
@@ -348,6 +351,7 @@ def create_mcp_server(
         register_campaign_manager_tools(mcp, tool_timeout=tool_timeout)
         register_campaign_manager_action_tools(mcp, tool_timeout=tool_timeout)
         register_sales_navigator_tools(mcp, tool_timeout=tool_timeout)
+        register_sales_navigator_inbox_tools(mcp, tool_timeout=tool_timeout)
         register_enrichment_tools(mcp, tool_timeout=tool_timeout)
         register_company_enrichment_tools(mcp, tool_timeout=tool_timeout)
 

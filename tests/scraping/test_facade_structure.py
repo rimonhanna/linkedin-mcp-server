@@ -71,6 +71,9 @@ PUBLIC_SIGNATURES = {
     "get_sales_navigator_account_list": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "list_page_follow_candidates": "(self, company_id: 'str', *, keywords: 'str | None' = None, limit: 'int' = 20, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "invite_to_follow_page": "(self, company_id: 'str', people: 'list[str]', *, confirm_send: 'bool', deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "get_sales_navigator_inbox": "(self, limit: 'int' = 20, filter: 'InboxFilter' = 'all', *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "get_sales_navigator_conversation": "(self, thread_id: 'str | None' = None, lead_id: 'str | None' = None, index: 'int' = 0, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "search_sales_navigator_conversations": "(self, keywords: 'str', limit: 'int' = 20, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "send_message": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'",
     "reply_to_conversation": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'",
 }
@@ -119,6 +122,9 @@ DELEGATES = {
     "get_sales_navigator_account_list": ("_sales_navigator", "get_account_list"),
     "list_page_follow_candidates": ("_page_invites", "list_follow_candidates"),
     "invite_to_follow_page": ("_page_invites", "invite_to_follow"),
+    "get_sales_navigator_inbox": ("_sales_inbox", "get_inbox"),
+    "get_sales_navigator_conversation": ("_sales_inbox", "get_conversation"),
+    "search_sales_navigator_conversations": ("_sales_inbox", "search_conversations"),
 }
 
 DELEGATE_CALLS = {
@@ -175,6 +181,15 @@ DELEGATE_CALLS = {
         "self._page_invites.invite_to_follow(company_id, people, "
         "confirm_send=confirm_send, deadline=deadline)"
     ),
+    "get_sales_navigator_inbox": (
+        "self._sales_inbox.get_inbox(limit, filter, deadline=deadline)"
+    ),
+    "get_sales_navigator_conversation": (
+        "self._sales_inbox.get_conversation(thread_id, lead_id, index, deadline=deadline)"
+    ),
+    "search_sales_navigator_conversations": (
+        "self._sales_inbox.search_conversations(keywords, limit, deadline=deadline)"
+    ),
 }
 
 FACADE_STATE = {
@@ -194,6 +209,7 @@ FACADE_STATE = {
     "_page_invites",
     "_person",
     "_posts",
+    "_sales_inbox",
     "_sales_navigator",
 }
 
