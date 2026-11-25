@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from linkedin_mcp_server.scraping import page_invites as pi
+
 from .test_page_invites import (
     IDS,
     _DialogPage,
@@ -57,4 +59,17 @@ async def test_a_send_without_credits_refuses_and_writes_nothing(writes):  # noq
     assert result["status"] == "credits_unavailable"
     assert result["retry_safe"] is True
     assert result["credits"] is None
+    assert result["section_errors"]["credits"]["error_type"] == "unavailable"
     assert _statuses(result) == {IDS[0]: "not_sent", IDS[1]: "not_sent"}
+
+
+async def test_a_dry_run_without_credits_still_holds_people_to_pacing(
+    writes,  # noqa: F811
+    monkeypatch,
+):
+    monkeypatch.setattr(pi, "_pacing_headroom", lambda _now: (1, None))
+    result = await _invite(_NoCreditsPage(rows=3), [IDS[0], IDS[1]], confirm=False)
+
+    assert result["status"] == "dry_run"
+    assert result["credits"] is None
+    assert _statuses(result) == {IDS[0]: "would_invite", IDS[1]: "pacing_cap"}

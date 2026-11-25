@@ -645,6 +645,10 @@ class PageInviteActions:
                 capture, dialog, company_id, asked, plan_deadline
             )
             report.credits = dialog.credits()
+            if report.credits is None:
+                report.credits_error = (
+                    "LinkedIn did not show the page's invitation credits."
+                )
             # A send never goes out without the credits; a dry run still plans.
             if report.credits is None and confirm_send:
                 return report.finish(
@@ -664,9 +668,6 @@ class PageInviteActions:
                 report.pacing = pacing_stop
             if not confirm_send:
                 if report.credits is None:
-                    report.credits_error = (
-                        "LinkedIn did not show the page's invitation credits."
-                    )
                     return report.finish(
                         "dry_run",
                         "Nothing was ticked or sent. LinkedIn did not show the "
