@@ -70,6 +70,7 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
     Lead,
     ListedAccount,
     SearchFilter,
+    SearchPaging,
     SeniorityLevel,
     build_account,
     build_account_card,
@@ -80,6 +81,7 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
     build_paging,
     build_search_query,
     build_withheld,
+    dropped_filters,
     missing_echoes,
     render_account,
     render_account_cards,
@@ -242,6 +244,72 @@ def _read_paging(
 
 def _criteria(values: Sequence[str] | None) -> list[str]:
     return [value.strip() for value in values or () if value.strip()]
+
+
+def _field(name: str, included: Sequence[str], excluded: Sequence[str]) -> str:
+    """The parameter names behind one filter, as a caller passed them."""
+    return "/".join(
+        label
+        for label, values in ((name, included), (f"exclude_{name}", excluded))
+        if values
+    )
+
+
+def _refuse_overlap(name: str, included: Sequence[str], excluded: Sequence[str]):
+    if both := [value for value in dict.fromkeys(included) if value in excluded]:
+        raise FilterValidationError(
+            f"{', '.join(both)} is in both {name} and exclude_{name}. Pass each "
+            "value in only one of them."
+        )
+
+
+def _relaxed_note(
+    payload: Any, filters: Sequence[tuple[str, SearchFilter]], rows: str, near: int
+) -> dict[str, str] | None:
+    """A note when Sales Navigator dropped a filter to answer; else None.
+
+    The echo checks already proved the request carried exactly the asked
+    filters, so any dropped filter means the rows match a looser search than
+    the one asked, and none of them is reported as a match.
+    """
+    asked = {search_filter.type: field for field, search_filter in filters}
+    dropped = list(
+        dict.fromkeys(asked.get(kind, kind) for kind in dropped_filters(payload))
+    )
+    if not dropped:
+        return None
+    if len(dropped) > 1:
+        named = f"{', '.join(dropped[:-1])} and {dropped[-1]} filters"
+        those = "those filters"
+    else:
+        named = f"{dropped[0]} filter"
+        those = "that filter"
+    return _error(
+        "filters_relaxed",
+        f"No {rows} match every filter. Sales Navigator dropped the {named} "
+        f"to show {near} near matches instead, which are not reported. Widen "
+        f"or remove {those} to see them.",
+    )
+
+
+def _relaxed(
+    payload: Any,
+    filters: Sequence[tuple[str, SearchFilter]],
+    paging: SearchPaging,
+    rows: str,
+) -> tuple[SearchPaging, dict[str, str]] | None:
+    """Empty paging and the note when Sales Navigator relaxed the search."""
+    note = _relaxed_note(payload, filters, rows, paging["total"])
+    if note is None:
+        return None
+    empty: SearchPaging = {
+        **paging,
+        "count": 0,
+        "total": 0,
+        "capped": False,
+        "more": False,
+    }
+    return empty, note
 
 
 class SalesNavigatorReader:
@@ -588,16 +656,22 @@ class SalesNavigatorReader:
         *,
         keywords: str | None = None,
         industry: Sequence[str] | None = None,
+        exclude_industry: Sequence[str] | None = None,
         hq_location: Sequence[str] | None = None,
         size: Sequence[str] | None = None,
         headcount_growth_min: int | None = None,
         headcount_growth_max: int | None = None,
         page: int = 1,
     ) -> dict[str, Any]:
-        """One page (25) of Sales Navigator account search results."""
+        """One page (25) of Sales Navigator account search results.
+
+        When Sales Navigator dropped an asked filter to find anything, no
+        account is reported and ``section_errors.accounts`` says which.
+        """
         self._check_page(page)
         keywords = (keywords or "").strip() or None
         industries = industry_ids(_criteria(industry))
+        not_industries = industry_ids(_criteria(exclude_industry))
         sizes = company_size_letters(_criteria(size))
         locations = _criteria(hq_location)
         growth = headcount_growth_min is not None or headcount_growth_max is not None
@@ -609,14 +683,26 @@ class SalesNavigatorReader:
             raise FilterValidationError(
                 "headcount_growth_min must not be greater than headcount_growth_max."
             )
-        if not (keywords or industries or sizes or locations or growth):
+        if not (
+            keywords or industries or not_industries or sizes or locations or growth
+        ):
             raise FilterValidationError(
                 "Give at least one search criterion: keywords, industry, "
-                "hq_location, size or a headcount growth bound."
+                "exclude_industry, hq_location, size or a headcount growth bound."
             )
+        _refuse_overlap("industry", industries, not_industries)
         filters: list[tuple[str, SearchFilter]] = []
-        if industries:
-            filters.append(("industry", SearchFilter(INDUSTRY, ids=tuple(industries))))
+        if industries or not_industries:
+            filters.append(
+                (
+                    _field("industry", industries, not_industries),
+                    SearchFilter(
+                        INDUSTRY,
+                        ids=tuple(industries),
+                        excluded_ids=tuple(not_industries),
+                    ),
+                )
+            )
         if locations:
             geo = await self._geo_ids(locations, "hq_location")
             filters.append(("hq_location", SearchFilter(REGION, ids=tuple(geo))))
@@ -641,6 +727,15 @@ class SalesNavigatorReader:
         paging = build_paging(response.payload, page, len(cards or ()))
         if cards is None or paging is None:
             raise _unverified("the account search results")
+        if relaxed := _relaxed(response.payload, filters, paging, "accounts"):
+            empty, note = relaxed
+            return {
+                "url": url,
+                "sections": {},
+                "accounts": [],
+                "section_errors": {"accounts": note},
+                "paging": empty,
+            }
         result: dict[str, Any] = {"url": url, "sections": {}, "accounts": cards}
         if text := render_account_cards(cards):
             result["sections"]["accounts"] = text
@@ -654,8 +749,10 @@ class SalesNavigatorReader:
         title: Sequence[str] | None = None,
         seniority: Sequence[str] | None = None,
         current_company: Sequence[str] | None = None,
+        exclude_current_company: Sequence[str] | None = None,
         location: Sequence[str] | None = None,
         industry: Sequence[str] | None = None,
+        exclude_industry: Sequence[str] | None = None,
         network: Sequence[str] | None = None,
         function: Sequence[str] | None = None,
         company_size: Sequence[str] | None = None,
@@ -669,7 +766,9 @@ class SalesNavigatorReader:
         """One page (25) of Sales Navigator lead search results.
 
         Leads with LinkedIn's third-party sharing block are left out and
-        counted in ``withheld``.
+        counted in ``withheld``. When Sales Navigator dropped an asked filter
+        to find anyone, no lead is reported and ``section_errors.leads`` says
+        which.
         """
         self._check_page(page)
         keywords = (keywords or "").strip() or None
@@ -682,8 +781,10 @@ class SalesNavigatorReader:
                 f"{list(SENIORITY_IDS)!r}."
             )
         companies = _criteria(current_company)
+        not_companies = _criteria(exclude_current_company)
         locations = _criteria(location)
         industries = industry_ids(_criteria(industry))
+        not_industries = industry_ids(_criteria(exclude_industry))
         degrees = network_tokens(_criteria(network))
         functions = function_ids(_criteria(function))
         sizes = company_size_letters(_criteria(company_size))
@@ -701,8 +802,10 @@ class SalesNavigatorReader:
             or titles
             or levels
             or companies
+            or not_companies
             or locations
             or industries
+            or not_industries
             or degrees
             or functions
             or sizes
@@ -714,10 +817,12 @@ class SalesNavigatorReader:
         ):
             raise FilterValidationError(
                 "Give at least one search criterion: keywords, title, seniority, "
-                "current_company, location, industry, network, function, "
-                "company_size, years_in_current_role, years_at_current_company, "
+                "current_company, exclude_current_company, location, industry, "
+                "exclude_industry, network, function, company_size, years_in_current_role, years_at_current_company, "
                 "account_list, lead_list or exclude_lead_list."
             )
+        _refuse_overlap("industry", industries, not_industries)
+        _refuse_overlap("lead_list", lead_lists, not_lead_lists)
         if lead_lists or not_lead_lists:
             await self._known_lists("LEAD", [*lead_lists, *not_lead_lists])
         if account_lists:
@@ -728,16 +833,34 @@ class SalesNavigatorReader:
         if levels:
             ids = tuple(SENIORITY_IDS[cast(SeniorityLevel, level)] for level in levels)
             filters.append(("seniority", SearchFilter(SENIORITY_LEVEL, ids=ids)))
-        if companies:
-            company_ids = tuple(await self._company_ids(companies))
+        if companies or not_companies:
+            company_ids = await self._company_ids(companies)
+            not_company_ids = await self._company_ids(not_companies)
+            _refuse_overlap("current_company", company_ids, not_company_ids)
             filters.append(
-                ("current_company", SearchFilter(CURRENT_COMPANY, ids=company_ids))
+                (
+                    _field("current_company", companies, not_companies),
+                    SearchFilter(
+                        CURRENT_COMPANY,
+                        ids=tuple(company_ids),
+                        excluded_ids=tuple(not_company_ids),
+                    ),
+                )
             )
         if locations:
             geo = await self._geo_ids(locations, "location")
             filters.append(("location", SearchFilter(REGION, ids=tuple(geo))))
-        if industries:
-            filters.append(("industry", SearchFilter(INDUSTRY, ids=tuple(industries))))
+        if industries or not_industries:
+            filters.append(
+                (
+                    _field("industry", industries, not_industries),
+                    SearchFilter(
+                        INDUSTRY,
+                        ids=tuple(industries),
+                        excluded_ids=tuple(not_industries),
+                    ),
+                )
+            )
         if degrees:
             filters.append(("network", SearchFilter(RELATIONSHIP, ids=tuple(degrees))))
         if functions:
@@ -767,7 +890,7 @@ class SalesNavigatorReader:
         if lead_lists or not_lead_lists:
             filters.append(
                 (
-                    "lead_list",
+                    _field("lead_list", lead_lists, not_lead_lists),
                     SearchFilter(
                         LEAD_LIST,
                         ids=tuple(lead_lists),
@@ -784,6 +907,15 @@ class SalesNavigatorReader:
         paging = build_paging(response.payload, page, len(built[0]) if built else 0)
         if built is None or paging is None:
             raise _unverified("the lead search results")
+        if relaxed := _relaxed(response.payload, filters, paging, "leads"):
+            empty, note = relaxed
+            return {
+                "url": url,
+                "sections": {},
+                "leads": [],
+                "section_errors": {"leads": note},
+                "paging": empty,
+            }
         leads, withheld = built
         result: dict[str, Any] = {"url": url, "sections": {}, "leads": leads}
         if text := render_leads(leads):
@@ -981,7 +1113,10 @@ class SalesNavigatorReader:
         The id is first looked up among the member's lead lists (see
         ``_known_lists``); ``lead_list`` is that record. When its entityCount
         is more than the search's total, ``section_errors.lead_list`` says
-        how many leads of the list the search does not serve.
+        how many leads of the list the search does not serve; when it is
+        less, it says the search may not have been limited to the list. A
+        page Sales Navigator answered by dropping a filter ends the read with
+        no leads and ``section_errors.leads`` (``filters_relaxed``).
         """
         list_ref = normalize_sales_list_id(list_id)
         self._check_page(page)
@@ -992,6 +1127,7 @@ class SalesNavigatorReader:
         withheld = 0
         total: int | None = None
         limit: dict[str, Any] | None = None
+        relaxed: dict[str, str] | None = None
         next_page: int | None = None
         slowest = 0.0
         current = page
@@ -1065,6 +1201,9 @@ class SalesNavigatorReader:
             )
             if built is None or paging is None:
                 raise _unverified("the lead list")
+            relaxed = _relaxed_note(response.payload, filters, "leads", paging["total"])
+            if relaxed is not None:
+                break
             rows, hidden = built
             if total is None:
                 total = paging["total"]
@@ -1099,6 +1238,8 @@ class SalesNavigatorReader:
                     )
                 break
             current += 1
+        if relaxed is not None:
+            leads, seen, withheld, total, limit, next_page = [], set(), 0, 0, None, None
         reported = total or 0
         start = (page - 1) * PAGE_SIZE
         # Unique leads: a lead a page repeats is one row read, not two.
@@ -1118,8 +1259,17 @@ class SalesNavigatorReader:
         section_errors: dict[str, dict[str, Any]] = {}
         if limit is not None:
             section_errors["leads"] = limit
+        if relaxed is not None:
+            section_errors["leads"] = relaxed
         held = lead_list.get("entityCount")
-        if held is not None and reported < held:
+        if held is not None and relaxed is None and reported > held:
+            section_errors["lead_list"] = _error(
+                "unverified",
+                f"The list holds {held} leads but Sales Navigator's search "
+                f"reported {reported}, so the search may not have been limited "
+                "to the list and some rows may not be in it.",
+            )
+        elif held is not None and relaxed is None and reported < held:
             section_errors["lead_list"] = _error(
                 "unavailable",
                 f"The list holds {held} leads but Sales Navigator's search "

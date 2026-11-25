@@ -408,9 +408,10 @@ def missing_echoes(
     What this proves is narrow: the page sent the request with the filter
     as built here, so a filter the page drops or rewrites is an error. It
     does not prove the server applied the filter, nor that an id names the
-    entity meant: the response does not echo applied filters, and LinkedIn
-    answers an id it does not know (an unknown list id, say) as an empty or
-    unfiltered result, not as an error.
+    entity meant: the response does not echo applied filters (it names only
+    the ones it dropped, see ``dropped_filters``), and LinkedIn answers an id
+    it does not know (an unknown list id, say) as an empty or unfiltered
+    result, not as an error.
     """
     captured = _record(captured_query)
     missing: list[str] = []
@@ -493,6 +494,24 @@ def build_paging(payload: Any, page: int, count: int) -> SearchPaging | None:
         "capped": total > RESULT_CAP,
         "more": start + size < min(total, RESULT_CAP),
     }
+
+
+def dropped_filters(payload: Any) -> list[str]:
+    """Filter types Sales Navigator removed from a search; ``[]`` = none.
+
+    When no row matches every filter, Sales Navigator answers with the rows
+    of a looser search instead and names the filters it took out in
+    ``metadata.appliedRelaxation.droppedFilters``.
+    """
+    metadata = as_mapping((as_mapping(payload) or {}).get("metadata")) or {}
+    relaxation = as_mapping(metadata.get("appliedRelaxation"))
+    if relaxation is None:
+        return []
+    return [
+        kind
+        for item in as_dicts(relaxation.get("droppedFilters"))
+        if (kind := as_str(item.get("filterType"))) is not None
+    ]
 
 
 def build_account_card(element: Any) -> AccountCard | None:

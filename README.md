@@ -82,8 +82,8 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `add_post_to_campaign` | Add a company page post (its share or ugcPost URN, as `list_sponsorable_posts` lists it, or its link) to a draft or paused campaign (UI "Ad set") as a creative (UI "Ad"). A feed activity id is refused: Campaign Manager doesn't link it to the post. `confirm_send` |
 | `create_company_list_audience` | Upload a list of companies (name, and optionally website and LinkedIn page) as a matched audience. Confirming accepts LinkedIn's Ads Agreement for the upload. `confirm_send` |
 | `create_saved_audience` | Save a campaign's (UI "Ad set") targeting as a named saved audience (1 to 25 characters). `confirm_send` |
-| `search_sales_navigator_accounts` | Search Sales Navigator accounts (companies) by keywords, industry, headquarters location, headcount and headcount growth; one page of 25 per call (`page` 1 to 40). Needs a Sales Navigator seat. Read-only |
-| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company, location, industry, connection degree (`network`), function, company headcount, years in the current role or at the current company, account lists and lead lists (in or not in); one page of 25 per call. Each lead carries its Sales Navigator `id`, a `profileUrl` link and its connection `degree`. Leads who opted out of third-party data sharing are left out and counted in `withheld`. Lead rows carry no Open Profile flag (the search does not ask for one); the send tools read Open Profile themselves. Needs a Sales Navigator seat. Read-only |
+| `search_sales_navigator_accounts` | Search Sales Navigator accounts (companies) by keywords, industry (in or not in), headquarters location, headcount and headcount growth; one page of 25 per call (`page` 1 to 40). When Sales Navigator drops a filter to find anything, its near matches are not reported: the result is empty and `section_errors.accounts` names the dropped filter. Needs a Sales Navigator seat. Read-only |
+| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company (in or not in), location, industry (in or not in), connection degree (`network`), function, company headcount, years in the current role or at the current company, account lists and lead lists (in or not in); one page of 25 per call. Each lead carries its Sales Navigator `id`, a `profileUrl` link and its connection `degree`. Leads who opted out of third-party data sharing are left out and counted in `withheld`. When Sales Navigator drops a filter to find anyone, its near matches are not reported: the result is empty and `section_errors.leads` names the dropped filter. Lead rows carry no Open Profile flag (the search does not ask for one); the send tools read Open Profile themselves. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account` | One company's Sales Navigator account page: description, industry, website, headquarters, revenue range, headcount and headcount growth. Needs a Sales Navigator seat. Read-only |
 | `list_sales_navigator_account_lists` | Every Sales Navigator account list of the member, with its size. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account_list` | One Sales Navigator account list and every company in it. Needs a Sales Navigator seat. Read-only |
@@ -365,7 +365,9 @@ to that list, so each page of 25 counts against `SEARCH_PAGES_MAX` and at most
 1,000 leads of one list can be read. One call reads at most 20 pages (500
 leads, a fifth of the default daily search cap); pass `next_page` to continue.
 A pacing cap that refuses a later page keeps the leads already read and names
-the cap and `resume_at` under `section_errors.leads`. The result confirms the
+the cap and `resume_at` under `section_errors.leads`. A page Sales Navigator
+answered by dropping the list filter ends the read with no leads and
+`section_errors.leads` (`filters_relaxed`). The result confirms the
 list (its name and size under `lead_list`) only when the page also sent the
 list's own record; otherwise a list id Sales Navigator does not know returns
 0 leads, so check the id against `list_sales_navigator_lead_lists`.

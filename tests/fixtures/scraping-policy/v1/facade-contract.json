@@ -186,7 +186,7 @@
       },
       "search_sales_navigator_accounts": {
         "coroutine": true,
-        "signature": "(self, *, keywords: 'str | None' = None, industry: 'Sequence[str] | None' = None, hq_location: 'Sequence[str] | None' = None, size: 'Sequence[str] | None' = None, headcount_growth_min: 'int | None' = None, headcount_growth_max: 'int | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
+        "signature": "(self, *, keywords: 'str | None' = None, industry: 'Sequence[str] | None' = None, exclude_industry: 'Sequence[str] | None' = None, hq_location: 'Sequence[str] | None' = None, size: 'Sequence[str] | None' = None, headcount_growth_min: 'int | None' = None, headcount_growth_max: 'int | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
       },
       "search_sales_navigator_conversations": {
         "coroutine": true,
@@ -194,7 +194,7 @@
       },
       "search_sales_navigator_leads": {
         "coroutine": true,
-        "signature": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, network: 'Sequence[str] | None' = None, function: 'Sequence[str] | None' = None, company_size: 'Sequence[str] | None' = None, years_in_current_role: 'Sequence[str] | None' = None, years_at_current_company: 'Sequence[str] | None' = None, account_list: 'Sequence[str] | None' = None, lead_list: 'Sequence[str] | None' = None, exclude_lead_list: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
+        "signature": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, exclude_current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, exclude_industry: 'Sequence[str] | None' = None, network: 'Sequence[str] | None' = None, function: 'Sequence[str] | None' = None, company_size: 'Sequence[str] | None' = None, years_in_current_role: 'Sequence[str] | None' = None, years_at_current_company: 'Sequence[str] | None' = None, account_list: 'Sequence[str] | None' = None, lead_list: 'Sequence[str] | None' = None, exclude_lead_list: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
       },
       "search_targeting_entities": {
         "coroutine": true,
@@ -2128,6 +2128,21 @@
         "input": {
           "additionalProperties": false,
           "properties": {
+            "exclude_industry": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Industries whose accounts are left out, numeric\nids or names."
+            },
             "headcount_growth_max": {
               "anyOf": [
                 {
@@ -2299,6 +2314,36 @@
               ],
               "default": null,
               "description": "One or a list of current companies, numeric\ncompany ids, urn:li:organization URNs or names."
+            },
+            "exclude_current_company": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Companies whose current employees are\nleft out, in the same forms as current_company."
+            },
+            "exclude_industry": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Industries whose leads are left out, numeric ids\nor names."
             },
             "exclude_lead_list": {
               "anyOf": [
