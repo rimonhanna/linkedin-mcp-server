@@ -215,7 +215,7 @@ class CampaignManagerCapture(ApiResponseCapture[CmCall]):
         *,
         after: int = 0,
         timeout: float = 12.0,
-        throttle: bool = True,
+        throttle: bool | Callable[[], bool] = True,
         wanted: Iterable[str] = (),
     ) -> CmResponse:
         """As the base wait, but a response ``refuse`` names raises at once.

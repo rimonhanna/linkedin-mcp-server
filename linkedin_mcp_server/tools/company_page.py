@@ -259,16 +259,20 @@ def register_company_page_tools(
             duplicate), and
             profileId, name, headline, publicIdentifier and detail when known.
             A not_invitable detail is not_a_candidate (the whole list was
-            read, or the person's name search returned, and no row matched
-            this identifier), ambiguous_identifier
+            read and no row matched this identifier), ambiguous_identifier
             (more than one row matched it, so none was chosen) or
             linkedin_declined (LinkedIn's own status label follows when it
             gave one). A not_found detail is not_in_candidates_read (paging
             stopped before the end; says how many were read and why),
             unmatchable_identifier (a Sales Navigator id that names no
-            dialog row) or name_search_failed (the search
-            did not answer, answered in an unknown shape or the browser
-            failed in it; the cause follows). A not_checked person was
+            dialog row), name_search_no_match (the person's name search
+            answered and no row matched this identifier) or
+            name_search_failed (the search did not answer the name typed,
+            answered in an unknown shape or the browser failed in it; the
+            cause follows). The search is given the name's own words only:
+            no bracketed part, emoji, symbol, honorific (Dr., Prof.) or
+            suffix (Jr., PhD), and nothing after a comma, " | ", " - ",
+            "•" or "·". A not_checked person was
             never looked up, not found absent: too little of the call's time
             was left for their name search (detail name_search_not_run
             (deadline)), so they were not ticked or sent; call again with

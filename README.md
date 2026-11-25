@@ -451,7 +451,10 @@ identifiers the other tools return, including Sales Navigator lead results.
 The dialog lists only about the oldest 100 connections, so pass `names` (one
 per person) for anyone else: a person not among the candidates is looked up
 once with the dialog's own name search, and a result counts only when its id is
-theirs, never by name alone. With
+theirs, never by name alone. The search is given the name cleaned of bracketed
+parts, emoji, honorifics, suffixes and anything after a comma or a separator
+such as " | ", and a person the search does not return is reported `not_found`
+with detail `name_search_no_match`. With
 `confirm_send` false it ticks nothing and reports what it would do. With
 `confirm_send` true it ticks those rows, checks that the dialog's selection is
 exactly that list, and only then presses Invite; the browser lets through a

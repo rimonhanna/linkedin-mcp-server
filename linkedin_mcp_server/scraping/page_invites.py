@@ -25,6 +25,7 @@ import logging
 import random
 import re
 import time
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Literal
 from urllib.parse import unquote, urlparse
@@ -268,11 +269,74 @@ def _is_search(response: InviteResponse) -> bool:
     )
 
 
-_TYPED_KEYWORDS = re.compile(r"[(,]keywords:([^,)]*)")
+# The value runs to the next ``,<field>:`` or the closing brackets, not to the
+# first ``,`` or ``)``: once the query string is decoded, a bracket or comma in
+# the text typed is literal there.
+_TYPED_KEYWORDS = re.compile(r"[(,]keywords:(.*?)(?=,\w+:|\)$)")
+_BRACKETED = re.compile(r"[(\[{][^)\]}]*(?:[)\]}]|$)")
+# What follows one of these in a display name is a headline, a title or
+# credentials, not the name.
+_NAME_END = re.compile(r",| \| | - |[\u2022\u00b7]")
+_HONORIFICS = frozenset({"dr", "mr", "mrs", "ms", "mx", "prof"})
+_SUFFIXES = frozenset(
+    {
+        "jr", "sr", "ii", "iii", "iv", "phd", "dphil", "mba", "mbbs", "msc",
+        "bsc", "md", "llm", "meng", "beng", "mph", "cpa", "cfa", "pmp", "esq",
+        "frcs", "mrcp", "acca", "fca",
+    }
+)  # fmt: skip
+_KEYCAP = re.compile("[0-9#*]\ufe0f?\u20e3")
+_NAME_PUNCTUATION = frozenset("-'\u2019.")
 
 
 def _words(text: str) -> str:
     return " ".join(text.split()).casefold()
+
+
+def _name_char(char: str) -> bool:
+    if char in _NAME_PUNCTUATION:
+        return True
+    category = unicodedata.category(char)
+    if category[0] == "L" or category == "Nd":
+        return True
+    # A vowel sign is a mark; a variation selector (an emoji's) is one too.
+    variation = "\ufe00" <= char <= "\ufe0f" or "\U000e0100" <= char <= "\U000e01ef"
+    return category in ("Mn", "Mc") and not variation
+
+
+def _bare(word: str) -> str:
+    return word.replace(".", "").casefold()
+
+
+def _credential(word: str) -> bool:
+    """A trailing suffix written as one: dotted (M.D.) or not in title case
+    (MBA, PhD), or Jr/Sr. "Mba", "Ii" or "Md" is a surname and stays."""
+    bare = _bare(word)
+    if bare not in _SUFFIXES:
+        return False
+    return "." in word or word != word.capitalize() or bare in ("jr", "sr")
+
+
+def _search_text(name: str) -> str:
+    """What the dialog's search box is given for ``name``: its words, without
+    a bracketed part, emoji, symbols, an honorific or suffix, or what follows
+    a comma, " | ", " - ", "•" or "·". The search only finds the
+    person; the match is by id."""
+    head = _NAME_END.split(unicodedata.normalize("NFKC", name), maxsplit=1)[0]
+    head = _KEYCAP.sub(" ", _BRACKETED.sub(" ", head))
+    kept = "".join(char if _name_char(char) else " " for char in head)
+    words = [word for word in kept.split() if any(char.isalnum() for char in word)]
+    while len(words) > 1 and _bare(words[0]) in _HONORIFICS:
+        words.pop(0)
+    while len(words) > 1 and _credential(words[-1]):
+        words.pop()
+    return " ".join(words)
+
+
+def _typed(response: InviteResponse) -> str | None:
+    """The keywords a search response answered, as they were typed."""
+    found = _TYPED_KEYWORDS.search(response.call.params.get("variables", ""))
+    return None if found is None else unquote(found.group(1))
 
 
 def _is_search_for(keywords: str) -> Any:
@@ -282,8 +346,8 @@ def _is_search_for(keywords: str) -> Any:
     def matches(response: InviteResponse) -> bool:
         if not _is_search(response):
             return False
-        typed = _TYPED_KEYWORDS.search(response.call.params.get("variables", ""))
-        return typed is not None and _words(unquote(typed.group(1))) == _words(keywords)
+        typed = _typed(response)
+        return typed is not None and _words(typed) == _words(keywords)
 
     return matches
 
@@ -608,8 +672,32 @@ class PageInviteActions:
         timeout = 12.0
         if end is not None:
             timeout = max(end - time.monotonic() - _SEARCH_SETTLE_SECONDS, 0.1)
+
+        def missed() -> bool:
+            """Whether the miss counts its half signal: not when LinkedIn
+            answered text that is no earlier keystroke of this search, which
+            is a mismatch on this side. Earlier keystrokes answered with the
+            last one silent still count."""
+            other = [
+                response
+                for response in capture.matching(_is_search, after)
+                if not _words(keywords).startswith(_words(_typed(response) or ""))
+            ]
+            if other:
+                logger.info(
+                    "The dialog's name search answered other keywords than "
+                    "typed (%r): %s",
+                    keywords,
+                    ", ".join(sorted({repr(_typed(r)) for r in other})),
+                )
+            return not other
+
         await capture.wait_for(
-            _is_search_for(keywords), after=after, timeout=timeout, wanted=(TYPEAHEAD,)
+            _is_search_for(keywords),
+            after=after,
+            timeout=timeout,
+            throttle=missed,
+            wanted=(TYPEAHEAD,),
         )
         # The status call for the result set follows it.
         await asyncio.sleep(_SEARCH_SETTLE_SECONDS)
@@ -733,7 +821,13 @@ class PageInviteActions:
                 deadline=plan_deadline,
                 most=MAX_INVITE_CANDIDATES,
             )
-            named = {i: name for i, name in enumerate(names or []) if name}
+            # The search text, not the name: brackets, emoji and credentials
+            # find no one in the dialog's search.
+            named = {
+                i: text
+                for i, name in enumerate(names or [])
+                if name and (text := _search_text(name))
+            }
             lookups = [
                 index
                 for index, ref in enumerate(refs)
@@ -1070,8 +1164,8 @@ class _Report:
         profile id when they are planned."""
         if not matches:
             # Only after a name search: the candidates were looked through first.
-            self.statuses[index] = "not_invitable"
-            self.details[index] = "not_a_candidate"
+            self.statuses[index] = "not_found"
+            self.details[index] = "name_search_no_match"
             return None
         if len(matches) > 1:
             self.statuses[index] = "not_invitable"
