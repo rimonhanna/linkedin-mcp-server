@@ -466,7 +466,7 @@ class TestPacing:
         withdrawer, _, clicks = _withdrawer(ROWS)
         result = await withdrawer.withdraw_invitations(7, dry_run=False)
         assert clicks == []
-        assert result["stopped_reason"].startswith("action_limit")
+        assert result["stopped_reason"].startswith("outside_working_hours: ")
 
     async def test_every_withdrawal_is_admitted_and_recorded(self, hooks):
         withdrawer, _, clicks = _withdrawer(ROWS)

@@ -60,7 +60,14 @@ _CONNECT_SUCCEEDED = frozenset(
 # that could not be read, a dialog naming someone else, a LinkedIn throttle or
 # a withdrawal that could not be confirmed keeps the run's trace.
 _WITHDRAW_SUCCEEDED = frozenset(
-    {"finished", "deadline", "hourly_cap", "action_limit", "account_cooldown"}
+    {
+        "finished",
+        "deadline",
+        "hourly_cap",
+        "action_limit",
+        "outside_working_hours",
+        "account_cooldown",
+    }
 )
 
 
@@ -512,7 +519,7 @@ def register_person_tools(
             the raw toast or banner text seen after the withdrawal. stopped_reason is null when the run finished; otherwise
             it says why it stopped early (no_rows_found when the page showed no
             invitations, so an empty result with rows_seen 0 means the page could
-            not be read, not that nothing is old enough; list_not_fully_loaded when the list did not finish loading before the call deadline, nothing is withdrawn then; confirmation_dialog_name_mismatch when the dialog named someone else, nothing is pressed; account cooldown, the hourly cap, the call deadline, a LinkedIn
+            not be read, not that nothing is old enough; list_not_fully_loaded when the list did not finish loading before the call deadline, nothing is withdrawn then; confirmation_dialog_name_mismatch when the dialog named someone else, nothing is pressed; account cooldown, the hourly cap, outside_working_hours when only this server's schedule held it, the call deadline, a LinkedIn
             throttle, or a withdraw control that could not be confirmed),
             and withdrawn holds what was done before that. unconfirmed lists an
             invitation whose confirm button was pressed but whose removal

@@ -131,6 +131,12 @@ def limit_exceeded_section_error(error: ActionLimitError) -> dict[str, Any]:
     }
 
 
+def pacing_stop(error: ActionLimitError) -> str:
+    """A refusal as a stop reason: the schedule names itself, a cap is
+    ``action_limit``."""
+    return str(error) if error.schedule_only else f"action_limit: {error}"
+
+
 class _Omitted:
     """A result field the caller did not pass."""
 

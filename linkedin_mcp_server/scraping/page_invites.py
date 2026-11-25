@@ -46,6 +46,7 @@ from linkedin_mcp_server.pacing import (
     record_write,
     refuse_if_limited,
 )
+from linkedin_mcp_server.scraping.contracts import pacing_stop
 from linkedin_mcp_server.scraping.navigation import PageNavigator
 from linkedin_mcp_server.scraping.page_invite_api import (
     InviteResponse,
@@ -408,22 +409,17 @@ def _pacing_headroom(
         refuse_if_limited(budget, PAGE_INVITES, now)
     except ActionLimitError as exc:
         if not (dry_run and exc.schedule_only):
-            return 0, _refusal(exc), None
-        schedule = _refusal(exc)
+            return 0, pacing_stop(exc), None
+        schedule = pacing_stop(exc)
         try:
             refuse_if_limited(budget, PAGE_INVITES, now, ignore_schedule=True)
         except ActionLimitError as capped:
-            return 0, _refusal(capped), schedule
+            return 0, pacing_stop(capped), schedule
     left, _wait = kind_headroom(budget, PAGE_INVITES, now, ignore_schedule=dry_run)
     hourly = hourly_headroom(budget, now)
     if hourly <= 0:
         return 0, "hourly_cap", schedule
     return min(left, hourly), None, schedule
-
-
-def _refusal(exc: ActionLimitError) -> str:
-    prefix = "outside_working_hours" if exc.schedule_only else "action_limit"
-    return f"{prefix}: {exc}"
 
 
 def _searchable(ref: InviteeRef) -> bool:
@@ -759,7 +755,7 @@ class PageInviteActions:
                     "LinkedIn did not show the page's invitation credits, so "
                     "nothing was invited.",
                 )
-            headroom, pacing_stop, schedule = _pacing_headroom(
+            headroom, held_by, schedule = _pacing_headroom(
                 datetime.now(timezone.utc), dry_run=not confirm_send
             )
             chosen = report.plan(
@@ -770,8 +766,8 @@ class PageInviteActions:
                 paging_stop=reason,
                 lookups=set(lookups),
             )
-            if pacing_stop:
-                report.pacing = pacing_stop
+            if held_by:
+                report.pacing = held_by
             report.schedule = schedule
             if confirm_send:
                 if (
