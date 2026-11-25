@@ -3346,7 +3346,9 @@ async def _page_invite_run(
         # Fixed headroom: the real one reads the clock and the schedule.
         with (
             patch.object(
-                page_invites_module, "_pacing_headroom", lambda _now: (20, None)
+                page_invites_module,
+                "_pacing_headroom",
+                lambda _now, **_k: (20, None, None),
             ),
             recorder.context(method, name),
         ):

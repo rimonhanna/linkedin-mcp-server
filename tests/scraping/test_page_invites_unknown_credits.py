@@ -70,7 +70,7 @@ async def test_a_dry_run_without_credits_still_holds_people_to_pacing(
     writes,  # noqa: F811
     monkeypatch,
 ):
-    monkeypatch.setattr(pi, "_pacing_headroom", lambda _now: (1, None))
+    monkeypatch.setattr(pi, "_pacing_headroom", lambda _now, **_k: (1, None, None))
     result = await _invite(_NoCreditsPage(rows=3), [IDS[0], IDS[1]], confirm=False)
 
     assert result["status"] == "dry_run"
