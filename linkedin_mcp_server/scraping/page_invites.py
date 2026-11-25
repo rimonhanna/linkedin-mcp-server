@@ -28,6 +28,8 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+from patchright.async_api import Error as PlaywrightError
+
 from linkedin_mcp_server.core.exceptions import (
     InvalidReferenceError,
     LinkedInScraperException,
@@ -64,6 +66,7 @@ from linkedin_mcp_server.scraping.page_invite_payload import (
     batch_statuses,
     can_match_a_row,
     dialog_community,
+    embedded_credits,
     invitable_by_profile,
     invite_dialog_url,
     invitee_ref,
@@ -416,6 +419,20 @@ class PageInviteActions:
             await asyncio.sleep(_POLL_SECONDS)
         await capture.settle()
 
+    async def _credits(self, dialog: _Dialog, company_id: str) -> Credits | None:
+        # A direct load renders the credits into the page instead of fetching them.
+        captured = dialog.credits()
+        if captured is not None:
+            return captured
+        try:
+            page_html = await self._page.content()
+        except PlaywrightError as exc:
+            logger.warning(
+                "Reading the page for its invitation credits failed: %s", exc
+            )
+            return None
+        return embedded_credits(page_html, company_id)
+
     async def _dialog_state(self) -> dict[str, Any]:
         state = await self._page.evaluate(_DIALOG_STATE_JS)
         return state if isinstance(state, dict) else {"open": False}
@@ -563,7 +580,7 @@ class PageInviteActions:
                 capture, dialog, company_id, rows, deadline
             )
             candidates = _decorate(rows, dialog.invitable())
-            credits = dialog.credits()
+            credits = await self._credits(dialog, company_id)
         result: dict[str, Any] = {
             "url": invite_dialog_url(company_id),
             "company_id": company_id,
@@ -644,7 +661,7 @@ class PageInviteActions:
             await self._await_statuses(
                 capture, dialog, company_id, asked, plan_deadline
             )
-            report.credits = dialog.credits()
+            report.credits = await self._credits(dialog, company_id)
             if report.credits is None:
                 report.credits_error = (
                     "LinkedIn did not show the page's invitation credits."
