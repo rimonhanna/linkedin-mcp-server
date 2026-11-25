@@ -168,7 +168,7 @@ class ApiResponseCapture(Generic[_C]):
         except TimeoutError as exc:
             seen = ", ".join(sorted(self.seen_resources)) or "none"
             logger.warning("No matching %s response; seen: %s", self.label, seen)
-            if throttle if isinstance(throttle, bool) else throttle():
+            if throttle() if callable(throttle) else throttle:
                 # A half signal: one missing reply is also what a slow proxy
                 # looks like; two within ten minutes make a throttle.
                 self._note_throttle("payload_timeout", half=True)

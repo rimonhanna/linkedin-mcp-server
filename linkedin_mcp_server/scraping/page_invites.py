@@ -277,7 +277,7 @@ _BRACKETED = re.compile(r"[(\[{][^)\]}]*(?:[)\]}]|$)")
 # What follows one of these in a display name is a headline, a title or
 # credentials, not the name.
 _NAME_END = re.compile(r",| \| | - |[\u2022\u00b7]")
-_HONORIFICS = frozenset({"dr", "mr", "mrs", "ms", "miss", "mx", "prof", "sir"})
+_HONORIFICS = frozenset({"dr", "mr", "mrs", "ms", "mx", "prof"})
 _SUFFIXES = frozenset(
     {
         "jr", "sr", "ii", "iii", "iv", "phd", "dphil", "mba", "mbbs", "msc",
@@ -308,6 +308,15 @@ def _bare(word: str) -> str:
     return word.replace(".", "").casefold()
 
 
+def _credential(word: str) -> bool:
+    """A trailing suffix written as one: dotted (M.D.) or not in title case
+    (MBA, PhD), or Jr/Sr. "Mba", "Ii" or "Md" is a surname and stays."""
+    bare = _bare(word)
+    if bare not in _SUFFIXES:
+        return False
+    return "." in word or word != word.capitalize() or bare in ("jr", "sr")
+
+
 def _search_text(name: str) -> str:
     """What the dialog's search box is given for ``name``: its words, without
     a bracketed part, emoji, symbols, an honorific or suffix, or what follows
@@ -319,7 +328,7 @@ def _search_text(name: str) -> str:
     words = [word for word in kept.split() if any(char.isalnum() for char in word)]
     while len(words) > 1 and _bare(words[0]) in _HONORIFICS:
         words.pop(0)
-    while len(words) > 1 and _bare(words[-1]) in _SUFFIXES:
+    while len(words) > 1 and _credential(words[-1]):
         words.pop()
     return " ".join(words)
 
