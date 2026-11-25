@@ -349,22 +349,46 @@ def _line(candidate: Candidate) -> str:
     return " | ".join(part for part in parts if part)
 
 
-def _pacing_headroom(now: datetime) -> tuple[int, str | None]:
-    """Page invitations the account may send now, and why none when zero."""
+def _pacing_headroom(
+    now: datetime, *, dry_run: bool = False
+) -> tuple[int, str | None, str | None]:
+    """Page invitations the account may send now, why none when zero, and the
+    schedule note.
+
+    A dry run sends nothing, so outside working hours it still plans under the
+    real caps and reports the schedule apart, as the third value, instead of
+    planning no one.
+    """
     store = JobStore()
     resume_at = cooldown_resume_at(store, now)
     if resume_at is not None:
-        return 0, f"account_cooldown until {resume_at.isoformat(timespec='seconds')}"
+        return (
+            0,
+            f"account_cooldown until {resume_at.isoformat(timespec='seconds')}",
+            None,
+        )
     budget = load_account_budget(store, now)
+    schedule: str | None = None
     try:
         refuse_if_limited(budget, PAGE_INVITES, now)
     except ActionLimitError as exc:
-        return 0, f"action_limit: {exc}"
-    left, _wait = kind_headroom(budget, PAGE_INVITES, now)
+        if not (dry_run and exc.schedule_only):
+            return 0, _refusal(exc), None
+        schedule = _refusal(exc)
+        try:
+            refuse_if_limited(budget, PAGE_INVITES, now, ignore_schedule=True)
+        except ActionLimitError as capped:
+            return 0, _refusal(capped), schedule
+    left, _wait = kind_headroom(budget, PAGE_INVITES, now, ignore_schedule=dry_run)
     hourly = hourly_headroom(budget, now)
     if hourly <= 0:
-        return 0, "hourly_cap"
-    return min(left, hourly), None
+        return 0, "hourly_cap", schedule
+    return min(left, hourly), None, schedule
+
+
+def _refusal(exc: ActionLimitError) -> str:
+    prefix = "outside_working_hours" if exc.schedule_only else "action_limit"
+    return f"{prefix}: {exc}"
 
 
 PersonStatus = Literal[
@@ -673,7 +697,9 @@ class PageInviteActions:
                     "LinkedIn did not show the page's invitation credits, so "
                     "nothing was invited.",
                 )
-            headroom, pacing_stop = _pacing_headroom(datetime.now(timezone.utc))
+            headroom, pacing_stop, schedule = _pacing_headroom(
+                datetime.now(timezone.utc), dry_run=not confirm_send
+            )
             chosen = report.plan(
                 rows,
                 dialog.invitable(),
@@ -683,6 +709,7 @@ class PageInviteActions:
             )
             if pacing_stop:
                 report.pacing = pacing_stop
+            report.schedule = schedule
             if not confirm_send:
                 if report.credits is None:
                     return report.finish(
@@ -815,6 +842,7 @@ class _Report:
         self.credits: Credits | None = None
         self.credits_error: str | None = None
         self.pacing: str | None = None
+        self.schedule: str | None = None
         self.resolved: dict[int, Candidate] = {}
         self.statuses: dict[int, PersonStatus] = {}
         self.details: dict[int, str] = {}
@@ -981,6 +1009,8 @@ class _Report:
         }
         if self.pacing:
             result["pacing"] = self.pacing
+        if self.schedule:
+            result["schedule"] = self.schedule
         if self.credits_error:
             result["section_errors"] = {
                 "credits": {

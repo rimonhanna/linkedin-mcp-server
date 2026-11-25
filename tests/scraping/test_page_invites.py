@@ -362,7 +362,7 @@ def writes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         pi, "record_write", lambda _store, kind, _now: recorded.append(kind)
     )
     monkeypatch.setattr(pi, "JobStore", lambda *a, **k: None)
-    monkeypatch.setattr(pi, "_pacing_headroom", lambda _now: (20, None))
+    monkeypatch.setattr(pi, "_pacing_headroom", lambda _now, **_k: (20, None, None))
     monkeypatch.setattr(pi.random, "uniform", lambda _a, _b: 0)
     monkeypatch.setattr(pi, "_SEND_TIMEOUT", 0.2)
     monkeypatch.setattr(pi, "_SEARCH_SETTLE_SECONDS", 0.05)
@@ -468,7 +468,7 @@ async def test_a_dry_run_ticks_and_sends_nothing_and_counts_credits(writes):
 
 
 async def test_the_pacing_cap_holds_people_back(writes, monkeypatch):
-    monkeypatch.setattr(pi, "_pacing_headroom", lambda _now: (1, None))
+    monkeypatch.setattr(pi, "_pacing_headroom", lambda _now, **_k: (1, None, None))
     result = await _invite(_DialogPage(rows=3), [IDS[0], IDS[1]], confirm=False)
     assert _statuses(result) == {IDS[0]: "would_invite", IDS[1]: "pacing_cap"}
 

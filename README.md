@@ -458,6 +458,10 @@ the credits, `credits` is null and `section_errors.credits` says why: a dry run
 still reports each person, with `would_invite` not limited by credits, and a
 send refuses with `credits_unavailable` and invites no one. A result with `retry_safe`
 false may have sent invitations: check the page before calling again.
+Sends are refused outside working hours, the server's own schedule rather than a
+LinkedIn limit; a dry run then still plans everyone under the caps and its
+`schedule` note says when sends resume. Only `WORKING_HOURS_DISABLED=1` lifts
+this: the tool has no `ignore_schedule`.
 
 
 ## 🚀 uvx Setup (Recommended - Universal)

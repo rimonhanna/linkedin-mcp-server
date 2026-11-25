@@ -185,6 +185,11 @@ def register_company_page_tools(
         reported not_invitable, not as an error. An invitation whose outcome
         is unknown is never sent again: check the page before calling again.
 
+        Sends are refused outside working hours, which is this server's own
+        schedule and not a LinkedIn limit; a dry run then still plans in full
+        under the caps and says in schedule when sends resume. Only
+        WORKING_HOURS_DISABLED=1 lifts it; this tool has no ignore_schedule.
+
         Args:
             company_id: The page's numeric company id, or its /company/<id>/
                 admin URL.
@@ -199,7 +204,9 @@ def register_company_page_tools(
         Returns:
             Dict with url, company_id, status, message, dry_run, retry_safe,
             people and credits (remaining, total, nextGrantOn, needed), plus
-            pacing when a cap or cooldown held people back. When LinkedIn
+            pacing when a cap or cooldown held people back (prefixed
+            outside_working_hours when only the schedule did), and schedule
+            on a dry run outside working hours. When LinkedIn
             does not show the credits, credits is null and
             section_errors.credits says why: a dry run still reports each
             person, and would_invite is not limited by credits, while a send

@@ -296,11 +296,25 @@ class ActionLimitError(LinkedInMCPError, LinkedInScraperException):
         self.window = window
         self.resume_at = resume_at
         when = resume_at.isoformat(timespec="minutes")
+        if self.schedule_only:
+            # No "limit_exceeded:" lead here: read as a LinkedIn rate limit, it
+            # made a live agent give up on work the next morning would allow.
+            words = kind.replace("_", " ")
+            super().__init__(
+                f"{words} are not sent outside working hours (this server's "
+                f"schedule, not a LinkedIn limit); {words} resume at {when}."
+            )
+            return
         if limit:
             reason = f"{kind} limit of {limit} per {window} reached"
         else:
             reason = f"{kind} are not sent outside {window}"
         super().__init__(f"{self.error_type}: {reason}. Resume at {when}.")
+
+    @property
+    def schedule_only(self) -> bool:
+        """Refused only by this server's working hours, not by any cap."""
+        return self.limit == 0 and self.window == "working hours"
 
     @classmethod
     def from_section_error(cls, error: dict) -> ActionLimitError:
