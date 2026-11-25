@@ -1,0 +1,33 @@
+{
+  "call": {
+    "arguments": {
+      "accounts": [
+        "100000001"
+      ],
+      "confirm_send": false,
+      "name": "Example list"
+    },
+    "method": "create_sales_navigator_account_list"
+  },
+  "events": [],
+  "result": {
+    "accounts": [
+      {
+        "id": "100000001",
+        "input": "100000001",
+        "status": "would_add"
+      }
+    ],
+    "dry_run": true,
+    "list": {
+      "name": "Example list"
+    },
+    "message": "Nothing was created. confirm_send true sends 2 requests: one creating the list, one adding the accounts marked would_add.",
+    "retry_safe": true,
+    "status": "dry_run",
+    "tool": "create_sales_navigator_account_list",
+    "url": "https://www.linkedin.com/sales/lists/company"
+  },
+  "scenario": "create_sales_navigator_account_list__dry_run",
+  "schema_version": 1
+}

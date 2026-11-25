@@ -85,6 +85,14 @@
       "description": "List employees at a company from the LinkedIn /people/ page, with optional keyword filter by name, title, or skill"
     },
     {
+      "name": "list_page_follow_candidates",
+      "description": "For a company page you administer, list the 1st-degree connections its Invite to follow dialog offers, whether each can be invited, and the page's monthly invitation credits; read-only"
+    },
+    {
+      "name": "invite_to_follow_page",
+      "description": "Invite exactly the given people (profile ids, profile URLs, Sales Navigator lead ids or URNs, member URNs) to follow a company page you administer, matched by member id; confirm_send false is a dry run reporting who would be invited and the credits used; stops at the remaining credits and the daily cap, with a status per person"
+    },
+    {
       "name": "get_job_details",
       "description": "Retrieve specific job posting details using LinkedIn job IDs, including how the posting takes applications"
     },
@@ -190,7 +198,7 @@
     },
     {
       "name": "search_sales_navigator_leads",
-      "description": "Search Sales Navigator leads (people) by keywords, title, seniority, current company, location and industry, one page of 25 per call; leads who opted out of third-party data sharing are left out and counted (read-only)"
+      "description": "Search Sales Navigator leads (people) by keywords, title, seniority, current company, location, industry, connection degree, function, company headcount, tenure, account lists and lead lists, one page of 25 per call; leads who opted out of third-party data sharing are left out and counted (read-only)"
     },
     {
       "name": "get_sales_navigator_account",
@@ -203,6 +211,46 @@
     {
       "name": "get_sales_navigator_account_list",
       "description": "Get one Sales Navigator account list and every company in it (read-only)"
+    },
+    {
+      "name": "list_sales_navigator_lead_lists",
+      "description": "List every Sales Navigator lead list of the member (read-only)"
+    },
+    {
+      "name": "get_sales_navigator_lead_list",
+      "description": "Get the leads of one Sales Navigator lead list, up to 1,000 (read-only)"
+    },
+    {
+      "name": "get_sales_navigator_inbox",
+      "description": "List recent Sales Navigator inbox conversations in any inbox view (all, unread, sent, InMail states, archived); unread conversations stay unread (read-only)"
+    },
+    {
+      "name": "get_sales_navigator_conversation",
+      "description": "Read one Sales Navigator conversation by thread id or lead id, with up to 40 of its newest messages; unread stays unread (read-only)"
+    },
+    {
+      "name": "search_sales_navigator_conversations",
+      "description": "Search Sales Navigator messages by keyword through the inbox search box; unread stays unread (read-only)"
+    },
+    {
+      "name": "send_sales_navigator_message",
+      "description": "Send a new Sales Navigator message to a lead with explicit confirmation; a dry run reports the message type, its InMail cost and the credits left, and spending an InMail credit needs spend_inmail_credit"
+    },
+    {
+      "name": "reply_to_sales_navigator_conversation",
+      "description": "Reply inside an existing Sales Navigator conversation by thread ID with explicit confirmation; verifies the conversation and its reply box first"
+    },
+    {
+      "name": "create_sales_navigator_account_list",
+      "description": "Create a Sales Navigator account list, optionally adding up to 25 accounts by the ids account search returns; confirm_send false is a dry run"
+    },
+    {
+      "name": "add_accounts_to_sales_navigator_list",
+      "description": "Add up to 25 accounts (company ids from account search) to one Sales Navigator account list in one request, with a status per account; confirm_send false is a dry run"
+    },
+    {
+      "name": "delete_sales_navigator_account_list",
+      "description": "Delete one Sales Navigator account list by its exact id, only when its current name equals expected_name; confirm_send false is a dry run"
     },
     {
       "name": "close_session",

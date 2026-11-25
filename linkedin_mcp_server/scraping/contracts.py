@@ -53,6 +53,27 @@ SEND_INTERRUPTED_WARNING = (
 )
 
 
+# A send that may already have left has to answer. FastMCP runs a tool inside
+# `anyio.fail_after()`, and a deadline landing after the click discards
+# whatever the send would have returned, so the work after dispatch stops this
+# far ahead of the deadline the call runs under and answers `send_unconfirmed`
+# itself. A sixth of the time left, capped so a long TOOL_TIMEOUT does not cut
+# confirmation short for nothing.
+_SEND_REPLY_RESERVE_FRACTION = 1 / 6
+_SEND_REPLY_RESERVE_SECONDS = 5.0
+
+
+def send_budget_deadline() -> float:
+    """When the work after dispatch has to stop, on the event loop's clock."""
+    deadline = anyio.current_effective_deadline()
+    if math.isinf(deadline):
+        return deadline
+    remaining = max(0.0, deadline - anyio.current_time())
+    return deadline - min(
+        _SEND_REPLY_RESERVE_SECONDS, remaining * _SEND_REPLY_RESERVE_FRACTION
+    )
+
+
 def before_the_reply_deadline(
     limit: float = math.inf, *, shield: bool = False
 ) -> anyio.CancelScope:
@@ -162,6 +183,22 @@ def normalize_message_line_breaks(message: str) -> str:
     return _NEWLINE_RUN_RE.sub("\n\n", message.replace("\r\n", "\n")).strip("\n")
 
 
+def line_breaks_lost(message: str, delivered: str | None) -> bool:
+    """True when the delivered text equals the message except for its line breaks."""
+    if delivered is None:
+        return False
+
+    def lines(text: str) -> list[str]:
+        text = normalize_message_line_breaks(text)
+        return [line.strip() for line in text.split("\n") if line.strip()]
+
+    # A blank line between <p> elements is extra, not lost; only fewer
+    # non-empty lines than the message means breaks were dropped.
+    return len(lines(delivered)) < len(lines(message)) and " ".join(
+        message.split()
+    ) == " ".join(delivered.split())
+
+
 def reply_action_result(
     url: str,
     status: str,
@@ -192,7 +229,7 @@ def reply_action_result(
     }
 
 
-def _invalid_message_reason(message: str) -> str | None:
+def invalid_message_reason(message: str) -> str | None:
     if not message.strip():
         return "Message must contain non-whitespace characters."
     if any(
@@ -211,7 +248,7 @@ def refuse_an_invalid_message(
     linkedin_username: str, message: str
 ) -> dict[str, Any] | None:
     """Return the shared browser-free refusal for an unsafe message."""
-    reason = _invalid_message_reason(message)
+    reason = invalid_message_reason(message)
     if reason is None:
         return None
     return message_action_result(
@@ -223,7 +260,7 @@ def refuse_an_invalid_message(
 
 def refuse_an_invalid_reply(thread_id: str, message: str) -> dict[str, Any] | None:
     """The same refusal for a reply, addressed to the thread."""
-    reason = _invalid_message_reason(message)
+    reason = invalid_message_reason(message)
     if reason is None:
         return None
     thread_id = unquote(normalize_thread_id(thread_id))

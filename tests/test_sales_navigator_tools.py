@@ -154,6 +154,14 @@ class TestDelegation:
             current_company=["100000001"],
             location=["102890719"],
             industry=["106"],
+            network=None,
+            function=None,
+            company_size=None,
+            years_in_current_role=None,
+            years_at_current_company=None,
+            account_list=None,
+            lead_list=None,
+            exclude_lead_list=None,
             page=3,
         )
 

@@ -36,14 +36,15 @@ a page-owning collaborator.
 | `connection` | `ActionSignals`, `ConnectionState`, `detect_connection_state()` | `browser-free` |
 | `connection_actions` | `ACTION_SIGNALS_JS`, `CLICK_CONNECT_JS`, `CLICK_INCOMING_ACCEPT_JS`, `ConnectionActions`, `ReadMainProfile` | `page-owning` |
 | `content` | `PageContentReader` | `page-owning` |
-| `contracts` | `ExtractedSection`, `FilterValidationError`, `RATE_LIMITED_SECTION_TEXT`, `SEND_INTERRUPTED_WARNING`, `before_the_reply_deadline()`, `limit_exceeded_section_error()`, `message_action_result()`, `normalize_message_line_breaks()`, `rate_limited_section_error()`, `refuse_an_invalid_message()`, `refuse_an_invalid_reply()`, `reply_action_result()` | `browser-free` |
+| `contracts` | `ExtractedSection`, `FilterValidationError`, `RATE_LIMITED_SECTION_TEXT`, `SEND_INTERRUPTED_WARNING`, `before_the_reply_deadline()`, `invalid_message_reason()`, `limit_exceeded_section_error()`, `line_breaks_lost()`, `message_action_result()`, `normalize_message_line_breaks()`, `rate_limited_section_error()`, `refuse_an_invalid_message()`, `refuse_an_invalid_reply()`, `reply_action_result()`, `send_budget_deadline()` | `browser-free` |
 | `conversations` | `ConversationReader` | `page-owning` |
+| `enter_to_send` | `ENTER_TO_SEND_ENABLED`, `ENTER_TO_SEND_JS`, `ENTER_TO_SEND_MESSAGE` | `browser-free` |
 | `extractor` | `LinkedInExtractor` | `page-owning` |
 | `facets` | `FacetResolver`, `GEO_ID_PATTERN`, `LOCATION_BOX_SELECTOR`, `SUGGESTION_SETTLE_INTERVAL`, `SUGGESTION_SETTLE_READS`, `TYPEAHEAD_TIMEOUT_MS`, `TYPEAHEAD_URL` | `page-owning` |
 | `feed` | `FeedScraper` | `page-owning` |
 | `feed_payload` | `POST_SLUG_URL_RE`, `build_feed_references()`, `is_feed_payload_response()` | `browser-free` |
 | `fields` | `COMPANY_SECTIONS`, `PERSON_SECTIONS`, `parse_company_sections()`, `parse_person_sections()` | `browser-free` |
-| `identifiers` | `CAMPAIGN_MANAGER_ACCOUNTS_URL`, `SALES_ACCOUNT_LISTS_URL`, `campaign_manager_date_range()`, `campaign_manager_url()`, `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_ad_account_id()`, `normalize_campaign_group_id()`, `normalize_campaign_id()`, `normalize_company_identifier()`, `normalize_company_page_url()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_person_identifier()`, `normalize_post_urn()`, `normalize_profile_urn()`, `normalize_sales_company_id()`, `normalize_sales_list_id()`, `normalize_targeting_urn()`, `normalize_thread_id()`, `normalize_website()`, `person_profile_url()`, `sales_account_list_url()`, `sales_company_url()` | `browser-free` |
+| `identifiers` | `CAMPAIGN_MANAGER_ACCOUNTS_URL`, `SALES_ACCOUNT_LISTS_URL`, `SALES_INBOX_URL`, `SALES_LEAD_LISTS_URL`, `campaign_manager_date_range()`, `campaign_manager_url()`, `company_page_url()`, `job_view_url()`, `messaging_thread_url()`, `normalize_ad_account_id()`, `normalize_campaign_group_id()`, `normalize_campaign_id()`, `normalize_company_identifier()`, `normalize_company_page_url()`, `normalize_job_id()`, `normalize_opaque_id()`, `normalize_page_company_id()`, `normalize_person_identifier()`, `normalize_post_urn()`, `normalize_profile_urn()`, `normalize_sales_company_id()`, `normalize_sales_lead_id()`, `normalize_sales_list_id()`, `normalize_sales_thread_id()`, `normalize_targeting_urn()`, `normalize_thread_id()`, `normalize_website()`, `person_profile_url()`, `refuse_opaque_member_id()`, `sales_account_list_url()`, `sales_company_url()`, `sales_inbox_thread_url()`, `sales_inbox_url()` | `browser-free` |
 | `invitation_withdrawal` | `InvitationWithdrawer`, `MAX_WITHDRAWALS_LIMIT`, `age_text()`, `normalize_exclusions()`, `parse_age_days()`, `plan_withdrawals()`, `username_from_href()` | `browser-free` |
 | `job_pages` | `APPLY_SIGNALS_JS`, `JOB_IDS_JS`, `JobApplySignals`, `JobPageCapture`, `JobPageReader`, `ORGANIC_BEFORE_NOTICE_JS`, `PROMOTED_JOB_IDS_JS` | `page-owning` |
 | `job_policy` | `AI_SEARCH_PATH`, `ApplyType`, `JOB_SEARCH_PATHS`, `JobsTrackerStage`, `LOCATION_RESOLUTION_MIN`, `LOCATION_RESOLUTION_RESERVE`, `RESULTS_PER_LINKEDIN_PAGE`, `SAFETY_REDIRECT_PATH`, `SAVED_JOBS_PAGE_SIZE`, `SAVED_JOBS_PATHS`, `SAVED_JOBS_URL`, `SCROLL_BUDGET_TOTAL`, `SCROLL_DEADLINE_MAX`, `SEARCH_TIMEOUT_FRACTION`, `ai_search_section_error()`, `apply_link_missing_section_error()`, `dropped_filters_section_error()`, `dropped_offset_section_error()`, `dropped_stage_section_error()`, `employer_apply_url()`, `label_similar_jobs()`, `lost_keywords_section_error()`, `missing_description_section_error()`, `no_matching_jobs_section_error()`, `posting_state()`, `reaches_the_public_internet()`, `reconcile_search_references()`, `route()`, `same_job_search()`, `unresolved_location_section_error()` | `browser-free` |
@@ -52,8 +53,12 @@ a page-owning collaborator.
 | `message_sender` | `MessageSender` | `page-owning` |
 | `messaging_api` | `MessagingApiCapture`, `has_searchable_text()`, `normalize_keywords()` | `browser-free` |
 | `messaging_payload` | `HistoryStopReason`, `MessageHistory`, `MessagingParticipant`, `ParticipantCoverage`, `StructuredConversation`, `StructuredMessage`, `build_conversation_references()`, `build_message_page_url()`, `build_message_references()`, `build_structured_conversation()`, `conversation_container()`, `conversation_elements()`, `conversation_matches_username()`, `conversation_rows_text()`, `conversation_thread_path()`, `find_conversation_by_thread_id()`, `format_message_elements()`, `merge_message_elements()`, `message_elements()`, `provider_timestamp()`, `replace_conversation_urn()` | `browser-free` |
-| `messaging_read_state` | `allow_explicit_message_write()`, `register_read_state_routes()`, `without_read_state_writes()` | `browser-free` |
+| `messaging_read_state` | `allow_explicit_message_write()`, `allowed_sales_send()`, `close_sales_send()`, `open_one_sales_send()`, `register_read_state_routes()`, `without_read_state_writes()` | `browser-free` |
 | `navigation` | `PageNavigator`, `WaitUntil` | `page-owning` |
+| `page_invite_api` | `PageInviteCapture` | `browser-free` |
+| `page_invite_guard` | `InviteWindow`, `admission_refusal()`, `explicit_page_invite()`, `register_page_invite_routes()`, `without_page_invites()` | `browser-free` |
+| `page_invite_payload` | `CREDITS`, `Candidate`, `Credits`, `INVITATIONS`, `InviteCall`, `InviteeRef`, `ORGANIZATION_INVITATION`, `PROFILE_URN`, `STATUSES`, `SUGGESTIONS`, `TYPEAHEAD`, `VOYAGER_API`, `batch_statuses()`, `can_match_a_row()`, `dialog_community()`, `invitable_by_profile()`, `invitation_batch()`, `invite_dialog_url()`, `invitee_ref()`, `inviter_allowed()`, `is_profile_id()`, `matching_rows()`, `member_id_of()`, `page_credits()`, `parse_invite_call()`, `profile_url()`, `ref_matches()`, `status_labels()`, `suggestion_candidates()`, `suggestion_page()`, `typeahead_candidates()` | `browser-free` |
+| `page_invites` | `MAX_CANDIDATES`, `MAX_INVITEES`, `MAX_INVITE_CANDIDATES`, `NotPageAdminError`, `PageInviteActions`, `PersonStatus`, `SHOW_MORE_LABELS` | `browser-free` |
 | `person` | `PersonScraper` | `page-owning` |
 | `posts` | `PostSearch` | `browser-free` |
 | `profile_page` | `MessageTarget`, `MessageTargetResolution`, `ProfilePageReader`, `ReadMessageTarget` | `page-owning` |
@@ -61,7 +66,17 @@ a page-owning collaborator.
 | `restli` | `as_dicts()`, `as_int()`, `as_mapping()`, `as_str()`, `entity_id()`, `envelope_elements()`, `envelope_paging()`, `envelope_record()`, `envelope_total()`, `included_by_urn()`, `iso_from_ms()`, `normalized_elements()`, `plain_elements()`, `restli_list()`, `same_id()` | `browser-free` |
 | `sales_navigator` | `SalesNavigatorReader` | `page-owning` |
 | `sales_navigator_api` | `SalesNavigatorCapture` | `browser-free` |
+| `sales_navigator_composer_js` | `CLEANUP_JS`, `DISPOSE_JS`, `FIELD_JS`, `FOCUS_CHECK_JS`, `PIN_JS`, `PREPARE_WRITE_JS`, `SETTLE_WRITE_JS`, `STATE_JS`, `SUBMIT_JS`, `SUBMIT_READY_JS` | `browser-free` |
+| `sales_navigator_inbox` | `SalesNavigatorInboxReader` | `page-owning` |
+| `sales_navigator_inbox_payload` | `ACCESS`, `FILTERS`, `InboxConversation`, `InboxFilter`, `InboxMessage`, `LIST_FINDER`, `MESSAGE_BATCH`, `MESSAGE_DECORATION`, `NAV_CHROME`, `Participant`, `SEARCH_FINDER`, `SalesConversation`, `THREADS`, `ThreadHistory`, `ViewerCheck`, `build_conversation_row()`, `build_conversation_rows()`, `build_message()`, `build_messages()`, `build_older_messages()`, `build_participants()`, `build_thread()`, `chrome_viewer()`, `no_inbox_access()`, `render_conversation()`, `render_conversations()`, `strip_delivered_at()`, `viewer_of()` | `browser-free` |
+| `sales_navigator_lead_filters` | `ACCOUNT_LIST`, `FUNCTION`, `FUNCTION_IDS`, `LEAD_LIST`, `RELATIONSHIP`, `TENURE_IDS`, `TenureBucket`, `YEARS_AT_CURRENT_COMPANY`, `YEARS_IN_CURRENT_POSITION`, `function_ids()`, `tenure_ids()` | `browser-free` |
+| `sales_navigator_list_guard` | `ListWriteWindow`, `PlannedListWrite`, `admission_refusal()`, `explicit_list_write()`, `register_sales_list_routes()`, `without_sales_list_writes()` | `browser-free` |
+| `sales_navigator_list_payload` | `ACCOUNT_LIST_TYPE`, `AccountStatus`, `COMPANIES`, `DESCRIPTION_MAX_LENGTH`, `LISTS`, `MAX_ACCOUNTS_PER_CALL`, `NAME_MAX_LENGTH`, `add_request()`, `add_statuses()`, `create_request()`, `created_list_id()`, `delete_request()`, `refuse_invalid_list_text()` | `browser-free` |
+| `sales_navigator_list_writes` | `ADD_TOOL`, `CREATE_TOOL`, `DELETE_TOOL`, `ListWriteLedger`, `PlannedAccounts`, `SalesNavigatorListWriter`, `Transmit`, `list_write_result()`, `plan_accounts()`, `tracking_list_writes()` | `page-owning` |
 | `sales_navigator_payload` | `Account`, `AccountCard`, `AccountList`, `COMPANY_FILTER_ID`, `COMPANY_HEADCOUNT`, `COMPANY_HEADCOUNT_GROWTH`, `CURRENT_COMPANY`, `CURRENT_TITLE`, `EmployeeGrowth`, `Headquarters`, `INDUSTRY`, `Lead`, `ListedAccount`, `MAX_PAGE`, `PAGE_SIZE`, `Position`, `REGION`, `RESULT_CAP`, `RevenueRange`, `SENIORITY_IDS`, `SENIORITY_LEVEL`, `SN_API_PREFIX`, `SearchFilter`, `SearchPaging`, `Seniority`, `SeniorityLevel`, `SnCall`, `SnMoney`, `T`, `WITHHELD_REASON`, `Withheld`, `build_account()`, `build_account_card()`, `build_account_list()`, `build_elements()`, `build_lead()`, `build_leads()`, `build_listed_account()`, `build_paging()`, `build_search_query()`, `build_withheld()`, `is_withheld()`, `missing_echoes()`, `parse_sn_call()`, `render_account()`, `render_account_cards()`, `render_account_lists()`, `render_leads()`, `render_listed_accounts()`, `restli_value()`, `sales_company_id()`, `sales_profile_id()`, `search_page_url()`, `unrequested_echoes()` | `browser-free` |
+| `sales_navigator_send_contract` | `Delivery`, `DeliveryKind`, `INMAIL_CREDITS_UNKNOWN`, `INMAIL_CREDIT_REQUIRED`, `INMAIL_REPLY_COST_UNKNOWN`, `NO_INMAIL_CREDITS`, `Recipient`, `SEND_BLOCKED_NO_CREDITS`, `SUBJECT_REQUIRED`, `compose_route_urn()`, `refuse_an_invalid_sales_message()`, `refuse_an_invalid_sales_reply()`, `sales_compose_url()`, `sales_message_result()`, `sales_profile_urn()`, `sales_reply_result()` | `browser-free` |
+| `sales_navigator_send_page` | `CONNECTION_DEGREE`, `CREDITS`, `SendCapture`, `THREADS`, `existing_thread()`, `inbox_refused()`, `inmail_credits()`, `is_profile()`, `is_send()`, `merged_profile()`, `profile_name()`, `profile_of()`, `reply_cost()`, `sent_body()`, `thread_of()`, `thread_participant()`, `thread_viewer()` | `browser-free` |
+| `sales_navigator_sender` | `SalesNavigatorMessageSender` | `browser-free` |
 | `search_pages` | `SearchPages`, `paginate_search()`, `search_rows()` | `browser-free` |
 | `search_parse` | `parse_company_cards()`, `parse_count()`, `parse_people_cards()`, `parse_result_count()` | `browser-free` |
 | `search_urls` | `COMPANY_INDUSTRY_IDS`, `COMPANY_SIZE_LETTERS`, `CONTENT_DATE_POSTED_MAP`, `CONTENT_TYPE_MAP`, `EXPERIENCE_LEVEL_MAP`, `JOB_DATE_POSTED_MAP`, `JOB_TYPE_MAP`, `NETWORK_TOKENS`, `SORT_BY_MAP`, `WORK_TYPE_MAP`, `as_list()`, `build_company_search_url()`, `build_content_search_url()`, `build_job_search_url()`, `build_people_search_url()`, `company_size_letters()`, `industry_ids()`, `network_tokens()`, `profile_languages()`, `require_company_criteria()`, `require_people_criteria()`, `school_id()` | `browser-free` |
@@ -93,7 +108,8 @@ a page-owning collaborator.
 - `content` -> `session`, `text`
 - `contracts` -> `identifiers`, `link_metadata`
 - `conversations` -> `content`, `identifiers`, `link_metadata`, `messaging_api`, `messaging_payload`, `messaging_read_state`, `navigation`, `profile_page`, `session`, `text`
-- `extractor` -> `campaign_manager`, `campaign_manager_audiences`, `campaign_manager_content`, `campaign_manager_editor`, `campaign_manager_targeting`, `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `person`, `posts`, `profile_page`, `sales_navigator`, `session`, `text`
+- `enter_to_send` -> _(none)_
+- `extractor` -> `campaign_manager`, `campaign_manager_audiences`, `campaign_manager_content`, `campaign_manager_editor`, `campaign_manager_targeting`, `capture`, `company`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `page_invites`, `person`, `posts`, `profile_page`, `sales_navigator`, `sales_navigator_inbox`, `sales_navigator_inbox_payload`, `sales_navigator_list_writes`, `sales_navigator_sender`, `session`, `text`
 - `facets` -> `capture`, `company_parse`, `contracts`, `identifiers`, `job_policy`, `link_metadata`, `navigation`, `session`
 - `feed` -> `content`, `contracts`, `feed_payload`, `navigation`, `session`, `text`
 - `feed_payload` -> `link_metadata`
@@ -104,19 +120,33 @@ a page-owning collaborator.
 - `job_policy` -> `link_metadata`, `text`
 - `jobs` -> `capture`, `contracts`, `facets`, `identifiers`, `job_pages`, `job_policy`, `link_metadata`, `navigation`, `search_urls`, `session`, `text`
 - `link_metadata` -> _(none)_
-- `message_sender` -> `contracts`, `identifiers`, `messaging_read_state`, `navigation`, `session`
+- `message_sender` -> `contracts`, `enter_to_send`, `identifiers`, `messaging_read_state`, `navigation`, `session`
 - `messaging_api` -> `messaging_payload`
 - `messaging_payload` -> `identifiers`, `link_metadata`
 - `messaging_read_state` -> _(none)_
 - `navigation` -> `rate_limit`, `session`
+- `page_invite_api` -> `api_capture`, `page_invite_payload`
+- `page_invite_guard` -> `page_invite_payload`
+- `page_invite_payload` -> `restli`
+- `page_invites` -> `navigation`, `page_invite_api`, `page_invite_guard`, `page_invite_payload`, `session`
 - `person` -> `capture`, `contracts`, `facets`, `fields`, `identifiers`, `link_metadata`, `navigation`, `profile_page`, `search_pages`, `search_parse`, `search_urls`, `session`, `text`
 - `posts` -> `capture`, `contracts`, `link_metadata`, `search_urls`
 - `profile_page` -> `session`
 - `rate_limit` -> _(none)_
 - `restli` -> _(none)_
-- `sales_navigator` -> `contracts`, `facets`, `identifiers`, `navigation`, `restli`, `sales_navigator_api`, `sales_navigator_payload`, `search_urls`, `session`
+- `sales_navigator` -> `contracts`, `facets`, `identifiers`, `navigation`, `restli`, `sales_navigator_api`, `sales_navigator_lead_filters`, `sales_navigator_payload`, `search_urls`, `session`
 - `sales_navigator_api` -> `api_capture`, `sales_navigator_payload`
+- `sales_navigator_composer_js` -> _(none)_
+- `sales_navigator_inbox` -> `identifiers`, `messaging_read_state`, `restli`, `sales_navigator`, `sales_navigator_api`, `sales_navigator_inbox_payload`, `sales_navigator_payload`, `session`
+- `sales_navigator_inbox_payload` -> `restli`, `sales_navigator_payload`
+- `sales_navigator_lead_filters` -> `contracts`
+- `sales_navigator_list_guard` -> `sales_navigator_payload`
+- `sales_navigator_list_payload` -> `restli`, `sales_navigator_list_guard`, `sales_navigator_payload`
+- `sales_navigator_list_writes` -> `contracts`, `identifiers`, `restli`, `sales_navigator`, `sales_navigator_list_guard`, `sales_navigator_list_payload`, `sales_navigator_payload`
 - `sales_navigator_payload` -> `identifiers`, `restli`
+- `sales_navigator_send_contract` -> `contracts`, `identifiers`
+- `sales_navigator_send_page` -> `restli`, `sales_navigator_api`, `sales_navigator_inbox_payload`, `sales_navigator_payload`
+- `sales_navigator_sender` -> `contracts`, `identifiers`, `messaging_read_state`, `restli`, `sales_navigator`, `sales_navigator_api`, `sales_navigator_composer_js`, `sales_navigator_payload`, `sales_navigator_send_contract`, `sales_navigator_send_page`, `session`
 - `search_pages` -> `capture`, `contracts`, `link_metadata`, `search_parse`, `session`
 - `search_parse` -> _(none)_
 - `search_urls` -> `contracts`
@@ -125,12 +155,15 @@ a page-owning collaborator.
 
 ## `LinkedInExtractor` public coroutine surface
 
+- `add_accounts_to_sales_navigator_list`
 - `add_post_to_campaign`
 - `click_button_by_text`
 - `connect_with_person`
 - `create_campaign_draft`
 - `create_company_list_audience`
+- `create_sales_navigator_account_list`
 - `create_saved_audience`
+- `delete_sales_navigator_account_list`
 - `extract_feed`
 - `extract_page`
 - `get_campaign`
@@ -142,14 +175,21 @@ a page-owning collaborator.
 - `get_page_text`
 - `get_sales_navigator_account`
 - `get_sales_navigator_account_list`
+- `get_sales_navigator_conversation`
+- `get_sales_navigator_inbox`
+- `get_sales_navigator_lead_list`
 - `get_saved_jobs`
 - `get_sidebar_profiles`
+- `invite_to_follow_page`
 - `list_ad_accounts`
 - `list_audiences`
 - `list_campaigns`
+- `list_page_follow_candidates`
 - `list_sales_navigator_account_lists`
+- `list_sales_navigator_lead_lists`
 - `list_sponsorable_posts`
 - `reply_to_conversation`
+- `reply_to_sales_navigator_conversation`
 - `scrape_company`
 - `scrape_job`
 - `scrape_person`
@@ -159,9 +199,11 @@ a page-owning collaborator.
 - `search_people`
 - `search_posts`
 - `search_sales_navigator_accounts`
+- `search_sales_navigator_conversations`
 - `search_sales_navigator_leads`
 - `search_targeting_entities`
 - `send_message`
+- `send_sales_navigator_message`
 - `set_campaign_status`
 - `update_campaign`
 - `update_campaign_targeting`
@@ -182,9 +224,13 @@ a page-owning collaborator.
 - `_feed`
 - `_jobs`
 - `_message_sender`
+- `_page_invites`
 - `_person`
 - `_posts`
+- `_sales_inbox`
 - `_sales_navigator`
+- `_sales_navigator_lists`
+- `_sales_navigator_sender`
 
 ## Dependency-direction violations
 

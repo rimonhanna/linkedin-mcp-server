@@ -22,6 +22,11 @@ from linkedin_mcp_server.core.exceptions import (
     LinkedInScraperException,
 )
 import linkedin_mcp_server.scraping.contracts as contracts
+from linkedin_mcp_server.scraping.enter_to_send import (
+    ENTER_TO_SEND_ENABLED,
+    ENTER_TO_SEND_JS,
+    ENTER_TO_SEND_MESSAGE,
+)
 from linkedin_mcp_server.scraping.identifiers import (
     messaging_thread_url,
     normalize_person_identifier,
@@ -209,17 +214,12 @@ _PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 1_000
 # without one would hold the browser for the full ten seconds.
 _SEND_PROFILE_MESSAGE_TARGET_TIMEOUT_MS = 10_000
 _MESSAGE_SUBMIT_READY_TIMEOUT_MS = 1_000
+_ENTER_TO_SEND_SETTLE_TIMEOUT_MS = 1_000
 _MESSAGE_CLEANUP_TIMEOUT_SECONDS = 1.0
-# A send that may already have left has to answer. FastMCP runs a tool inside
-# `anyio.fail_after()`, and a deadline landing after the click discards
-# whatever the send would have returned, so the work after dispatch stops this
-# far ahead of the deadline the call runs under and answers `send_unconfirmed`
-# itself. A sixth of the time left, capped so a long TOOL_TIMEOUT does not cut
-# confirmation short for nothing.
-_SEND_REPLY_RESERVE_FRACTION = 1 / 6
-_SEND_REPLY_RESERVE_SECONDS = 5.0
 
-_MESSAGE_COMPOSER_INSPECT_JS = r"""
+_MESSAGE_COMPOSER_INSPECT_JS = (
+    ENTER_TO_SEND_JS
+    + r"""
     const visible = element => {
         const visibility = element && getComputedStyle(element).visibility;
         return !!(
@@ -392,6 +392,7 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
             localScope,
             owner,
             buttons,
+            enterToSend: enterToSendOn(localScope, buttons.length, visible),
             active: document.activeElement === editor,
             empty: !(editor.innerText || '').replace(/\s+/g, ' ').trim(),
             messageRoute: messageRoute(target),
@@ -418,6 +419,7 @@ _MESSAGE_COMPOSER_INSPECT_JS = r"""
         return owner;
     };
 """
+)
 
 _MESSAGE_COMPOSER_OWNER_JS = (
     "(arg) => {"
@@ -931,6 +933,7 @@ _MESSAGE_COMPOSER_STATE_JS = (
             active: state.active === true,
             empty: state.empty === true,
             submitCount: state.buttons ? state.buttons.length : 0,
+            enterToSend: state.enterToSend === true,
             submitUsable: state.buttons?.length === 1 &&
                 !state.buttons[0].disabled &&
                 (state.buttons[0].getAttribute('aria-disabled') || '').toLowerCase()
@@ -944,6 +947,17 @@ _MESSAGE_COMPOSER_READY_JS = (
     + _MESSAGE_COMPOSER_INSPECT_JS
     + """
         return inspect(target).status === 'valid';
+    }"""
+)
+
+# Resolves once the composer no longer reads as Press Enter to Send, which a
+# Send button rendering after the editor and its toggle does.
+_MESSAGE_ENTER_TO_SEND_SETTLED_JS = (
+    "(target) => {"
+    + _MESSAGE_COMPOSER_INSPECT_JS
+    + """
+        const state = inspect(target);
+        return !(state.status === 'valid' && state.enterToSend);
     }"""
 )
 
@@ -1404,22 +1418,6 @@ class _SendConfirmation:
     text: str | None = None
 
 
-def _line_breaks_lost(message: str, delivered: str | None) -> bool:
-    """True when the delivered text equals the message except for its line breaks."""
-    if delivered is None:
-        return False
-
-    def lines(text: str) -> list[str]:
-        text = contracts.normalize_message_line_breaks(text)
-        return [line.strip() for line in text.split("\n") if line.strip()]
-
-    # A blank line between <p> elements is extra, not lost; only fewer
-    # non-empty lines than the message means breaks were dropped.
-    return len(lines(delivered)) < len(lines(message)) and " ".join(
-        message.split()
-    ) == " ".join(delivered.split())
-
-
 def _confirmation_from_snapshot(
     snapshot: Any, target: _MessageTarget | None = None
 ) -> _SendConfirmation | None:
@@ -1530,17 +1528,6 @@ def _profile_urn_from_compose_url(value: str, *, base: str | None = None) -> str
     if len(identifiers) != 1:
         return None
     return identifiers.pop()
-
-
-def _send_budget_deadline() -> float:
-    """When the work after dispatch has to stop, on the event loop's clock."""
-    deadline = anyio.current_effective_deadline()
-    if math.isinf(deadline):
-        return deadline
-    remaining = max(0.0, deadline - anyio.current_time())
-    return deadline - min(
-        _SEND_REPLY_RESERVE_SECONDS, remaining * _SEND_REPLY_RESERVE_FRACTION
-    )
 
 
 def _message_page_url_is_safe(value: str, profile_urn: str) -> bool:
@@ -1721,6 +1708,22 @@ class MessageSender:
             self._message_target_argument(target),
         )
         return state if isinstance(state, dict) else {"status": "invalid"}
+
+    async def _enter_to_send_persists(self, target: _MessageTarget) -> bool:
+        """Whether Press Enter to Send still reads as on once a late Send
+        button has had time to render."""
+        try:
+            await self._page.wait_for_function(
+                _MESSAGE_ENTER_TO_SEND_SETTLED_JS,
+                arg=self._message_target_argument(target),
+                timeout=_ENTER_TO_SEND_SETTLE_TIMEOUT_MS,
+            )
+        except PlaywrightTimeoutError:
+            pass
+        except Exception:
+            logger.debug("Could not wait for a late Send button", exc_info=True)
+        state = await self._read_message_composer_state(target)
+        return state.get("status") == "valid" and state.get("enterToSend") is True
 
     async def _focus_verified_message_editor(self, target: _MessageTarget) -> bool:
         """Focus the same editor after local contradiction checks."""
@@ -2076,7 +2079,7 @@ class MessageSender:
         profile_url = person_profile_url(linkedin_username, "/")
         # Read while the whole call is still ahead, so the reserve is a share
         # of the tool's time rather than of whatever navigation left over.
-        budget_deadline = _send_budget_deadline()
+        budget_deadline = contracts.send_budget_deadline()
 
         await self._navigator._navigate_to_page(profile_url)
         await self._session.check_rate_limit()
@@ -2183,6 +2186,15 @@ class MessageSender:
                 "The local composer did not identify exactly the requested profile.",
             )
         recipient_selected = True
+        if state.get("enterToSend") is True and await self._enter_to_send_persists(
+            target
+        ):
+            return contracts.message_action_result(
+                self._page.url,
+                ENTER_TO_SEND_ENABLED,
+                ENTER_TO_SEND_MESSAGE,
+                recipient_selected=recipient_selected,
+            )
 
         if not confirm_send:
             return contracts.message_action_result(
@@ -2246,6 +2258,8 @@ class MessageSender:
                 "compose_interact_failed",
                 "The verified message composer changed before text entry.",
             )
+        if state.get("enterToSend") is True:
+            return respond(self._page.url, ENTER_TO_SEND_ENABLED, ENTER_TO_SEND_MESSAGE)
         if state.get("submitCount") != 1:
             return respond(
                 self._page.url,
@@ -2423,7 +2437,7 @@ class MessageSender:
                             if isinstance(target, _ProfileMessageTarget)
                             else {}
                         )
-                        if _line_breaks_lost(message, confirmed.text):
+                        if contracts.line_breaks_lost(message, confirmed.text):
                             return respond(
                                 self._page.url,
                                 "sent_flattened",
@@ -2535,7 +2549,7 @@ class MessageSender:
 
         respond = respond_for(None)
         # Read while the whole call is still ahead, as send_message does.
-        budget_deadline = _send_budget_deadline()
+        budget_deadline = contracts.send_budget_deadline()
         # Opening a thread is a read until the reply is confirmed: a refusal
         # or a dry run must leave the thread unread, so every step up to that
         # decision runs with LinkedIn's read-state writes blocked.
@@ -2588,6 +2602,15 @@ class MessageSender:
                     "The thread URL changed while its title was read.",
                 )
             respond = respond_for(participant)
+            if state.get("enterToSend") is True and await self._enter_to_send_persists(
+                target
+            ):
+                return respond(
+                    self._page.url,
+                    ENTER_TO_SEND_ENABLED,
+                    ENTER_TO_SEND_MESSAGE,
+                    recipient_selected=True,
+                )
 
             if not confirm_send:
                 return respond(

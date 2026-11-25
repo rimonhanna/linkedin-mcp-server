@@ -641,7 +641,12 @@ class ScriptedPage:
         return passed
 
     def assert_clean(
-        self, *, retained_read_guard: bool = False, retained_cm_guard: bool = False
+        self,
+        *,
+        retained_read_guard: bool = False,
+        retained_cm_guard: bool = False,
+        retained_invite_guard: bool = False,
+        retained_sales_list_guard: bool = False,
     ) -> None:
         remaining = {
             name: len(values) for name, values in self.listeners.items() if values
@@ -653,11 +658,25 @@ class ScriptedPage:
                 f"{self.recorder.scenario}: listeners remain: {remaining}"
             )
             assert routed == {"**/campaign-manager-api/**": 1}, routed
+        elif retained_invite_guard:
+            # The invitation guard is registered for the page's life.
+            assert not remaining, (
+                f"{self.recorder.scenario}: listeners remain: {remaining}"
+            )
+            assert routed == {"**/voyager/api/**": 1}, routed
+        elif retained_sales_list_guard:
+            # The list-write guard is registered for the page's life.
+            assert not remaining, (
+                f"{self.recorder.scenario}: listeners remain: {remaining}"
+            )
+            assert routed == {"**/sales-api/**": 1}, routed
         elif retained_read_guard:
             assert remaining == {"request": 1}, remaining
             assert routed == {
                 "**/voyager/api/voyagerMessagingDashMessengerConversations*": 1,
                 "**/voyager/api/voyagerMessagingDashMessagingBadge*": 1,
+                "**/sales-api/salesApiMessagingThreads**": 1,
+                "**/sales-api/salesApiMessageActions**": 1,
             }, routed
         else:
             assert not remaining, (
@@ -826,6 +845,18 @@ def semantic_program_id(program: str) -> str:
         # First, so a generic marker below that a Campaign Manager program
         # comes to contain (``rows.push({``, a dialog query) never claims it.
         ("linkedin-mcp:cm-anchor", "cm_anchor"),
+        ("linkedin-mcp:sn-inbox-scroll", "sn_inbox_scroll"),
+        ("linkedin-mcp:sn-inbox-history", "sn_inbox_history"),
+        ("linkedin-mcp:sn-composer-pin */", "sn_composer_pin"),
+        ("linkedin-mcp:sn-composer-state */", "sn_composer_state"),
+        ("linkedin-mcp:sn-composer-prepare */", "sn_composer_prepare"),
+        ("linkedin-mcp:sn-composer-focus */", "sn_composer_focus"),
+        ("linkedin-mcp:sn-composer-field */", "sn_composer_field"),
+        ("linkedin-mcp:sn-composer-settle */", "sn_composer_settle"),
+        ("linkedin-mcp:sn-composer-ready */", "sn_composer_ready"),
+        ("linkedin-mcp:sn-composer-send */", "sn_composer_send"),
+        ("linkedin-mcp:sn-composer-cleanup */", "sn_composer_cleanup"),
+        ("linkedin-mcp:sn-composer-dispose */", "sn_composer_dispose"),
         ("linkedin-mcp:cm-footer", "cm_footer"),
         ("linkedin-mcp:cm-calendar", "cm_calendar"),
         ("linkedin-mcp:cm-editor", "cm_editor"),

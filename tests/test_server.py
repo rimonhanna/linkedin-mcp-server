@@ -920,16 +920,25 @@ only when the user asked for it, and then only through the enrichment tools
 (start_enrichment_job, run_enrichment_bunch, enrich_companies,
 enrich_company_deep), never by looping the single-item tools.
 
-send_message, reply_to_conversation, connect_with_person and
-withdraw_invitations act as the user. Use them only for the recipient and text
-the user approved; when asked for a draft, reply with the text instead. If a write's outcome is unknown, ask the
-user to check LinkedIn before acting again.
+send_message, reply_to_conversation, send_sales_navigator_message,
+reply_to_sales_navigator_conversation, connect_with_person,
+withdraw_invitations and invite_to_follow_page act as the user. Use them only
+for the recipient and text the user approved; when asked for a draft, reply with the text instead. If a write's outcome is unknown, ask the
+user to check LinkedIn before acting again. A Sales Navigator InMail spends a
+credit: set spend_inmail_credit only when the user approved spending one. Call
+invite_to_follow_page with confirm_send false first and invite only the people
+the user approved.
 
 update_campaign, set_campaign_status, update_campaign_targeting,
 create_campaign_draft, add_post_to_campaign, create_company_list_audience and
 create_saved_audience change the user's ad account and can spend money: call
 them with confirm_send false first, show the user the planned change, and
 confirm only what they approved.
+
+create_sales_navigator_account_list, add_accounts_to_sales_navigator_list and
+delete_sales_navigator_account_list change the user's Sales Navigator lists:
+call them with confirm_send false first and confirm only what the user
+approved.
 
 Calls are paced and run one at a time on purpose. If a tool reports a rate
 limit, an account cooldown or a pacing cap, do not retry or work around it:
@@ -1056,6 +1065,8 @@ class TestWhatTheToolsPromise:
             "get_sales_navigator_account",
             "list_sales_navigator_account_lists",
             "get_sales_navigator_account_list",
+            "list_sales_navigator_lead_lists",
+            "get_sales_navigator_lead_list",
         }
         claiming = set()
         for name in reads:

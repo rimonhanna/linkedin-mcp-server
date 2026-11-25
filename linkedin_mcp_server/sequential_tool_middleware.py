@@ -93,7 +93,10 @@ class SequentialToolExecutionMiddleware(Middleware):
             "connect_with_person",
             "send_message",
             "reply_to_conversation",
+            "send_sales_navigator_message",
+            "reply_to_sales_navigator_conversation",
             "withdraw_invitations",
+            "invite_to_follow_page",
             "update_campaign",
             "set_campaign_status",
             "update_campaign_targeting",
@@ -101,6 +104,9 @@ class SequentialToolExecutionMiddleware(Middleware):
             "add_post_to_campaign",
             "create_company_list_audience",
             "create_saved_audience",
+            "create_sales_navigator_account_list",
+            "add_accounts_to_sales_navigator_list",
+            "delete_sales_navigator_account_list",
         }
     )
 

@@ -12,6 +12,10 @@
       "get_page_text"
     ],
     "methods": {
+      "add_accounts_to_sales_navigator_list": {
+        "coroutine": true,
+        "signature": "(self, list_id: 'str', accounts: 'Sequence[Mapping[str, Any]]', *, confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
       "add_post_to_campaign": {
         "coroutine": true,
         "signature": "(self, account_id: 'str', campaign_id: 'str', post_urn: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'"
@@ -32,9 +36,17 @@
         "coroutine": true,
         "signature": "(self, account_id: 'str', name: 'str', companies: 'Sequence[Mapping[str, Any]]', *, confirm_send: 'bool') -> 'dict[str, Any]'"
       },
+      "create_sales_navigator_account_list": {
+        "coroutine": true,
+        "signature": "(self, name: 'str', *, description: 'str | None' = None, accounts: 'Sequence[Mapping[str, Any]]' = (), confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
       "create_saved_audience": {
         "coroutine": true,
         "signature": "(self, account_id: 'str', campaign_id: 'str', name: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
+      "delete_sales_navigator_account_list": {
+        "coroutine": true,
+        "signature": "(self, list_id: 'str', *, expected_name: 'str', confirm_send: 'bool') -> 'dict[str, Any]'"
       },
       "extract_feed": {
         "coroutine": true,
@@ -80,6 +92,18 @@
         "coroutine": true,
         "signature": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
+      "get_sales_navigator_conversation": {
+        "coroutine": true,
+        "signature": "(self, thread_id: 'str | None' = None, lead_id: 'str | None' = None, index: 'int' = 0, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
+      "get_sales_navigator_inbox": {
+        "coroutine": true,
+        "signature": "(self, limit: 'int' = 20, filter: 'InboxFilter' = 'all', *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
+      "get_sales_navigator_lead_list": {
+        "coroutine": true,
+        "signature": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
       "get_saved_jobs": {
         "coroutine": true,
         "signature": "(self, max_pages: 'int' = 3, stage: 'JobsTrackerStage' = 'saved') -> 'dict[str, Any]'"
@@ -87,6 +111,10 @@
       "get_sidebar_profiles": {
         "coroutine": true,
         "signature": "(self, username: 'str') -> 'dict[str, Any]'"
+      },
+      "invite_to_follow_page": {
+        "coroutine": true,
+        "signature": "(self, company_id: 'str', people: 'list[str]', *, confirm_send: 'bool', deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
       "list_ad_accounts": {
         "coroutine": true,
@@ -100,7 +128,15 @@
         "coroutine": true,
         "signature": "(self, account_id: 'str') -> 'dict[str, Any]'"
       },
+      "list_page_follow_candidates": {
+        "coroutine": true,
+        "signature": "(self, company_id: 'str', *, keywords: 'str | None' = None, limit: 'int' = 20, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
       "list_sales_navigator_account_lists": {
+        "coroutine": true,
+        "signature": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
+      "list_sales_navigator_lead_lists": {
         "coroutine": true,
         "signature": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
@@ -111,6 +147,10 @@
       "reply_to_conversation": {
         "coroutine": true,
         "signature": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
+      "reply_to_sales_navigator_conversation": {
+        "coroutine": true,
+        "signature": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool', spend_inmail_credit: 'bool' = False) -> 'dict[str, Any]'"
       },
       "scrape_company": {
         "coroutine": true,
@@ -148,9 +188,13 @@
         "coroutine": true,
         "signature": "(self, *, keywords: 'str | None' = None, industry: 'Sequence[str] | None' = None, hq_location: 'Sequence[str] | None' = None, size: 'Sequence[str] | None' = None, headcount_growth_min: 'int | None' = None, headcount_growth_max: 'int | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
       },
+      "search_sales_navigator_conversations": {
+        "coroutine": true,
+        "signature": "(self, keywords: 'str', limit: 'int' = 20, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
       "search_sales_navigator_leads": {
         "coroutine": true,
-        "signature": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
+        "signature": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, network: 'Sequence[str] | None' = None, function: 'Sequence[str] | None' = None, company_size: 'Sequence[str] | None' = None, years_in_current_role: 'Sequence[str] | None' = None, years_at_current_company: 'Sequence[str] | None' = None, account_list: 'Sequence[str] | None' = None, lead_list: 'Sequence[str] | None' = None, exclude_lead_list: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
       },
       "search_targeting_entities": {
         "coroutine": true,
@@ -159,6 +203,10 @@
       "send_message": {
         "coroutine": true,
         "signature": "(self, linkedin_username: 'str', message: 'str', *, confirm_send: 'bool', profile_urn: 'str | None' = None) -> 'dict[str, Any]'"
+      },
+      "send_sales_navigator_message": {
+        "coroutine": true,
+        "signature": "(self, lead_id: 'str', message: 'str', *, confirm_send: 'bool', subject: 'str | None' = None, spend_inmail_credit: 'bool' = False) -> 'dict[str, Any]'"
       },
       "set_campaign_status": {
         "coroutine": true,
@@ -178,11 +226,14 @@
       }
     },
     "tool_methods": [
+      "add_accounts_to_sales_navigator_list",
       "add_post_to_campaign",
       "connect_with_person",
       "create_campaign_draft",
       "create_company_list_audience",
+      "create_sales_navigator_account_list",
       "create_saved_audience",
+      "delete_sales_navigator_account_list",
       "extract_feed",
       "extract_page",
       "get_campaign",
@@ -193,14 +244,21 @@
       "get_my_profile",
       "get_sales_navigator_account",
       "get_sales_navigator_account_list",
+      "get_sales_navigator_conversation",
+      "get_sales_navigator_inbox",
+      "get_sales_navigator_lead_list",
       "get_saved_jobs",
       "get_sidebar_profiles",
+      "invite_to_follow_page",
       "list_ad_accounts",
       "list_audiences",
       "list_campaigns",
+      "list_page_follow_candidates",
       "list_sales_navigator_account_lists",
+      "list_sales_navigator_lead_lists",
       "list_sponsorable_posts",
       "reply_to_conversation",
+      "reply_to_sales_navigator_conversation",
       "scrape_company",
       "scrape_job",
       "scrape_person",
@@ -210,15 +268,49 @@
       "search_people",
       "search_posts",
       "search_sales_navigator_accounts",
+      "search_sales_navigator_conversations",
       "search_sales_navigator_leads",
       "search_targeting_entities",
       "send_message",
+      "send_sales_navigator_message",
       "set_campaign_status",
       "update_campaign",
       "update_campaign_targeting",
       "withdraw_invitations"
     ],
     "tool_schemas": {
+      "add_accounts_to_sales_navigator_list": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "accounts": {
+              "description": "Company ids to add, as search_sales_navigator_accounts\nor get_sales_navigator_account return them (URNs and Sales\nNavigator company URLs are accepted too), up to 25 per call.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "confirm_send": {
+              "description": "False for a dry run; True to add them.",
+              "type": "boolean"
+            },
+            "list_id": {
+              "description": "Numeric account list id, as\nlist_sales_navigator_account_lists or\ncreate_sales_navigator_account_list returned it. A Sales\nNavigator list URL carrying listId is accepted too.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "list_id",
+            "accounts",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "add_post_to_campaign": {
         "input": {
           "additionalProperties": false,
@@ -402,6 +494,57 @@
           "type": "object"
         }
       },
+      "create_sales_navigator_account_list": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "accounts": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional company ids to add, as\nsearch_sales_navigator_accounts or get_sales_navigator_account\nreturn them (a urn:li:fs_salesCompany or urn:li:organization\nURN or a Sales Navigator company URL is accepted too), up to\n25 per call."
+            },
+            "confirm_send": {
+              "description": "False for a dry run; True to create the list.",
+              "type": "boolean"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional list description, up to 350 characters."
+            },
+            "name": {
+              "description": "The list's name, as it will show in Sales Navigator, up to 75\ncharacters, one line.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "create_saved_audience": {
         "input": {
           "additionalProperties": false,
@@ -427,6 +570,35 @@
             "ad_account_id",
             "campaign_id",
             "name",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "delete_sales_navigator_account_list": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "confirm_send": {
+              "description": "False for a dry run; True to delete the list.",
+              "type": "boolean"
+            },
+            "expected_name": {
+              "description": "The list's exact current name, as\nlist_sales_navigator_account_lists or\nget_sales_navigator_account_list showed it.",
+              "type": "string"
+            },
+            "list_id": {
+              "description": "Numeric account list id, as\nlist_sales_navigator_account_lists returned it. A Sales\nNavigator list URL carrying listId is accepted too.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "list_id",
+            "expected_name",
             "confirm_send"
           ],
           "type": "object"
@@ -978,6 +1150,107 @@
           "type": "object"
         }
       },
+      "get_sales_navigator_conversation": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "index": {
+              "default": 0,
+              "description": "0-based choice when the lead has several conversations,\nmost recent first. Ignored when thread_id is given.",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "lead_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Lead id as search_sales_navigator_leads returned it (an\nfs_salesProfile URN or a /sales/lead/ URL is accepted too)"
+            },
+            "thread_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Sales Navigator thread id, or its /sales/inbox/ URL"
+            }
+          },
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "get_sales_navigator_inbox": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "filter": {
+              "default": "all",
+              "description": "The inbox view: all (default), unread, sent,\ninmail_pending, inmail_accepted, inmail_declined or archived",
+              "enum": [
+                "all",
+                "unread",
+                "sent",
+                "inmail_pending",
+                "inmail_accepted",
+                "inmail_declined",
+                "archived"
+              ],
+              "type": "string"
+            },
+            "limit": {
+              "default": 20,
+              "description": "Maximum number of conversations (1-1000, default 20)",
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "get_sales_navigator_lead_list": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "list_id": {
+              "description": "Numeric lead list id, as list_sales_navigator_lead_lists\nreturned it. A Sales Navigator lead list URL\n(/sales/lists/people/<id>) is accepted too.",
+              "type": "string"
+            },
+            "page": {
+              "default": 1,
+              "description": "1-based page of 25 leads to start from, 1 to 40 (default 1);\npass a previous result's next_page to continue.",
+              "maximum": 40,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "list_id"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "get_saved_jobs": {
         "input": {
           "additionalProperties": false,
@@ -1019,6 +1292,38 @@
           },
           "required": [
             "linkedin_username"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "invite_to_follow_page": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "company_id": {
+              "description": "The page's numeric company id, or its /company/<id>/\nadmin URL.",
+              "type": "string"
+            },
+            "confirm_send": {
+              "description": "Must be true to send; false is a dry run.",
+              "type": "boolean"
+            },
+            "people": {
+              "description": "The people to invite (1 to 20), in any form the other tools\nreturn: a profileId from list_page_follow_candidates, a\nprofile URL or username, a Sales Navigator lead id, lead URN\n(urn:li:fs_salesProfile:(...)) or lead URL, or a\nurn:li:member URN (a lead's memberUrn).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "company_id",
+            "people",
+            "confirm_send"
           ],
           "type": "object"
         },
@@ -1076,7 +1381,63 @@
           "type": "object"
         }
       },
+      "list_page_follow_candidates": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "company_id": {
+              "description": "The page's numeric company id, or its /company/<id>/\nadmin URL.",
+              "type": "string"
+            },
+            "keywords": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Search the connections by name (the dialog's own search,\nup to 40 results, no paging)."
+            },
+            "limit": {
+              "default": 20,
+              "description": "Most candidates to return, 1 to 200 (default 20).",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "company_id"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "list_sales_navigator_account_lists": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "page": {
+              "default": 1,
+              "description": "1-based page of 25 lists to start from (default 1); pass a\nprevious result's next_page to continue.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "list_sales_navigator_lead_lists": {
         "input": {
           "additionalProperties": false,
           "properties": {
@@ -1241,6 +1602,40 @@
             },
             "thread_id": {
               "description": "LinkedIn messaging thread ID, or a /messaging/thread/<id>/\nreference as another tool returned it",
+              "type": "string"
+            }
+          },
+          "required": [
+            "thread_id",
+            "message",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "reply_to_sales_navigator_conversation": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "confirm_send": {
+              "description": "Must be True to send. False is a dry run that\nverifies the conversation and reply box, types nothing, and\nsays who the reply would go to.",
+              "type": "boolean"
+            },
+            "message": {
+              "description": "Message text to send, read as send_sales_navigator_message\nreads it.",
+              "type": "string"
+            },
+            "spend_inmail_credit": {
+              "default": false,
+              "description": "Must be True for a reply whose cost is\nunknown. Without it such a reply returns\ninmail_reply_cost_unknown and nothing is typed.",
+              "type": "boolean"
+            },
+            "thread_id": {
+              "description": "Sales Navigator conversation id, or its /sales/inbox/<id>\nURL, as get_sales_navigator_inbox returned it",
               "type": "string"
             }
           },
@@ -1829,10 +2224,67 @@
           "type": "object"
         }
       },
+      "search_sales_navigator_conversations": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "keywords": {
+              "description": "Search keywords",
+              "minLength": 1,
+              "type": "string"
+            },
+            "limit": {
+              "default": 20,
+              "description": "Maximum number of conversations (1-50, default 20)",
+              "maximum": 50,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "keywords"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "search_sales_navigator_leads": {
         "input": {
           "additionalProperties": false,
           "properties": {
+            "account_list": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of account list ids, as\nlist_sales_navigator_account_lists returned them: leads at\nthe companies in those lists."
+            },
+            "company_size": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of current-company headcount buckets\n(1-10, 11-50, ..., 10001+) or facet letters (A to I)."
+            },
             "current_company": {
               "anyOf": [
                 {
@@ -1847,6 +2299,36 @@
               ],
               "default": null,
               "description": "One or a list of current companies, numeric\ncompany ids, urn:li:organization URNs or names."
+            },
+            "exclude_lead_list": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Lead list ids whose leads are left out."
+            },
+            "function": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of job functions, by name (engineering,\nsales, marketing, information_technology, ...) or id (1 to 26)."
             },
             "industry": {
               "anyOf": [
@@ -1875,6 +2357,21 @@
               "default": null,
               "description": "Free-text keywords."
             },
+            "lead_list": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of lead list ids, as\nlist_sales_navigator_lead_lists returned them: only leads in\nthose lists."
+            },
             "location": {
               "anyOf": [
                 {
@@ -1889,6 +2386,21 @@
               ],
               "default": null,
               "description": "One or a list of locations, numeric geo ids,\nurn:li:geo URNs or names."
+            },
+            "network": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Connection degree, one or a list of \"F\" (1st-degree),\n\"S\" (2nd-degree) and \"O\" (3rd-degree and beyond), the same\ntokens as search_people. [\"F\"] finds the connections a company\npage can invite to follow it."
             },
             "page": {
               "default": 1,
@@ -1938,6 +2450,50 @@
               ],
               "default": null,
               "description": "One or a list of current job titles (free text)."
+            },
+            "years_at_current_company": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "less_than_1",
+                      "1_to_2",
+                      "3_to_5",
+                      "6_to_10",
+                      "more_than_10"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The same buckets, for the time at the\ncurrent company."
+            },
+            "years_in_current_role": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "less_than_1",
+                      "1_to_2",
+                      "3_to_5",
+                      "6_to_10",
+                      "more_than_10"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "One or a list of less_than_1, 1_to_2,\n3_to_5, 6_to_10, more_than_10."
             }
           },
           "type": "object"
@@ -1987,7 +2543,7 @@
               "type": "boolean"
             },
             "linkedin_username": {
-              "description": "LinkedIn username of the recipient; a full profile URL is accepted too",
+              "description": "LinkedIn username of the recipient; a full profile URL or a profile id (ACo..., or an ACw... Sales Navigator lead id) is accepted too, and the recipient is the member that profile page opens",
               "type": "string"
             },
             "message": {
@@ -2009,6 +2565,52 @@
           },
           "required": [
             "linkedin_username",
+            "message",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "send_sales_navigator_message": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "confirm_send": {
+              "description": "Must be True to send. False is a dry run.",
+              "type": "boolean"
+            },
+            "lead_id": {
+              "description": "The lead's id as search_sales_navigator_leads or\nget_sales_navigator_inbox returned it, or its fs_salesProfile\nURN or /sales/lead/ URL",
+              "type": "string"
+            },
+            "message": {
+              "description": "Message text to send. Line breaks (LF or CRLF) are typed\nas Shift+Enter; three or more in a row collapse to one blank\nline. Other C0 control characters and DEL are rejected.",
+              "type": "string"
+            },
+            "spend_inmail_credit": {
+              "default": false,
+              "description": "Must be True for a send that uses an InMail\ncredit, or may use one. Without it such a send returns\ninmail_credit_required (or inmail_reply_cost_unknown) and\nnothing is typed.",
+              "type": "boolean"
+            },
+            "subject": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The InMail subject, one line. Required for an InMail;\nrefused for a message to a connection, which has none."
+            }
+          },
+          "required": [
+            "lead_id",
             "message",
             "confirm_send"
           ],

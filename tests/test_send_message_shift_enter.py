@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from linkedin_mcp_server.scraping import message_sender
-from linkedin_mcp_server.scraping.message_sender import (
-    MessageSender,
-    _line_breaks_lost,
-)
+from linkedin_mcp_server.scraping.contracts import line_breaks_lost
+from linkedin_mcp_server.scraping.message_sender import MessageSender
 from test_send_message_confirmation_dom import (
     ID_TRANSITION_SEND_JS,
     NOOP_SEND_JS,
@@ -243,22 +241,22 @@ class TestParagraphBubbles:
 
 class TestLineBreaksLost:
     def test_same_text_with_breaks_is_not_lost(self):
-        assert not _line_breaks_lost("a\n\nb\nc", "a\n\nb\nc")
+        assert not line_breaks_lost("a\n\nb\nc", "a\n\nb\nc")
 
     def test_crlf_and_long_runs_are_normalised_like_the_tool_does(self):
-        assert not _line_breaks_lost("a\n\nb", "a\r\n\r\n\r\nb")
+        assert not line_breaks_lost("a\n\nb", "a\r\n\r\n\r\nb")
 
     def test_same_words_on_one_line_are_lost(self):
-        assert _line_breaks_lost("a\nb", "a b")
+        assert line_breaks_lost("a\nb", "a b")
 
     def test_a_dropped_blank_line_is_not_a_lost_line(self):
-        assert not _line_breaks_lost("a\n\nb", "a\nb")
+        assert not line_breaks_lost("a\n\nb", "a\nb")
 
     def test_extra_blank_lines_between_paragraphs_are_not_lost(self):
-        assert not _line_breaks_lost("a\nb\nc", "a\n\nb\n\nc")
+        assert not line_breaks_lost("a\nb\nc", "a\n\nb\n\nc")
 
     def test_different_words_are_not_a_flattening(self):
-        assert not _line_breaks_lost("a\nb", "a c")
+        assert not line_breaks_lost("a\nb", "a c")
 
     def test_no_delivered_text_is_not_a_finding(self):
-        assert not _line_breaks_lost("a\nb", None)
+        assert not line_breaks_lost("a\nb", None)

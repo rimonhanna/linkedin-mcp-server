@@ -17,7 +17,10 @@ from dataclasses import dataclass
 from typing import Any, Literal, NotRequired, TypedDict, TypeVar, cast
 from urllib.parse import quote, urlparse
 
-from linkedin_mcp_server.scraping.identifiers import sales_company_url
+from linkedin_mcp_server.scraping.identifiers import (
+    person_profile_url,
+    sales_company_url,
+)
 from linkedin_mcp_server.scraping.restli import (
     as_dicts,
     as_int,
@@ -77,6 +80,7 @@ T = TypeVar("T")
 _SALES_COMPANY_URN = "urn:li:fs_salesCompany:"
 _SALES_PROFILE_URN = "urn:li:fs_salesProfile:("
 _INCLUDED = "selectionType:INCLUDED"
+_EXCLUDED = "selectionType:EXCLUDED"
 # The UI sends every company value with this parent marker; sent the same way.
 _COMPANY_PARENT = "parent:(id:0)"
 
@@ -88,6 +92,8 @@ class SnCall:
     finder: str | None
     method: str
     params: Mapping[str, str]
+    # What follows the entity id (``messages`` in ``<resource>/<id>/messages``).
+    sub_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +101,7 @@ class SearchFilter:
     type: str
     ids: tuple[str, ...] = ()
     texts: tuple[str, ...] = ()
+    excluded_ids: tuple[str, ...] = ()
     minimum: int | None = None
     maximum: int | None = None
 
@@ -149,6 +156,7 @@ class Seniority(TypedDict):
 
 class Lead(TypedDict, total=False):
     id: str
+    profileUrl: str
     memberUrn: str
     fullName: str
     firstName: str
@@ -156,7 +164,6 @@ class Lead(TypedDict, total=False):
     geoRegion: str
     degree: int
     premium: bool
-    openLink: bool
     seniority: list[Seniority]
     currentPositions: list[Position]
     summary: str
@@ -306,6 +313,7 @@ def parse_sn_call(url: str, method: str) -> SnCall | None:
         finder=params.get("q"),
         method=method.upper(),
         params=params,
+        sub_path="/".join(segments[2:]) or None,
     )
 
 
@@ -318,6 +326,9 @@ def _filter_clause(search_filter: SearchFilter) -> str | None:
     if search_filter.type == CURRENT_COMPANY:
         values = [value[:-1] + f",{_COMPANY_PARENT})" for value in values]
     values.extend(f"(text:{restli_value(v)},{_INCLUDED})" for v in search_filter.texts)
+    values.extend(
+        f"(id:{restli_value(v)},{_EXCLUDED})" for v in search_filter.excluded_ids
+    )
     bounds = [
         f"{name}:{bound}"
         for name, bound in (
@@ -394,8 +405,12 @@ def missing_echoes(
 ) -> list[str]:
     """Criteria the captured API ``query`` does not carry; ``[]`` = all echoed.
 
-    The response does not echo applied filters and LinkedIn silently ignores an
-    unknown filter, so the request the page sent is the only evidence.
+    What this proves is narrow: the page sent the request with the filter
+    as built here, so a filter the page drops or rewrites is an error. It
+    does not prove the server applied the filter, nor that an id names the
+    entity meant: the response does not echo applied filters, and LinkedIn
+    answers an id it does not know (an unknown list id, say) as an empty or
+    unfiltered result, not as an error.
     """
     captured = _record(captured_query)
     missing: list[str] = []
@@ -413,6 +428,7 @@ def missing_echoes(
         ]
         ids = {v.get("id") for v in values if v.get("selectionType") == "INCLUDED"}
         texts = {v.get("text") for v in values if v.get("selectionType") == "INCLUDED"}
+        excluded = {v.get("id") for v in values if v.get("selectionType") == "EXCLUDED"}
         ranges = [_record(clause.get("rangeValue", "")) for clause in same_type]
         wanted_range = {
             name: str(bound)
@@ -425,6 +441,7 @@ def missing_echoes(
         echoed = (
             all(restli_value(v) in ids for v in search_filter.ids)
             and all(restli_value(v) in texts for v in search_filter.texts)
+            and all(restli_value(v) in excluded for v in search_filter.excluded_ids)
             and (not wanted_range or wanted_range in ranges)
         )
         if not echoed and search_filter.type not in missing:
@@ -437,8 +454,9 @@ def unrequested_echoes(
 ) -> list[str]:
     """Criteria the captured API ``query`` carries that were not asked for.
 
-    A page that kept a filter from an earlier search would narrow the results
-    past what was asked, which the echo of the asked criteria cannot show.
+    A page that kept a filter from an earlier search would send it on top of
+    the asked ones, which the echo of the asked criteria cannot show. Like
+    ``missing_echoes`` this reads the request, not what the server did.
     """
     captured = _record(captured_query)
     extra: list[str] = []
@@ -452,14 +470,19 @@ def unrequested_echoes(
     return extra
 
 
-def build_paging(payload: Any, page: int) -> SearchPaging | None:
+def build_paging(payload: Any, page: int, count: int) -> SearchPaging | None:
+    """Search paging; ``count`` is the rows returned, not LinkedIn's page size.
+
+    LinkedIn's own ``paging.count`` is the size it was asked for (25 on an
+    empty page too), so it only decides ``more``.
+    """
     paging = envelope_paging(payload)
     if paging is None:
         return None
     start = as_int(paging.get("start"))
-    count = as_int(paging.get("count"))
+    size = as_int(paging.get("count"))
     total = as_int(paging.get("total"))
-    if start is None or count is None or total is None:
+    if start is None or size is None or total is None:
         return None
     return {
         "page": page,
@@ -468,7 +491,7 @@ def build_paging(payload: Any, page: int) -> SearchPaging | None:
         "total": total,
         "resultCap": RESULT_CAP,
         "capped": total > RESULT_CAP,
-        "more": start + count < min(total, RESULT_CAP),
+        "more": start + size < min(total, RESULT_CAP),
     }
 
 
@@ -528,7 +551,14 @@ def build_lead(element: Any) -> Lead | None:
     profile_id = sales_profile_id(record.get("entityUrn")) if record else None
     if record is None or profile_id is None or is_withheld(record):
         return None
-    lead: dict[str, Any] = {"id": profile_id}
+    # No openLink: the search request does not ask for it (nor for
+    # memberBadges), so the card's value is a default false, not a signal.
+    # Not the whole entityUrn: its third part is a token minted for this
+    # viewer, and the Sales Navigator tools address a lead by the id alone.
+    lead: dict[str, Any] = {
+        "id": profile_id,
+        "profileUrl": person_profile_url(profile_id),
+    }
     member_urn = as_str(record.get("objectUrn"))
     if member_urn is not None:
         lead["memberUrn"] = member_urn
@@ -542,7 +572,6 @@ def build_lead(element: Any) -> Lead | None:
             "geoRegion": as_str,
             "degree": as_int,
             "premium": _bool,
-            "openLink": _bool,
         },
     )
     seniority: list[Seniority] = []

@@ -110,6 +110,13 @@ def _make_mock_extractor(scrape_result: dict) -> MagicMock:
         "get_sales_navigator_account",
         "list_sales_navigator_account_lists",
         "get_sales_navigator_account_list",
+        "list_sales_navigator_lead_lists",
+        "get_sales_navigator_lead_list",
+        "get_sales_navigator_inbox",
+        "get_sales_navigator_conversation",
+        "search_sales_navigator_conversations",
+        "send_sales_navigator_message",
+        "reply_to_sales_navigator_conversation",
     ):
         setattr(mock, name, AsyncMock(return_value=scrape_result))
     mock.extract_page = AsyncMock(
@@ -1984,6 +1991,7 @@ _SEND_TRACE_KEPT = {
     "composer_occupied": True,
     "composer_unavailable": True,
     "confirmation_required": False,
+    "enter_to_send_enabled": True,
     "message_unavailable": True,
     "recipient_resolution_failed": True,
     "send_unavailable": True,
@@ -2002,8 +2010,19 @@ def test_send_statuses_are_the_senders_own():
     from linkedin_mcp_server.tools.messaging import _SEND_SUCCEEDED
 
     builders = {"message_action_result", "reply_action_result", "respond"}
+
+    # A status is a literal or a module-level constant imported into
+    # message_sender, such as ENTER_TO_SEND_ENABLED.
+    def status_of(node):
+        if isinstance(node, ast.Name):
+            value = getattr(message_sender, node.id, None)
+            return value if isinstance(value, str) else None
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        return None
+
     statuses = {
-        call.args[1].value
+        status_of(call.args[1])
         for call in ast.walk(ast.parse(inspect.getsource(message_sender)))
         if isinstance(call, ast.Call)
         and (
@@ -2013,8 +2032,7 @@ def test_send_statuses_are_the_senders_own():
         )
         in builders
         and len(call.args) > 1
-        and isinstance(call.args[1], ast.Constant)
-        and isinstance(call.args[1].value, str)
+        and status_of(call.args[1]) is not None
     }
 
     assert set(_SEND_TRACE_KEPT) == statuses
@@ -2924,6 +2942,8 @@ class TestToolTimeouts:
             "get_sales_navigator_account",
             "list_sales_navigator_account_lists",
             "get_sales_navigator_account_list",
+            "list_sales_navigator_lead_lists",
+            "get_sales_navigator_lead_list",
             "start_enrichment_job",
             "run_enrichment_bunch",
             "get_enrichment_status",
@@ -2980,6 +3000,8 @@ class TestToolTimeouts:
             "get_sales_navigator_account",
             "list_sales_navigator_account_lists",
             "get_sales_navigator_account_list",
+            "list_sales_navigator_lead_lists",
+            "get_sales_navigator_lead_list",
             "start_enrichment_job",
             "run_enrichment_bunch",
             "get_enrichment_status",

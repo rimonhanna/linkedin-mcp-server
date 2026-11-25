@@ -1,0 +1,175 @@
+{
+  "call": {
+    "arguments": {
+      "accounts": [
+        "100000001"
+      ],
+      "confirm_send": false,
+      "list_id": "100000301"
+    },
+    "method": "add_accounts_to_sales_navigator_list"
+  },
+  "events": [
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "callback_id": "callback-1",
+      "kind": "route.add",
+      "pattern": "**/sales-api/**",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+      "requested_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+      "section": "add_accounts",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "kind": "wait_for_load_state",
+      "section": "add_accounts",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "description": "goto https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "callback_id": "callback-4",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "kind": "boundary.rate_limit",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "callback_id": "callback-3",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "add_accounts"
+    },
+    {
+      "call": "add_accounts_to_sales_navigator_list",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "add_accounts"
+    }
+  ],
+  "result": {
+    "accounts": [
+      {
+        "id": "100000001",
+        "input": "100000001",
+        "status": "would_add"
+      }
+    ],
+    "dry_run": true,
+    "list": {
+      "entityCount": 2,
+      "id": "100000301",
+      "listType": "ACCOUNT",
+      "name": "Example list"
+    },
+    "message": "Nothing was added. confirm_send true sends one request adding the accounts marked would_add to this list.",
+    "retry_safe": true,
+    "status": "dry_run",
+    "tool": "add_accounts_to_sales_navigator_list",
+    "url": "https://www.linkedin.com/sales/accounts/dashboard?listGroup=CUSTOM_LISTS&listId=100000301"
+  },
+  "scenario": "add_accounts_to_sales_navigator_list__dry_run",
+  "schema_version": 1
+}

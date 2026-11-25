@@ -1,0 +1,231 @@
+{
+  "call": {
+    "arguments": {
+      "confirm_send": false,
+      "message": "Hello",
+      "thread_id": "2-POLICY"
+    },
+    "method": "reply_to_sales_navigator_conversation"
+  },
+  "events": [
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "callback_id": "callback-3",
+      "event": "request",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "callback_id": "callback-4",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessengerConversations*",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "callback_id": "callback-4",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/voyagerMessagingDashMessagingBadge*",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "callback_id": "callback-4",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessagingThreads**",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "callback_id": "callback-4",
+      "kind": "route.add",
+      "pattern": "**/sales-api/salesApiMessageActions**",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "extra": {
+        "target_url": "https://www.linkedin.com/sales/inbox/2-POLICY",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/sales/inbox/2-POLICY",
+      "requested_url": "https://www.linkedin.com/sales/inbox/2-POLICY",
+      "section": "message",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "kind": "wait_for_load_state",
+      "section": "message",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "description": "goto https://www.linkedin.com/sales/inbox/2-POLICY",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/sales/inbox/2-POLICY",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "callback_id": "callback-5",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "kind": "boundary.rate_limit",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "dismissed": false,
+      "kind": "boundary.modal",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "kind": "evaluate_handle",
+      "operation": "sn_composer_pin",
+      "program_digest": "0f52afaaa8af",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "handle": "handle-1",
+      "kind": "handle.as_element",
+      "present": true,
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "sn_composer_state",
+      "program_digest": "7b0f7f2c2763",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "handle": "handle-1",
+      "kind": "handle.evaluate",
+      "operation": "sn_composer_dispose",
+      "program_digest": "13a66b7c97cf",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "handle": "handle-1",
+      "kind": "handle.dispose",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "message"
+    },
+    {
+      "call": "reply_to_sales_navigator_conversation",
+      "callback_id": "callback-2",
+      "event": "request",
+      "kind": "listener.remove",
+      "section": "message"
+    }
+  ],
+  "result": {
+    "delivery": {
+      "creditCost": 0,
+      "creditsRemaining": null,
+      "kind": "message"
+    },
+    "message": "Nothing was sent. The message would go to Example Person as a reply in this conversation. It uses no InMail credit. Set confirm_send=true to send it.",
+    "participant": "Example Person",
+    "recipient_selected": true,
+    "retry_safe": true,
+    "sent": false,
+    "status": "confirmation_required",
+    "thread_id": "2-POLICY",
+    "url": "https://www.linkedin.com/sales/inbox/2-POLICY"
+  },
+  "scenario": "reply_to_sales_navigator_conversation__dry_run",
+  "schema_version": 1
+}

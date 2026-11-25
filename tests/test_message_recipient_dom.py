@@ -280,6 +280,7 @@ class TestMessageSurfaceDom:
             "active": False,
             "empty": False,
             "submitCount": 0,
+            "enterToSend": False,
             "submitUsable": False,
         }
 

@@ -60,6 +60,8 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `get_company_posts` | Get recent posts from a company's LinkedIn feed, with optional `max_scrolls` (1-50, default 10) to read further back |
 | `search_companies` | Search for companies by keywords and/or Clay-style facets: `industry` (LinkedIn numeric id, or a known name such as "Software Development"), `size` (headcount bucket like `51-200` or facet letter `A`-`I`), `hq_location` (country/city, resolved like `search_people`'s location) and `has_jobs`, with `max_pages` pagination (1-10, 10 companies per page). Facets narrow at search time, so `enrich_companies` only pays for the shortlist. The `industry` and `size` parameter names/values are unverified against live LinkedIn; a wrong name is ignored, so cross-check results. Returns `companies` rows (`name`, `industry`, `location`, `tagline`, `followers`, `url`) parsed from the page text plus `result_count`, alongside the raw text |
 | `get_company_employees` | List employees at a company from the /people/ page, with optional keyword filter |
+| `list_page_follow_candidates` | For a company page you administer: the 1st-degree connections its "Invite to follow" dialog offers (`profileId`, name, headline, profile URL, `invitable`) and the page's monthly invitation credits. Optional `keywords` (the dialog's name search) and `limit` (1-200, default 20). Read-only; any other page is reported as not administered |
+| `invite_to_follow_page` | Invite exactly the `people` passed (1-20, as a `profileId`, profile URL or username, Sales Navigator lead id, URN or URL, or `urn:li:member` URN) to follow a page you administer; each is matched to the dialog by member id or public profile name, never by display name, and someone who is not a 1st-degree connection, already follows or was already invited is reported `not_invitable` for that person alone. `confirm_send` is required: false ticks and sends nothing and reports who would be invited and the credits it would use. Stops at the page's remaining credits and at `PAGE_INVITES_MAX`; reports a status per person and never resends an invitation whose outcome is unknown |
 | `search_jobs` | Search for jobs with keywords and location filters. The location is resolved to LinkedIn's geo id through its own location dropdown, once per place per server process; a place the dropdown does not know is sent as free text and reported under `section_errors.location` (`location_unresolved`). Returns `job_ids` plus `applied_location` (the place LinkedIn's heading says it searched, when a location was given), `total` (`{count, exact}`, the result count LinkedIn advertises; `exact` is false for a lower bound such as "500+"), `promoted_job_ids` (the subset of `job_ids` shown as promoted; present only when every page could be read) and `pagination` (`{pages_fetched, next_offset, reason}`: why paging stopped, one of `complete`, `max_pages`, `time_budget` or `no_new_ids`; absent when a failure stopped the search), alongside the raw text |
 | `get_saved_jobs` | List the authenticated user's jobs at one job-tracker stage: `stage` is `saved` (default), `in_progress`, `applied` or `archived` |
 | `search_people` | Search for people by keywords (Boolean `AND`/`OR`/`NOT`, quotes, parentheses) and/or Clay-style facets: `location`, `network` (1st/2nd/3rd), `current_company` and `past_company` (one or a list; name, `/company/` slug URL, or numeric URN), `title` (sent as `titleFreeText`, which LinkedIn's current results page ignores; put the title in `keywords` as a quoted phrase instead. Refused as the only criterion, since that would return an unfiltered list), `industry` (numeric id or a known name, same table as `search_companies`), `school` (numeric id only: people search -> All filters -> School, then read `schoolFilter=["<id>"]` from the URL), `first_name`, `last_name`, `profile_language` (ISO 639-1 codes), with `max_pages` pagination (1-10, 10 people per page). Only `current_company` and `first_name` are measured live; the `past_company`, `industry`, `school`, `last_name` and `profile_language` parameter names/values are unverified against live LinkedIn, and a wrong name is ignored, so cross-check results. Returns `people` rows (`name`, `degree`, `headline`, `location`, `snippet`, `url`) parsed from the page text plus `result_count`, alongside the raw text. Funnel: `search_companies` -> `enrich_companies(about=True)` -> `query_company_cache` -> `search_people(current_company=[...], keywords='"<title>"')` |
@@ -81,10 +83,20 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `create_company_list_audience` | Upload a list of companies (name, and optionally website and LinkedIn page) as a matched audience. Confirming accepts LinkedIn's Ads Agreement for the upload. `confirm_send` |
 | `create_saved_audience` | Save a campaign's (UI "Ad set") targeting as a named saved audience (1 to 25 characters). `confirm_send` |
 | `search_sales_navigator_accounts` | Search Sales Navigator accounts (companies) by keywords, industry, headquarters location, headcount and headcount growth; one page of 25 per call (`page` 1 to 40). Needs a Sales Navigator seat. Read-only |
-| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company, location and industry; one page of 25 per call. Leads who opted out of third-party data sharing are left out and counted in `withheld`. Needs a Sales Navigator seat. Read-only |
+| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company, location, industry, connection degree (`network`), function, company headcount, years in the current role or at the current company, account lists and lead lists (in or not in); one page of 25 per call. Each lead carries its Sales Navigator `id`, a `profileUrl` link and its connection `degree`. Leads who opted out of third-party data sharing are left out and counted in `withheld`. Lead rows carry no Open Profile flag (the search does not ask for one); the send tools read Open Profile themselves. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account` | One company's Sales Navigator account page: description, industry, website, headquarters, revenue range, headcount and headcount growth. Needs a Sales Navigator seat. Read-only |
 | `list_sales_navigator_account_lists` | Every Sales Navigator account list of the member, with its size. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account_list` | One Sales Navigator account list and every company in it. Needs a Sales Navigator seat. Read-only |
+| `list_sales_navigator_lead_lists` | Every Sales Navigator lead list of the member, with its size. Needs a Sales Navigator seat. Read-only |
+| `get_sales_navigator_lead_list` | The leads of one Sales Navigator lead list, read as a lead search filtered to the list (up to 1,000), with the same lead records and ids as lead search. Needs a Sales Navigator seat. Read-only |
+| `get_sales_navigator_inbox` | Recent Sales Navigator inbox conversations (1 to 1,000), in any inbox view: all, unread, sent, InMail awaiting response, accepted or declined, archived. Unread conversations stay unread. Needs a Sales Navigator seat. Read-only |
+| `get_sales_navigator_conversation` | One Sales Navigator conversation by `thread_id`, or by `lead_id` (matched on the lead id only, never by name), with up to 40 of its newest messages. Unread stays unread. Needs a Sales Navigator seat. Read-only |
+| `search_sales_navigator_conversations` | Search Sales Navigator messages by keyword through the inbox's own search box (up to 50 conversations). Unread stays unread. Needs a Sales Navigator seat. Read-only |
+| `send_sales_navigator_message` | Send a new Sales Navigator message to one lead by lead id, a connection (free) or not (an InMail: needs a `subject` and, unless the lead has an Open Profile, one InMail credit (a TeamLink colleague's cost is not yet confirmed, so it is treated as unknown), which needs `spend_inmail_credit` on top of `confirm_send`). A dry run types nothing and reports `delivery` (`kind`, `creditCost`, `creditsRemaining`; `creditCost` is null when the page does not show the cost). Needs a Sales Navigator seat |
+| `reply_to_sales_navigator_conversation` | Reply inside an existing Sales Navigator conversation by its thread id (requires confirmation; verifies the conversation and its reply box first, and a dry run leaves an unread conversation unread; a reply in an InMail the lead has not accepted or answered also needs `spend_inmail_credit`). Needs a Sales Navigator seat |
+| `create_sales_navigator_account_list` | Create a Sales Navigator account list, optionally with up to 25 accounts (the company ids account search returns). `confirm_send: false` is a dry run. Needs a Sales Navigator seat |
+| `add_accounts_to_sales_navigator_list` | Add up to 25 accounts to one Sales Navigator account list in one request, with a status per account. `confirm_send: false` is a dry run. Needs a Sales Navigator seat |
+| `delete_sales_navigator_account_list` | Delete one Sales Navigator account list by its id, only when its name is exactly `expected_name`. `confirm_send: false` is a dry run. Needs a Sales Navigator seat |
 | `start_enrichment_job` | Queue a resumable bulk profile-enrichment job from a list of usernames or profile URLs |
 | `run_enrichment_bunch` | Visit the next few profiles in a job, paced with randomized delays, a rolling 24h action budget and working hours; returns when to call it again. A bunch that loses its browser relaunches it and retries once; a profile that never loaded is left pending and is not charged |
 | `get_enrichment_status` | Progress and collected results for an enrichment job, or list all jobs |
@@ -152,6 +164,10 @@ Line breaks in a message are typed as real Shift+Enter key presses. After a send
 is confirmed, the delivered text is compared with the message line by line. If
 only the line breaks differ, the status is `sent_flattened`: `sent` is true,
 `retry_safe` is false, and the message must not be sent again.
+With LinkedIn's Press Enter to Send setting on, the composer has no Send button
+and these tools never press plain Enter, so `send_message` and
+`reply_to_conversation` answer `enter_to_send_enabled` (a dry run too) before
+typing anything. Turn the setting off in LinkedIn messaging to send.
 The reader never discovers history by opening a row. Automatic read-flag and
 badge POSTs are blocked for the duration of inbox, conversation and search reads.
 The two route handlers are registered once per page and reused across reads.
@@ -255,9 +271,68 @@ refused outside working hours like invitations and messages.
 The Sales Navigator tools need a Sales Navigator seat on the signed-in
 account. Without one, LinkedIn shows another page and the tool says so.
 
-They only read. Each call opens a Sales Navigator page in your browser and
-takes its data from the responses that page loads; it sends no request of its
-own. No tool opens a lead's page, so nobody sees a profile view from you.
+The read tools only read. Each call opens a Sales Navigator page in your browser and
+takes its data from the responses that page loads. The one request of their
+own is `get_sales_navigator_conversation` asking for older messages: it repeats
+the page's own older-messages request, with the page's own headers, for at
+most three batches of 10 (when the page made no such request itself, the
+request it was measured sending, with the headers of its conversation request). No tool opens a lead's page, so nobody sees a
+profile view from you. The three account-list writes are described below.
+
+The inbox tools leave read state alone. Sales Navigator opens the top
+conversation of every inbox view (and of every search) by itself, and marks a
+conversation read once its newest message is on screen. While an inbox tool
+runs, every POST under the app's conversation resource (mark read or unread
+and archive among them) and its message sends are blocked in the browser, so an
+unread conversation stays unread; the app's other requests are left alone.
+Each result carries `marked_read`, true only if LinkedIn confirmed a mark-read
+anyway; a conversation read by `lead_id` also carries `scan_marked_read` for a
+mark-read confirmed while the inbox was scanned for it. Opening a conversation, including the one the inbox opens by itself,
+also loads that participant's Sales Navigator profile, as it does in the
+browser. That is a data request, not a visit to the lead's page, so it is not a
+profile view.
+
+`get_sales_navigator_inbox` scrolls the list (20 conversations a scroll) and
+says in `paging.reason` why it stopped. `search_sales_navigator_conversations`
+types the keywords into the inbox's search box, because Sales Navigator has no
+search address, and clicks no result. A `lead_id` passed to
+`get_sales_navigator_conversation` is looked for in the 200 most recent
+conversations of the inbox, not in archived ones.
+
+`send_sales_navigator_message` and `reply_to_sales_navigator_conversation`
+write as you. A new message opens Sales Navigator's message box for the lead
+(`/sales/inbox/mobile-compose/<lead>`, a Sales Navigator page, not a lead
+page), and a reply opens the conversation. Until a confirmed send, the
+conversation's read state is left alone, and the page's own data must name
+exactly that lead or conversation. Both need `confirm_send`; call with it
+false first to see who the message goes to and what it costs. A message to a
+connection is free; anyone else gets an InMail, which needs a one-line
+`subject` and uses one InMail credit unless the lead has an Open Profile
+(`kind: open_profile`, from the message box's own profile data, never from
+a lead search row, which carries no Open Profile flag because the search does not ask for one) or is a TeamLink colleague (`kind: teamlink`, from the
+profile's `teamlink`; its cost is not yet confirmed, so `creditCost` is null and
+it needs `spend_inmail_credit` like any unknown cost). Spending a credit also needs
+`spend_inmail_credit=true`, and without it the answer is
+`inmail_credit_required` with the credits left. The balance comes from Sales
+Navigator itself; when it is zero the answer is `no_inmail_credits`, and when
+the page did not report it, `inmail_credits_unknown`. If Sales Navigator keeps
+Send disabled for an Open Profile message while no credits are
+left, the answer is `send_blocked_no_credits` and nothing was sent.
+
+A message into an existing conversation is free only when the page shows it
+is: the lead is a connection, the conversation holds no InMail, or the lead
+accepted or answered the InMail (an `INMAIL_ACCEPT` or `INMAIL_REPLY` message
+from them). Otherwise the cost is unknown: `creditCost` is null, never 0. Such
+a send is treated as one that may spend a credit: it needs
+`spend_inmail_credit=true` and a known balance, and without the flag the
+answer is `inmail_reply_cost_unknown`. A reply to an InMail you received and
+have not answered counts as unknown too. A send is confirmed only by Sales
+Navigator's own answer to its send request. A reply box that asks for a
+subject would start a new InMail and is refused. While typing and sending,
+the conversation's read state is still protected: only the click on Send lets
+one send request through. Sales Navigator sends are counted against
+`SALES_NAVIGATOR_MESSAGES_MAX` (50 per rolling 24 h), separate from
+`MESSAGES_MAX`, and wait for working hours like other messages.
 
 Each search page counts against `SEARCH_PAGES_MAX`, the same cap as classic
 people and company search. Other Sales Navigator pages are counted but have no
@@ -267,9 +342,11 @@ to look up; pass numeric ids to avoid them.
 A Sales Navigator search shows at most 1,000 results (40 pages of 25). When a
 search reports more, split it into narrower searches that each stay under
 1,000, for example by region (`hq_location` or `location`) or by company size
-(`size`), and page through each one. The searches check that Sales Navigator
-applied every filter you passed; a filter it ignored is an error, not
-unfiltered results.
+(`size`), and page through each one. The searches check the request the
+Sales Navigator page sent: a filter the page drops or rewrites is an error,
+not unfiltered results. That check cannot show that LinkedIn applied the
+filter or that an id is right: a list id Sales Navigator does not know is not
+an error and may return no leads.
 
 Leads who asked LinkedIn not to share their data with third-party tools are
 left out of lead search results. The result only counts them, under
@@ -282,6 +359,100 @@ page would not finish within the call's time limit; it then returns what it
 read with `next_page`, and the next call continues from there. The companies of a list can be passed, by
 name, to `create_company_list_audience` to target them in Campaign Manager.
 
+`list_sales_navigator_lead_lists` reads lead lists the same way.
+`get_sales_navigator_lead_list` reads a list's leads as a lead search filtered
+to that list, so each page of 25 counts against `SEARCH_PAGES_MAX` and at most
+1,000 leads of one list can be read. One call reads at most 20 pages (500
+leads, a fifth of the default daily search cap); pass `next_page` to continue.
+A pacing cap that refuses a later page keeps the leads already read and names
+the cap and `resume_at` under `section_errors.leads`. The result confirms the
+list (its name and size under `lead_list`) only when the page also sent the
+list's own record; otherwise a list id Sales Navigator does not know returns
+0 leads, so check the id against `list_sales_navigator_lead_lists`.
+
+To build an audience from an ideal customer profile, narrow
+`search_sales_navigator_leads` with its filters, or save the people to a lead
+list in Sales Navigator and read it with `get_sales_navigator_lead_list`. The
+`account_list` filter finds the people at the companies of an account list.
+To search inside companies you found, build an account list from them:
+`create_sales_navigator_account_list` with the `id`s of
+`search_sales_navigator_accounts` rows as `accounts`, then pass the new list's
+id as `account_list`. Every lead row carries:
+
+- `id`: the Sales Navigator profile id (an `ACw...` id), which the Sales
+  Navigator tools take;
+- `profileUrl`: `https://www.linkedin.com/in/<id>`, a link to open the
+  profile in a browser. Neither it nor the id is a public identifier.
+  `send_message` accepts the id as `linkedin_username`: it messages the
+  member the profile page opens, read from that page and its Message action.
+  `connect_with_person` refuses an `ACw...` or `ACo...` id, because it
+  confirms the invite against the member's `/in/<public identifier>/`
+  address; pass it the public identifier (the part after `/in/` in the
+  member's own profile address) instead;
+- `memberUrn`: `urn:li:member:<n>`;
+- `degree`: 1, 2 or 3 for the connection degree. Filter with `network: ["F"]`
+  for 1st-degree connections only, for example to invite them to follow a
+  company page.
+
+#### Account-list writes
+
+`create_sales_navigator_account_list`, `add_accounts_to_sales_navigator_list`
+and `delete_sales_navigator_account_list` change your own Sales Navigator
+lists; nobody else is notified. Each one opens one Sales Navigator page to
+check its target first: an add or a delete needs an account list (a lead list
+is refused), and a delete goes ahead only when the list's current name is
+exactly `expected_name`. With `confirm_send: false` nothing is sent and the
+result says what would be. With `confirm_send: true` exactly one request per
+step leaves your browser; every other change the page tries while the tool
+runs is stopped in the browser. A create fills in and submits Sales
+Navigator's own create-list form, lets through only the request the app then
+sends when it is exactly the planned one, and reads the new list back from its
+page. An add or a delete has no such form for an arbitrary list or set of
+accounts, so the tool sends a request shaped like the app's own (the same
+endpoint, body and headers) from your browser. A create with `accounts` is two
+requests, the list, then the accounts, and is refused up front unless the
+daily cap has room for both; the result stays `created` whatever happens to
+the accounts, with `accounts_status` saying how the add went. Adding
+accounts also saves them, as Sales Navigator's own Save to list does, and each account's status comes from
+Sales Navigator's answer for it (`added`, `already_in_list`, `refused` with
+its reason, or `unconfirmed`). Deleting a list leaves its accounts saved.
+A list name is at most 75 characters and a description 350, the limits of
+Sales Navigator's own form.
+
+Success is only reported from Sales Navigator's own answer to that request
+(and, for a create, the read-back; for an add whose answer names no
+account, one read of the list's first page). For an add that answer says Sales
+Navigator accepted it, not what the list now holds: read the list back with
+`get_sales_navigator_account_list` for that. When no answer arrives, or the
+tool stops on an error after the request left, the result is
+`*_unconfirmed` with `retry_safe: false`: check the
+lists before calling again, as a repeat could create a second list. Each
+request that left the browser counts against `SALES_LIST_WRITES_MAX` (30 per
+rolling 24 h) and the hourly cap, a dry run never does, and they wait for
+working hours like the other writes.
+
+### Company page follow invites
+
+`list_page_follow_candidates` and `invite_to_follow_page` work on a company
+page the signed-in account administers. Both open the page's own "Invite to
+follow" dialog (`/company/<id>/admin/dashboard/?invite=true`, one page load)
+and read the candidates, whether each can be invited and the page's monthly
+credits from the responses that dialog loads. On any other page LinkedIn opens
+`/company/no-access/` instead, and the tools say the account is not an admin.
+
+Each invitation costs the page one credit (LinkedIn refunds it when the
+invitation is accepted; credits are shared by all admins and granted
+monthly). `invite_to_follow_page` invites only the people you pass, found in the
+dialog's candidate list by paging through it (up to 300 candidates, never by
+typing) and matched by member id or public profile name. It takes the
+identifiers the other tools return, including Sales Navigator lead results. With
+`confirm_send` false it ticks nothing and reports what it would do. With
+`confirm_send` true it ticks those rows, checks that the dialog's selection is
+exactly that list, and only then presses Invite; the browser lets through a
+single invitation request, and only one naming exactly those people. People
+past the page's remaining credits or the account's `PAGE_INVITES_MAX` are not
+invited, and every person gets their own status. A result with `retry_safe`
+false may have sent invitations: check the page before calling again.
 
 
 ## 🚀 uvx Setup (Recommended - Universal)
@@ -987,7 +1158,10 @@ off.
 | `SEARCH_PAGES_MAX` | `100` | Search result pages per rolling 24 h, Sales Navigator search pages included; may be raised or lowered |
 | `INVITES_MAX` / `INVITES_WEEKLY_MAX` | `20` / `160` | Invitations per rolling 24 h / per calendar week (resets Monday 00:00 local time); both may be raised or lowered |
 | `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may be raised or lowered |
+| `SALES_NAVIGATOR_MESSAGES_MAX` | `50` | Sales Navigator messages and replies per rolling 24 h, counted apart from `MESSAGES_MAX`; may be raised or lowered |
 | `CAMPAIGN_WRITES_MAX` | `30` | Campaign Manager writes per rolling 24 h; may be raised or lowered |
+| `PAGE_INVITES_MAX` | `20` | Invitations to follow a company page per rolling 24 h; may be raised or lowered |
+| `SALES_LIST_WRITES_MAX` | `30` | Sales Navigator account-list requests (create, add, delete) per rolling 24 h; may be raised or lowered |
 | `WORKING_HOURS_DISABLED` | off | `1` lets invitations, messages and Campaign Manager writes go outside working hours and lifts the halved read caps |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one |
 | `DAILY_CAP_JITTER` | `0.15` | Fraction shaved off the daily cap at random each day |
@@ -1016,8 +1190,8 @@ off.
 
 Two consecutive tool calls are spaced by a random gap drawn log-uniformly
 from 8–20 s for tools that only read and 20–60 s for `connect_with_person`,
-`send_message`, `reply_to_conversation`, `withdraw_invitations` and the
-Campaign Manager writes. The middleware reports progress while it waits, so a client
+`send_message`, `reply_to_conversation`, the two Sales Navigator send tools,
+`withdraw_invitations`, `invite_to_follow_page` and the Campaign Manager writes. The middleware reports progress while it waits, so a client
 never sees a silent server. `TOOL_CALL_GAP_SECONDS` replaces the read minimum
 and scales every other bound with it.
 

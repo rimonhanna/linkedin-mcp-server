@@ -235,7 +235,7 @@ def test_parse_sn_call_entity_and_other_urls():
 
 def test_paging_capped_on_last_viewable_page():
     payload = {"paging": {"start": 975, "count": 25, "total": 1500}}
-    assert build_paging(payload, 40) == {
+    assert build_paging(payload, 40, 25) == {
         "page": 40,
         "start": 975,
         "count": 25,
@@ -247,13 +247,15 @@ def test_paging_capped_on_last_viewable_page():
 
 
 def test_paging_more_and_bad_shapes():
-    paging = build_paging({"paging": {"start": 0, "count": 25, "total": 30}}, 1)
+    paging = build_paging({"paging": {"start": 0, "count": 25, "total": 30}}, 1, 25)
     assert paging is not None and paging["more"] is True and not paging["capped"]
-    last = build_paging({"paging": {"start": 25, "count": 25, "total": 30}}, 2)
+    last = build_paging({"paging": {"start": 25, "count": 25, "total": 30}}, 2, 25)
     assert last is not None and last["more"] is False
-    assert build_paging({"paging": {"start": 0, "count": 25}}, 1) is None
-    assert build_paging({"paging": {"start": "0", "count": 25, "total": 1}}, 1) is None
-    assert build_paging([], 1) is None
+    assert build_paging({"paging": {"start": 0, "count": 25}}, 1, 25) is None
+    assert (
+        build_paging({"paging": {"start": "0", "count": 25, "total": 1}}, 1, 25) is None
+    )
+    assert build_paging([], 1, 25) is None
 
 
 def test_account_card():
