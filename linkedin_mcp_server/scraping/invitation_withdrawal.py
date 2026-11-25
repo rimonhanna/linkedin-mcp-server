@@ -39,6 +39,7 @@ from linkedin_mcp_server.pacing import (
     record_write,
     step_delay_range,
 )
+from linkedin_mcp_server.scraping.contracts import pacing_stop
 from linkedin_mcp_server.scraping.identifiers import normalize_person_identifier
 
 logger = logging.getLogger(__name__)
@@ -506,7 +507,7 @@ class InvitationWithdrawer:
                     admit_write(JobStore(), WITHDRAWALS, datetime.now(timezone.utc))
             except ActionLimitError as exc:
                 result["stopped_reason"] = (
-                    "hourly_cap" if exc.window == "1 h" else f"action_limit: {exc}"
+                    "hourly_cap" if exc.window == "1 h" else pacing_stop(exc)
                 )
                 return result
             except Exception as exc:

@@ -36,7 +36,7 @@ a page-owning collaborator.
 | `connection` | `ActionSignals`, `ConnectionState`, `detect_connection_state()` | `browser-free` |
 | `connection_actions` | `ACTION_SIGNALS_JS`, `CLICK_CONNECT_JS`, `CLICK_INCOMING_ACCEPT_JS`, `ConnectionActions`, `ReadMainProfile` | `page-owning` |
 | `content` | `PageContentReader` | `page-owning` |
-| `contracts` | `ExtractedSection`, `FilterValidationError`, `RATE_LIMITED_SECTION_TEXT`, `SEND_INTERRUPTED_WARNING`, `before_the_reply_deadline()`, `invalid_message_reason()`, `limit_exceeded_section_error()`, `line_breaks_lost()`, `message_action_result()`, `normalize_message_line_breaks()`, `rate_limited_section_error()`, `refuse_an_invalid_message()`, `refuse_an_invalid_reply()`, `reply_action_result()`, `send_budget_deadline()` | `browser-free` |
+| `contracts` | `ExtractedSection`, `FilterValidationError`, `RATE_LIMITED_SECTION_TEXT`, `SEND_INTERRUPTED_WARNING`, `before_the_reply_deadline()`, `invalid_message_reason()`, `limit_exceeded_section_error()`, `line_breaks_lost()`, `message_action_result()`, `normalize_message_line_breaks()`, `pacing_stop()`, `rate_limited_section_error()`, `refuse_an_invalid_message()`, `refuse_an_invalid_reply()`, `reply_action_result()`, `send_budget_deadline()` | `browser-free` |
 | `conversations` | `ConversationReader` | `page-owning` |
 | `enter_to_send` | `ENTER_TO_SEND_ENABLED`, `ENTER_TO_SEND_JS`, `ENTER_TO_SEND_MESSAGE` | `browser-free` |
 | `extractor` | `LinkedInExtractor` | `page-owning` |
@@ -115,7 +115,7 @@ a page-owning collaborator.
 - `feed_payload` -> `link_metadata`
 - `fields` -> `capture`
 - `identifiers` -> _(none)_
-- `invitation_withdrawal` -> `identifiers`
+- `invitation_withdrawal` -> `contracts`, `identifiers`
 - `job_pages` -> `content`, `contracts`, `job_policy`, `link_metadata`, `navigation`, `rate_limit`, `session`, `text`
 - `job_policy` -> `link_metadata`, `text`
 - `jobs` -> `capture`, `contracts`, `facets`, `identifiers`, `job_pages`, `job_policy`, `link_metadata`, `navigation`, `search_urls`, `session`, `text`
@@ -128,7 +128,7 @@ a page-owning collaborator.
 - `page_invite_api` -> `api_capture`, `page_invite_payload`
 - `page_invite_guard` -> `page_invite_payload`
 - `page_invite_payload` -> `restli`
-- `page_invites` -> `navigation`, `page_invite_api`, `page_invite_guard`, `page_invite_payload`, `session`
+- `page_invites` -> `contracts`, `navigation`, `page_invite_api`, `page_invite_guard`, `page_invite_payload`, `session`
 - `person` -> `capture`, `contracts`, `facets`, `fields`, `identifiers`, `link_metadata`, `navigation`, `profile_page`, `search_pages`, `search_parse`, `search_urls`, `session`, `text`
 - `posts` -> `capture`, `contracts`, `link_metadata`, `search_urls`
 - `profile_page` -> `session`

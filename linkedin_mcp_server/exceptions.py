@@ -301,8 +301,9 @@ class ActionLimitError(LinkedInMCPError, LinkedInScraperException):
             # made a live agent give up on work the next morning would allow.
             words = kind.replace("_", " ")
             super().__init__(
-                f"{words} are not sent outside working hours (this server's "
-                f"schedule, not a LinkedIn limit); {words} resume at {when}."
+                f"outside_working_hours: {words} are not sent outside working "
+                f"hours (this server's schedule, not a LinkedIn limit); {words} "
+                f"resume at {when}."
             )
             return
         if limit:

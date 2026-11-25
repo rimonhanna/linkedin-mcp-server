@@ -66,7 +66,9 @@ async def test_an_off_hours_send_is_refused_as_the_schedule_before_the_browser(
         await _invite(mock_context, confirm=True)
 
     message = str(excinfo.value)
-    assert message.startswith("page invites are not sent outside working hours")
+    assert message.startswith(
+        "outside_working_hours: page invites are not sent outside working hours"
+    )
     assert "this server's schedule, not a LinkedIn limit" in message
     assert "page invites resume at " in message
     assert "limit_exceeded" not in message
@@ -88,8 +90,9 @@ def test_the_schedule_and_a_cap_read_differently():
     assert schedule.schedule_only and not cap.schedule_only
     assert schedule.error_type == cap.error_type == "limit_exceeded"
     assert str(schedule) == (
-        "page invites are not sent outside working hours (this server's "
-        "schedule, not a LinkedIn limit); page invites resume at 2026-08-06T09:00."
+        "outside_working_hours: page invites are not sent outside working hours "
+        "(this server's schedule, not a LinkedIn limit); page invites resume at "
+        "2026-08-06T09:00."
     )
     assert str(cap) == (
         "limit_exceeded: page_invites limit of 20 per 24 h reached. "
