@@ -645,7 +645,8 @@ class PageInviteActions:
                 capture, dialog, company_id, asked, plan_deadline
             )
             report.credits = dialog.credits()
-            if report.credits is None:
+            # A send never goes out without the credits; a dry run still plans.
+            if report.credits is None and confirm_send:
                 return report.finish(
                     "credits_unavailable",
                     "LinkedIn did not show the page's invitation credits, so "
@@ -662,6 +663,17 @@ class PageInviteActions:
             if pacing_stop:
                 report.pacing = pacing_stop
             if not confirm_send:
+                if report.credits is None:
+                    report.credits_error = (
+                        "LinkedIn did not show the page's invitation credits."
+                    )
+                    return report.finish(
+                        "dry_run",
+                        "Nothing was ticked or sent. LinkedIn did not show the "
+                        "page's invitation credits, so a send would be refused "
+                        "until it does; credits allowing, the people marked "
+                        "would_invite are who would be invited.",
+                    )
                 return report.finish(
                     "dry_run",
                     "Nothing was ticked or sent. Call again with confirm_send "
@@ -783,6 +795,7 @@ class _Report:
         self.people = people
         self.dry_run = dry_run
         self.credits: Credits | None = None
+        self.credits_error: str | None = None
         self.pacing: str | None = None
         self.resolved: dict[int, Candidate] = {}
         self.statuses: dict[int, PersonStatus] = {}
@@ -807,7 +820,8 @@ class _Report:
         paging_stop: str,
     ) -> list[str]:
         """Each person's status; the ones to invite, within credits and pacing."""
-        credits = self.credits["remaining"] if self.credits else 0
+        # None only on a dry run: a send stops before planning without credits.
+        credits = self.credits["remaining"] if self.credits else None
         chosen: list[str] = []
         seen: set[str] = set()
         for index, ref in enumerate(self.people):
@@ -849,7 +863,7 @@ class _Report:
                 self.details[index] = (
                     f"linkedin_declined: {label}" if label else "linkedin_declined"
                 )
-            elif len(chosen) >= credits:
+            elif credits is not None and len(chosen) >= credits:
                 self.statuses[index] = "no_credits"
             elif len(chosen) >= headroom:
                 self.statuses[index] = "pacing_cap"
@@ -949,4 +963,11 @@ class _Report:
         }
         if self.pacing:
             result["pacing"] = self.pacing
+        if self.credits_error:
+            result["section_errors"] = {
+                "credits": {
+                    "error_type": "unavailable",
+                    "error_message": self.credits_error,
+                }
+            }
         return result

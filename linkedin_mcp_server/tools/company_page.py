@@ -199,7 +199,10 @@ def register_company_page_tools(
         Returns:
             Dict with url, company_id, status, message, dry_run, retry_safe,
             people and credits (remaining, total, nextGrantOn, needed), plus
-            pacing when a cap or cooldown held people back.
+            pacing when a cap or cooldown held people back. When LinkedIn
+            does not show the credits, a dry run still reports each person
+            with credits null and section_errors.credits, while a send
+            stops with credits_unavailable and invites no one.
             status: dry_run, sent, send_unconfirmed, refused_by_linkedin,
             nothing_to_invite, not_page_admin, credits_unavailable,
             selection_failed, selection_mismatch, invite_control_not_found,
