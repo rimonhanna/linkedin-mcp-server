@@ -28,6 +28,8 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+from patchright.async_api import Error as PlaywrightError
+
 from linkedin_mcp_server.core.exceptions import (
     InvalidReferenceError,
     LinkedInScraperException,
@@ -422,7 +424,14 @@ class PageInviteActions:
         captured = dialog.credits()
         if captured is not None:
             return captured
-        return embedded_credits(await self._page.content(), company_id)
+        try:
+            page_html = await self._page.content()
+        except PlaywrightError as exc:
+            logger.warning(
+                "Reading the page for its invitation credits failed: %s", exc
+            )
+            return None
+        return embedded_credits(page_html, company_id)
 
     async def _dialog_state(self) -> dict[str, Any]:
         state = await self._page.evaluate(_DIALOG_STATE_JS)
