@@ -25,6 +25,9 @@ work, health checks, or background maintenance.
   approved spending one. Use them only when the user explicitly authorizes the
   exact recipient and action (for a reply, the exact thread). Confirm the
   final message or connection note unless the user has already supplied it.
+- `invite_to_follow_page` invites people to follow a page as the user. Call it
+  with `confirm_send` false first, show the user who would be invited and the
+  credits it uses, and confirm only the people they approved.
 - `update_campaign`, `set_campaign_status`, `update_campaign_targeting`,
   `create_campaign_draft`, `add_post_to_campaign`,
   `create_company_list_audience` and `create_saved_audience` change the
@@ -108,6 +111,8 @@ instances, clear profiles, or replace the user's browser session.
   `thread_id`, or `lead_id` as lead search returns it) and
   `search_sales_navigator_conversations`, which leave unread conversations
   unread.
+- Company pages you administer: `list_page_follow_candidates` (read-only)
+  and `invite_to_follow_page`.
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
   InMail included, by its thread ID), `send_sales_navigator_message` (a lead
   by lead id; dry run first to see the InMail cost),

@@ -85,6 +85,14 @@
       "description": "List employees at a company from the LinkedIn /people/ page, with optional keyword filter by name, title, or skill"
     },
     {
+      "name": "list_page_follow_candidates",
+      "description": "For a company page you administer, list the 1st-degree connections its Invite to follow dialog offers, whether each can be invited, and the page's monthly invitation credits; read-only"
+    },
+    {
+      "name": "invite_to_follow_page",
+      "description": "Invite exactly the given people (profile ids, profile URLs, Sales Navigator lead ids or URNs, member URNs) to follow a company page you administer, matched by member id; confirm_send false is a dry run reporting who would be invited and the credits used; stops at the remaining credits and the daily cap, with a status per person"
+    },
+    {
       "name": "get_job_details",
       "description": "Retrieve specific job posting details using LinkedIn job IDs, including how the posting takes applications"
     },

@@ -36,6 +36,7 @@ from linkedin_mcp_server.scraping.job_policy import JobsTrackerStage
 from linkedin_mcp_server.scraping.jobs import JobScraper
 from linkedin_mcp_server.scraping.message_sender import MessageSender
 from linkedin_mcp_server.scraping.navigation import PageNavigator
+from linkedin_mcp_server.scraping.page_invites import PageInviteActions
 from linkedin_mcp_server.scraping.person import PersonScraper
 from linkedin_mcp_server.scraping.posts import PostSearch
 from linkedin_mcp_server.scraping.profile_page import ProfilePageReader
@@ -97,6 +98,7 @@ class LinkedInExtractor:
         self._campaign_content = CampaignContentEditor(session, navigator)
         self._audiences = CampaignAudiences(session, navigator)
         self._sales_navigator = SalesNavigatorReader(session, navigator, facets)
+        self._page_invites = PageInviteActions(session, navigator)
         self._sales_inbox = SalesNavigatorInboxReader(
             session,
             self._sales_navigator,
@@ -576,6 +578,32 @@ class LinkedInExtractor:
         """One Sales Navigator account list and up to 1,000 of its accounts."""
         return await self._sales_navigator.get_account_list(
             list_id, page, deadline=deadline
+        )
+
+    async def list_page_follow_candidates(
+        self,
+        company_id: str,
+        *,
+        keywords: str | None = None,
+        limit: int = 20,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """Connections a page admin can invite to follow the page, and its credits."""
+        return await self._page_invites.list_follow_candidates(
+            company_id, keywords=keywords, limit=limit, deadline=deadline
+        )
+
+    async def invite_to_follow_page(
+        self,
+        company_id: str,
+        people: list[str],
+        *,
+        confirm_send: bool,
+        deadline: float | None = None,
+    ) -> dict[str, Any]:
+        """Invite exactly these connections to follow the page (dry run unless confirmed)."""
+        return await self._page_invites.invite_to_follow(
+            company_id, people, confirm_send=confirm_send, deadline=deadline
         )
 
     async def get_sales_navigator_inbox(

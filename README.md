@@ -60,6 +60,8 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `get_company_posts` | Get recent posts from a company's LinkedIn feed, with optional `max_scrolls` (1-50, default 10) to read further back |
 | `search_companies` | Search for companies by keywords and/or Clay-style facets: `industry` (LinkedIn numeric id, or a known name such as "Software Development"), `size` (headcount bucket like `51-200` or facet letter `A`-`I`), `hq_location` (country/city, resolved like `search_people`'s location) and `has_jobs`, with `max_pages` pagination (1-10, 10 companies per page). Facets narrow at search time, so `enrich_companies` only pays for the shortlist. The `industry` and `size` parameter names/values are unverified against live LinkedIn; a wrong name is ignored, so cross-check results. Returns `companies` rows (`name`, `industry`, `location`, `tagline`, `followers`, `url`) parsed from the page text plus `result_count`, alongside the raw text |
 | `get_company_employees` | List employees at a company from the /people/ page, with optional keyword filter |
+| `list_page_follow_candidates` | For a company page you administer: the 1st-degree connections its "Invite to follow" dialog offers (`profileId`, name, headline, profile URL, `invitable`) and the page's monthly invitation credits. Optional `keywords` (the dialog's name search) and `limit` (1-200, default 20). Read-only; any other page is reported as not administered |
+| `invite_to_follow_page` | Invite exactly the `people` passed (1-20, as a `profileId`, profile URL or username, Sales Navigator lead id, URN or URL, or `urn:li:member` URN) to follow a page you administer; each is matched to the dialog by member id or public profile name, never by display name, and someone who is not a 1st-degree connection, already follows or was already invited is reported `not_invitable` for that person alone. `confirm_send` is required: false ticks and sends nothing and reports who would be invited and the credits it would use. Stops at the page's remaining credits and at `PAGE_INVITES_MAX`; reports a status per person and never resends an invitation whose outcome is unknown |
 | `search_jobs` | Search for jobs with keywords and location filters. The location is resolved to LinkedIn's geo id through its own location dropdown, once per place per server process; a place the dropdown does not know is sent as free text and reported under `section_errors.location` (`location_unresolved`). Returns `job_ids` plus `applied_location` (the place LinkedIn's heading says it searched, when a location was given), `total` (`{count, exact}`, the result count LinkedIn advertises; `exact` is false for a lower bound such as "500+"), `promoted_job_ids` (the subset of `job_ids` shown as promoted; present only when every page could be read) and `pagination` (`{pages_fetched, next_offset, reason}`: why paging stopped, one of `complete`, `max_pages`, `time_budget` or `no_new_ids`; absent when a failure stopped the search), alongside the raw text |
 | `get_saved_jobs` | List the authenticated user's jobs at one job-tracker stage: `stage` is `saved` (default), `in_progress`, `applied` or `archived` |
 | `search_people` | Search for people by keywords (Boolean `AND`/`OR`/`NOT`, quotes, parentheses) and/or Clay-style facets: `location`, `network` (1st/2nd/3rd), `current_company` and `past_company` (one or a list; name, `/company/` slug URL, or numeric URN), `title` (sent as `titleFreeText`, which LinkedIn's current results page ignores; put the title in `keywords` as a quoted phrase instead. Refused as the only criterion, since that would return an unfiltered list), `industry` (numeric id or a known name, same table as `search_companies`), `school` (numeric id only: people search -> All filters -> School, then read `schoolFilter=["<id>"]` from the URL), `first_name`, `last_name`, `profile_language` (ISO 639-1 codes), with `max_pages` pagination (1-10, 10 people per page). Only `current_company` and `first_name` are measured live; the `past_company`, `industry`, `school`, `last_name` and `profile_language` parameter names/values are unverified against live LinkedIn, and a wrong name is ignored, so cross-check results. Returns `people` rows (`name`, `degree`, `headline`, `location`, `snippet`, `url`) parsed from the page text plus `result_count`, alongside the raw text. Funnel: `search_companies` -> `enrich_companies(about=True)` -> `query_company_cache` -> `search_people(current_company=[...], keywords='"<title>"')` |
@@ -350,6 +352,29 @@ counts as a page load. One call stops at 1,000 rows, or earlier when its next
 page would not finish within the call's time limit; it then returns what it
 read with `next_page`, and the next call continues from there. The companies of a list can be passed, by
 name, to `create_company_list_audience` to target them in Campaign Manager.
+
+### Company page follow invites
+
+`list_page_follow_candidates` and `invite_to_follow_page` work on a company
+page the signed-in account administers. Both open the page's own "Invite to
+follow" dialog (`/company/<id>/admin/dashboard/?invite=true`, one page load)
+and read the candidates, whether each can be invited and the page's monthly
+credits from the responses that dialog loads. On any other page LinkedIn opens
+`/company/no-access/` instead, and the tools say the account is not an admin.
+
+Each invitation costs the page one credit (LinkedIn refunds it when the
+invitation is accepted; credits are shared by all admins and granted
+monthly). `invite_to_follow_page` invites only the people you pass, found in the
+dialog's candidate list by paging through it (up to 300 candidates, never by
+typing) and matched by member id or public profile name. It takes the
+identifiers the other tools return, including Sales Navigator lead results. With
+`confirm_send` false it ticks nothing and reports what it would do. With
+`confirm_send` true it ticks those rows, checks that the dialog's selection is
+exactly that list, and only then presses Invite; the browser lets through a
+single invitation request, and only one naming exactly those people. People
+past the page's remaining credits or the account's `PAGE_INVITES_MAX` are not
+invited, and every person gets their own status. A result with `retry_safe`
+false may have sent invitations: check the page before calling again.
 
 
 
@@ -1058,6 +1083,7 @@ off.
 | `MESSAGES_MAX` | `50` | Messages per rolling 24 h; may be raised or lowered |
 | `SALES_NAVIGATOR_MESSAGES_MAX` | `50` | Sales Navigator messages and replies per rolling 24 h, counted apart from `MESSAGES_MAX`; may be raised or lowered |
 | `CAMPAIGN_WRITES_MAX` | `30` | Campaign Manager writes per rolling 24 h; may be raised or lowered |
+| `PAGE_INVITES_MAX` | `20` | Invitations to follow a company page per rolling 24 h; may be raised or lowered |
 | `WORKING_HOURS_DISABLED` | off | `1` lets invitations, messages and Campaign Manager writes go outside working hours and lifts the halved read caps |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one |
 | `DAILY_CAP_JITTER` | `0.15` | Fraction shaved off the daily cap at random each day |
@@ -1087,7 +1113,7 @@ off.
 Two consecutive tool calls are spaced by a random gap drawn log-uniformly
 from 8–20 s for tools that only read and 20–60 s for `connect_with_person`,
 `send_message`, `reply_to_conversation`, the two Sales Navigator send tools,
-`withdraw_invitations` and the Campaign Manager writes. The middleware reports progress while it waits, so a client
+`withdraw_invitations`, `invite_to_follow_page` and the Campaign Manager writes. The middleware reports progress while it waits, so a client
 never sees a silent server. `TOOL_CALL_GAP_SECONDS` replaces the read minimum
 and scales every other bound with it.
 

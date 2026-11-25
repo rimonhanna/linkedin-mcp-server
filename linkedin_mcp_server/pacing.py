@@ -130,6 +130,10 @@ MESSAGES_MAX = 50  # MESSAGES_MAX, per 24 h
 # cap beside the regular one; InMail credits are LinkedIn's own limit on top.
 SALES_NAVIGATOR_MESSAGES_MAX = 50
 CAMPAIGN_WRITES_MAX = 30  # CAMPAIGN_WRITES_MAX, per 24 h
+# Matched to INVITES_MAX: an invitation to follow a page lands in the member's
+# invitations like a connection request does. LinkedIn's own monthly credits
+# bound the page, this bounds the account.
+PAGE_INVITES_MAX = 20  # PAGE_INVITES_MAX, per 24 h
 
 # Kinds a navigation is filed under, by URL. Only ``profile`` and ``search``
 # carry a cap; the rest, Campaign Manager and Sales Navigator pages included,
@@ -163,6 +167,8 @@ WITHDRAWALS = "withdrawals"
 CAMPAIGN_WRITES = "campaign_writes"
 # A Sales Navigator message or reply: a write with its own daily cap.
 SALES_NAVIGATOR_MESSAGES = "sales_navigator_messages"
+# One member invited to follow a company page the account administers.
+PAGE_INVITES = "page_invites"
 
 # Slice shaved off the daily cap by the per-day draw (DAILY_CAP_JITTER):
 # uniform(1 - jitter, 1.0), so the total is never a round number.
@@ -282,6 +288,13 @@ def kind_caps(kind: str) -> tuple[tuple[int, int], ...]:
                     SALES_NAVIGATOR_MESSAGES_MAX,
                     minimum=1,
                 ),
+                WINDOW_SECONDS,
+            ),
+        )
+    if kind == PAGE_INVITES:
+        return (
+            (
+                env_int(EnvironmentKeys.PAGE_INVITES_MAX, PAGE_INVITES_MAX, minimum=1),
                 WINDOW_SECONDS,
             ),
         )
@@ -1005,6 +1018,7 @@ def refuse_if_limited(
         WITHDRAWALS,
         CAMPAIGN_WRITES,
         SALES_NAVIGATOR_MESSAGES,
+        PAGE_INVITES,
     ):
         raise ActionLimitError(
             kind,

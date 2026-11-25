@@ -542,6 +542,13 @@ def normalize_thread_id(value: str) -> str:
     return thread_id
 
 
+def normalize_page_company_id(value: str) -> str:
+    """The numeric id of a company page, from the id or any /company/<id>/ URL."""
+    return normalize_opaque_id(
+        value, field="company_id", route=("company",), numeric=True
+    )
+
+
 def normalize_profile_urn(value: str) -> str:
     """A raw profile id or full profile URN, in the caller's original form."""
     value = value.strip()

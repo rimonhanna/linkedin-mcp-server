@@ -96,6 +96,10 @@
         "coroutine": true,
         "signature": "(self, username: 'str') -> 'dict[str, Any]'"
       },
+      "invite_to_follow_page": {
+        "coroutine": true,
+        "signature": "(self, company_id: 'str', people: 'list[str]', *, confirm_send: 'bool', deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
       "list_ad_accounts": {
         "coroutine": true,
         "signature": "(self) -> 'dict[str, Any]'"
@@ -107,6 +111,10 @@
       "list_campaigns": {
         "coroutine": true,
         "signature": "(self, account_id: 'str') -> 'dict[str, Any]'"
+      },
+      "list_page_follow_candidates": {
+        "coroutine": true,
+        "signature": "(self, company_id: 'str', *, keywords: 'str | None' = None, limit: 'int' = 20, deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
       "list_sales_navigator_account_lists": {
         "coroutine": true,
@@ -217,9 +225,11 @@
       "get_sales_navigator_inbox",
       "get_saved_jobs",
       "get_sidebar_profiles",
+      "invite_to_follow_page",
       "list_ad_accounts",
       "list_audiences",
       "list_campaigns",
+      "list_page_follow_candidates",
       "list_sales_navigator_account_lists",
       "list_sponsorable_posts",
       "reply_to_conversation",
@@ -1127,6 +1137,38 @@
           "type": "object"
         }
       },
+      "invite_to_follow_page": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "company_id": {
+              "description": "The page's numeric company id, or its /company/<id>/\nadmin URL.",
+              "type": "string"
+            },
+            "confirm_send": {
+              "description": "Must be true to send; false is a dry run.",
+              "type": "boolean"
+            },
+            "people": {
+              "description": "The people to invite (1 to 20), in any form the other tools\nreturn: a profileId from list_page_follow_candidates, a\nprofile URL or username, a Sales Navigator lead id, lead URN\n(urn:li:fs_salesProfile:(...)) or lead URL, or a\nurn:li:member URN (a lead's memberUrn).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "company_id",
+            "people",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "list_ad_accounts": {
         "input": {
           "additionalProperties": false,
@@ -1168,6 +1210,44 @@
           },
           "required": [
             "ad_account_id"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "list_page_follow_candidates": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "company_id": {
+              "description": "The page's numeric company id, or its /company/<id>/\nadmin URL.",
+              "type": "string"
+            },
+            "keywords": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Search the connections by name (the dialog's own search,\nup to 40 results, no paging)."
+            },
+            "limit": {
+              "default": 20,
+              "description": "Most candidates to return, 1 to 200 (default 20).",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "company_id"
           ],
           "type": "object"
         },

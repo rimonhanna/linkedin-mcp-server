@@ -641,7 +641,11 @@ class ScriptedPage:
         return passed
 
     def assert_clean(
-        self, *, retained_read_guard: bool = False, retained_cm_guard: bool = False
+        self,
+        *,
+        retained_read_guard: bool = False,
+        retained_cm_guard: bool = False,
+        retained_invite_guard: bool = False,
     ) -> None:
         remaining = {
             name: len(values) for name, values in self.listeners.items() if values
@@ -653,6 +657,12 @@ class ScriptedPage:
                 f"{self.recorder.scenario}: listeners remain: {remaining}"
             )
             assert routed == {"**/campaign-manager-api/**": 1}, routed
+        elif retained_invite_guard:
+            # The invitation guard is registered for the page's life.
+            assert not remaining, (
+                f"{self.recorder.scenario}: listeners remain: {remaining}"
+            )
+            assert routed == {"**/voyager/api/**": 1}, routed
         elif retained_read_guard:
             assert remaining == {"request": 1}, remaining
             assert routed == {

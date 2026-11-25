@@ -1,0 +1,183 @@
+{
+  "call": {
+    "arguments": {
+      "company_id": "100000701",
+      "confirm_send": false,
+      "people": [
+        "ACoAAExample0",
+        "ACoAAExample1",
+        "ACoAAExample2",
+        "ACoAAMissing"
+      ]
+    },
+    "method": "invite_to_follow_page"
+  },
+  "events": [
+    {
+      "call": "invite_to_follow_page",
+      "callback_id": "callback-1",
+      "kind": "route.add",
+      "pattern": "**/voyager/api/**",
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "callback_id": "callback-2",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "callback_id": "callback-3",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "extra": {
+        "target_url": "https://www.linkedin.com/company/100000701/admin/dashboard/?invite=true",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/company/100000701/admin/dashboard/?invite=true",
+      "requested_url": "https://www.linkedin.com/company/100000701/admin/dashboard/?invite=true",
+      "section": "invite_to_follow_page__dry_run",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "kind": "wait_for_load_state",
+      "section": "invite_to_follow_page__dry_run",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "invite_to_follow_page",
+      "description": "goto https://www.linkedin.com/company/100000701/admin/dashboard/?invite=true",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/company/100000701/admin/dashboard/?invite=true",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "callback_id": "callback-3",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "kind": "boundary.rate_limit",
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.25,
+      "section": "invite_to_follow_page__dry_run"
+    },
+    {
+      "call": "invite_to_follow_page",
+      "callback_id": "callback-2",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "invite_to_follow_page__dry_run"
+    }
+  ],
+  "result": {
+    "company_id": "100000701",
+    "credits": {
+      "needed": 1,
+      "nextGrantOn": "2026-12-01",
+      "remaining": 1,
+      "total": 100
+    },
+    "dry_run": true,
+    "message": "Nothing was ticked or sent. Call again with confirm_send true to invite the people marked would_invite.",
+    "people": [
+      {
+        "headline": "Example headline",
+        "input": "ACoAAExample0",
+        "name": "Example Person 0",
+        "profileId": "ACoAAExample0",
+        "publicIdentifier": "example-person-0",
+        "status": "would_invite"
+      },
+      {
+        "headline": "Example headline",
+        "input": "ACoAAExample1",
+        "name": "Example Person 1",
+        "profileId": "ACoAAExample1",
+        "publicIdentifier": "example-person-1",
+        "status": "no_credits"
+      },
+      {
+        "detail": "linkedin_declined",
+        "headline": "Example headline",
+        "input": "ACoAAExample2",
+        "name": "Example Person 2",
+        "profileId": "ACoAAExample2",
+        "publicIdentifier": "example-person-2",
+        "status": "not_invitable"
+      },
+      {
+        "detail": "not_a_candidate",
+        "input": "ACoAAMissing",
+        "status": "not_invitable"
+      }
+    ],
+    "retry_safe": true,
+    "status": "dry_run",
+    "url": "https://www.linkedin.com/company/100000701/admin/dashboard/?invite=true"
+  },
+  "scenario": "invite_to_follow_page__dry_run",
+  "schema_version": 1
+}
