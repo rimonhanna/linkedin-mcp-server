@@ -648,7 +648,11 @@ def register_sales_navigator_tools(
         that is not one of them is refused before any search page loads.
         lead_list is that list's record. When its entityCount is more than
         the search's total, section_errors.lead_list says how many of the
-        list's leads Sales Navigator's search does not serve.
+        list's leads Sales Navigator's search does not serve; when it is less,
+        section_errors.lead_list says the search may not have been limited to
+        the list. If Sales Navigator answered a page by dropping a filter, the
+        result has no leads, paging.total 0 and section_errors.leads
+        (filters_relaxed).
 
         Args:
             list_id: Numeric lead list id, as list_sales_navigator_lead_lists

@@ -117,7 +117,7 @@ async def test_a_lead_search_without_relaxation_returns_its_rows(mock_page):
     assert "section_errors" not in result
 
 
-async def test_a_dropped_filter_that_was_not_asked_keeps_the_rows(mock_page):
+async def test_any_dropped_filter_means_the_search_was_relaxed(mock_page):
     browser = _Browser(mock_page)
     _lead_search(
         browser,
@@ -126,8 +126,41 @@ async def test_a_dropped_filter_that_was_not_asked_keeps_the_rows(mock_page):
 
     result = await _run(mock_page, browser, _leads)
 
-    assert [lead["id"] for lead in result["leads"]] == ["ACwAAA0001"]
-    assert "section_errors" not in result
+    assert result["leads"] == []
+    assert result["section_errors"]["leads"]["error_type"] == "filters_relaxed"
+    assert (
+        "dropped the FUNCTION filter"
+        in (result["section_errors"]["leads"]["error_message"])
+    )
+
+
+async def test_a_later_page_of_a_relaxed_search_reports_no_leads(mock_page):
+    browser = _Browser(mock_page)
+    query = build_search_query(None, [SearchFilter(RELATIONSHIP, ids=("F",))])
+    url = search_page_url("people", query, 2)
+    browser.loads[url] = [
+        *_boot(),
+        _response(
+            f"salesApiLeadSearch?q=searchQuery&query={query}&start=25&count=25"
+            "&decorationId=example",
+            {
+                "metadata": RELAXED_METADATA,
+                "elements": [_lead("ACwAAA0026", "Near Match")],
+                "paging": {"start": 25, "count": 25, "total": 27},
+            },
+        ),
+    ]
+
+    result = await _run(
+        mock_page, browser, lambda r: r.search_leads(network=["F"], page=2)
+    )
+
+    assert browser.navigated == [url]
+    assert result["leads"] == []
+    assert result["paging"]["start"] == 25
+    assert result["paging"]["total"] == 0
+    assert result["paging"]["more"] is False
+    assert result["section_errors"]["leads"]["error_type"] == "filters_relaxed"
 
 
 async def test_an_account_search_relaxed_past_an_exclusion_reports_no_accounts(

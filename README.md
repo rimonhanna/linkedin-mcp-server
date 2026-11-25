@@ -365,7 +365,9 @@ to that list, so each page of 25 counts against `SEARCH_PAGES_MAX` and at most
 1,000 leads of one list can be read. One call reads at most 20 pages (500
 leads, a fifth of the default daily search cap); pass `next_page` to continue.
 A pacing cap that refuses a later page keeps the leads already read and names
-the cap and `resume_at` under `section_errors.leads`. The result confirms the
+the cap and `resume_at` under `section_errors.leads`. A page Sales Navigator
+answered by dropping the list filter ends the read with no leads and
+`section_errors.leads` (`filters_relaxed`). The result confirms the
 list (its name and size under `lead_list`) only when the page also sent the
 list's own record; otherwise a list id Sales Navigator does not know returns
 0 leads, so check the id against `list_sales_navigator_lead_lists`.
