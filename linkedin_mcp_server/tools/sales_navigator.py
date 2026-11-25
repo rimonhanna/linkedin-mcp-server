@@ -259,6 +259,8 @@ def register_sales_navigator_tools(
             paging (page, start, count = leads returned, total,
             resultCap, capped, more) and withheld
             ({count, reason}, present only when a lead was left out).
+            send_sales_navigator_message reads Open Profile from the message
+            box itself.
         """
         try:
             industry_list = industry_ids(industry)

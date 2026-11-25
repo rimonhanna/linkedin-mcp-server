@@ -32,9 +32,11 @@ from linkedin_mcp_server.scraping import feed as feed_module
 from linkedin_mcp_server.scraping import job_pages as job_pages_module
 from linkedin_mcp_server.scraping import jobs as jobs_module
 from linkedin_mcp_server.scraping import navigation as navigation_module
+from linkedin_mcp_server.scraping import page_invites as page_invites_module
 from linkedin_mcp_server.scraping import person as person_module
-from linkedin_mcp_server.scraping.sales_navigator_list_writes import plan_accounts
 from linkedin_mcp_server.scraping import session as session_module
+from linkedin_mcp_server.scraping.sales_navigator_list_writes import plan_accounts
+from linkedin_mcp_server.scraping import sales_navigator_inbox as sn_inbox_module
 from linkedin_mcp_server.scraping.messaging_api import MessagingApiCapture
 from linkedin_mcp_server.scraping.sales_navigator_lead_filters import LEAD_LIST
 from linkedin_mcp_server.scraping.sales_navigator_payload import (
@@ -44,6 +46,7 @@ from linkedin_mcp_server.scraping.sales_navigator_payload import (
     SENIORITY_LEVEL,
     SearchFilter,
     build_search_query,
+    sales_profile_id,
 )
 from linkedin_mcp_server.scraping import LinkedInExtractor
 from linkedin_mcp_server.scraping.fields import COMPANY_SECTIONS, PERSON_SECTIONS
@@ -2048,6 +2051,257 @@ async def _sn_no_seat_scenario() -> dict[str, Any]:
     )
 
 
+_SN_VIEWER = "urn:li:fs_salesProfile:(ACwAAA0000,NAME_SEARCH,v0)"
+_SN_LEAD = "urn:li:fs_salesProfile:(ACwAAA0001,NAME_SEARCH,t1)"
+_SN_THREAD = "2-POLICY"
+
+
+def _sn_profiles() -> list[dict[str, Any]]:
+    return [
+        {"entityUrn": _SN_VIEWER, "fullName": "Example Viewer", "degree": 0},
+        {
+            "entityUrn": _SN_LEAD,
+            "objectUrn": "urn:li:member:100000001",
+            "fullName": "Example Person",
+            "degree": 2,
+        },
+    ]
+
+
+def _sn_message(message_id: str, delivered: int) -> dict[str, Any]:
+    return {
+        "id": message_id,
+        "type": "MESSAGE",
+        "author": _SN_LEAD,
+        "body": f"Example body {message_id}",
+        "deliveredAt": delivered,
+    }
+
+
+def _sn_thread(n: int, *, unread: int = 0) -> dict[str, Any]:
+    return {
+        "id": f"2-POLICY{n}",
+        "archived": False,
+        "unreadMessageCount": unread,
+        "totalMessageCount": 1,
+        "nextPageStartsAt": 1_790_000_000_000 - n,
+        "participants": [_SN_VIEWER, _SN_LEAD],
+        "messages": [_sn_message(f"m{n}", 1_790_000_000_000 - n)],
+    }
+
+
+def _sn_threads(query: str, threads: list[dict[str, Any]], count: int):
+    return _sn_response(
+        f"salesApiMessagingThreads?{query}&count={count}"
+        "&pageStartsAt=1790000000000&decoration=example",
+        {"data": {"elements": threads, "paging": {}}, "included": _sn_profiles()},
+    )
+
+
+async def _sn_inbox_run(
+    name: str, page: ScriptedPage, method: str, arguments: dict[str, Any], call: Any
+) -> dict[str, Any]:
+    recorder = page.recorder
+    clock = FakeClock(recorder)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context(method, name):
+            result = await call(extractor)
+    # The read-state guard stays latched for late requests.
+    page.assert_clean(retained_read_guard=True)
+    return recorder.trace(
+        {"method": method, "arguments": arguments},
+        _complete_mapping_result(result, section_names=list(result["sections"])),
+    )
+
+
+async def _sn_inbox_scenario() -> dict[str, Any]:
+    page = _sn_page("get_sales_navigator_inbox__one_scroll_to_the_end")
+    page.script(
+        "goto",
+        lambda: _sn_emit(
+            page,
+            [
+                *_sn_boot(),
+                _sn_threads(
+                    "q=filter&filter=UNREAD",
+                    [_sn_thread(1, unread=2), _sn_thread(2)],
+                    2,
+                ),
+            ],
+        ),
+    )
+
+    def next_page() -> bool:
+        _sn_emit(page, [_sn_threads("q=filter&filter=UNREAD", [_sn_thread(3)], 2)])
+        return True
+
+    page.script("evaluate:sn_inbox_scroll", next_page)
+    return await _sn_inbox_run(
+        "inbox",
+        page,
+        "get_sales_navigator_inbox",
+        {"limit": 5, "filter": "unread"},
+        lambda extractor: extractor.get_sales_navigator_inbox(5, "unread"),
+    )
+
+
+async def _sn_conversation_scenario() -> dict[str, Any]:
+    page = _sn_page("get_sales_navigator_conversation__one_older_batch")
+    record = {
+        **_sn_thread(0, unread=1),
+        "id": _SN_THREAD,
+        "messages": [_sn_message(f"n{i}", 10_000 + i) for i in range(10)],
+    }
+    thread = _sn_response(
+        f"salesApiMessagingThreads/{_SN_THREAD}?count=1&messageCount=10"
+        "&decoration=example",
+        {"data": record, "included": _sn_profiles()},
+    )
+
+    def load() -> None:
+        _sn_emit(page, _sn_boot())
+        page.emit("request", thread.request)
+        _sn_emit(page, [thread])
+
+    page.script("goto", load)
+    page.script(
+        "evaluate:sn_inbox_history",
+        {"status": 200, "payload": {"data": {"elements": [_sn_message("o0", 500)]}}},
+    )
+    return await _sn_inbox_run(
+        "conversation",
+        page,
+        "get_sales_navigator_conversation",
+        {"thread_id": _SN_THREAD},
+        lambda extractor: extractor.get_sales_navigator_conversation(
+            thread_id=_SN_THREAD
+        ),
+    )
+
+
+async def _sn_search_conversations_scenario() -> dict[str, Any]:
+    page = _page(
+        TraceRecorder(
+            "search_sales_navigator_conversations__typed_into_the_inbox_box",
+            _COMMON_ALLOWED | {"locator.input_value"},
+        )
+    )
+    page.declare_locator(sn_inbox_module._SEARCH_BOX_SELECTORS[0], "sn_search_box")
+    page.declare_derived("sn_search_box", "first", "sn_search_box_first")
+    # The app opens the top conversation on its own after the list.
+    opened = _sn_response(
+        "salesApiMessagingThreads/2-POLICY9?count=1&messageCount=10&decoration=example",
+        {"data": _sn_thread(9), "included": _sn_profiles()},
+    )
+    page.script(
+        "goto",
+        lambda: _sn_emit(
+            page,
+            [
+                *_sn_boot(),
+                _sn_threads("q=filter&filter=INBOX", [_sn_thread(9)], 20),
+                opened,
+            ],
+        ),
+    )
+    page.script("sn_search_box_first.click", None)
+    page.script(
+        "keyboard.type",
+        lambda: _sn_emit(
+            page,
+            [_sn_threads("q=keyword&keyword=engine", [_sn_thread(1)], 20)],
+        ),
+    )
+    page.script("sn_search_box_first.input_value", "engine")
+    return await _sn_inbox_run(
+        "search_results",
+        page,
+        "search_sales_navigator_conversations",
+        {"keywords": "engine", "limit": 5},
+        lambda extractor: extractor.search_sales_navigator_conversations("engine", 5),
+    )
+
+
+_SN_COMPOSER_EMPTY = {
+    "status": "valid",
+    "empty": True,
+    "subject": False,
+    "sendCount": 1,
+}
+
+
+def _script_sn_composer(page: ScriptedPage) -> None:
+    """One composer pinned, empty, without a subject, then released."""
+    page.script("evaluate_handle:sn_composer_pin", True)
+    page.script("handle-1.evaluate:sn_composer_state", _SN_COMPOSER_EMPTY)
+    page.script("handle-1.evaluate:sn_composer_dispose", None)
+
+
+async def _sn_send_dry_run_scenario() -> dict[str, Any]:
+    page = _sn_page("send_sales_navigator_message__dry_run_to_a_connection")
+    lead = sales_profile_id(_SN_LEAD)
+    profile = _sn_response(
+        f"salesApiProfiles/(profileId:{lead},authType:NAME_SEARCH,authToken:t1)",
+        {
+            "data": {
+                "entityUrn": _SN_LEAD,
+                "fullName": "Example Person",
+                "degree": 1,
+                "memberBadges": {"openLink": False},
+            },
+            "included": [],
+        },
+    )
+    page.script("goto", lambda: _sn_emit(page, [*_sn_boot(), profile]))
+    _script_sn_composer(page)
+    return await _sn_send_run(
+        page,
+        "send_sales_navigator_message",
+        {"lead_id": lead, "message": "Hello", "confirm_send": False},
+        lambda extractor: extractor.send_sales_navigator_message(
+            lead, "Hello", confirm_send=False
+        ),
+    )
+
+
+async def _sn_reply_dry_run_scenario() -> dict[str, Any]:
+    page = _sn_page("reply_to_sales_navigator_conversation__dry_run")
+    record = {
+        **_sn_thread(0),
+        "id": _SN_THREAD,
+        "messages": [_sn_message("r0", 10_000)],
+    }
+    thread = _sn_response(
+        f"salesApiMessagingThreads/{_SN_THREAD}?count=1&decoration=example",
+        {"data": record, "included": _sn_profiles()},
+    )
+    page.script("goto", lambda: _sn_emit(page, [*_sn_boot(), thread]))
+    _script_sn_composer(page)
+    return await _sn_send_run(
+        page,
+        "reply_to_sales_navigator_conversation",
+        {"thread_id": _SN_THREAD, "message": "Hello", "confirm_send": False},
+        lambda extractor: extractor.reply_to_sales_navigator_conversation(
+            _SN_THREAD, "Hello", confirm_send=False
+        ),
+    )
+
+
+async def _sn_send_run(
+    page: ScriptedPage, method: str, arguments: dict[str, Any], call: Any
+) -> dict[str, Any]:
+    recorder = page.recorder
+    clock = FakeClock(recorder)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context(method, "message"):
+            result = await call(extractor)
+    # The read-state guard stays latched for late requests.
+    page.assert_clean(retained_read_guard=True)
+    return recorder.trace({"method": method, "arguments": arguments}, result)
+
+
 async def _facade_contract_trace() -> dict[str, Any]:
     global _TOOL_SCHEMAS
 
@@ -2123,6 +2377,13 @@ TOOL_FACADE_METHODS = {
     "get_sales_navigator_account_list",
     "list_sales_navigator_lead_lists",
     "get_sales_navigator_lead_list",
+    "list_page_follow_candidates",
+    "invite_to_follow_page",
+    "get_sales_navigator_inbox",
+    "get_sales_navigator_conversation",
+    "search_sales_navigator_conversations",
+    "send_sales_navigator_message",
+    "reply_to_sales_navigator_conversation",
     "create_sales_navigator_account_list",
     "add_accounts_to_sales_navigator_list",
     "delete_sales_navigator_account_list",
@@ -3003,6 +3264,118 @@ async def _cm_saved_audience_scenario() -> dict[str, Any]:
     )
 
 
+_PI_COMPANY = "100000701"
+_PI_COMMUNITY = f"urn:li%3Afs_normalized_company%3A{_PI_COMPANY}"
+_PI_API = "https://www.linkedin.com/voyager/api/"
+
+
+def _pi_response(path: str, payload: Any) -> ScriptedCmResponse:
+    return ScriptedCmResponse(ScriptedCmRequest(_PI_API + path), payload)
+
+
+def _pi_dialog_responses(profiles: list[str]) -> list[ScriptedCmResponse]:
+    urns = [f"urn:li:fsd_profile:{profile}" for profile in profiles]
+    return [
+        _pi_response(
+            "voyagerRelationshipsDashCommunityInviterStatistics?q=community"
+            f"&community={_PI_COMMUNITY}",
+            {
+                "data": {
+                    "elements": [
+                        {
+                            "remainingCredit": 1,
+                            "initialCreditGrant": 100,
+                            "nextCreditGrantOn": {"year": 2026, "month": 12, "day": 1},
+                        }
+                    ],
+                    "paging": {"start": 0, "count": 10},
+                },
+                "included": [],
+            },
+        ),
+        _pi_response(
+            "voyagerRelationshipsDashCommunityInviteeSuggestions?q=community"
+            f"&useCase=INVITEE_PICKER&community={_PI_COMMUNITY}&start=0&count=20",
+            {
+                "data": {
+                    "elements": [{"suggestedProfile": urn} for urn in urns],
+                    "paging": {"start": 0, "count": len(urns)},
+                },
+                "included": [
+                    {
+                        "entityUrn": urn,
+                        "firstName": "Example",
+                        "lastName": f"Person {index}",
+                        "headline": "Example headline",
+                        "publicIdentifier": f"example-person-{index}",
+                    }
+                    for index, urn in enumerate(urns)
+                ],
+            },
+        ),
+        _pi_response(
+            "voyagerRelationshipsDashCommunityInviteeSuggestionStatus"
+            f"?q=communityAndInvitees&community={_PI_COMMUNITY}",
+            {
+                "data": {
+                    "elements": [
+                        {"suggestedProfile": urn, "ableToBeInvited": index != 2}
+                        for index, urn in enumerate(urns)
+                    ],
+                    "paging": {"start": 0, "count": 10},
+                },
+                "included": [],
+            },
+        ),
+    ]
+
+
+async def _page_invite_run(
+    name: str, method: str, arguments: dict[str, Any], call: Any
+) -> dict[str, Any]:
+    page = _page(TraceRecorder(name, _COMMON_ALLOWED))
+    profiles = ["ACoAAExample0", "ACoAAExample1", "ACoAAExample2"]
+    page.script(
+        "goto",
+        lambda: [page.emit("response", r) for r in _pi_dialog_responses(profiles)],
+    )
+    recorder = page.recorder
+    clock = FakeClock(recorder)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        # Fixed headroom: the real one reads the clock and the schedule.
+        with (
+            patch.object(
+                page_invites_module, "_pacing_headroom", lambda _now: (20, None)
+            ),
+            recorder.context(method, name),
+        ):
+            result = await call(extractor)
+    page.assert_clean(retained_invite_guard=True)
+    return recorder.trace({"method": method, "arguments": arguments}, result)
+
+
+async def _page_follow_candidates_scenario() -> dict[str, Any]:
+    return await _page_invite_run(
+        "list_page_follow_candidates__first_page",
+        "list_page_follow_candidates",
+        {"company_id": _PI_COMPANY, "limit": 2},
+        lambda extractor: extractor.list_page_follow_candidates(_PI_COMPANY, limit=2),
+    )
+
+
+async def _page_invite_dry_run_scenario() -> dict[str, Any]:
+    people = ["ACoAAExample0", "ACoAAExample1", "ACoAAExample2", "ACoAAMissing"]
+    return await _page_invite_run(
+        "invite_to_follow_page__dry_run",
+        "invite_to_follow_page",
+        {"company_id": _PI_COMPANY, "people": people, "confirm_send": False},
+        lambda extractor: extractor.invite_to_follow_page(
+            _PI_COMPANY, people, confirm_send=False
+        ),
+    )
+
+
 async def build_policy_traces() -> dict[str, dict[str, Any]]:
     traces = {
         "facade-contract.json": await _facade_contract_trace(),
@@ -3112,6 +3485,13 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "sn-lead-lists.json": await _sn_lead_lists_scenario(),
         "sn-lead-list.json": await _sn_lead_list_scenario(),
         "sn-no-seat.json": await _sn_no_seat_scenario(),
+        "page-follow-candidates.json": await _page_follow_candidates_scenario(),
+        "page-invite-dry-run.json": await _page_invite_dry_run_scenario(),
+        "sn-inbox.json": await _sn_inbox_scenario(),
+        "sn-conversation.json": await _sn_conversation_scenario(),
+        "sn-search-conversations.json": await _sn_search_conversations_scenario(),
+        "sn-send-dry-run.json": await _sn_send_dry_run_scenario(),
+        "sn-reply-dry-run.json": await _sn_reply_dry_run_scenario(),
         "sn-create-account-list-dry-run.json": await _sn_create_list_dry_run_scenario(),
         "sn-add-accounts-dry-run.json": await _sn_add_accounts_dry_run_scenario(),
         "sn-delete-account-list-dry-run.json": await _sn_delete_list_dry_run_scenario(),

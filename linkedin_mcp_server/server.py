@@ -52,6 +52,7 @@ from linkedin_mcp_server.tools.campaign_manager_actions import (
     register_campaign_manager_action_tools,
 )
 from linkedin_mcp_server.tools.company import register_company_tools
+from linkedin_mcp_server.tools.company_page import register_company_page_tools
 from linkedin_mcp_server.tools.company_enrichment import (
     register_company_enrichment_tools,
 )
@@ -62,6 +63,12 @@ from linkedin_mcp_server.tools.messaging import register_messaging_tools
 from linkedin_mcp_server.tools.person import register_person_tools
 from linkedin_mcp_server.tools.post import register_post_tools
 from linkedin_mcp_server.tools.sales_navigator import register_sales_navigator_tools
+from linkedin_mcp_server.tools.sales_navigator_inbox import (
+    register_sales_navigator_inbox_tools,
+)
+from linkedin_mcp_server.tools.sales_navigator_inbox_actions import (
+    register_sales_navigator_inbox_action_tools,
+)
 from linkedin_mcp_server.tools.sales_navigator_lists import (
     register_sales_navigator_list_tools,
 )
@@ -83,10 +90,14 @@ only when the user asked for it, and then only through the enrichment tools
 (start_enrichment_job, run_enrichment_bunch, enrich_companies,
 enrich_company_deep), never by looping the single-item tools.
 
-send_message, reply_to_conversation, connect_with_person and
-withdraw_invitations act as the user. Use them only for the recipient and text
-the user approved; when asked for a draft, reply with the text instead. If a write's outcome is unknown, ask the
-user to check LinkedIn before acting again.
+send_message, reply_to_conversation, send_sales_navigator_message,
+reply_to_sales_navigator_conversation, connect_with_person,
+withdraw_invitations and invite_to_follow_page act as the user. Use them only
+for the recipient and text the user approved; when asked for a draft, reply with the text instead. If a write's outcome is unknown, ask the
+user to check LinkedIn before acting again. A Sales Navigator InMail spends a
+credit: set spend_inmail_credit only when the user approved spending one. Call
+invite_to_follow_page with confirm_send false first and invite only the people
+the user approved.
 
 update_campaign, set_campaign_status, update_campaign_targeting,
 create_campaign_draft, add_post_to_campaign, create_company_list_audience and
@@ -346,6 +357,7 @@ def create_mcp_server(
     if role.drives_browser:
         register_person_tools(mcp, tool_timeout=tool_timeout)
         register_company_tools(mcp, tool_timeout=tool_timeout)
+        register_company_page_tools(mcp, tool_timeout=tool_timeout)
         register_job_tools(mcp, tool_timeout=tool_timeout)
         register_messaging_tools(mcp, tool_timeout=tool_timeout)
         register_feed_tools(mcp, tool_timeout=tool_timeout)
@@ -353,6 +365,8 @@ def create_mcp_server(
         register_campaign_manager_tools(mcp, tool_timeout=tool_timeout)
         register_campaign_manager_action_tools(mcp, tool_timeout=tool_timeout)
         register_sales_navigator_tools(mcp, tool_timeout=tool_timeout)
+        register_sales_navigator_inbox_tools(mcp, tool_timeout=tool_timeout)
+        register_sales_navigator_inbox_action_tools(mcp, tool_timeout=tool_timeout)
         register_sales_navigator_list_tools(mcp, tool_timeout=tool_timeout)
         register_enrichment_tools(mcp, tool_timeout=tool_timeout)
         register_company_enrichment_tools(mcp, tool_timeout=tool_timeout)

@@ -51,6 +51,7 @@ from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 __all__ = [
     "CAMPAIGN_MANAGER_ACCOUNTS_URL",
     "SALES_ACCOUNT_LISTS_URL",
+    "SALES_INBOX_URL",
     "SALES_LEAD_LISTS_URL",
     "campaign_manager_date_range",
     "campaign_manager_url",
@@ -68,7 +69,9 @@ __all__ = [
     "normalize_post_urn",
     "normalize_profile_urn",
     "normalize_sales_company_id",
+    "normalize_sales_lead_id",
     "normalize_sales_list_id",
+    "normalize_sales_thread_id",
     "normalize_targeting_urn",
     "normalize_thread_id",
     "normalize_website",
@@ -76,6 +79,8 @@ __all__ = [
     "refuse_opaque_member_id",
     "sales_account_list_url",
     "sales_company_url",
+    "sales_inbox_thread_url",
+    "sales_inbox_url",
 ]
 
 # linkedin.com and every host under it. There is no canonical host to normalize
@@ -564,6 +569,13 @@ def normalize_thread_id(value: str) -> str:
     return thread_id
 
 
+def normalize_page_company_id(value: str) -> str:
+    """The numeric id of a company page, from the id or any /company/<id>/ URL."""
+    return normalize_opaque_id(
+        value, field="company_id", route=("company",), numeric=True
+    )
+
+
 def normalize_profile_urn(value: str) -> str:
     """A raw profile id or full profile URN, in the caller's original form."""
     value = value.strip()
@@ -709,6 +721,60 @@ def sales_account_list_url(list_id: str) -> str:
         "https://www.linkedin.com/sales/accounts/dashboard"
         f"?listGroup=CUSTOM_LISTS&listId={quote(list_id, safe='')}"
     )
+
+
+SALES_INBOX_URL = "https://www.linkedin.com/sales/inbox"
+_SALES_THREAD_ROUTE = ("sales", "inbox")
+# Inbox routes that are not a conversation: the new-message composers.
+_SALES_INBOX_COMPOSERS = frozenset({"compose", "mobile-compose"})
+_SALES_PROFILE_URN = "urn:li:fs_salesProfile:("
+_SALES_LEAD_ID = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def normalize_sales_thread_id(value: str) -> str:
+    """The id of a Sales Navigator conversation, from the id or its inbox URL."""
+    thread_id = normalize_opaque_id(value, field="thread_id", route=_SALES_THREAD_ROUTE)
+    if thread_id.lower() in _SALES_INBOX_COMPOSERS:
+        raise InvalidReferenceError(
+            "thread_id refers to the Sales Navigator composer, not a conversation. "
+            "Pass an existing conversation's thread id."
+        )
+    return thread_id
+
+
+def normalize_sales_lead_id(value: str) -> str:
+    """A lead's profile id, from the id, its ``fs_salesProfile`` URN or lead URL."""
+    value = value.strip()
+    reference: str | None = value
+    if value.startswith(_SALES_PROFILE_URN) and value.endswith(")"):
+        reference = value[len(_SALES_PROFILE_URN) : -1].split(",")[0]
+    elif not value.startswith("urn:") and not _SALES_LEAD_ID.fullmatch(value):
+        segments = _linkedin_segments(value, want="lead_id")
+        reference = (
+            segments[2].split(",")[0]
+            if segments is not None
+            and len(segments) >= 3
+            and [part.lower() for part in segments[:2]] == ["sales", "lead"]
+            else None
+        )
+    if reference is None or not _SALES_LEAD_ID.fullmatch(reference):
+        raise InvalidReferenceError(
+            "lead_id is not a Sales Navigator lead id. Pass the id exactly as "
+            "search_sales_navigator_leads or get_sales_navigator_inbox returned it."
+        )
+    return reference
+
+
+def sales_inbox_url(filter_value: str | None = None) -> str:
+    """The Sales Navigator inbox, optionally on one of its URL filters."""
+    if filter_value is None:
+        return SALES_INBOX_URL
+    return f"{SALES_INBOX_URL}?filter={quote(filter_value, safe='')}"
+
+
+def sales_inbox_thread_url(thread_id: str) -> str:
+    """Sales Navigator conversation URL for an already-normalized thread id."""
+    return f"{SALES_INBOX_URL}/{quote(thread_id, safe='')}"
 
 
 def campaign_manager_date_range(

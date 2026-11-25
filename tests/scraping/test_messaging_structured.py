@@ -8,6 +8,7 @@ import pytest
 
 from linkedin_mcp_server.scraping import messaging_payload as payload
 from linkedin_mcp_server.scraping.messaging_api import MessagingApiCapture
+from linkedin_mcp_server.scraping.messaging_read_state import _READ_STATE_WRITE_ROUTES
 from scraping.test_conversations import (
     FakeCapture,
     _conversation,
@@ -361,7 +362,7 @@ async def test_guard_precedes_navigation_and_cleans_up_on_failure(mock_page, wor
         events.append(("remove", pattern, handler))
 
     async def fail(*args, **kwargs):
-        assert [event[0] for event in events] == ["add", "add"]
+        assert [event[0] for event in events] == ["add"] * len(_READ_STATE_WRITE_ROUTES)
         raise RuntimeError("offline navigation failed")
 
     mock_page.route = AsyncMock(side_effect=route)
@@ -376,7 +377,7 @@ async def test_guard_precedes_navigation_and_cleans_up_on_failure(mock_page, wor
                 else {}
             )
             await getattr(reader, workflow)(**kwargs)
-    assert [event[0] for event in events] == ["add", "add"]
+    assert [event[0] for event in events] == ["add"] * len(_READ_STATE_WRITE_ROUTES)
     mock_page.unroute.assert_not_awaited()
 
 
@@ -425,7 +426,7 @@ async def test_page_scoped_guard_is_reused_and_preserves_unrelated_write_scope(
         # Tool calls create new readers, sharing only their actual page.
         async with _reader(mock_page)._without_read_state_writes():
             pass
-    assert mock_page.route.await_count == 2
+    assert mock_page.route.await_count == len(_READ_STATE_WRITE_ROUTES)
     mock_page.unroute.assert_not_awaited()
     handler = mock_page.route.await_args_list[0].args[1]
 
@@ -464,7 +465,7 @@ async def test_page_scoped_guard_is_reused_and_preserves_unrelated_write_scope(
         outside = route(request())
         await handler(outside)
         outside.fallback.assert_awaited_once()
-    assert other.route.await_count == 2
+    assert other.route.await_count == len(_READ_STATE_WRITE_ROUTES)
 
 
 async def test_request_observed_during_read_remains_protected_after_scope(mock_page):
@@ -517,7 +518,7 @@ async def test_guard_nesting_and_cancellation_do_not_disable_an_outer_read(mock_
         )
         await handler(post)
         post.abort.assert_awaited_once()
-    assert mock_page.route.await_count == 2
+    assert mock_page.route.await_count == len(_READ_STATE_WRITE_ROUTES)
     mock_page.unroute.assert_not_awaited()
 
 
@@ -544,7 +545,7 @@ async def test_cancelled_registration_is_reused_without_duplicate_handlers(mock_
         await first
     release.set()
     await read()
-    assert mock_page.route.await_count == 2
+    assert mock_page.route.await_count == len(_READ_STATE_WRITE_ROUTES)
 
 
 async def test_unanswered_registration_fails_inbox_before_navigation(
@@ -575,7 +576,7 @@ async def test_unanswered_registration_fails_inbox_before_navigation(
     release.set()
     async with reader._without_read_state_writes():
         pass
-    assert mock_page.route.await_count == 2
+    assert mock_page.route.await_count == len(_READ_STATE_WRITE_ROUTES)
 
 
 async def test_a_page_routed_at_creation_reads_without_a_new_route(mock_page):
@@ -615,7 +616,7 @@ async def test_a_page_routed_at_creation_reads_without_a_new_route(mock_page):
     async with asyncio.timeout(1):
         async with _reader(mock_page)._without_read_state_writes():
             assert await verdict(handler) == "aborted"
-    assert mock_page.route.await_count == 2
+    assert mock_page.route.await_count == len(_READ_STATE_WRITE_ROUTES)
     assert await verdict(handler) == "aborted"
     allow_explicit_message_write(mock_page)
     assert await verdict(handler) == "passed"
@@ -680,7 +681,7 @@ async def test_guard_exits_with_busy_iframe_and_context_routes_without_accumulat
             await asyncio.sleep(0.5)
             # Last-page-route removal used to wait for this busy child frame.
             await asyncio.wait_for(guard.__aexit__(None, None, None), timeout=1)
-            assert len(additions) == 2
+            assert len(additions) == len(_READ_STATE_WRITE_ROUTES)
             assert not writes
             # Existing verified compose intent can release the latch.
             from linkedin_mcp_server.scraping.messaging_read_state import (
@@ -705,7 +706,7 @@ async def test_guard_exits_with_busy_iframe_and_context_routes_without_accumulat
                     "fetch('/voyager/api/voyagerMessagingDashMessagingBadge',{method:'POST'})"
                 )
             assert len(writes) == 2
-            assert len(additions) == 2
+            assert len(additions) == len(_READ_STATE_WRITE_ROUTES)
         finally:
             await browser.close()
 
