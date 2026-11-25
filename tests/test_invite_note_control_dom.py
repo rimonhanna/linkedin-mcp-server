@@ -144,18 +144,38 @@ class TestNoteControl:
         assert await _clicks(dom_page) == ["add-note", f"send-note:{NOTE}"]
         assert result[:3] == (True, True, None)
 
-    async def test_another_locale_uses_the_footers_single_control(self, dom_page):
-        footer = (
-            '<a href="#" onclick="event.preventDefault(); addNote()">'
-            "Notiz hinzufügen</a>"
-            "<button onclick=\"sendWithout('send-without')\">"
-            "Ohne Notiz senden</button>"
-        )
+    async def test_the_old_gating_dialog_with_two_buttons_sends_the_note(
+        self, dom_page
+    ):
+        # Issue #455's layout: "Add a note" and "Send without a note" both as
+        # buttons, beside the icon-only Dismiss in the header.
+        footer = '<button onclick="addNote()">Add a note</button>' + _SEND_WITHOUT
 
         result = await _submit(dom_page, _page(footer), NOTE)
 
         assert await _clicks(dom_page) == ["add-note", f"send-note:{NOTE}"]
         assert result[:3] == (True, True, None)
+
+
+# Layouts where the last button is "Add a note" or the send-without control
+# is not the last button. The control beside the primary would send without
+# the note, so no click at all is the only safe answer.
+_MIRRORED = {
+    "fr-buttons": (
+        "<button onclick=\"sendWithout('send-without')\">Envoyer sans note</button>"
+        '<button onclick="addNote()">Ajouter une note</button>'
+    ),
+    "en-connect-without": (
+        "<button onclick=\"sendWithout('send-without')\">"
+        "Connect without a note</button>"
+        '<button onclick="addNote()">Add a note</button>'
+    ),
+    "de-link": (
+        '<a href="#" onclick="event.preventDefault();'
+        " sendWithout('send-without')\">Ohne Notiz senden</a>"
+        '<button onclick="addNote()">Notiz hinzufügen</button>'
+    ),
+}
 
 
 class TestNoteControlRefusal:
@@ -167,8 +187,30 @@ class TestNoteControlRefusal:
         assert (submitted, note_sent, limit) == (False, False, None)
         assert text is not None and "Send without a note" in text
         assert missing is not None
-        assert "no control other than Send and Dismiss" in missing
+        assert 'no control reads "Add a note"' in missing
         assert "'text': 'Send without a note'" in missing
+        assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1
+
+    async def test_another_locale_clicks_nothing(self, dom_page):
+        footer = (
+            '<a href="#" onclick="event.preventDefault(); addNote()">'
+            "Notiz hinzufügen</a>"
+            "<button onclick=\"sendWithout('send-without')\">"
+            "Ohne Notiz senden</button>"
+        )
+
+        result = await _submit(dom_page, _page(footer), NOTE)
+
+        assert await _clicks(dom_page) == []
+        assert result[4] is not None and "matched in English only" in result[4]
+
+    @pytest.mark.parametrize("layout", sorted(_MIRRORED))
+    async def test_a_mirrored_layout_clicks_nothing(self, dom_page, layout):
+        result = await _submit(dom_page, _page(_MIRRORED[layout]), NOTE)
+
+        assert await _clicks(dom_page) == []
+        assert result[:3] == (False, False, None)
+        assert result[4] is not None
         assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1
 
     async def test_an_ambiguous_footer_in_another_locale_clicks_nothing(self, dom_page):
@@ -185,14 +227,13 @@ class TestNoteControlRefusal:
 
         assert await _clicks(dom_page) == []
         assert result[0] is False
-        assert result[4] is not None and "several controls" in result[4]
+        assert result[4] is not None and "matched in English only" in result[4]
 
     async def test_send_without_a_note_after_the_buttons_is_never_clicked(
         self, dom_page
     ):
         # "Send without a note" as a link after the last button: the last
-        # button is then not the Send, and in a locale with no English match
-        # the footer's one other control would be the send itself.
+        # button is then not the Send, and the control beside it is the send.
         footer = (
             "<button onclick=\"record('add-note')\">Notiz hinzufügen</button>"
             '<a href="#" onclick="event.preventDefault();'
@@ -209,8 +250,7 @@ class TestNoteControlRefusal:
         ["Send without a note", "Dismiss", "Close", "Cancel"],
     )
     async def test_send_and_dismiss_are_never_the_note_control(self, dom_page, decoy):
-        # The only non-primary control in the footer carries a forbidden name,
-        # so the structural fallback must not take it.
+        # The only non-primary control in the footer carries a forbidden name.
         footer = (
             '<a href="#" onclick="event.preventDefault(); record(\'decoy\')">'
             f"{decoy}</a>"
@@ -256,6 +296,24 @@ class TestNoNote:
         assert result[:3] == (True, False, None)
         assert result[4] is None
 
+    async def test_the_send_is_the_last_shown_button_outside_live_regions(
+        self, dom_page
+    ):
+        # A notifications counter inside the dialog with a button of its own,
+        # and a hidden button, both after the Send in document order.
+        trailing = (
+            '<div aria-live="polite">0 notifications'
+            "<button onclick=\"record('live')\">x</button></div>"
+            '<button style="display:none" onclick="record(\'hidden\')">'
+            "Done</button>"
+        )
+        footer = _ADD_NOTE_AS["link"] + _SEND_WITHOUT
+
+        result = await _submit(dom_page, _page(footer + trailing), None)
+
+        assert await _clicks(dom_page) == ["send-without"]
+        assert result[:3] == (True, False, None)
+
 
 class TestQuotaProbe:
     async def test_the_probe_opens_a_note_control_that_is_not_a_button(self, dom_page):
@@ -279,4 +337,32 @@ class TestQuotaProbe:
 
         assert await _clicks(dom_page) == ["add-note"]
         assert message is not None and "out of free personalized" in message
+        assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1
+
+    async def test_the_quota_probe_never_clicks_the_primary_button(self, dom_page):
+        # The legacy three-button dialog: Dismiss, "Add a note", Send. The
+        # probe runs only on profiles the write gate refused, so Send here
+        # would send the invitation this workflow decided not to send.
+        footer = (
+            '<button onclick="addNote()">Add a note</button>'
+            "<button onclick=\"sendWithout('send')\">Send</button>"
+        )
+        await dom_page.set_content(_page(footer))
+
+        message = await _actions(dom_page)._probe_invite_note_limit()
+
+        assert await _clicks(dom_page) == ["add-note"]
+        assert message is None
+        assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1
+
+    @pytest.mark.parametrize("layout", sorted(_MIRRORED))
+    async def test_the_probe_clicks_nothing_in_a_mirrored_layout(
+        self, dom_page, layout
+    ):
+        await dom_page.set_content(_page(_MIRRORED[layout]))
+
+        message = await _actions(dom_page)._probe_invite_note_limit()
+
+        assert await _clicks(dom_page) == []
+        assert message is None
         assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1

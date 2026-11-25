@@ -52,7 +52,6 @@ _DIALOG_SELECTOR = 'dialog[open], [role="dialog"]'
 _DIALOG_PREMIUM_LINK_SELECTOR = (
     'dialog[open] a[href*="/premium/"], [role="dialog"] a[href*="/premium/"]'
 )
-_DIALOG_BUTTONS = "button, [role='button']"
 _DIALOG_TEXTAREA = "textarea"
 
 # Which of the page's dialogs is the modal the deeplink just opened. Open
@@ -87,6 +86,12 @@ const isShown = (el) => {
 const ownControls = (d, selector) => [...d.querySelectorAll(selector)].filter(
   (el) => isShown(el) && !el.closest(LIVE)
 );
+// The dialog's primary action (its Send): the last rendered button outside
+// any live region.
+const primaryButton = (d) => {
+  const buttons = ownControls(d, 'button, [role="button"]');
+  return buttons.length ? buttons[buttons.length - 1] : null;
+};
 function ownText(d) {
   const copy = d.cloneNode(true);
   copy.querySelectorAll(LIVE).forEach((el) => el.remove());
@@ -125,17 +130,20 @@ _MODAL_DIALOG_INDEX_JS = (
 # <button>, its only buttons being Dismiss and "Send without a note", so the
 # old positional pick (second-to-last button) hit Dismiss.
 #
-# Never a candidate: the primary (the dialog's last button, its Send), any
-# element containing it or inside it, an icon-only control (Dismiss is one),
-# and anything named Dismiss/Close/Cancel or starting with "Send", since a
-# wrong click there sends the invite without the note. The pick must also sit
-# in the footer, the smallest ancestor of the primary holding a candidate, and
-# the primary must be the dialog's last clickable.
+# The pick is the one control reading "Add a note" (text or aria-label). It
+# is never the primary (the dialog's last button, its Send), an element
+# containing it or inside it, an icon-only control (Dismiss is one), or
+# anything named Dismiss/Close/Cancel or starting with "Send", since a wrong
+# click there sends the invite without the note. It must sit in the footer,
+# the smallest ancestor of the primary holding a candidate, and the primary
+# must be the dialog's last clickable. A primary that itself reads "Add a
+# note" means the layout is mirrored and the other control may be the send,
+# so nothing is clicked.
 #
-# Locale limit: the "Add a note" text match is English only. In another
-# locale the pick is the footer's single candidate; with more than one there
-# (a "Learn why" link beside it, say) nothing is clicked, and the same holds
-# for an English dialog where the match is ambiguous.
+# Locale limit: the "Add a note" match is English only. A dialog in another
+# locale has no match, so nothing is clicked and the caller reports the note
+# control as not found. That is deliberate: the control beside Send cannot
+# be told apart from a "send without a note" by structure alone.
 _NOTE_CONTROL_MARK = "data-mcp-note-control"
 _MARK_NOTE_CONTROL_JS = (
     "() => {"
@@ -158,8 +166,7 @@ _MARK_NOTE_CONTROL_JS = (
   const words = (s) => (s || '').replace(/\s+/g, ' ').trim();
   const text = (el) => words(el.innerText);
   const label = (el) => words(el.getAttribute('aria-label'));
-  const buttons = ownControls(dialog, 'button, [role="button"]');
-  const primary = buttons.length ? buttons[buttons.length - 1] : null;
+  const primary = primaryButton(dialog);
   const isPrimary = (el) => !!primary && (el === primary || el.contains(primary) || primary.contains(el));
   const FORBIDDEN = /^(dismiss|close|cancel)\b|^send/i;
   const forbidden = (el) => FORBIDDEN.test(text(el)) || FORBIDDEN.test(label(el));
@@ -171,7 +178,11 @@ _MARK_NOTE_CONTROL_JS = (
     primary: isPrimary(el),
   }));
   const refuse = (reason) => ({found: false, reason, controls});
+  const ADD_NOTE = /^add a note$/i;
   if (!primary) return refuse('the dialog has no Send button');
+  if (ADD_NOTE.test(text(primary)) || ADD_NOTE.test(label(primary))) {
+    return refuse('the last button reads "Add a note", so the other control may send');
+  }
   if (!isPrimary(outer[outer.length - 1])) {
     return refuse('the Send button is not the last control in the dialog');
   }
@@ -184,24 +195,36 @@ _MARK_NOTE_CONTROL_JS = (
     }
   }
   const inFooter = footer ? eligible.filter((el) => footer.contains(el)) : [];
-  const ADD_NOTE = /^add a note$/i;
   const english = eligible.filter((el) => ADD_NOTE.test(text(el)) || ADD_NOTE.test(label(el)));
-  let pick = null;
+  if (english.length === 0) {
+    return refuse('no control reads "Add a note" (matched in English only)');
+  }
   if (english.length > 1) return refuse('more than one control reads "Add a note"');
-  if (english.length === 1) {
-    if (!inFooter.includes(english[0])) {
-      return refuse('the "Add a note" control is not beside the Send button');
-    }
-    pick = english[0];
-  } else if (inFooter.length === 1) {
-    pick = inFooter[0];
-  } else if (inFooter.length === 0) {
-    return refuse('no control other than Send and Dismiss is beside the Send button');
-  } else {
-    return refuse('several controls are beside the Send button and none reads "Add a note"');
+  const pick = english[0];
+  if (!inFooter.includes(pick)) {
+    return refuse('the "Add a note" control is not beside the Send button');
   }
   pick.setAttribute(MARK, '');
   return {found: true, reason: '', controls};
+}
+"""
+)
+
+# Marks the primary for the Send click, chosen exactly as the note-control
+# finder chooses the element it must never click.
+_PRIMARY_MARK = "data-mcp-primary"
+_MARK_PRIMARY_JS = (
+    "() => {"
+    + _INVITE_MODAL_FNS_JS
+    + r"""
+  const MARK = 'data-mcp-primary';
+  const {dialog} = inviteModal();
+  if (!dialog) return false;
+  dialog.querySelectorAll('[' + MARK + ']').forEach((el) => el.removeAttribute(MARK));
+  const primary = primaryButton(dialog);
+  if (!primary) return false;
+  primary.setAttribute(MARK, '');
+  return true;
 }
 """
 )
@@ -704,8 +727,23 @@ class ConnectionActions:
             return None
         return self._session.page.locator(_DIALOG_SELECTOR).nth(index)
 
+    async def _primary_button(self, dialog):
+        """Locator for the dialog's primary (Send) button, ``None`` if unsure.
+
+        The same element ``_MARK_NOTE_CONTROL_JS`` treats as the primary: the
+        last rendered button outside any live region.
+        """
+        try:
+            if not await self._session.page.evaluate(_MARK_PRIMARY_JS):
+                return None
+            marked = dialog.locator(f"[{_PRIMARY_MARK}]")
+            return marked if await marked.count() == 1 else None
+        except Exception:
+            logger.debug("Primary dialog button read failed", exc_info=True)
+            return None
+
     async def _click_dialog_primary_button(self, *, timeout: int = 5000) -> bool:
-        """Click the last (primary/Send) button in the open dialog.
+        """Click the primary (Send) button in the open dialog.
 
         LinkedIn consistently places the primary action as the last button.
         Returns False (rather than raising) when the click is intercepted or
@@ -714,12 +752,11 @@ class ConnectionActions:
         dialog = await self._invite_dialog()
         if dialog is None:
             return False
-        buttons = dialog.locator(_DIALOG_BUTTONS)
-        count = await buttons.count()
-        if count == 0:
+        primary = await self._primary_button(dialog)
+        if primary is None:
             return False
         try:
-            await buttons.nth(count - 1).click(timeout=timeout)
+            await primary.click(timeout=timeout)
             return True
         except Exception:
             logger.debug("Primary dialog button click failed", exc_info=True)
@@ -745,7 +782,7 @@ class ConnectionActions:
             count = await marked.count()
             if count != 1:
                 return False, f"{count} elements carry the note-control mark. {listing}"
-            await marked.click()
+            await marked.click(timeout=5000)
         except Exception as exc:
             return False, f"The note control click failed: {exc}. {listing}"
         return True, listing
@@ -1068,14 +1105,13 @@ class ConnectionActions:
 
         sent = await self._click_dialog_primary_button()
         if not sent:
-            # Fallback: focus the primary button positionally so a subsequent
-            # Enter targets it instead of a focused textarea (where Enter
-            # would just insert a newline).
-            buttons = dialog.locator(_DIALOG_BUTTONS)
-            btn_count = await buttons.count()
-            if btn_count > 0:
+            # Fallback: focus the primary button so a subsequent Enter
+            # targets it instead of a focused textarea (where Enter would
+            # just insert a newline).
+            primary = await self._primary_button(dialog)
+            if primary is not None:
                 try:
-                    await buttons.nth(btn_count - 1).focus()
+                    await primary.focus()
                     await self._session.page.keyboard.press("Enter")
                     sent = await self._dialog_is_closed(timeout=2000)
                 except Exception:

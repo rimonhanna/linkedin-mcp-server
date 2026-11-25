@@ -1417,10 +1417,8 @@ class TestInviteDialog:
         textarea.fill = AsyncMock()
 
         buttons = MagicMock()
-        buttons.count = AsyncMock(return_value=2)
         primary_button = MagicMock()
         primary_button.focus = AsyncMock()
-        buttons.nth.return_value = primary_button
         _scope_dialog(mock_page, buttons=buttons, textarea=textarea)
         mock_page.keyboard = MagicMock()
         mock_page.keyboard.press = AsyncMock()
@@ -1452,6 +1450,12 @@ class TestInviteDialog:
             ),
             patch.object(
                 actions,
+                "_primary_button",
+                new_callable=AsyncMock,
+                return_value=primary_button,
+            ),
+            patch.object(
+                actions,
                 "_click_dialog_primary_button",
                 new_callable=AsyncMock,
                 return_value=False,
@@ -1469,7 +1473,6 @@ class TestInviteDialog:
             result = await actions._submit_invite_dialog("Hello")
 
         assert result == (False, False, message, DIALOG_TEXT, None)
-        buttons.nth.assert_called_once_with(1)
         primary_button.focus.assert_awaited_once()
         mock_page.keyboard.press.assert_awaited_once_with("Enter")
         mock_closed.assert_awaited_once_with(timeout=2000)
@@ -1547,66 +1550,6 @@ class TestInviteDialog:
         # attempted and answers "still open", which is the real signal
         # gating the premium check below it.
         mock_closed.assert_awaited_once_with(timeout=5000)
-
-    async def test_the_quota_probe_never_clicks_the_primary_button(self, mock_page):
-        """The probe opens the note editor and touches nothing else.
-
-        It runs only on profiles the write gate already refused, so a click
-        on the dialog's *last* button would send the invitation this workflow
-        decided not to send. The click goes through ``_click_note_control``,
-        which never picks the primary (``tests/test_invite_note_control_dom.py``
-        holds that against a real DOM); no button is pressed by position.
-        """
-        actions = _actions(mock_page)
-        clicks: list[int] = []
-
-        def button_at(index: int):
-            button = MagicMock()
-
-            async def click(*_args, **_kwargs):
-                clicks.append(index)
-
-            button.click = AsyncMock(side_effect=click)
-            return button
-
-        # The legacy three-button invite dialog: dismiss, "Add a note", Send.
-        buttons = MagicMock()
-        buttons.count = AsyncMock(return_value=3)
-        buttons.nth = MagicMock(side_effect=button_at)
-        textarea = MagicMock()
-        textarea.count = AsyncMock(return_value=0)
-        textarea.first = textarea
-        textarea.wait_for = AsyncMock()
-        _scope_dialog(mock_page, buttons=buttons, textarea=textarea)
-
-        with (
-            patch.object(
-                actions, "_ready_dialog", new_callable=AsyncMock, return_value=READY
-            ),
-            patch.object(
-                actions,
-                "_get_premium_upsell_message",
-                new_callable=AsyncMock,
-                # Nothing before the note editor opens, the quota block after.
-                side_effect=[None, PREMIUM_MESSAGE],
-            ),
-            patch.object(
-                actions,
-                "_click_note_control",
-                new_callable=AsyncMock,
-                return_value=(True, "listing"),
-            ) as mock_note_control,
-            patch.object(
-                actions, "_dismiss_dialog", new_callable=AsyncMock
-            ) as mock_dismiss,
-        ):
-            message = await actions._probe_invite_note_limit()
-
-        assert message == PREMIUM_MESSAGE
-        assert clicks == []
-        mock_note_control.assert_awaited_once()
-        textarea.wait_for.assert_awaited_once_with(state="visible", timeout=3000)
-        mock_dismiss.assert_awaited_once()
 
     async def test_the_quota_probe_touches_nothing_without_a_modal(self, mock_page):
         """Open dialogs that are all chat windows are no dialog to probe.
