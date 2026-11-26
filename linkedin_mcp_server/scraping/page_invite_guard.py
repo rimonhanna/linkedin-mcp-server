@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -33,6 +34,8 @@ from linkedin_mcp_server.scraping.page_invite_payload import (
     invitation_batch,
     inviter_allowed,
 )
+
+logger = logging.getLogger(__name__)
 
 _ROUTE = f"**{VOYAGER_API}**"
 _INVITATIONS_PATH = f"{VOYAGER_API}{INVITATIONS}"
@@ -55,6 +58,31 @@ def _json_body(request: Any) -> Any:
         return json.loads(text) if text else None
     except (TypeError, ValueError):
         return None
+
+
+# How much of a refused request's body the warning carries.
+_BODY_EXCERPT = 500
+
+
+def _log_refusal(reason: str, request: Any, method: str) -> None:
+    """Say what was stopped, so the next mismatch is diagnosable.
+
+    Never raises: the abort that follows must happen whatever the log does.
+    """
+    try:
+        body = request.post_data or ""
+    except Exception as exc:  # the body is diagnosis only, never the decision
+        body = f"<unreadable: {exc!r}>"
+    try:
+        logger.warning(
+            "Page invitation guard aborted a %s request (%s): %s body=%r",
+            method,
+            reason,
+            request.url,
+            body[:_BODY_EXCERPT],
+        )
+    except Exception:  # a log that fails must not let the request through
+        pass
 
 
 def _is_invitations(url: str) -> bool:
@@ -102,6 +130,7 @@ class _PageGuard:
                 await route.fallback()
                 return
             self.refused_outside.append(method)
+            _log_refusal("outside an invite window", request, method)
             await route.abort()
             return
         headers = {
@@ -117,6 +146,7 @@ class _PageGuard:
                 _json_body(request),
             )
         except Exception:
+            logger.warning("Page invitation admission check failed", exc_info=True)
             reason = "admission error"
         # The window can close while the headers are read.
         if reason is None and self.window is window:
@@ -125,6 +155,7 @@ class _PageGuard:
             await route.fallback()
             return
         window.refused.append(reason or "window closed")
+        _log_refusal(reason or "window closed", request, method)
         await route.abort()
 
     async def install(self, page: Any) -> None:

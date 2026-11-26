@@ -347,22 +347,29 @@ def batch_statuses(payload: Any, count: int) -> list[int | None]:
     return [as_int(element.get("status")) for element in elements]
 
 
+# The URN kinds that name a company page. A member or profile URN never names
+# the page, whatever its id.
+_PAGE_URN_KINDS = "fsd_company|fs_normalized_company|company|organization"
+
+
 def inviter_allowed(url: str, company_id: str) -> bool:
     """Whether a POST's ``inviter`` is absent or names this page alone.
 
-    The app's batch request adds ``?inviter=<urn>`` only when its caller
-    passes one, and which call the page dialog makes was read from the bundle,
-    not measured; an inviter naming anything else is refused either way.
+    Measured 2026-11-26: the page dialog sends
+    ``?inviter=(organizationUrn:urn%3Ali%3Afsd_company%3A<id>)``, a Rest.li
+    record with one field, and no other query key. That record, or a bare
+    page URN, is admitted only when it names this page's id; any other query
+    key, or any other inviter, is refused.
     """
-    values = [
-        unquote(value)
-        for key, value in parse_qsl(urlparse(url).query, keep_blank_values=True)
-        if key == "inviter"
-    ]
+    query = parse_qsl(urlparse(url).query, keep_blank_values=True)
+    if any(key != "inviter" for key, _value in query):
+        return False
+    values = [unquote(value) for key, value in query if key == "inviter"]
     if not values:
         return True
+    page = rf"urn:li:(?:{_PAGE_URN_KINDS}):{re.escape(company_id)}"
     return len(values) == 1 and bool(
-        re.fullmatch(rf"urn:li:[A-Za-z_]+:{re.escape(company_id)}", values[0])
+        re.fullmatch(rf"{page}|\(organizationUrn:{page}\)", values[0])
     )
 
 
