@@ -53,7 +53,19 @@ _DIALOG_SELECTOR = 'dialog[open], [role="dialog"]'
 _DIALOG_PREMIUM_LINK_SELECTOR = (
     'dialog[open] a[href*="/premium/"], [role="dialog"] a[href*="/premium/"]'
 )
-_DIALOG_TEXTAREA = "textarea"
+# The note editor: a <textarea> in older layouts, and since about 2026-11-25
+# a tiptap/ProseMirror ``div[contenteditable=true][role=textbox]``. Measured
+# 2026-11-26: "Add a note" is an <a> whose href is the profile itself; the app
+# handles the click in place (no document load, the URL stays), the same
+# <dialog> swaps to its compose screen, and the editor mounts 0.5-1.5 s later
+# with no <textarea> anywhere on the page. Send stays disabled until the
+# editor holds text. ``contenteditable="false"`` marks a non-editable island.
+_DIALOG_NOTE_EDITOR = 'textarea, [contenteditable]:not([contenteditable="false"])'
+
+# Reads what an editor holds: a textarea's value, or the text a contenteditable
+# renders. Whitespace is compared collapsed, since an editor keeps a line break
+# as a paragraph of its own.
+_EDITOR_TEXT_JS = "(el) => el.tagName === 'TEXTAREA' ? el.value : el.innerText"
 
 # Which of the page's dialogs is the modal the deeplink just opened. Open
 # messaging-overlay conversation windows are role="dialog" too, survive
@@ -811,19 +823,43 @@ class ConnectionActions:
         return True, listing
 
     async def _fill_dialog_textarea(self, value: str, *, timeout: int = 5000) -> bool:
-        """Fill the first textarea inside the open dialog (structural)."""
+        """Fill the dialog's note editor, and confirm the note is in it.
+
+        The editor is a textarea or a contenteditable (``_DIALOG_NOTE_EDITOR``).
+        True only once the editor reads back the note, whitespace collapsed: a
+        fill the editor swallowed, cut short or reformatted leaves it holding
+        something else, and sending that would drop or alter the note.
+        """
         dialog = await self._invite_dialog()
         if dialog is None:
             return False
-        textareas = dialog.locator(_DIALOG_TEXTAREA)
+        editors = dialog.locator(_DIALOG_NOTE_EDITOR)
         try:
-            if await textareas.count() == 0:
+            if await editors.count() == 0:
                 return False
-            await textareas.first.fill(value, timeout=timeout)
-            return True
+            editor = editors.first
+            await editor.fill(value, timeout=timeout)
+            return await self._editor_holds(editor, value)
         except Exception:
             logger.debug("Invite note fill failed", exc_info=True)
             return False
+
+    async def _editor_holds(self, editor, value: str, *, timeout: int = 2000) -> bool:
+        """Poll until ``editor`` reads back ``value``, whitespace collapsed."""
+        want = " ".join(value.split())
+        deadline = asyncio.get_running_loop().time() + timeout / 1000
+        while True:
+            held = " ".join(str(await editor.evaluate(_EDITOR_TEXT_JS)).split())
+            if held == want:
+                return True
+            if asyncio.get_running_loop().time() >= deadline:
+                logger.info(
+                    "The note editor holds %d characters, not the %d of the note",
+                    len(held),
+                    len(want),
+                )
+                return False
+            await asyncio.sleep(0.25)
 
     async def _dismiss_dialog(self) -> None:
         """Dismiss any open dialog via Escape key (structural)."""
@@ -1062,7 +1098,7 @@ class ConnectionActions:
 
         note_filled = False
         if note:
-            textarea_count = await dialog.locator(_DIALOG_TEXTAREA).count()
+            textarea_count = await dialog.locator(_DIALOG_NOTE_EDITOR).count()
             if textarea_count == 0:
                 clicked, report = await self._click_note_control(dialog)
                 if not clicked:
@@ -1071,12 +1107,12 @@ class ConnectionActions:
                     return False, False, None, dialog_text, report
                 textarea_appeared = True
                 try:
-                    await dialog.locator(_DIALOG_TEXTAREA).first.wait_for(
+                    await dialog.locator(_DIALOG_NOTE_EDITOR).first.wait_for(
                         state="visible", timeout=3000
                     )
                 except PlaywrightTimeoutError:
                     logger.info(
-                        "Note textarea did not appear after the note control click. %s",
+                        "Note editor did not appear after the note control click. %s",
                         report,
                     )
                     textarea_appeared = False
@@ -1106,7 +1142,7 @@ class ConnectionActions:
                 try:
                     textarea_visible = (
                         await dialog.locator(
-                            f"{_DIALOG_TEXTAREA} >> visible=true"
+                            f"{_DIALOG_NOTE_EDITOR} >> visible=true"
                         ).count()
                         > 0
                     )
@@ -1213,7 +1249,7 @@ class ConnectionActions:
             return note_limit_message
 
         try:
-            textarea_count = await dialog.locator(_DIALOG_TEXTAREA).count()
+            textarea_count = await dialog.locator(_DIALOG_NOTE_EDITOR).count()
         except Exception:
             textarea_count = 0
         if textarea_count > 0:
@@ -1226,11 +1262,11 @@ class ConnectionActions:
             await self._dismiss_dialog()
             return None
         try:
-            await dialog.locator(_DIALOG_TEXTAREA).first.wait_for(
+            await dialog.locator(_DIALOG_NOTE_EDITOR).first.wait_for(
                 state="visible", timeout=3000
             )
         except PlaywrightTimeoutError:
-            logger.info("Note textarea did not appear during quota probe. %s", report)
+            logger.info("Note editor did not appear during quota probe. %s", report)
 
         note_limit_message = await self._get_premium_upsell_message()
         await self._dismiss_dialog()
