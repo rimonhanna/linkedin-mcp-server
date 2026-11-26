@@ -756,6 +756,17 @@ class ConnectionActions:
             logger.debug("Primary dialog button read failed", exc_info=True)
             return None
 
+    async def _primary_is_disabled(self, dialog) -> bool:
+        """Whether the primary (Send) is disabled; a failed read answers no."""
+        primary = await self._primary_button(dialog)
+        if primary is None:
+            return False
+        try:
+            return await primary.is_disabled(timeout=2000)
+        except Exception:
+            logger.debug("Primary dialog button state read failed", exc_info=True)
+            return False
+
     async def _primary_sends_without_note(self, dialog) -> bool:
         """Whether the primary reads "without a note" (English only).
 
@@ -822,7 +833,7 @@ class ConnectionActions:
             return False, f"The note control click failed: {exc}. {listing}"
         return True, listing
 
-    async def _fill_dialog_textarea(self, value: str, *, timeout: int = 5000) -> bool:
+    async def _fill_note_editor(self, value: str, *, timeout: int = 5000) -> bool:
         """Fill the dialog's note editor, and confirm the note is in it.
 
         The editor is a textarea or a contenteditable (``_DIALOG_NOTE_EDITOR``).
@@ -1098,14 +1109,14 @@ class ConnectionActions:
 
         note_filled = False
         if note:
-            textarea_count = await dialog.locator(_DIALOG_NOTE_EDITOR).count()
-            if textarea_count == 0:
+            editor_count = await dialog.locator(_DIALOG_NOTE_EDITOR).count()
+            if editor_count == 0:
                 clicked, report = await self._click_note_control(dialog)
                 if not clicked:
                     logger.info("Invite note control not found: %s", report)
                     await self._dismiss_dialog()
                     return False, False, None, dialog_text, report
-                textarea_appeared = True
+                editor_appeared = True
                 try:
                     await dialog.locator(_DIALOG_NOTE_EDITOR).first.wait_for(
                         state="visible", timeout=3000
@@ -1115,7 +1126,7 @@ class ConnectionActions:
                         "Note editor did not appear after the note control click. %s",
                         report,
                     )
-                    textarea_appeared = False
+                    editor_appeared = False
                 # LinkedIn now renders a persistent Premium nudge
                 # banner on this step even when quota is NOT exhausted
                 # (observed: "3 personalized invitations remaining this
@@ -1125,14 +1136,14 @@ class ConnectionActions:
                 # never mounted at all — the one case where LinkedIn
                 # actually replaces the note UI with the upsell instead of
                 # showing both.
-                if not textarea_appeared:
+                if not editor_appeared:
                     note_limit_message = await self._get_premium_upsell_message()
                     if note_limit_message is not None:
                         logger.info("Premium upsell blocked opening invite note editor")
                         await self._dismiss_dialog()
                         return False, False, note_limit_message, dialog_text, None
 
-            note_filled = await self._fill_dialog_textarea(note)
+            note_filled = await self._fill_note_editor(note)
             if not note_filled:
                 # Same gate as the reveal step: the Premium nudge banner sits
                 # beside a live textarea, so a failed fill is a quota block
@@ -1140,15 +1151,15 @@ class ConnectionActions:
                 # proves no absence, so it claims no block either: a false
                 # block invites the caller to resend without the note.
                 try:
-                    textarea_visible = (
+                    editor_visible = (
                         await dialog.locator(
                             f"{_DIALOG_NOTE_EDITOR} >> visible=true"
                         ).count()
                         > 0
                     )
                 except Exception:
-                    textarea_visible = True
-                if textarea_visible:
+                    editor_visible = True
+                if editor_visible:
                     logger.info(
                         "Invite note fill failed without evidence of a quota block"
                     )
@@ -1166,6 +1177,15 @@ class ConnectionActions:
             # The note editor mounted beside a gating footer that still ends
             # in "Send without a note": that click would drop the note.
             logger.info("Invite dialog's Send still reads 'without a note'")
+            await self._dismiss_dialog()
+            return False, False, None, dialog_text, None
+
+        if note and await self._primary_is_disabled(dialog):
+            # The editor reads the note back, but LinkedIn's Send is enabled
+            # by its own editor state, which the fill did not reach. A click
+            # would wait out its timeout and the Enter fallback would do
+            # nothing, so stop here.
+            logger.info("The note is in the editor but Send stayed disabled")
             await self._dismiss_dialog()
             return False, False, None, dialog_text, None
 
@@ -1249,10 +1269,10 @@ class ConnectionActions:
             return note_limit_message
 
         try:
-            textarea_count = await dialog.locator(_DIALOG_NOTE_EDITOR).count()
+            editor_count = await dialog.locator(_DIALOG_NOTE_EDITOR).count()
         except Exception:
-            textarea_count = 0
-        if textarea_count > 0:
+            editor_count = 0
+        if editor_count > 0:
             await self._dismiss_dialog()
             return None
 

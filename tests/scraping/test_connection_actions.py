@@ -1222,7 +1222,7 @@ class TestInviteDialog:
             ),
             patch.object(
                 actions,
-                "_fill_dialog_textarea",
+                "_fill_note_editor",
                 new_callable=AsyncMock,
                 return_value=True,
             ) as mock_fill,
@@ -1289,7 +1289,7 @@ class TestInviteDialog:
             ),
             patch.object(
                 actions,
-                "_fill_dialog_textarea",
+                "_fill_note_editor",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
@@ -1334,7 +1334,7 @@ class TestInviteDialog:
             ),
             patch.object(
                 actions,
-                "_fill_dialog_textarea",
+                "_fill_note_editor",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
@@ -1381,7 +1381,7 @@ class TestInviteDialog:
             ),
             patch.object(
                 actions,
-                "_fill_dialog_textarea",
+                "_fill_note_editor",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
@@ -1444,7 +1444,7 @@ class TestInviteDialog:
             ),
             patch.object(
                 actions,
-                "_fill_dialog_textarea",
+                "_fill_note_editor",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -1521,7 +1521,7 @@ class TestInviteDialog:
             ),
             patch.object(
                 actions,
-                "_fill_dialog_textarea",
+                "_fill_note_editor",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -1729,7 +1729,7 @@ class TestInviteDialogScope:
         _modal_at(mock_page, -1)
 
         assert await actions._click_dialog_primary_button() is False
-        assert await actions._fill_dialog_textarea("Hello") is False
+        assert await actions._fill_note_editor("Hello") is False
         mock_page.locator.assert_not_called()
 
 

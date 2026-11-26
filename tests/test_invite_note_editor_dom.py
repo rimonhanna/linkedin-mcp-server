@@ -86,12 +86,16 @@ _COMPOSE = """
 """
 
 
-def _page(*, mount_ms: int = 900, keep: int | None = None) -> str:
+def _page(
+    *, mount_ms: int = 900, keep: int | None = None, send_enables: bool = True
+) -> str:
     """The invite dialog as measured, swapping to the editor after ``mount_ms``.
 
     ``keep`` makes the editor keep only that many characters of what it is
     given while still enabling Send, as an editor that cuts a note short
-    would; ``None`` keeps everything.
+    would; ``None`` keeps everything. ``send_enables=False`` leaves Send
+    disabled whatever the editor holds, as when LinkedIn's own editor state
+    never saw the text.
     """
     keep_js = "null" if keep is None else str(keep)
     return (
@@ -105,6 +109,7 @@ def _page(*, mount_ms: int = 900, keep: int | None = None) -> str:
         " return document.getElementById('editor').innerText.replace(/\\s+/g, ' ').trim(); }"
         "function sendNote() { record('send-note:' + editorText()); closeInvite(); }"
         f"const KEEP = {keep_js};"
+        f"const SEND_ENABLES = {'true' if send_enables else 'false'};"
         "function wireEditor() {"
         " const ed = document.getElementById('editor');"
         " ed.addEventListener('input', () => {"
@@ -112,7 +117,7 @@ def _page(*, mount_ms: int = 900, keep: int | None = None) -> str:
         "   ed.textContent = ed.innerText.slice(0, KEEP); }"
         "  const n = ed.innerText.trim().length;"
         "  document.getElementById('counter').textContent = n + '/300';"
-        "  document.getElementById('send').disabled = n === 0; }); }"
+        "  document.getElementById('send').disabled = !SEND_ENABLES || n === 0; }); }"
         "function openCompose() { record('add-note');"
         " const screen = document.getElementById('screen');"
         " screen.innerHTML = '<p>Loading</p>';"
@@ -208,6 +213,22 @@ class TestContentEditableNoteEditor:
             for r in caplog.records
         )
         assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1
+
+    async def test_a_send_that_stays_disabled_sends_nothing(self, dom_page, caplog):
+        # The editor reads the note back, but Send never enables.
+        with caplog.at_level(
+            logging.INFO, logger="linkedin_mcp_server.scraping.connection_actions"
+        ):
+            result = await _submit(dom_page, _page(send_enables=False), NOTE)
+
+        assert await _clicks(dom_page) == ["add-note"]
+        assert result[:3] == (False, False, None)
+        assert await dom_page.evaluate(_MODAL_DIALOG_INDEX_JS) == -1
+        assert any(
+            r.levelno == logging.INFO
+            and "note is in the editor but Send stayed disabled" in r.getMessage()
+            for r in caplog.records
+        )
 
     async def test_no_note_sends_without_opening_the_editor(self, dom_page):
         result = await _submit(dom_page, _page(), None)
