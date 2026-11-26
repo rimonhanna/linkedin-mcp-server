@@ -41,6 +41,7 @@ def test_the_observed_body_is_read_as_one_invitee():
         # Another page.
         "(organizationUrn:urn%3Ali%3Afsd_company%3A9)",
         f"(organizationUrn:urn%3Ali%3Afsd_company%3A1{COMPANY})",
+        f"(organizationUrn:urn%3Ali%3Afsd_company%3A{COMPANY}0)",
         # The member, or any profile, is never the page, even with its id.
         f"(organizationUrn:urn%3Ali%3Afsd_profile%3A{COMPANY})",
         f"(organizationUrn:urn%3Ali%3Amember%3A{COMPANY})",
@@ -60,3 +61,9 @@ def test_an_inviter_that_is_not_this_page_is_refused(inviter):
 def test_two_inviters_are_refused_even_when_both_name_the_page():
     query = f"inviter=(organizationUrn:urn%3Ali%3Afsd_company%3A{COMPANY})"
     assert not p.inviter_allowed(f"{BASE}?{query}&{query}", COMPANY)
+
+
+@pytest.mark.parametrize("extra", ["action=x", "inviter2=x", "=x", "flag"])
+def test_any_other_query_key_is_refused(extra):
+    assert not p.inviter_allowed(f"{OBSERVED}&{extra}", COMPANY), extra
+    assert not p.inviter_allowed(f"{BASE}?{extra}", COMPANY), extra
