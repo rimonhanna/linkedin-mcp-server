@@ -419,6 +419,9 @@ class InviteeRef:
     key: str
     # The ``ACoA`` id itself when the caller gave one, matched exactly first.
     exact: str | None = None
+    # The ``ACoA``/``ACwA`` id as the caller gave it, whatever ``kind`` it
+    # reduced to: ``/in/<id>/`` opens that member's profile.
+    encoded: str | None = None
 
 
 def _encoded_ref(given: str, encoded: str) -> InviteeRef | None:
@@ -427,8 +430,8 @@ def _encoded_ref(given: str, encoded: str) -> InviteeRef | None:
     member = member_id_of(encoded)
     exact = encoded if encoded.startswith("ACoA") else None
     if member is not None:
-        return InviteeRef(given, "member", member, exact)
-    return InviteeRef(given, "profile", encoded, exact)
+        return InviteeRef(given, "member", member, exact, encoded)
+    return InviteeRef(given, "profile", encoded, exact, encoded)
 
 
 def _path_ref(given: str, path: str) -> InviteeRef | None:

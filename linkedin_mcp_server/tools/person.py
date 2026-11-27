@@ -33,10 +33,8 @@ from linkedin_mcp_server.pacing import (
 )
 from linkedin_mcp_server.scraping import parse_person_sections
 from linkedin_mcp_server.scraping.contracts import FilterValidationError
-from linkedin_mcp_server.scraping.identifiers import (
-    normalize_person_identifier,
-    refuse_opaque_member_id,
-)
+from linkedin_mcp_server.scraping.connect_target import connect_target
+from linkedin_mcp_server.scraping.identifiers import normalize_person_identifier
 from linkedin_mcp_server.scraping.invitation_withdrawal import MAX_WITHDRAWALS_LIMIT
 from linkedin_mcp_server.tools.enrichment import DEADLINE_FRACTION
 
@@ -402,7 +400,7 @@ def register_person_tools(
         prompt for user confirmation before execution.
 
         Args:
-            linkedin_username: LinkedIn username (e.g., "stickerdaniel", "williamhgates"). A full profile URL is accepted too and is reduced to the username.
+            linkedin_username: The member to invite: a LinkedIn username (e.g., "stickerdaniel", "williamhgates") or /in/ profile URL; an ACw.../ACo... profile id or /in/<that id> URL (a Sales Navigator lead's id or profileUrl); a Sales Navigator lead URN (urn:li:fs_salesProfile:(...)) or /sales/lead/ URL; or a urn:li:fsd_profile URN. An id is opened at /in/<id>/, which LinkedIn redirects to the member's public address, and is used only when the loaded page's profile URN is that member; otherwise the status is identity_unconfirmed and nothing is sent. A urn:li:member URN is refused: pass the lead id that comes with it.
             ctx: FastMCP context for progress reporting
             note: Optional note to include with the invitation
             include_profile: Also return the scraped profile page text under ``profile``. Off by default to keep the result small.
@@ -413,7 +411,12 @@ def register_person_tools(
             Statuses: pending, already_connected, connect_unavailable,
             unavailable, dialog_not_found, not_sent, send_unverified,
             send_failed, custom_note_limit_reached, note_control_not_found,
-            connected, or accepted.
+            identity_unconfirmed, connected, or accepted.
+
+            ``identity_unconfirmed`` means linkedin_username was an id and
+            the profile page that loaded could not be shown to be that
+            member (no public address, no profile URN, or another member's);
+            nothing was clicked and no invitation was sent.
 
             ``connected`` is returned only after the invitation was found
             on the sent-invitations list. ``not_sent`` means the invite
@@ -443,14 +446,13 @@ def register_person_tools(
         try:
             # Before the browser: a refused invite must not spend a page load.
             refuse_action(JobStore(), INVITES, datetime.now().astimezone())
-            linkedin_username = normalize_person_identifier(linkedin_username)
-            refuse_opaque_member_id(linkedin_username, tool="connect_with_person")
+            target = connect_target(linkedin_username)
             extractor = extractor or await get_ready_extractor(
                 ctx, tool_name="connect_with_person"
             )
             logger.info(
                 "Connecting with person: %s (note=%s)",
-                linkedin_username,
+                target if isinstance(target, str) else target.profile_id,
                 note is not None,
             )
 
@@ -460,10 +462,7 @@ def register_person_tools(
                 message="Starting LinkedIn connection flow",
             )
 
-            result = await extractor.connect_with_person(
-                linkedin_username,
-                note=note,
-            )
+            result = await extractor.connect_with_person(target, note=note)
             if result.get("status") in _INVITE_SUBMITTED:
                 record_action(JobStore(), INVITES, datetime.now().astimezone())
             retain_trace_for_failed_action(

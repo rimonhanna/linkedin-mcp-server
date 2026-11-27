@@ -26,7 +26,7 @@
       },
       "connect_with_person": {
         "coroutine": true,
-        "signature": "(self, username: 'str', *, note: 'str | None' = None) -> 'dict[str, Any]'"
+        "signature": "(self, username: 'str | ConnectTarget', *, note: 'str | None' = None) -> 'dict[str, Any]'"
       },
       "create_campaign_draft": {
         "coroutine": true,
@@ -366,7 +366,7 @@
               "type": "boolean"
             },
             "linkedin_username": {
-              "description": "LinkedIn username (e.g., \"stickerdaniel\", \"williamhgates\"). A full profile URL is accepted too and is reduced to the username.",
+              "description": "The member to invite: a LinkedIn username (e.g., \"stickerdaniel\", \"williamhgates\") or /in/ profile URL; an ACw.../ACo... profile id or /in/<that id> URL (a Sales Navigator lead's id or profileUrl); a Sales Navigator lead URN (urn:li:fs_salesProfile:(...)) or /sales/lead/ URL; or a urn:li:fsd_profile URN. An id is opened at /in/<id>/, which LinkedIn redirects to the member's public address, and is used only when the loaded page's profile URN is that member; otherwise the status is identity_unconfirmed and nothing is sent. A urn:li:member URN is refused: pass the lead id that comes with it.",
               "type": "string"
             },
             "note": {
