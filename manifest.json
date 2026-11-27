@@ -85,6 +85,10 @@
       "description": "List employees at a company from the LinkedIn /people/ page, with optional keyword filter by name, title, or skill"
     },
     {
+      "name": "list_recent_connections",
+      "description": "List your 1st-degree connections made on or after a date (since or days), newest first, from LinkedIn's connections page: name, headline, profileId (the id invite_to_follow_page takes), public profile id and the day connected (LinkedIn shows a date, no time); read-only"
+    },
+    {
       "name": "list_page_follow_candidates",
       "description": "For a company page you administer, list the 1st-degree connections its Invite to follow dialog offers, whether each can be invited, and the page's monthly invitation credits; read-only"
     },

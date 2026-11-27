@@ -83,6 +83,7 @@ TOOL_DELEGATES = {
     "get_sales_navigator_account_list": "get_sales_navigator_account_list",
     "list_sales_navigator_lead_lists": "list_sales_navigator_lead_lists",
     "get_sales_navigator_lead_list": "get_sales_navigator_lead_list",
+    "list_recent_connections": "list_recent_connections",
     "list_page_follow_candidates": "list_page_follow_candidates",
     "invite_to_follow_page": "invite_to_follow_page",
     "get_sales_navigator_inbox": "get_sales_navigator_inbox",
@@ -149,6 +150,7 @@ async def test_constructor_export_and_dependency_use_the_same_facade(monkeypatch
         "_page_invites",
         "_person",
         "_posts",
+        "_recent_connections",
         "_sales_inbox",
         "_sales_navigator",
         "_sales_navigator_lists",
@@ -175,9 +177,9 @@ async def test_registered_tools_and_extractor_delegates_are_counted_separately()
     tools = await create_mcp_server().list_tools()
     tool_names = {tool.name for tool in tools}
 
-    assert len(tool_names) == 59
+    assert len(tool_names) == 60
     assert tool_names == {*TOOL_DELEGATES, *ENRICHMENT_TOOL_DELEGATES, "close_session"}
-    assert len(TOOL_DELEGATES) == 51
+    assert len(TOOL_DELEGATES) == 52
     assert len(ENRICHMENT_TOOL_DELEGATES) == 7
     assert TOOL_DELEGATES.keys().isdisjoint(ENRICHMENT_TOOL_DELEGATES)
     assert set(TOOL_DELEGATES.values()) == TOOL_FACADE_METHODS
@@ -547,7 +549,7 @@ def test_facade_methods_are_exactly_the_frozen_coroutine_surface():
     }
 
     assert actual == expected
-    assert len(TOOL_FACADE_METHODS) == 51
+    assert len(TOOL_FACADE_METHODS) == 52
     assert len(COMPATIBILITY_METHODS) == 2
 
 

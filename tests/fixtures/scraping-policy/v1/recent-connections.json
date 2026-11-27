@@ -1,0 +1,309 @@
+{
+  "call": {
+    "arguments": {
+      "limit": 100,
+      "since": "2026-11-26"
+    },
+    "method": "list_recent_connections"
+  },
+  "events": [
+    {
+      "call": "list_recent_connections",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.add",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.add",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "extra": {
+        "target_url": "https://www.linkedin.com/mynetwork/invite-connect/connections/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-before-goto",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "kind": "navigate",
+      "landed_url": "https://www.linkedin.com/mynetwork/invite-connect/connections/",
+      "requested_url": "https://www.linkedin.com/mynetwork/invite-connect/connections/",
+      "section": "list_recent_connections__since",
+      "timeout_ms": 30000,
+      "wait_until": "commit"
+    },
+    {
+      "call": "list_recent_connections",
+      "kind": "wait_for_load_state",
+      "section": "list_recent_connections__since",
+      "state": "domcontentloaded",
+      "timeout_ms": 30000
+    },
+    {
+      "call": "list_recent_connections",
+      "description": "goto https://www.linkedin.com/mynetwork/invite-connect/connections/",
+      "kind": "boundary.stabilize",
+      "result": null,
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "extra": {
+        "load_state_lagged": false,
+        "target_url": "https://www.linkedin.com/mynetwork/invite-connect/connections/",
+        "wait_until": "domcontentloaded"
+      },
+      "kind": "boundary.trace",
+      "label": "extractor-after-goto",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "kind": "boundary.auth_quick",
+      "result": null,
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "callback_id": "callback-2",
+      "event": "framenavigated",
+      "kind": "listener.remove",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "kind": "boundary.rate_limit",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "kind": "evaluate",
+      "operation": "recent_connections_rows",
+      "program_digest": "8e2aac740433",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 1.4,
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "kind": "mouse.move",
+      "section": "list_recent_connections__since",
+      "x": 640,
+      "y": 360
+    },
+    {
+      "call": "list_recent_connections",
+      "delta_x": 0,
+      "delta_y": 600,
+      "kind": "mouse.wheel",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.6,
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "delta_x": 0,
+      "delta_y": 600,
+      "kind": "mouse.wheel",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "count": 1,
+      "event": "response",
+      "kind": "listener.emit",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "kind": "sleep",
+      "reason": "sleep",
+      "seconds": 0.6,
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "kind": "evaluate",
+      "operation": "recent_connections_rows",
+      "program_digest": "8e2aac740433",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "kind": "boundary.rate_limit",
+      "section": "list_recent_connections__since"
+    },
+    {
+      "call": "list_recent_connections",
+      "callback_id": "callback-1",
+      "event": "response",
+      "kind": "listener.remove",
+      "section": "list_recent_connections__since"
+    }
+  ],
+  "result": {
+    "connections": [
+      {
+        "connectedOn": "2026-11-27",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 27, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 0",
+        "profileId": "ACoAAExample00",
+        "profileUrl": "https://www.linkedin.com/in/example-person-0/",
+        "publicIdentifier": "example-person-0"
+      },
+      {
+        "connectedOn": "2026-11-27",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 27, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 1",
+        "profileId": "ACoAAExample01",
+        "profileUrl": "https://www.linkedin.com/in/example-person-1/",
+        "publicIdentifier": "example-person-1"
+      },
+      {
+        "connectedOn": "2026-11-27",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 27, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 2",
+        "profileId": "ACoAAExample02",
+        "profileUrl": "https://www.linkedin.com/in/example-person-2/",
+        "publicIdentifier": "example-person-2"
+      },
+      {
+        "connectedOn": "2026-11-27",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 27, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 3",
+        "profileId": "ACoAAExample03",
+        "profileUrl": "https://www.linkedin.com/in/example-person-3/",
+        "publicIdentifier": "example-person-3"
+      },
+      {
+        "connectedOn": "2026-11-27",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 27, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 4",
+        "profileId": "ACoAAExample04",
+        "profileUrl": "https://www.linkedin.com/in/example-person-4/",
+        "publicIdentifier": "example-person-4"
+      },
+      {
+        "connectedOn": "2026-11-26",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 26, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 5",
+        "profileId": "ACoAAExample05",
+        "profileUrl": "https://www.linkedin.com/in/example-person-5/",
+        "publicIdentifier": "example-person-5"
+      },
+      {
+        "connectedOn": "2026-11-26",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 26, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 6",
+        "profileId": "ACoAAExample06",
+        "profileUrl": "https://www.linkedin.com/in/example-person-6/",
+        "publicIdentifier": "example-person-6"
+      },
+      {
+        "connectedOn": "2026-11-26",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 26, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 7",
+        "profileId": "ACoAAExample07",
+        "profileUrl": "https://www.linkedin.com/in/example-person-7/",
+        "publicIdentifier": "example-person-7"
+      },
+      {
+        "connectedOn": "2026-11-26",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 26, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 8",
+        "profileId": "ACoAAExample08",
+        "profileUrl": "https://www.linkedin.com/in/example-person-8/",
+        "publicIdentifier": "example-person-8"
+      },
+      {
+        "connectedOn": "2026-11-26",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 26, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 9",
+        "profileId": "ACoAAExample09",
+        "profileUrl": "https://www.linkedin.com/in/example-person-9/",
+        "publicIdentifier": "example-person-9"
+      },
+      {
+        "connectedOn": "2026-11-26",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 26, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 10",
+        "profileId": "ACoAAExample10",
+        "profileUrl": "https://www.linkedin.com/in/example-person-10/",
+        "publicIdentifier": "example-person-10"
+      },
+      {
+        "connectedOn": "2026-11-26",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 26, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 11",
+        "profileId": "ACoAAExample11",
+        "profileUrl": "https://www.linkedin.com/in/example-person-11/",
+        "publicIdentifier": "example-person-11"
+      },
+      {
+        "connectedOn": "2026-11-26",
+        "connectedOnPrecision": "day",
+        "connectedText": "Connected on November 26, 2026",
+        "headline": "Example headline",
+        "name": "Example Person 12",
+        "profileId": "ACoAAExample12",
+        "profileUrl": "https://www.linkedin.com/in/example-person-12/",
+        "publicIdentifier": "example-person-12"
+      }
+    ],
+    "paging": {
+      "count": 13,
+      "more": false,
+      "pages": 2,
+      "reason": "since"
+    },
+    "sections": {
+      "connections": "Example Person 0 | Example headline | Connected on November 27, 2026\nExample Person 1 | Example headline | Connected on November 27, 2026\nExample Person 2 | Example headline | Connected on November 27, 2026\nExample Person 3 | Example headline | Connected on November 27, 2026\nExample Person 4 | Example headline | Connected on November 27, 2026\nExample Person 5 | Example headline | Connected on November 26, 2026\nExample Person 6 | Example headline | Connected on November 26, 2026\nExample Person 7 | Example headline | Connected on November 26, 2026\nExample Person 8 | Example headline | Connected on November 26, 2026\nExample Person 9 | Example headline | Connected on November 26, 2026\nExample Person 10 | Example headline | Connected on November 26, 2026\nExample Person 11 | Example headline | Connected on November 26, 2026\nExample Person 12 | Example headline | Connected on November 26, 2026"
+    },
+    "since": "2026-11-26",
+    "url": "https://www.linkedin.com/mynetwork/invite-connect/connections/"
+  },
+  "scenario": "list_recent_connections__since",
+  "schema_version": 1
+}

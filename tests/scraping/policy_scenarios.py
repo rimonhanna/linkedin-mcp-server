@@ -2377,6 +2377,7 @@ TOOL_FACADE_METHODS = {
     "get_sales_navigator_account_list",
     "list_sales_navigator_lead_lists",
     "get_sales_navigator_lead_list",
+    "list_recent_connections",
     "list_page_follow_candidates",
     "invite_to_follow_page",
     "get_sales_navigator_inbox",
@@ -3378,6 +3379,13 @@ async def _page_invite_dry_run_scenario() -> dict[str, Any]:
     )
 
 
+async def _recent_connections() -> dict[str, Any]:
+    # Imported here: the scenario module builds on this one's helpers.
+    from .policy_scenarios_recent_connections import recent_connections_scenario
+
+    return await recent_connections_scenario()
+
+
 async def build_policy_traces() -> dict[str, dict[str, Any]]:
     traces = {
         "facade-contract.json": await _facade_contract_trace(),
@@ -3489,6 +3497,7 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "sn-no-seat.json": await _sn_no_seat_scenario(),
         "page-follow-candidates.json": await _page_follow_candidates_scenario(),
         "page-invite-dry-run.json": await _page_invite_dry_run_scenario(),
+        "recent-connections.json": await _recent_connections(),
         "sn-inbox.json": await _sn_inbox_scenario(),
         "sn-conversation.json": await _sn_conversation_scenario(),
         "sn-search-conversations.json": await _sn_search_conversations_scenario(),

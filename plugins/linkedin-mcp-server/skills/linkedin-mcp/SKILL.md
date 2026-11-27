@@ -115,6 +115,8 @@ instances, clear profiles, or replace the user's browser session.
   Navigator tools and its `profileUrl` is a link only. `send_message` accepts
   it as `linkedin_username`; `connect_with_person` refuses an
   `ACw...`/`ACo...` id, so pass it the member's public identifier.
+- Your newest connections: `list_recent_connections` (read-only; its
+  `profileId` is what `invite_to_follow_page` takes).
 - Company pages you administer: `list_page_follow_candidates` (read-only)
   and `invite_to_follow_page`.
 - Writes: `send_message`, `reply_to_conversation` (answer an existing thread,
