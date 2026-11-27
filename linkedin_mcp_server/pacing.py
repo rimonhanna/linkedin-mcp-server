@@ -173,8 +173,8 @@ CAMPAIGN_WRITES = "campaign_writes"
 SALES_NAVIGATOR_MESSAGES = "sales_navigator_messages"
 # One member invited to follow a company page the account administers.
 PAGE_INVITES = "page_invites"
-# A Sales Navigator account-list write: a list created, accounts added, a list
-# deleted.
+# A Sales Navigator account-list write (a list created, accounts added, a list
+# deleted) or a search saved.
 SALES_LIST_WRITES = "sales_list_writes"
 
 # Slice shaved off the daily cap by the per-day draw (DAILY_CAP_JITTER):

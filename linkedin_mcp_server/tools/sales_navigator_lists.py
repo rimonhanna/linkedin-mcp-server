@@ -44,7 +44,7 @@ _ANNOTATIONS = {"destructiveHint": True, "openWorldHint": True}
 _TAGS = {"sales_navigator", "actions"}
 
 
-def _refuse_before_the_browser(confirm_send: bool, *, requests: int = 1) -> None:
+def refuse_before_the_browser(confirm_send: bool, *, requests: int = 1) -> None:
     """Refuse a call whose ``requests`` do not all fit under the cap now."""
     # A dry run sends nothing and owes nothing.
     if not confirm_send:
@@ -70,7 +70,7 @@ async def _run(
     message: str,
     call: Callable[[Any], Awaitable[dict[str, Any]]],
 ) -> dict[str, Any]:
-    _refuse_before_the_browser(confirm_send, requests=requests)
+    refuse_before_the_browser(confirm_send, requests=requests)
     extractor = extractor or await get_ready_extractor(ctx, tool_name=tool)
     logger.info("%s (confirm_send=%s)", tool, confirm_send)
     await ctx.report_progress(progress=0, total=100, message=message)

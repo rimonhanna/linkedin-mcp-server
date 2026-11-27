@@ -1,0 +1,359 @@
+{
+ "_measured": "2026-11-27, Sales Navigator lead and account search pages; seat and saved-search ids replaced with synthetic values",
+ "lead_create": {
+  "method": "POST",
+  "path": "/sales-api/salesApiSavedSearchesV2",
+  "body": {
+   "name": "201-500, 501-1000, United Kingdom, CTO, Chief Technology Officer, Head of Engineering, VP Engineering, Director of Engineering, Head of Technology, Technology Director, IT Director, Director of Technology, Head of Software Development, Engineering Manager,",
+   "keywords": "",
+   "searchQuery": {
+    "leadSearchQuery": {
+     "filters": [
+      {
+       "type": "CURRENT_TITLE",
+       "values": [
+        {
+         "text": "CTO",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "text": "Chief Technology Officer",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "text": "Head of Engineering",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "text": "VP Engineering",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "text": "Director of Engineering",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "text": "Head of Technology",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "text": "Technology Director",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "text": "IT Director",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "text": "Director of Technology",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "text": "Head of Software Development",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "text": "Engineering Manager",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      },
+      {
+       "type": "COMPANY_HEADQUARTERS",
+       "values": [
+        {
+         "id": "101165590",
+         "text": "United Kingdom",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      },
+      {
+       "type": "INDUSTRY",
+       "values": [
+        {
+         "id": "44",
+         "text": "Real Estate",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "id": "30",
+         "text": "Travel Arrangements",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "id": "122",
+         "text": "Facilities Services",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "id": "92",
+         "text": "Truck Transportation",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "id": "116",
+         "text": "Transportation, Logistics, Supply Chain and Storage",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "id": "104",
+         "text": "Staffing and Recruiting",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "id": "31",
+         "text": "Hospitality",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      },
+      {
+       "type": "COMPANY_HEADCOUNT",
+       "values": [
+        {
+         "id": "E",
+         "text": "201-500",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "id": "F",
+         "text": "501-1000",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "seat": "urn:li:seat:100000001",
+   "useCase": "SAVED_LEAD_SEARCH",
+   "frequency": "DAILY"
+  },
+  "status": 201,
+  "x-restli-id": "{seat=urn:li:seat:100000001, id=100000777}"
+ },
+ "account_create": {
+  "method": "POST",
+  "path": "/sales-api/salesApiSavedSearchesV2",
+  "body": {
+   "name": "logistics, 201-500, United Kingdom, Real Estate",
+   "keywords": "",
+   "searchQuery": {
+    "accountSearchQuery": {
+     "spellCorrectionEnabled": true,
+     "filters": [
+      {
+       "type": "INDUSTRY",
+       "values": [
+        {
+         "id": "44",
+         "text": "Real Estate",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      },
+      {
+       "type": "REGION",
+       "values": [
+        {
+         "id": "101165590",
+         "text": "United Kingdom",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      },
+      {
+       "type": "COMPANY_HEADCOUNT",
+       "values": [
+        {
+         "id": "E",
+         "text": "201-500",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      }
+     ],
+     "keywords": "logistics"
+    }
+   },
+   "seat": "urn:li:seat:100000001",
+   "useCase": "SAVED_ACCOUNT_SEARCH",
+   "frequency": "DAILY"
+  }
+ },
+ "rename": {
+  "method": "POST",
+  "path": "/sales-api/salesApiSavedSearchesV2/(seat:urn%3Ali%3Aseat%3A100000001,id:100000777)",
+  "body": {
+   "patch": {
+    "$set": {
+     "name": "Dutopilot ICP UK leads"
+    }
+   }
+  },
+  "status": 204
+ },
+ "readback": {
+  "path": "/sales-api/salesApiSavedSearchesV2?decoration=%28%20createdAt%2C%20id%2C%20lastViewedAt%2C%20name%2C%20newHitsCount%2C%20seat%2C%20keywords%2C%20filters%20%29&count=50&q=savedPeopleSearches&start=0",
+  "elements": [
+   {
+    "seat": "urn:li:seat:100000001",
+    "createdAt": 1795812443675,
+    "name": "Dutopilot ICP UK leads",
+    "id": 100000777,
+    "filters": [
+     {
+      "singleFilterMetadata": {
+       "searchFilterConfig": {
+        "title": "Company headcount",
+        "presentationType": "MULTI_SELECT"
+       },
+       "values": [
+        {
+         "displayValue": "201-500",
+         "selectionType": "INCLUDED",
+         "id": "E"
+        },
+        {
+         "displayValue": "501-1,000",
+         "selectionType": "INCLUDED",
+         "id": "F"
+        }
+       ],
+       "type": "COMPANY_HEADCOUNT"
+      }
+     },
+     {
+      "singleFilterMetadata": {
+       "searchFilterConfig": {
+        "title": "Company headquarters location",
+        "presentationType": "MULTI_SELECT"
+       },
+       "values": [
+        {
+         "displayValue": "United Kingdom",
+         "selectionType": "INCLUDED",
+         "id": "101165590"
+        }
+       ],
+       "type": "COMPANY_HEADQUARTERS"
+      }
+     },
+     {
+      "singleFilterMetadata": {
+       "searchFilterConfig": {
+        "title": "Current job title",
+        "presentationType": "MULTI_SELECT"
+       },
+       "values": [
+        {
+         "displayValue": "CTO",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "displayValue": "Chief Technology Officer",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "displayValue": "Head of Engineering",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "displayValue": "VP Engineering",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "displayValue": "Director of Engineering",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "displayValue": "Head of Technology",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "displayValue": "Technology Director",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "displayValue": "IT Director",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "displayValue": "Director of Technology",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "displayValue": "Head of Software Development",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "displayValue": "Engineering Manager",
+         "selectionType": "INCLUDED"
+        }
+       ],
+       "type": "CURRENT_TITLE"
+      }
+     },
+     {
+      "singleFilterMetadata": {
+       "searchFilterConfig": {
+        "title": "Industry",
+        "presentationType": "MULTI_SELECT"
+       },
+       "values": [
+        {
+         "displayValue": "Real Estate",
+         "selectionType": "INCLUDED",
+         "id": "44"
+        },
+        {
+         "displayValue": "Travel Arrangements",
+         "selectionType": "INCLUDED",
+         "id": "30"
+        },
+        {
+         "displayValue": "Facilities Services",
+         "selectionType": "INCLUDED",
+         "id": "122"
+        },
+        {
+         "displayValue": "Truck Transportation",
+         "selectionType": "INCLUDED",
+         "id": "92"
+        },
+        {
+         "displayValue": "Transportation, Logistics, Supply Chain and Storage",
+         "selectionType": "INCLUDED",
+         "id": "116"
+        },
+        {
+         "displayValue": "Staffing and Recruiting",
+         "selectionType": "INCLUDED",
+         "id": "104"
+        },
+        {
+         "displayValue": "Hospitality",
+         "selectionType": "INCLUDED",
+         "id": "31"
+        }
+       ],
+       "type": "INDUSTRY"
+      }
+     },
+     {
+      "singleFilterMetadata": {
+       "searchFilterConfig": {
+        "title": "People you interacted with",
+        "presentationType": "MULTI_SELECT"
+       },
+       "values": [],
+       "type": "LEAD_INTERACTIONS"
+      }
+     }
+    ],
+    "lastViewedAt": 1795812443676
+   }
+  ]
+ }
+}

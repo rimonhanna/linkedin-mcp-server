@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Search | Sales Navigator</title></head>
+<body>
+<!--
+  Markup of Sales Navigator's lead search page as measured on 2026-11-27,
+  trimmed to the save switch, the Saved searches button and the Saved
+  searches panel (class hashes kept, icons and unrelated markup removed).
+  The script stands in for the app: the switch posts the create, the panel
+  reads the saved searches, and the Edit form posts the rename, each with the
+  request shape measured that day. Only the data is synthetic.
+-->
+<main id="content-main" role="main">
+  <div class="_search-container_1igybl" data-sn-view-name="lead-search">
+    <button data-x--link--saved-searches="" type="button">Saved searches</button>
+    <div class="
+    p4
+   _save-search-background_1r1yr9">
+      <div class="flex mb3 align-items-center">
+        <span class="t-bold nowrap-ellipsis inline _saved-search-title_1r1yr9">201-500, 501-1000, United Kingdom, CTO</span>
+        <span class="ml1 t-14 inline white-space-nowrap t-black--light">(4 filters)</span>
+      </div>
+      <div class="flex align-items-center justify-space-between">
+        <label class="m0 t-14 t-bold nowrap-ellipsis _save-search-toggle-label_1r1yr9" for="save-search-st116">Save search to get notified of new results</label>
+        <div class=" _wrapper-custom-toggle_1r1yr9 _wrapper-toggled-off_1r1yr9" data-lss-force-hue-theme="mercado">
+          <div class="_switch_12ycew">
+            <span class="a11y-text _toggle-text_12ycew" aria-hidden="true" id="hueSwitch_ember60">Off</span>
+            <input id="save-search-st116" aria-describedby="hueSwitch_ember60 " class="a11y-text" type="checkbox">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+<div id="panel-outlet"></div>
+<script>
+(() => {
+  const config = window.__savedSearch;
+  const input = document.querySelector('#save-search-st116');
+  const api = 'https://www.linkedin.com/sales-api/salesApiSavedSearchesV2';
+  input.parentElement.addEventListener('click', async () => {
+    const response = await fetch(api, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-restli-protocol-version': '2.0.0' },
+      body: JSON.stringify(config.createBody),
+    }).catch(() => null);
+    input.checked = !!(response && response.status === 201);
+  });
+  const outlet = document.querySelector('#panel-outlet');
+  const tabs = `
+    <div role="tablist">
+      <button aria-label="Lead- View all lead saved searches" role="tab" aria-selected="" type="button">Lead</button>
+      <button aria-label="Account- View all account saved searches" role="tab" type="button">Account</button>
+    </div>`;
+  function item(search) {
+    return `
+      <li class="ph4 pv2 pb3 _panel-item_yma0zx">
+        <div class="flex align-items-center">
+          <a class="ember-view mrA t-16 nowrap-ellipsis _panel-link_yma0zx" href="/sales/search/people?savedSearchId=${search.id}">${search.name}</a>
+          <div class="_panel-item-actions_yma0zx">
+            <button class="ember-view _button_ps32ck mr1 edit-saved-search-button" data-saved-search="${search.id}" aria-label="Edit ${search.name} lead saved search" type="button"><span>Edit</span></button>
+            <button class="ember-view _button_ps32ck mr1 share-saved-search-button" data-saved-search="${search.id}" type="button"><span>Share</span></button>
+          </div>
+        </div>
+      </li>`;
+  }
+  function editing(search) {
+    return `
+      <li class="ph4 pv2 pb3 _panel-item_yma0zx _panel-item--editing_yma0zx">
+        <label for="edit-saved-search-name-input">Name of saved search</label>
+        <div class="_container_1ft654">
+          <input class="_field_1yrc4i" id="edit-saved-search-name-input" aria-invalid="false" placeholder="Type name of search" maxlength="256" data-saved-search-panel-input="" type="text">
+        </div>
+        <div class="flex align-items-center mt3">
+          <button class="ember-view _button_ps32ck mrA" data-saved-search-panel-delete-button="" type="button"><span>Delete</span></button>
+          <button class="ember-view _button_ps32ck ml2" type="button"><span>Cancel</span></button>
+          <button class="ember-view _button_ps32ck _primary_ps32ck ml2" disabled="" type="button"><span>Save</span></button>
+        </div>
+      </li>`;
+  }
+  async function render() {
+    const response = await fetch(api + config.readPath);
+    const searches = (await response.json()).elements || [];
+    outlet.innerHTML = `
+      <div role="dialog" data-sn-view-name="subpage-saved-searches-panel">
+        ${tabs}<ol>${searches.map(item).join('')}</ol>
+      </div>`;
+    for (const button of outlet.querySelectorAll('.edit-saved-search-button')) {
+      button.addEventListener('click', () => {
+        const search = searches.find((s) => String(s.id) === button.dataset.savedSearch);
+        button.closest('li').outerHTML = editing(search);
+        const field = outlet.querySelector('[data-saved-search-panel-input]');
+        field.value = search.name;
+        const buttons = field.closest('li').querySelectorAll('button');
+        const save = buttons[buttons.length - 1];
+        field.addEventListener('input', () => { save.disabled = field.value === search.name || !field.value; });
+        save.addEventListener('click', async () => {
+          await fetch(api + `/(seat:${encodeURIComponent(search.seat)},id:${search.id})`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-restli-protocol-version': '2.0.0' },
+            body: JSON.stringify({ patch: { $set: { name: field.value } } }),
+          }).catch(() => null);
+        });
+      });
+    }
+  }
+  document.querySelector('[data-x--link--saved-searches]').addEventListener('click', render);
+})();
+</script>
+</body></html>

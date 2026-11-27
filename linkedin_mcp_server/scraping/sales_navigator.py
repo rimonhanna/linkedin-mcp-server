@@ -45,6 +45,7 @@ from linkedin_mcp_server.scraping.sales_navigator_api import (
 )
 from linkedin_mcp_server.scraping.sales_navigator_lead_filters import (
     ACCOUNT_LIST,
+    COMPANY_HEADQUARTERS,
     FUNCTION,
     LEAD_LIST,
     RELATIONSHIP,
@@ -651,7 +652,7 @@ class SalesNavigatorReader:
                 f"at most {MAX_PAGE * PAGE_SIZE} results per search."
             )
 
-    async def search_accounts(
+    async def account_criteria(
         self,
         *,
         keywords: str | None = None,
@@ -661,14 +662,12 @@ class SalesNavigatorReader:
         size: Sequence[str] | None = None,
         headcount_growth_min: int | None = None,
         headcount_growth_max: int | None = None,
-        page: int = 1,
-    ) -> dict[str, Any]:
-        """One page (25) of Sales Navigator account search results.
+    ) -> tuple[str | None, list[tuple[str, SearchFilter]]]:
+        """The keywords and filters an account search sends, ids resolved.
 
-        When Sales Navigator dropped an asked filter to find anything, no
-        account is reported and ``section_errors.accounts`` says which.
+        Shared by the search and by saving the search, so both send the same
+        query.
         """
-        self._check_page(page)
         keywords = (keywords or "").strip() or None
         industries = industry_ids(_criteria(industry))
         not_industries = industry_ids(_criteria(exclude_industry))
@@ -720,6 +719,35 @@ class SalesNavigatorReader:
                 )
             )
 
+        return keywords, filters
+
+    async def search_accounts(
+        self,
+        *,
+        keywords: str | None = None,
+        industry: Sequence[str] | None = None,
+        exclude_industry: Sequence[str] | None = None,
+        hq_location: Sequence[str] | None = None,
+        size: Sequence[str] | None = None,
+        headcount_growth_min: int | None = None,
+        headcount_growth_max: int | None = None,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """One page (25) of Sales Navigator account search results.
+
+        When Sales Navigator dropped an asked filter to find anything, no
+        account is reported and ``section_errors.accounts`` says which.
+        """
+        self._check_page(page)
+        keywords, filters = await self.account_criteria(
+            keywords=keywords,
+            industry=industry,
+            exclude_industry=exclude_industry,
+            hq_location=hq_location,
+            size=size,
+            headcount_growth_min=headcount_growth_min,
+            headcount_growth_max=headcount_growth_max,
+        )
         url, response = await self._search(
             "company", _ACCOUNT_SEARCH, keywords, filters, page
         )
@@ -742,7 +770,7 @@ class SalesNavigatorReader:
         result["paging"] = paging
         return result
 
-    async def search_leads(
+    async def lead_criteria(
         self,
         *,
         keywords: str | None = None,
@@ -751,6 +779,7 @@ class SalesNavigatorReader:
         current_company: Sequence[str] | None = None,
         exclude_current_company: Sequence[str] | None = None,
         location: Sequence[str] | None = None,
+        company_hq_location: Sequence[str] | None = None,
         industry: Sequence[str] | None = None,
         exclude_industry: Sequence[str] | None = None,
         network: Sequence[str] | None = None,
@@ -761,16 +790,12 @@ class SalesNavigatorReader:
         account_list: Sequence[str] | None = None,
         lead_list: Sequence[str] | None = None,
         exclude_lead_list: Sequence[str] | None = None,
-        page: int = 1,
-    ) -> dict[str, Any]:
-        """One page (25) of Sales Navigator lead search results.
+    ) -> tuple[str | None, list[tuple[str, SearchFilter]]]:
+        """The keywords and filters a lead search sends, ids resolved.
 
-        Leads with LinkedIn's third-party sharing block are left out and
-        counted in ``withheld``. When Sales Navigator dropped an asked filter
-        to find anyone, no lead is reported and ``section_errors.leads`` says
-        which.
+        Shared by the search and by saving the search, so both send the same
+        query.
         """
-        self._check_page(page)
         keywords = (keywords or "").strip() or None
         titles = _criteria(title)
         levels = _criteria(seniority)
@@ -783,6 +808,7 @@ class SalesNavigatorReader:
         companies = _criteria(current_company)
         not_companies = _criteria(exclude_current_company)
         locations = _criteria(location)
+        hq_locations = _criteria(company_hq_location)
         industries = industry_ids(_criteria(industry))
         not_industries = industry_ids(_criteria(exclude_industry))
         degrees = network_tokens(_criteria(network))
@@ -804,6 +830,7 @@ class SalesNavigatorReader:
             or companies
             or not_companies
             or locations
+            or hq_locations
             or industries
             or not_industries
             or degrees
@@ -817,7 +844,8 @@ class SalesNavigatorReader:
         ):
             raise FilterValidationError(
                 "Give at least one search criterion: keywords, title, seniority, "
-                "current_company, exclude_current_company, location, industry, "
+                "current_company, exclude_current_company, location, "
+                "company_hq_location, industry, "
                 "exclude_industry, network, function, company_size, years_in_current_role, years_at_current_company, "
                 "account_list, lead_list or exclude_lead_list."
             )
@@ -850,6 +878,14 @@ class SalesNavigatorReader:
         if locations:
             geo = await self._geo_ids(locations, "location")
             filters.append(("location", SearchFilter(REGION, ids=tuple(geo))))
+        if hq_locations:
+            geo = await self._geo_ids(hq_locations, "company_hq_location")
+            filters.append(
+                (
+                    "company_hq_location",
+                    SearchFilter(COMPANY_HEADQUARTERS, ids=tuple(geo)),
+                )
+            )
         if industries or not_industries:
             filters.append(
                 (
@@ -899,6 +935,57 @@ class SalesNavigatorReader:
                 )
             )
 
+        return keywords, filters
+
+    async def search_leads(
+        self,
+        *,
+        keywords: str | None = None,
+        title: Sequence[str] | None = None,
+        seniority: Sequence[str] | None = None,
+        current_company: Sequence[str] | None = None,
+        exclude_current_company: Sequence[str] | None = None,
+        location: Sequence[str] | None = None,
+        company_hq_location: Sequence[str] | None = None,
+        industry: Sequence[str] | None = None,
+        exclude_industry: Sequence[str] | None = None,
+        network: Sequence[str] | None = None,
+        function: Sequence[str] | None = None,
+        company_size: Sequence[str] | None = None,
+        years_in_current_role: Sequence[str] | None = None,
+        years_at_current_company: Sequence[str] | None = None,
+        account_list: Sequence[str] | None = None,
+        lead_list: Sequence[str] | None = None,
+        exclude_lead_list: Sequence[str] | None = None,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """One page (25) of Sales Navigator lead search results.
+
+        Leads with LinkedIn's third-party sharing block are left out and
+        counted in ``withheld``. When Sales Navigator dropped an asked filter
+        to find anyone, no lead is reported and ``section_errors.leads`` says
+        which.
+        """
+        self._check_page(page)
+        keywords, filters = await self.lead_criteria(
+            keywords=keywords,
+            title=title,
+            seniority=seniority,
+            current_company=current_company,
+            exclude_current_company=exclude_current_company,
+            location=location,
+            company_hq_location=company_hq_location,
+            industry=industry,
+            exclude_industry=exclude_industry,
+            network=network,
+            function=function,
+            company_size=company_size,
+            years_in_current_role=years_in_current_role,
+            years_at_current_company=years_at_current_company,
+            account_list=account_list,
+            lead_list=lead_list,
+            exclude_lead_list=exclude_lead_list,
+        )
         url, response = await self._search(
             "people", _LEAD_SEARCH, keywords, filters, page
         )

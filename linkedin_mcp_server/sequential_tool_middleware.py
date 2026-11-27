@@ -107,6 +107,7 @@ class SequentialToolExecutionMiddleware(Middleware):
             "create_sales_navigator_account_list",
             "add_accounts_to_sales_navigator_list",
             "delete_sales_navigator_account_list",
+            "save_sales_navigator_search",
         }
     )
 

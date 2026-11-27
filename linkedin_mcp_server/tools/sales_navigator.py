@@ -192,6 +192,7 @@ def register_sales_navigator_tools(
         current_company: StrList | None = None,
         exclude_current_company: StrList | None = None,
         location: StrList | None = None,
+        company_hq_location: StrList | None = None,
         industry: StrList | None = None,
         exclude_industry: StrList | None = None,
         network: StrList | None = None,
@@ -249,7 +250,10 @@ def register_sales_navigator_tools(
             exclude_current_company: Companies whose current employees are
                 left out, in the same forms as current_company.
             location: One or a list of locations, numeric geo ids,
-                urn:li:geo URNs or names.
+                urn:li:geo URNs or names: where the lead is.
+            company_hq_location: Headquarters locations of the lead's current
+                company, in the same forms as location (Sales Navigator's
+                "Company headquarters location" filter).
             industry: One or a list of industries, numeric ids or names.
             exclude_industry: Industries whose leads are left out, numeric ids
                 or names.
@@ -304,6 +308,7 @@ def register_sales_navigator_tools(
                 current_company,
                 exclude_current_company,
                 location,
+                company_hq_location,
                 industry_list,
                 exclude_industry_list,
                 network,
@@ -331,6 +336,7 @@ def register_sales_navigator_tools(
                 current_company=current_company or None,
                 exclude_current_company=exclude_current_company or None,
                 location=location or None,
+                company_hq_location=company_hq_location or None,
                 industry=industry_list or None,
                 exclude_industry=exclude_industry_list or None,
                 network=network or None,

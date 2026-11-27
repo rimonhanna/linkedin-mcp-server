@@ -935,10 +935,10 @@ create_saved_audience change the user's ad account and can spend money: call
 them with confirm_send false first, show the user the planned change, and
 confirm only what they approved.
 
-create_sales_navigator_account_list, add_accounts_to_sales_navigator_list and
-delete_sales_navigator_account_list change the user's Sales Navigator lists:
-call them with confirm_send false first and confirm only what the user
-approved.
+create_sales_navigator_account_list, add_accounts_to_sales_navigator_list,
+delete_sales_navigator_account_list and save_sales_navigator_search change
+the user's Sales Navigator lists and saved searches: call them with
+confirm_send false first and confirm only what the user approved.
 
 Calls are paced and run one at a time on purpose. If a tool reports a rate
 limit, an account cooldown or a pacing cap, do not retry or work around it:

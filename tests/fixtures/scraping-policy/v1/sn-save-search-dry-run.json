@@ -1,0 +1,38 @@
+{
+  "call": {
+    "arguments": {
+      "confirm_send": false,
+      "criteria": {
+        "company_hq_location": [
+          "101165590"
+        ],
+        "company_size": [
+          "E",
+          "F"
+        ],
+        "title": [
+          "CTO"
+        ]
+      },
+      "kind": "leads",
+      "name": "Example search"
+    },
+    "method": "save_sales_navigator_search"
+  },
+  "events": [],
+  "result": {
+    "dry_run": true,
+    "message": "Nothing was saved. confirm_send true loads this search, saves it with Sales Navigator's Save search and renames it to this name: two requests.",
+    "retry_safe": true,
+    "search": {
+      "kind": "leads",
+      "name": "Example search",
+      "url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ACURRENT_TITLE,values%3AList((text%3ACTO,selectionType%3AINCLUDED))),(type%3ACOMPANY_HEADQUARTERS,values%3AList((id%3A101165590,selectionType%3AINCLUDED))),(type%3ACOMPANY_HEADCOUNT,values%3AList((id%3AE,selectionType%3AINCLUDED),(id%3AF,selectionType%3AINCLUDED)))))"
+    },
+    "status": "dry_run",
+    "tool": "save_sales_navigator_search",
+    "url": "https://www.linkedin.com/sales/search/people?query=(filters%3AList((type%3ACURRENT_TITLE,values%3AList((text%3ACTO,selectionType%3AINCLUDED))),(type%3ACOMPANY_HEADQUARTERS,values%3AList((id%3A101165590,selectionType%3AINCLUDED))),(type%3ACOMPANY_HEADCOUNT,values%3AList((id%3AE,selectionType%3AINCLUDED),(id%3AF,selectionType%3AINCLUDED)))))"
+  },
+  "scenario": "save_sales_navigator_search__dry_run",
+  "schema_version": 1
+}

@@ -51,6 +51,9 @@ from linkedin_mcp_server.scraping.sales_navigator_sender import (
 from linkedin_mcp_server.scraping.sales_navigator_list_writes import (
     SalesNavigatorListWriter,
 )
+from linkedin_mcp_server.scraping.sales_navigator_saved_search import (
+    SalesNavigatorSearchSaver,
+)
 from linkedin_mcp_server.scraping.session import ScrapingSession
 from linkedin_mcp_server.scraping.text import (
     strip_conversation_chrome as strip_conversation_chrome,
@@ -110,6 +113,9 @@ class LinkedInExtractor:
             session, self._sales_navigator
         )
         self._sales_navigator_lists = SalesNavigatorListWriter(self._sales_navigator)
+        self._sales_navigator_searches = SalesNavigatorSearchSaver(
+            self._sales_navigator
+        )
 
     async def get_page_text(self) -> str:
         """Extract innerText from the main content area of the current page."""
@@ -555,6 +561,7 @@ class LinkedInExtractor:
         current_company: Sequence[str] | None = None,
         exclude_current_company: Sequence[str] | None = None,
         location: Sequence[str] | None = None,
+        company_hq_location: Sequence[str] | None = None,
         industry: Sequence[str] | None = None,
         exclude_industry: Sequence[str] | None = None,
         network: Sequence[str] | None = None,
@@ -575,6 +582,7 @@ class LinkedInExtractor:
             current_company=current_company,
             exclude_current_company=exclude_current_company,
             location=location,
+            company_hq_location=company_hq_location,
             industry=industry,
             exclude_industry=exclude_industry,
             network=network,
@@ -750,4 +758,17 @@ class LinkedInExtractor:
         """Delete one Sales Navigator account list whose name is expected_name."""
         return await self._sales_navigator_lists.delete_account_list(
             list_id, expected_name=expected_name, confirm_send=confirm_send
+        )
+
+    async def save_sales_navigator_search(
+        self,
+        kind: str,
+        name: str,
+        *,
+        criteria: Mapping[str, Any],
+        confirm_send: bool,
+    ) -> dict[str, Any]:
+        """Save a lead or account search under ``name``."""
+        return await self._sales_navigator_searches.save_search(
+            kind, name, criteria=criteria, confirm_send=confirm_send
         )
