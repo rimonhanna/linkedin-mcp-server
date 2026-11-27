@@ -148,7 +148,8 @@ class SalesNavigatorSearchSaver:
         query = build_search_query(keywords, [f for _, f in filters])
         return keywords, filters, search_page_url(KINDS[kind][0], query, 1)
 
-    def _admit(self) -> None:
+    def _admit(self, needed: int = 1) -> None:
+        """Refuse unless the next ``needed`` writes all fit under every cap now."""
         now = datetime.now(timezone.utc)
         resume_at = cooldown_resume_at(JobStore(), now)
         if resume_at is not None:
@@ -157,7 +158,7 @@ class SalesNavigatorSearchSaver:
                 f"{resume_at.isoformat(timespec='seconds')}; nothing was sent."
             )
         try:
-            admit_write(JobStore(), SALES_LIST_WRITES, now)
+            admit_write(JobStore(), SALES_LIST_WRITES, now, needed=needed)
         except ActionLimitError as exc:
             raise _Stopped(f"{exc} Nothing was sent.") from exc
 
@@ -176,8 +177,15 @@ class SalesNavigatorSearchSaver:
             try:
                 with before_the_reply_deadline():
                     await press()
-                    async with asyncio.timeout(_SEND_TIMEOUT):
-                        await window.decided.wait()
+                    try:
+                        async with asyncio.timeout(_SEND_TIMEOUT):
+                            await window.decided.wait()
+                    except TimeoutError:
+                        # Off the page before the window closes: a request
+                        # the app sends late cannot leave once the tool has
+                        # answered that nothing was sent.
+                        await self._leave_page()
+                        raise
                     request = window.request
                     if request is not None:
                         async with asyncio.timeout(_ANSWER_TIMEOUT):
@@ -199,6 +207,12 @@ class SalesNavigatorSearchSaver:
         if answer is not None and answer["status"] == 429:
             note_throttle_signal("http_429")
         return bool(window.admitted), answer
+
+    async def _leave_page(self) -> None:
+        try:
+            await self._session.page.goto("about:blank")
+        except Exception:
+            logger.warning("Could not leave the Sales Navigator page", exc_info=True)
 
     async def _open_panel(self, kind: str) -> None:
         page = self._session.page
@@ -342,7 +356,9 @@ class SalesNavigatorSearchSaver:
             create = create_request(kind, keywords, criteria_only)
             switch = page.locator(SAVE_SWITCH)
             try:
-                self._admit()
+                # Both writes, the create and the rename: a create the rename
+                # cannot follow would leave the search under the app's name.
+                self._admit(needed=2)
                 if await switch.count() != 1 or await switch.first.is_checked():
                     raise _Stopped(
                         "Sales Navigator did not show its Save search switch "

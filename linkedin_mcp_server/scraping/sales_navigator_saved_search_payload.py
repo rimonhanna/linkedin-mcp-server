@@ -22,6 +22,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from urllib.parse import quote
 
+from linkedin_mcp_server.core.exceptions import InvalidReferenceError
+from linkedin_mcp_server.scraping.identifiers import normalize_sales_company_id
 from linkedin_mcp_server.scraping.sales_navigator_list_guard import PlannedListWrite
 from linkedin_mcp_server.scraping.sales_navigator_payload import SearchFilter
 
@@ -85,6 +87,39 @@ def search_criteria(
     if not criteria:
         return {}, "Pass keywords or at least one filter."
     return criteria, None
+
+
+def _company_lookups(value: str) -> int:
+    """Page loads to resolve a company: none for an id, About for a URL, else two."""
+    try:
+        normalize_sales_company_id(value)
+    except InvalidReferenceError:
+        return 1 if "/company/" in value else 2
+    return 0
+
+
+def planned_actions(criteria: Mapping[str, Any]) -> int:
+    """The most actions a confirmed save can count against the rolling hour.
+
+    The search page, each location or company name to resolve, each kind of
+    list to look up, the create, the rename and the read-back page. Counted
+    before the browser starts, so the rename is never the action the hour
+    runs out on; a name already cached costs less, never more.
+    """
+    geo = sum(
+        not str(value).removeprefix("urn:li:geo:").isdigit()
+        for key in ("location", "company_hq_location", "hq_location")
+        for value in criteria.get(key) or []
+    )
+    companies = sum(
+        _company_lookups(str(value))
+        for key in ("current_company", "exclude_current_company")
+        for value in criteria.get(key) or []
+    )
+    lists = bool(criteria.get("lead_list") or criteria.get("exclude_lead_list")) + bool(
+        criteria.get("account_list")
+    )
+    return 4 + geo + companies + lists
 
 
 def refuse_invalid_search_name(name: str) -> str | None:

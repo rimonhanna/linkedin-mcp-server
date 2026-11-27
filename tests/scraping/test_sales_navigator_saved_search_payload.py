@@ -40,24 +40,12 @@ FIXTURE = json.loads(
 ORIGIN = "https://www.linkedin.com"
 SEAT = "urn:li:seat:100000001"
 SAVED = "100000777"
-NAME = "Dutopilot ICP UK leads"
-TITLES = (
-    "CTO",
-    "Chief Technology Officer",
-    "Head of Engineering",
-    "VP Engineering",
-    "Director of Engineering",
-    "Head of Technology",
-    "Technology Director",
-    "IT Director",
-    "Director of Technology",
-    "Head of Software Development",
-    "Engineering Manager",
-)
-ICP = [
+NAME = "Example UK leads"
+TITLES = ("Head of Sales", "Sales Director")
+SEARCH = [
     SearchFilter("CURRENT_TITLE", texts=TITLES),
     SearchFilter("COMPANY_HEADQUARTERS", ids=("101165590",)),
-    SearchFilter("INDUSTRY", ids=("44", "30", "122", "92", "116", "104", "31")),
+    SearchFilter("INDUSTRY", ids=("4", "96")),
     SearchFilter("COMPANY_HEADCOUNT", ids=("E", "F")),
 ]
 ACCOUNTS = [
@@ -75,7 +63,9 @@ def _refusal(planned, method: str, path: str, body: Any) -> str | None:
 def test_the_measured_lead_create_is_admitted_for_its_search():
     sent = FIXTURE["lead_create"]
     assert (
-        _refusal(create_request("leads", None, ICP), "POST", sent["path"], sent["body"])
+        _refusal(
+            create_request("leads", None, SEARCH), "POST", sent["path"], sent["body"]
+        )
         is None
     )
 
@@ -128,7 +118,7 @@ def test_the_measured_account_create_is_admitted_for_its_search():
 def test_a_create_for_another_search_is_refused(tamper):
     body = copy.deepcopy(FIXTURE["lead_create"]["body"])
     tamper(body)
-    planned = create_request("leads", None, ICP)
+    planned = create_request("leads", None, SEARCH)
     assert (
         _refusal(planned, "POST", FIXTURE["lead_create"]["path"], body)
         == "body differs from the plan"
@@ -140,7 +130,7 @@ def test_the_generated_name_seat_and_labels_do_not_decide_admission():
     body["name"] = "anything the app generates"
     body["seat"] = "urn:li:seat:100000009"
     body["searchQuery"]["leadSearchQuery"]["filters"][1]["values"][0]["text"] = "UK"
-    planned = create_request("leads", None, ICP)
+    planned = create_request("leads", None, SEARCH)
     assert _refusal(planned, "POST", FIXTURE["lead_create"]["path"], body) is None
 
 
@@ -166,20 +156,20 @@ def test_the_rename_is_exactly_the_measured_request():
 def test_the_read_back_confirms_the_saved_search():
     element = find_saved(FIXTURE["readback"], SAVED)
     assert element is not None
-    assert readback_mismatch(element, NAME, None, ICP) is None
+    assert readback_mismatch(element, NAME, None, SEARCH) is None
     assert find_saved(FIXTURE["readback"], "100000778") is None
 
 
 @pytest.mark.parametrize(
     ("name", "keywords", "filters", "why"),
     [
-        ("Other name", None, ICP, "its name is not the one asked"),
-        (NAME, "cto", ICP, "its keywords are not the ones asked"),
-        (NAME, None, ICP[:3], "its filters are not the ones asked"),
+        ("Other name", None, SEARCH, "its name is not the one asked"),
+        (NAME, "cto", SEARCH, "its keywords are not the ones asked"),
+        (NAME, None, SEARCH[:3], "its filters are not the ones asked"),
         (
             NAME,
             None,
-            [*ICP[:1], SearchFilter("REGION", ids=("101165590",)), *ICP[2:]],
+            [*SEARCH[:1], SearchFilter("REGION", ids=("101165590",)), *SEARCH[2:]],
             "its filters are not the ones asked",
         ),
     ],

@@ -4,7 +4,7 @@
   "method": "POST",
   "path": "/sales-api/salesApiSavedSearchesV2",
   "body": {
-   "name": "201-500, 501-1000, United Kingdom, CTO, Chief Technology Officer, Head of Engineering, VP Engineering, Director of Engineering, Head of Technology, Technology Director, IT Director, Director of Technology, Head of Software Development, Engineering Manager,",
+   "name": "201-500, 501-1000, United Kingdom, Head of Sales, Sales Director,",
    "keywords": "",
    "searchQuery": {
     "leadSearchQuery": {
@@ -13,47 +13,11 @@
        "type": "CURRENT_TITLE",
        "values": [
         {
-         "text": "CTO",
+         "text": "Head of Sales",
          "selectionType": "INCLUDED"
         },
         {
-         "text": "Chief Technology Officer",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "text": "Head of Engineering",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "text": "VP Engineering",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "text": "Director of Engineering",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "text": "Head of Technology",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "text": "Technology Director",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "text": "IT Director",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "text": "Director of Technology",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "text": "Head of Software Development",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "text": "Engineering Manager",
+         "text": "Sales Director",
          "selectionType": "INCLUDED"
         }
        ]
@@ -72,38 +36,13 @@
        "type": "INDUSTRY",
        "values": [
         {
-         "id": "44",
-         "text": "Real Estate",
+         "id": "4",
+         "text": "Software Development",
          "selectionType": "INCLUDED"
         },
         {
-         "id": "30",
-         "text": "Travel Arrangements",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "id": "122",
-         "text": "Facilities Services",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "id": "92",
-         "text": "Truck Transportation",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "id": "116",
-         "text": "Transportation, Logistics, Supply Chain and Storage",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "id": "104",
-         "text": "Staffing and Recruiting",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "id": "31",
-         "text": "Hospitality",
+         "id": "96",
+         "text": "IT Services and IT Consulting",
          "selectionType": "INCLUDED"
         }
        ]
@@ -188,7 +127,7 @@
   "body": {
    "patch": {
     "$set": {
-     "name": "Dutopilot ICP UK leads"
+     "name": "Example UK leads"
     }
    }
   },
@@ -199,8 +138,8 @@
   "elements": [
    {
     "seat": "urn:li:seat:100000001",
-    "createdAt": 1795812443675,
-    "name": "Dutopilot ICP UK leads",
+    "createdAt": 1795800000000,
+    "name": "Example UK leads",
     "id": 100000777,
     "filters": [
      {
@@ -248,47 +187,11 @@
        },
        "values": [
         {
-         "displayValue": "CTO",
+         "displayValue": "Head of Sales",
          "selectionType": "INCLUDED"
         },
         {
-         "displayValue": "Chief Technology Officer",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "displayValue": "Head of Engineering",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "displayValue": "VP Engineering",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "displayValue": "Director of Engineering",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "displayValue": "Head of Technology",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "displayValue": "Technology Director",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "displayValue": "IT Director",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "displayValue": "Director of Technology",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "displayValue": "Head of Software Development",
-         "selectionType": "INCLUDED"
-        },
-        {
-         "displayValue": "Engineering Manager",
+         "displayValue": "Sales Director",
          "selectionType": "INCLUDED"
         }
        ],
@@ -303,39 +206,14 @@
        },
        "values": [
         {
-         "displayValue": "Real Estate",
+         "displayValue": "Software Development",
          "selectionType": "INCLUDED",
-         "id": "44"
+         "id": "4"
         },
         {
-         "displayValue": "Travel Arrangements",
+         "displayValue": "IT Services and IT Consulting",
          "selectionType": "INCLUDED",
-         "id": "30"
-        },
-        {
-         "displayValue": "Facilities Services",
-         "selectionType": "INCLUDED",
-         "id": "122"
-        },
-        {
-         "displayValue": "Truck Transportation",
-         "selectionType": "INCLUDED",
-         "id": "92"
-        },
-        {
-         "displayValue": "Transportation, Logistics, Supply Chain and Storage",
-         "selectionType": "INCLUDED",
-         "id": "116"
-        },
-        {
-         "displayValue": "Staffing and Recruiting",
-         "selectionType": "INCLUDED",
-         "id": "104"
-        },
-        {
-         "displayValue": "Hospitality",
-         "selectionType": "INCLUDED",
-         "id": "31"
+         "id": "96"
         }
        ],
        "type": "INDUSTRY"
@@ -352,7 +230,7 @@
       }
      }
     ],
-    "lastViewedAt": 1795812443676
+    "lastViewedAt": 1795800000000
    }
   ]
  }

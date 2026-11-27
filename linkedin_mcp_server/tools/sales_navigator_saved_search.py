@@ -32,6 +32,7 @@ from linkedin_mcp_server.scraping.sales_navigator_saved_search import (
 )
 from linkedin_mcp_server.scraping.sales_navigator_saved_search_payload import (
     SAVE_TOOL,
+    planned_actions,
     refuse_invalid_search_name,
     saved_search_result,
     search_criteria,
@@ -51,13 +52,15 @@ async def _run(
     ctx: Context,
     *,
     confirm_send: bool,
+    actions: int,
     extractor: Any | None,
     call: Callable[[Any], Awaitable[dict[str, Any]]],
 ) -> dict[str, Any]:
     """Like the list writes' runner: an error after the save left is an outcome."""
-    # The save and the rename: refused here, a save that would leave the
-    # search unnamed on the cap is not started.
-    refuse_before_the_browser(confirm_send, requests=2)
+    # The save and the rename, and every page load around them in the rolling
+    # hour: refused here, a save that would leave the search unnamed on a cap
+    # is not started.
+    refuse_before_the_browser(confirm_send, requests=2, hourly=actions)
     extractor = extractor or await get_ready_extractor(ctx, tool_name=SAVE_TOOL)
     logger.info("%s (confirm_send=%s)", SAVE_TOOL, confirm_send)
     await ctx.report_progress(progress=0, total=100, message="Saving search")
@@ -227,6 +230,7 @@ def register_sales_navigator_saved_search_tools(
             return await _run(
                 ctx,
                 confirm_send=confirm_send,
+                actions=planned_actions(criteria),
                 extractor=extractor,
                 call=lambda extractor: extractor.save_sales_navigator_search(
                     kind, name.strip(), criteria=criteria, confirm_send=confirm_send

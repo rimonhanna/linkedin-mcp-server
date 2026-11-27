@@ -71,25 +71,25 @@ async def test_a_dry_run_passes_outside_working_hours_and_owes_nothing(
 
     result = await fn(
         kind="leads",
-        name=" Dutopilot ICP UK leads ",
+        name=" Example UK leads ",
         confirm_send=False,
         ctx=mock_context,
-        title=["CTO"],
+        title=["Head of Sales"],
         company_hq_location=["101165590"],
         company_size=["201-500", "501-1000"],
-        industry=["real estate", "31"],
+        industry=["software development", "96"],
         extractor=extractor,
     )
 
     assert result == RESULT
     call = extractor.save_sales_navigator_search.await_args
-    assert call.args == ("leads", "Dutopilot ICP UK leads")
+    assert call.args == ("leads", "Example UK leads")
     assert call.kwargs == {
         "criteria": {
-            "title": ["CTO"],
+            "title": ["Head of Sales"],
             "company_hq_location": ["101165590"],
             "company_size": ["E", "F"],
-            "industry": ["44", "31"],
+            "industry": ["4", "96"],
         },
         "confirm_send": False,
     }
@@ -109,7 +109,7 @@ async def test_a_save_outside_working_hours_is_refused_before_the_browser(
     with pytest.raises(Exception, match="outside working hours"):
         await fn(
             kind="leads",
-            name="ICP",
+            name="Example",
             confirm_send=True,
             ctx=mock_context,
             title=["CTO"],
@@ -132,7 +132,7 @@ async def test_a_save_without_room_for_both_requests_is_refused(
     with pytest.raises(Exception) as excinfo:
         await fn(
             kind="leads",
-            name="ICP",
+            name="Example",
             confirm_send=True,
             ctx=mock_context,
             title=["CTO"],
@@ -148,7 +148,7 @@ async def test_a_save_with_room_reaches_the_browser(mock_context, clock):
 
     await fn(
         kind="accounts",
-        name="ICP",
+        name="Example",
         confirm_send=True,
         ctx=mock_context,
         hq_location=["101165590"],
@@ -166,17 +166,17 @@ async def test_a_save_with_room_reaches_the_browser(mock_context, clock):
     ("args", "message"),
     [
         (
-            {"kind": "leads", "name": "ICP", "hq_location": ["UK"]},
+            {"kind": "leads", "name": "Example", "hq_location": ["UK"]},
             "hq_location is a filter of the accounts search",
         ),
         (
-            {"kind": "accounts", "name": "ICP", "title": ["CTO"]},
+            {"kind": "accounts", "name": "Example", "title": ["CTO"]},
             "title is a filter of the leads search",
         ),
-        ({"kind": "leads", "name": "ICP"}, "Pass keywords or at least one filter."),
+        ({"kind": "leads", "name": "Example"}, "Pass keywords or at least one filter."),
         ({"kind": "leads", "name": "", "title": ["CTO"]}, "name must not be empty."),
         (
-            {"kind": "leads", "name": "ICP", "industry": ["Not an industry"]},
+            {"kind": "leads", "name": "Example", "industry": ["Not an industry"]},
             "Unknown industry",
         ),
     ],
@@ -194,3 +194,46 @@ async def test_invalid_input_is_refused_before_the_browser(
     assert message in result["message"]
     assert result["retry_safe"] is True
     extractor.save_sales_navigator_search.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("used", "extra", "refused"),
+    [
+        # The search page, the create, the rename and the read-back.
+        (1, {}, False),
+        (2, {}, True),
+        # A location name costs its lookup on top.
+        (0, {"company_hq_location": ["United Kingdom"]}, False),
+        (1, {"company_hq_location": ["United Kingdom"]}, True),
+    ],
+)
+async def test_a_save_without_hourly_room_for_every_action_is_refused(
+    mock_context, clock, monkeypatch, used, extra, refused
+):
+    monkeypatch.setenv(EnvironmentKeys.HOURLY_ACTIONS_MAX, "5")
+    store = list_tools.JobStore()
+    budget = list_tools.load_account_budget(store, WED_10AM)
+    for _ in range(used):
+        budget.ledger.record(WED_10AM)
+    store.save(budget)
+    extractor = _extractor()
+    fn = await _fn()
+
+    async def save():
+        return await fn(
+            kind="leads",
+            name="Example",
+            confirm_send=True,
+            ctx=mock_context,
+            title=["Head of Sales"],
+            extractor=extractor,
+            **extra,
+        )
+
+    if refused:
+        with pytest.raises(Exception, match="1 h"):
+            await save()
+        extractor.save_sales_navigator_search.assert_not_awaited()
+    else:
+        await save()
+        extractor.save_sales_navigator_search.assert_awaited_once()

@@ -10,6 +10,7 @@ reaches the answer. Synthetic data only; no LinkedIn request is made.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import os
@@ -42,7 +43,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "sales-navigator-saved-search"
 REQUESTS = json.loads((FIXTURES / "requests.json").read_text())
 HTML = (FIXTURES / "search-page.html").read_text()
 SAVED = "100000777"
-NAME = "Dutopilot ICP UK leads"
+NAME = "Example UK leads"
 SEARCH_URL = "https://www.linkedin.com/sales/search/people?query=(x)"
 TITLES = tuple(
     value["text"]
@@ -50,13 +51,10 @@ TITLES = tuple(
         "filters"
     ][0]["values"]
 )
-ICP = [
+SEARCH = [
     ("title", SearchFilter("CURRENT_TITLE", texts=TITLES)),
     ("company_hq_location", SearchFilter("COMPANY_HEADQUARTERS", ids=("101165590",))),
-    (
-        "industry",
-        SearchFilter("INDUSTRY", ids=("44", "30", "122", "92", "116", "104", "31")),
-    ),
+    ("industry", SearchFilter("INDUSTRY", ids=("4", "96"))),
     ("company_size", SearchFilter("COMPANY_HEADCOUNT", ids=("E", "F"))),
 ]
 
@@ -154,7 +152,7 @@ class _Reader:
         self.searches = 0
 
     async def lead_criteria(self, **_criteria):
-        return None, list(ICP)
+        return None, list(SEARCH)
 
     async def _search(self, kind, resource, keywords, filters, page):
         self.searches += 1
@@ -253,3 +251,52 @@ async def test_a_switch_already_on_sends_nothing(dom):
 
     assert result["status"] == "not_sent", result
     assert dom.creates == []
+
+
+@pytest.mark.parametrize("cap", ["HOURLY_ACTIONS_MAX", "SALES_LIST_WRITES_MAX"])
+async def test_a_create_the_rename_cannot_follow_is_not_sent(dom, monkeypatch, cap):
+    # Room for the create alone: it would leave the search under the app's name.
+    monkeypatch.setenv(cap, "1")
+
+    result, _ = await _save(dom)
+
+    assert result["status"] == "not_sent", result
+    assert result["retry_safe"] is True
+    assert dom.creates == [] and dom.renames == []
+    assert _spent(dom) == 0
+
+
+async def test_a_create_sent_after_the_send_timeout_never_leaves(dom, monkeypatch):
+    monkeypatch.setattr(saver_module, "_SEND_TIMEOUT", 0.2)
+    reader = _Reader(dom)
+    saver = SalesNavigatorSearchSaver(reader)
+    original = reader._search
+
+    async def search_with_a_slow_switch(*args):
+        found = await original(*args)
+        # The app's create, sent only after the tool stopped waiting for it.
+        await dom.page.evaluate(
+            """(body) => {
+              const input = document.querySelector('#save-search-st116');
+              input.parentElement.addEventListener('click', (event) => {
+                event.stopImmediatePropagation();
+                setTimeout(() => fetch(
+                  'https://www.linkedin.com/sales-api/salesApiSavedSearchesV2',
+                  {method: 'POST', body: JSON.stringify(body)},
+                ).catch(() => null), 600);
+              }, true);
+            }""",
+            dom.create_body,
+        )
+        return found
+
+    setattr(reader, "_search", search_with_a_slow_switch)
+    result = await saver.save_search(
+        "leads", NAME, criteria={"title": ["x"]}, confirm_send=True
+    )
+    await asyncio.sleep(1.0)
+
+    assert result["status"] == "not_sent", result
+    assert result["retry_safe"] is True
+    assert dom.creates == []
+    assert _spent(dom) == 0
