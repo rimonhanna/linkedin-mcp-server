@@ -388,10 +388,10 @@ id as `account_list`. Every lead row carries:
   profile in a browser. Neither it nor the id is a public identifier.
   `send_message` accepts the id as `linkedin_username`: it messages the
   member the profile page opens, read from that page and its Message action.
-  `connect_with_person` refuses an `ACw...` or `ACo...` id, because it
-  confirms the invite against the member's `/in/<public identifier>/`
-  address; pass it the public identifier (the part after `/in/` in the
-  member's own profile address) instead;
+  `connect_with_person` accepts the id or `profileUrl` too: it opens
+  `/in/<id>/`, which LinkedIn redirects to the member's public address, and
+  invites there only when the page's profile URN is that member (else
+  `identity_unconfirmed`, with nothing sent);
 - `memberUrn`: `urn:li:member:<n>`;
 - `degree`: 1, 2 or 3 for the connection degree. Filter with `network: ["F"]`
   for 1st-degree connections only, for example to invite them to follow a

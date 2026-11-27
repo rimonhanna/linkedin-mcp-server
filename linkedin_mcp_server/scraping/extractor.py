@@ -21,6 +21,7 @@ from linkedin_mcp_server.scraping.campaign_manager_targeting import (
 )
 from linkedin_mcp_server.scraping.capture import SectionCapture
 from linkedin_mcp_server.scraping.company import CompanyScraper
+from linkedin_mcp_server.scraping.connect_target import ConnectTarget
 from linkedin_mcp_server.scraping.connection_actions import ConnectionActions
 from linkedin_mcp_server.scraping.content import PageContentReader
 from linkedin_mcp_server.scraping.contracts import (
@@ -173,7 +174,7 @@ class LinkedInExtractor:
 
     async def connect_with_person(
         self,
-        username: str,
+        username: str | ConnectTarget,
         *,
         note: str | None = None,
     ) -> dict[str, Any]:

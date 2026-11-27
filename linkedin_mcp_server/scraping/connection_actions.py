@@ -37,7 +37,12 @@ import re
 from patchright.async_api import TimeoutError as PlaywrightTimeoutError
 
 import linkedin_mcp_server.scraping.connection as connection
+from linkedin_mcp_server.core.exceptions import InvalidReferenceError
 from linkedin_mcp_server.exceptions import ActionLimitError
+from linkedin_mcp_server.scraping.connect_target import (
+    ConnectTarget,
+    is_opaque_member_id,
+)
 from linkedin_mcp_server.scraping.connection import ActionSignals
 from linkedin_mcp_server.scraping.identifiers import (
     normalize_person_identifier,
@@ -636,6 +641,16 @@ def _connection_result(
     if profile:
         result["profile"] = profile
     return result
+
+
+def _identity_unconfirmed(url: str, why: str) -> dict[str, Any]:
+    """The refusal for a member named by id whose page did not prove it."""
+    return _connection_result(
+        url,
+        "identity_unconfirmed",
+        "Could not confirm that this profile is the member asked for: "
+        f"{why}. Nothing was clicked and no invitation was sent.",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1313,9 +1328,45 @@ class ConnectionActions:
             deadline=deadline,
         )
 
+    async def _resolve_target(self, target: ConnectTarget) -> str | dict[str, Any]:
+        """The public identifier ``target`` names, or the refusal to return.
+
+        One read of ``/in/<id>/``, which LinkedIn redirects to the member's
+        public address. The identifier is taken from where the page landed and
+        only when the page's own profile URN is the member asked for; nothing
+        on this path clicks anything.
+        """
+        url = person_profile_url(target.profile_id, "/")
+        profile = await self._read_main_profile(target.profile_id)
+        if not profile.get("sections", {}).get("main_profile", ""):
+            refusal = profile.get("section_errors", {}).get("main_profile")
+            if (
+                isinstance(refusal, dict)
+                and refusal.get("error_type") == "limit_exceeded"
+            ):
+                raise ActionLimitError.from_section_error(refusal)
+            return _connection_result(
+                url, "unavailable", "Could not read profile page."
+            )
+        if not target.confirms(profile.get("profile_urn")):
+            return _identity_unconfirmed(
+                url, "the page that loaded did not carry that member's profile URN"
+            )
+        public = profile.get("public_profile_url")
+        try:
+            username = normalize_person_identifier(public) if public else None
+        except InvalidReferenceError:
+            username = None
+        if username is None or is_opaque_member_id(username):
+            return _identity_unconfirmed(
+                url, "the page did not land on the member's public profile address"
+            )
+        logger.info("Resolved %s to /in/%s/", target.profile_id, username)
+        return username
+
     async def connect_with_person(
         self,
-        username: str,
+        username: str | ConnectTarget,
         *,
         note: str | None = None,
     ) -> dict[str, Any]:
@@ -1331,6 +1382,12 @@ class ConnectionActions:
         custom-invite deeplink may still be opened, only as a non-submitting
         note-quota probe.
         """
+        target = username if isinstance(username, ConnectTarget) else None
+        if isinstance(username, ConnectTarget):
+            resolved = await self._resolve_target(username)
+            if isinstance(resolved, dict):
+                return resolved
+            username = resolved
         username = normalize_person_identifier(username)
         url = person_profile_url(username, "/")
 
@@ -1345,6 +1402,14 @@ class ConnectionActions:
                 raise ActionLimitError.from_section_error(refusal)
             return _connection_result(
                 url, "unavailable", "Could not read profile page."
+            )
+        # Again on the page every click below lands on: the address resolved
+        # a moment ago is not proof of who this page is.
+        if target is not None and not target.confirms(profile.get("profile_urn")):
+            return _identity_unconfirmed(
+                url,
+                "the profile page to invite from did not carry that member's "
+                "profile URN",
             )
 
         signals = await self._read_action_signals(username)
