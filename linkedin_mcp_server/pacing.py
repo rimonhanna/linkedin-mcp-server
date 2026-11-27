@@ -173,8 +173,8 @@ CAMPAIGN_WRITES = "campaign_writes"
 SALES_NAVIGATOR_MESSAGES = "sales_navigator_messages"
 # One member invited to follow a company page the account administers.
 PAGE_INVITES = "page_invites"
-# A Sales Navigator account-list write: a list created, accounts added, a list
-# deleted.
+# A Sales Navigator account-list write (a list created, accounts added, a list
+# deleted) or a search saved.
 SALES_LIST_WRITES = "sales_list_writes"
 
 # Slice shaved off the daily cap by the per-day draw (DAILY_CAP_JITTER):
@@ -1122,8 +1122,8 @@ def record_action(store: JobStore, kind: str, now: datetime) -> None:
         )
 
 
-def admit_write(store: JobStore, kind: str, now: datetime) -> None:
-    """Refuse one more `kind` write when the schedule or the hourly cap says so.
+def admit_write(store: JobStore, kind: str, now: datetime, *, needed: int = 1) -> None:
+    """Refuse the next ``needed`` `kind` writes unless all of them fit now.
 
     For loops that perform several writes in one call: ``refuse_action`` only
     knows the per-kind caps, and the rolling-hour cap is otherwise checked
@@ -1131,12 +1131,23 @@ def admit_write(store: JobStore, kind: str, now: datetime) -> None:
     ``"1 h"`` when the hourly cap is the one that refused.
     """
     budget = load_account_budget(store, now)
+    # Counted in memory only: the last of the writes must fit under its cap.
+    for _ in range(needed - 1):
+        budget.ledger.record_kind(kind, now)
     refuse_if_limited(budget, kind, now)
-    if hourly_headroom(budget, now) <= 0:
-        resume_at = hourly_cap_resume_at(budget, now) or _utc(now)
-        raise ActionLimitError(
-            kind, limit=hourly_actions_max(), window="1 h", resume_at=resume_at
-        )
+    refuse_without_hourly_headroom(budget, kind, now, needed)
+
+
+def refuse_without_hourly_headroom(
+    budget: Job, kind: str, now: datetime, needed: int
+) -> None:
+    """Raise ``ActionLimitError`` unless the rolling hour admits ``needed`` actions."""
+    if hourly_headroom(budget, now) >= needed:
+        return
+    resume_at = hourly_cap_resume_at(budget, now, needed=needed) or _utc(now)
+    raise ActionLimitError(
+        kind, limit=hourly_actions_max(), window="1 h", resume_at=resume_at
+    )
 
 
 def record_write(store: JobStore, kind: str, now: datetime) -> None:

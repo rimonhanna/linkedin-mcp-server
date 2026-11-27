@@ -152,6 +152,10 @@
         "coroutine": true,
         "signature": "(self, thread_id: 'str', message: 'str', *, confirm_send: 'bool', spend_inmail_credit: 'bool' = False) -> 'dict[str, Any]'"
       },
+      "save_sales_navigator_search": {
+        "coroutine": true,
+        "signature": "(self, kind: 'str', name: 'str', *, criteria: 'Mapping[str, Any]', confirm_send: 'bool') -> 'dict[str, Any]'"
+      },
       "scrape_company": {
         "coroutine": true,
         "signature": "(self, company_name: 'str', requested: 'set[str]', callbacks: 'ProgressCallback | None' = None) -> 'dict[str, Any]'"
@@ -194,7 +198,7 @@
       },
       "search_sales_navigator_leads": {
         "coroutine": true,
-        "signature": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, exclude_current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, exclude_industry: 'Sequence[str] | None' = None, network: 'Sequence[str] | None' = None, function: 'Sequence[str] | None' = None, company_size: 'Sequence[str] | None' = None, years_in_current_role: 'Sequence[str] | None' = None, years_at_current_company: 'Sequence[str] | None' = None, account_list: 'Sequence[str] | None' = None, lead_list: 'Sequence[str] | None' = None, exclude_lead_list: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
+        "signature": "(self, *, keywords: 'str | None' = None, title: 'Sequence[str] | None' = None, seniority: 'Sequence[str] | None' = None, current_company: 'Sequence[str] | None' = None, exclude_current_company: 'Sequence[str] | None' = None, location: 'Sequence[str] | None' = None, company_hq_location: 'Sequence[str] | None' = None, industry: 'Sequence[str] | None' = None, exclude_industry: 'Sequence[str] | None' = None, network: 'Sequence[str] | None' = None, function: 'Sequence[str] | None' = None, company_size: 'Sequence[str] | None' = None, years_in_current_role: 'Sequence[str] | None' = None, years_at_current_company: 'Sequence[str] | None' = None, account_list: 'Sequence[str] | None' = None, lead_list: 'Sequence[str] | None' = None, exclude_lead_list: 'Sequence[str] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
       },
       "search_targeting_entities": {
         "coroutine": true,
@@ -259,6 +263,7 @@
       "list_sponsorable_posts",
       "reply_to_conversation",
       "reply_to_sales_navigator_conversation",
+      "save_sales_navigator_search",
       "scrape_company",
       "scrape_job",
       "scrape_person",
@@ -1708,6 +1713,371 @@
           "type": "object"
         }
       },
+      "save_sales_navigator_search": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "account_list": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Account list ids (leads)."
+            },
+            "company_hq_location": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Headquarters locations of the lead's current\ncompany (leads)."
+            },
+            "company_size": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Current-company headcount buckets (leads)."
+            },
+            "confirm_send": {
+              "description": "False for a dry run; True to save the search.",
+              "type": "boolean"
+            },
+            "current_company": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Lead current companies (leads)."
+            },
+            "exclude_current_company": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Companies left out (leads)."
+            },
+            "exclude_industry": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Industries left out (both kinds)."
+            },
+            "exclude_lead_list": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Lead list ids left out (leads)."
+            },
+            "function": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Job functions (leads)."
+            },
+            "headcount_growth_max": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Maximum headcount growth, percent (accounts)."
+            },
+            "headcount_growth_min": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Minimum headcount growth, percent (accounts)."
+            },
+            "hq_location": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Account headquarters locations (accounts)."
+            },
+            "industry": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Industries, numeric ids or names (both kinds)."
+            },
+            "keywords": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Free-text keywords (both kinds)."
+            },
+            "kind": {
+              "description": "\"leads\" or \"accounts\": which search to save.",
+              "enum": [
+                "leads",
+                "accounts"
+              ],
+              "type": "string"
+            },
+            "lead_list": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Lead list ids (leads)."
+            },
+            "location": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Lead locations (leads)."
+            },
+            "name": {
+              "description": "The saved search's name, one line.",
+              "type": "string"
+            },
+            "network": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Connection degrees F, S, O (leads)."
+            },
+            "seniority": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "in_training",
+                      "entry_level",
+                      "senior",
+                      "strategic",
+                      "entry_level_manager",
+                      "experienced_manager",
+                      "director",
+                      "vice_president",
+                      "cxo",
+                      "owner_partner"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Lead seniority levels (leads)."
+            },
+            "size": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Account headcount buckets (accounts)."
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Lead current job titles (leads)."
+            },
+            "years_at_current_company": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "less_than_1",
+                      "1_to_2",
+                      "3_to_5",
+                      "6_to_10",
+                      "more_than_10"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Tenure buckets (leads)."
+            },
+            "years_in_current_role": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "less_than_1",
+                      "1_to_2",
+                      "3_to_5",
+                      "6_to_10",
+                      "more_than_10"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Tenure buckets (leads)."
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "confirm_send"
+          ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
       "search_companies": {
         "input": {
           "additionalProperties": false,
@@ -2300,6 +2670,21 @@
               "default": null,
               "description": "One or a list of account list ids, as\nlist_sales_navigator_account_lists returned them: leads at\nthe companies in those lists."
             },
+            "company_hq_location": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Headquarters locations of the lead's current\ncompany, in the same forms as location (Sales Navigator's\n\"Company headquarters location\" filter)."
+            },
             "company_size": {
               "anyOf": [
                 {
@@ -2445,7 +2830,7 @@
                 }
               ],
               "default": null,
-              "description": "One or a list of locations, numeric geo ids,\nurn:li:geo URNs or names."
+              "description": "One or a list of locations, numeric geo ids,\nurn:li:geo URNs or names: where the lead is."
             },
             "network": {
               "anyOf": [

@@ -21,6 +21,10 @@ YEARS_IN_CURRENT_POSITION = "YEARS_IN_CURRENT_POSITION"
 YEARS_AT_CURRENT_COMPANY = "YEARS_AT_CURRENT_COMPANY"
 LEAD_LIST = "LEAD_LIST"
 ACCOUNT_LIST = "ACCOUNT_LIST"
+# "Company headquarters location": the current company's HQ, by geo id, as
+# the filter panel sends it (measured 2026-11-27). ``REGION`` is the lead's own
+# location.
+COMPANY_HEADQUARTERS = "COMPANY_HEADQUARTERS"
 
 FUNCTION_IDS: Mapping[str, str] = {
     "accounting": "1",

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -53,6 +53,10 @@ class PlannedListWrite:
     query: tuple[tuple[str, str], ...]
     # Compared decoded, so key order and whitespace do not matter.
     body: Any
+    # For a body the app composes with parts the plan cannot know (a
+    # generated name, the seat, display labels): the decoded body is admitted
+    # when this says it is the plan, in place of the equality check.
+    body_matches: Callable[[Any], bool] | None = field(default=None, compare=False)
 
     @property
     def path(self) -> str:
@@ -117,6 +121,8 @@ def admission_refusal(
         body = json.loads(text) if text else None
     except ValueError:
         return "body differs from the plan"
+    if planned.body_matches is not None:
+        return None if planned.body_matches(body) else "body differs from the plan"
     if body != planned.body:
         return "body differs from the plan"
     return None
