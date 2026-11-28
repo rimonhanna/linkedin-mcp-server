@@ -24,6 +24,7 @@ from linkedin_mcp_server.scraping.contracts import (
 from linkedin_mcp_server.scraping.identifiers import normalize_sales_list_id
 from linkedin_mcp_server.scraping.sales_navigator_lead_filters import (
     TenureBucket,
+    department_headcount as department_headcount_filter,
     function_ids,
 )
 from linkedin_mcp_server.scraping.sales_navigator_payload import SeniorityLevel
@@ -43,6 +44,7 @@ from linkedin_mcp_server.scraping.search_urls import (
     network_tokens,
 )
 from linkedin_mcp_server.tools.person import StrList
+from linkedin_mcp_server.tools.sales_navigator import DepartmentHeadcount
 from linkedin_mcp_server.tools.sales_navigator_lists import refuse_before_the_browser
 
 logger = logging.getLogger(__name__)
@@ -127,6 +129,7 @@ def register_sales_navigator_saved_search_tools(
         size: StrList | None = None,
         headcount_growth_min: int | None = None,
         headcount_growth_max: int | None = None,
+        department_headcount: DepartmentHeadcount | None = None,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
         """
@@ -180,6 +183,8 @@ def register_sales_navigator_saved_search_tools(
             size: Account headcount buckets (accounts).
             headcount_growth_min: Minimum headcount growth, percent (accounts).
             headcount_growth_max: Maximum headcount growth, percent (accounts).
+            department_headcount: Headcount of one department,
+                {department, min, max} (accounts).
 
         Returns:
             Dict with url (the search page), tool, status, message, dry_run,
@@ -214,7 +219,10 @@ def register_sales_navigator_saved_search_tools(
                 "size": company_size_letters(size),
                 "headcount_growth_min": headcount_growth_min,
                 "headcount_growth_max": headcount_growth_max,
+                "department_headcount": department_headcount,
             }
+            if department_headcount is not None:
+                department_headcount_filter(department_headcount)
             invalid = refuse_invalid_search_name(name)
             criteria: dict[str, Any] = {}
             if invalid is None:

@@ -1831,6 +1831,46 @@
               "default": null,
               "description": "Lead current companies (leads)."
             },
+            "department_headcount": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "department": {
+                      "type": "string"
+                    },
+                    "max": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "min": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "department"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Headcount of one department,\n{department, min, max} (accounts)."
+            },
             "exclude_current_company": {
               "anyOf": [
                 {
