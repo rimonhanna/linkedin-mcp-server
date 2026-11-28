@@ -1,0 +1,237 @@
+{
+ "_measured": "2026-11-27, Sales Navigator lead and account search pages; seat and saved-search ids replaced with synthetic values",
+ "lead_create": {
+  "method": "POST",
+  "path": "/sales-api/salesApiSavedSearchesV2",
+  "body": {
+   "name": "201-500, 501-1000, United Kingdom, Head of Sales, Sales Director,",
+   "keywords": "",
+   "searchQuery": {
+    "leadSearchQuery": {
+     "filters": [
+      {
+       "type": "CURRENT_TITLE",
+       "values": [
+        {
+         "text": "Head of Sales",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "text": "Sales Director",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      },
+      {
+       "type": "COMPANY_HEADQUARTERS",
+       "values": [
+        {
+         "id": "101165590",
+         "text": "United Kingdom",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      },
+      {
+       "type": "INDUSTRY",
+       "values": [
+        {
+         "id": "4",
+         "text": "Software Development",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "id": "96",
+         "text": "IT Services and IT Consulting",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      },
+      {
+       "type": "COMPANY_HEADCOUNT",
+       "values": [
+        {
+         "id": "E",
+         "text": "201-500",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "id": "F",
+         "text": "501-1000",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "seat": "urn:li:seat:100000001",
+   "useCase": "SAVED_LEAD_SEARCH",
+   "frequency": "DAILY"
+  },
+  "status": 201,
+  "x-restli-id": "{seat=urn:li:seat:100000001, id=100000777}"
+ },
+ "account_create": {
+  "method": "POST",
+  "path": "/sales-api/salesApiSavedSearchesV2",
+  "body": {
+   "name": "logistics, 201-500, United Kingdom, Real Estate",
+   "keywords": "",
+   "searchQuery": {
+    "accountSearchQuery": {
+     "spellCorrectionEnabled": true,
+     "filters": [
+      {
+       "type": "INDUSTRY",
+       "values": [
+        {
+         "id": "44",
+         "text": "Real Estate",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      },
+      {
+       "type": "REGION",
+       "values": [
+        {
+         "id": "101165590",
+         "text": "United Kingdom",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      },
+      {
+       "type": "COMPANY_HEADCOUNT",
+       "values": [
+        {
+         "id": "E",
+         "text": "201-500",
+         "selectionType": "INCLUDED"
+        }
+       ]
+      }
+     ],
+     "keywords": "logistics"
+    }
+   },
+   "seat": "urn:li:seat:100000001",
+   "useCase": "SAVED_ACCOUNT_SEARCH",
+   "frequency": "DAILY"
+  }
+ },
+ "rename": {
+  "method": "POST",
+  "path": "/sales-api/salesApiSavedSearchesV2/(seat:urn%3Ali%3Aseat%3A100000001,id:100000777)",
+  "body": {
+   "patch": {
+    "$set": {
+     "name": "Example UK leads"
+    }
+   }
+  },
+  "status": 204
+ },
+ "readback": {
+  "path": "/sales-api/salesApiSavedSearchesV2?decoration=%28%20createdAt%2C%20id%2C%20lastViewedAt%2C%20name%2C%20newHitsCount%2C%20seat%2C%20keywords%2C%20filters%20%29&count=50&q=savedPeopleSearches&start=0",
+  "elements": [
+   {
+    "seat": "urn:li:seat:100000001",
+    "createdAt": 1795800000000,
+    "name": "Example UK leads",
+    "id": 100000777,
+    "filters": [
+     {
+      "singleFilterMetadata": {
+       "searchFilterConfig": {
+        "title": "Company headcount",
+        "presentationType": "MULTI_SELECT"
+       },
+       "values": [
+        {
+         "displayValue": "201-500",
+         "selectionType": "INCLUDED",
+         "id": "E"
+        },
+        {
+         "displayValue": "501-1,000",
+         "selectionType": "INCLUDED",
+         "id": "F"
+        }
+       ],
+       "type": "COMPANY_HEADCOUNT"
+      }
+     },
+     {
+      "singleFilterMetadata": {
+       "searchFilterConfig": {
+        "title": "Company headquarters location",
+        "presentationType": "MULTI_SELECT"
+       },
+       "values": [
+        {
+         "displayValue": "United Kingdom",
+         "selectionType": "INCLUDED",
+         "id": "101165590"
+        }
+       ],
+       "type": "COMPANY_HEADQUARTERS"
+      }
+     },
+     {
+      "singleFilterMetadata": {
+       "searchFilterConfig": {
+        "title": "Current job title",
+        "presentationType": "MULTI_SELECT"
+       },
+       "values": [
+        {
+         "displayValue": "Head of Sales",
+         "selectionType": "INCLUDED"
+        },
+        {
+         "displayValue": "Sales Director",
+         "selectionType": "INCLUDED"
+        }
+       ],
+       "type": "CURRENT_TITLE"
+      }
+     },
+     {
+      "singleFilterMetadata": {
+       "searchFilterConfig": {
+        "title": "Industry",
+        "presentationType": "MULTI_SELECT"
+       },
+       "values": [
+        {
+         "displayValue": "Software Development",
+         "selectionType": "INCLUDED",
+         "id": "4"
+        },
+        {
+         "displayValue": "IT Services and IT Consulting",
+         "selectionType": "INCLUDED",
+         "id": "96"
+        }
+       ],
+       "type": "INDUSTRY"
+      }
+     },
+     {
+      "singleFilterMetadata": {
+       "searchFilterConfig": {
+        "title": "People you interacted with",
+        "presentationType": "MULTI_SELECT"
+       },
+       "values": [],
+       "type": "LEAD_INTERACTIONS"
+      }
+     }
+    ],
+    "lastViewedAt": 1795800000000
+   }
+  ]
+ }
+}

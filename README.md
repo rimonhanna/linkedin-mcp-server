@@ -84,7 +84,7 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `create_company_list_audience` | Upload a list of companies (name, and optionally website and LinkedIn page) as a matched audience. Confirming accepts LinkedIn's Ads Agreement for the upload. `confirm_send` |
 | `create_saved_audience` | Save a campaign's (UI "Ad set") targeting as a named saved audience (1 to 25 characters). `confirm_send` |
 | `search_sales_navigator_accounts` | Search Sales Navigator accounts (companies) by keywords, industry (in or not in), headquarters location, headcount and headcount growth; one page of 25 per call (`page` 1 to 40). When Sales Navigator drops a filter to find anything, its near matches are not reported: the result is empty and `section_errors.accounts` names the dropped filter. Needs a Sales Navigator seat. Read-only |
-| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company (in or not in), location, industry (in or not in), connection degree (`network`), function, company headcount, years in the current role or at the current company, account lists and lead lists (in or not in); one page of 25 per call. Each lead carries its Sales Navigator `id`, a `profileUrl` link and its connection `degree`. Leads who opted out of third-party data sharing are left out and counted in `withheld`. When Sales Navigator drops a filter to find anyone, its near matches are not reported: the result is empty and `section_errors.leads` names the dropped filter. Lead rows carry no Open Profile flag (the search does not ask for one); the send tools read Open Profile themselves. Needs a Sales Navigator seat. Read-only |
+| `search_sales_navigator_leads` | Search Sales Navigator leads (people) by keywords, title, seniority, current company (in or not in), location, company headquarters location (`company_hq_location`), industry (in or not in), connection degree (`network`), function, company headcount, years in the current role or at the current company, account lists and lead lists (in or not in); one page of 25 per call. Each lead carries its Sales Navigator `id`, a `profileUrl` link and its connection `degree`. Leads who opted out of third-party data sharing are left out and counted in `withheld`. When Sales Navigator drops a filter to find anyone, its near matches are not reported: the result is empty and `section_errors.leads` names the dropped filter. Lead rows carry no Open Profile flag (the search does not ask for one); the send tools read Open Profile themselves. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account` | One company's Sales Navigator account page: description, industry, website, headquarters, revenue range, headcount and headcount growth. Needs a Sales Navigator seat. Read-only |
 | `list_sales_navigator_account_lists` | Every Sales Navigator account list of the member, with its size. Needs a Sales Navigator seat. Read-only |
 | `get_sales_navigator_account_list` | One Sales Navigator account list and every company in it. Needs a Sales Navigator seat. Read-only |
@@ -98,6 +98,7 @@ This MCP server is **free** and **open source**, supported by [**Unipile**](http
 | `create_sales_navigator_account_list` | Create a Sales Navigator account list, optionally with up to 25 accounts (the company ids account search returns). `confirm_send: false` is a dry run. Needs a Sales Navigator seat |
 | `add_accounts_to_sales_navigator_list` | Add up to 25 accounts to one Sales Navigator account list in one request, with a status per account. `confirm_send: false` is a dry run. Needs a Sales Navigator seat |
 | `delete_sales_navigator_account_list` | Delete one Sales Navigator account list by its id, only when its name is exactly `expected_name`. `confirm_send: false` is a dry run. Needs a Sales Navigator seat |
+| `save_sales_navigator_search` | Save a lead or account search (`kind: "leads"` or `"accounts"`, the same filters as the matching search tool) under a name through Sales Navigator's own Save search, confirmed by reading it back. `confirm_send: false` is a dry run reporting the planned search URL and name. Counts against `sales_list_writes`. Needs a Sales Navigator seat |
 | `start_enrichment_job` | Queue a resumable bulk profile-enrichment job from a list of usernames or profile URLs |
 | `run_enrichment_bunch` | Visit the next few profiles in a job, paced with randomized delays, a rolling 24h action budget and working hours; returns when to call it again. A bunch that loses its browser relaunches it and retries once; a profile that never loaded is left pending and is not charged |
 | `get_enrichment_status` | Progress and collected results for an enrichment job, or list all jobs |
@@ -396,6 +397,20 @@ id as `account_list`. Every lead row carries:
 - `degree`: 1, 2 or 3 for the connection degree. Filter with `network: ["F"]`
   for 1st-degree connections only, for example to invite them to follow a
   company page.
+
+#### Saved searches
+
+`save_sales_navigator_search` saves a lead or account search under a name, as
+Sales Navigator's own Save search does, so it shows under Saved searches and
+Sales Navigator alerts on new results; nobody else is notified. It takes the
+filters of `search_sales_navigator_leads` (`kind: "leads"`) or
+`search_sales_navigator_accounts` (`kind: "accounts"`) and builds the same
+search URL. With `confirm_send: false` nothing is sent and the result gives
+the planned search URL and name. With `confirm_send: true` it loads the
+search, checks the page searched exactly those filters, turns on the page's
+Save search switch, renames the new search in the Saved searches panel and
+reads it back; only those two requests may leave your browser. Both count
+against `SALES_LIST_WRITES_MAX`, and the save waits for working hours.
 
 #### Account-list writes
 
@@ -1181,7 +1196,7 @@ off.
 | `SALES_NAVIGATOR_MESSAGES_MAX` | `50` | Sales Navigator messages and replies per rolling 24 h, counted apart from `MESSAGES_MAX`; may be raised or lowered |
 | `CAMPAIGN_WRITES_MAX` | `30` | Campaign Manager writes per rolling 24 h; may be raised or lowered |
 | `PAGE_INVITES_MAX` | `20` | Invitations to follow a company page per rolling 24 h; may be raised or lowered |
-| `SALES_LIST_WRITES_MAX` | `30` | Sales Navigator account-list requests (create, add, delete) per rolling 24 h; may be raised or lowered |
+| `SALES_LIST_WRITES_MAX` | `30` | Sales Navigator account-list requests (create, add, delete) and saved searches per rolling 24 h; may be raised or lowered |
 | `WORKING_HOURS_DISABLED` | off | `1` lets invitations, messages and Campaign Manager writes go outside working hours and lifts the halved read caps |
 | `DAILY_ACTIONS_DEFAULT` | `100` | `daily_cap` when a job does not set one |
 | `DAILY_CAP_JITTER` | `0.15` | Fraction shaved off the daily cap at random each day |

@@ -25,6 +25,7 @@ from linkedin_mcp_server.pacing import (
     load_account_budget,
     refuse_action,
     refuse_if_limited,
+    refuse_without_hourly_headroom,
 )
 from linkedin_mcp_server.scraping.contracts import before_the_reply_deadline
 from linkedin_mcp_server.scraping.identifiers import normalize_sales_list_id
@@ -44,13 +45,23 @@ _ANNOTATIONS = {"destructiveHint": True, "openWorldHint": True}
 _TAGS = {"sales_navigator", "actions"}
 
 
-def _refuse_before_the_browser(confirm_send: bool, *, requests: int = 1) -> None:
-    """Refuse a call whose ``requests`` do not all fit under the cap now."""
+def refuse_before_the_browser(
+    confirm_send: bool, *, requests: int = 1, hourly: int = 0
+) -> None:
+    """Refuse a call whose ``requests`` do not all fit under the cap now.
+
+    ``hourly`` is every action the call will count against the rolling hour,
+    page loads included; that many must fit in it as well.
+    """
     # A dry run sends nothing and owes nothing.
     if not confirm_send:
         return
     now = datetime.now().astimezone()
     refuse_action(JobStore(), SALES_LIST_WRITES, now)
+    if hourly:
+        refuse_without_hourly_headroom(
+            load_account_budget(JobStore(), now), SALES_LIST_WRITES, now, hourly
+        )
     if requests > 1:
         # A create with accounts sends two: refused here, a create that
         # leaves the accounts behind on the cap is not started.
@@ -70,7 +81,7 @@ async def _run(
     message: str,
     call: Callable[[Any], Awaitable[dict[str, Any]]],
 ) -> dict[str, Any]:
-    _refuse_before_the_browser(confirm_send, requests=requests)
+    refuse_before_the_browser(confirm_send, requests=requests)
     extractor = extractor or await get_ready_extractor(ctx, tool_name=tool)
     logger.info("%s (confirm_send=%s)", tool, confirm_send)
     await ctx.report_progress(progress=0, total=100, message=message)

@@ -257,6 +257,10 @@
       "description": "Delete one Sales Navigator account list by its exact id, only when its current name equals expected_name; confirm_send false is a dry run"
     },
     {
+      "name": "save_sales_navigator_search",
+      "description": "Save a Sales Navigator lead or account search under a name through its own Save search, with the same filters as the search tools; confirm_send false is a dry run reporting the planned search URL"
+    },
+    {
       "name": "close_session",
       "description": "Properly close browser session and clean up resources"
     },

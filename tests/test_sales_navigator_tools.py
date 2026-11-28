@@ -156,6 +156,7 @@ class TestDelegation:
             current_company=["100000001"],
             exclude_current_company=None,
             location=["102890719"],
+            company_hq_location=None,
             industry=["106"],
             exclude_industry=None,
             network=None,

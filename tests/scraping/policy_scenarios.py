@@ -2039,6 +2039,41 @@ async def _sn_delete_list_dry_run_scenario() -> dict[str, Any]:
     return trace
 
 
+async def _sn_save_search_dry_run_scenario() -> dict[str, Any]:
+    page = _sn_page("save_sales_navigator_search__dry_run")
+    method = "save_sales_navigator_search"
+    criteria = {
+        "title": ["CTO"],
+        "company_hq_location": ["101165590"],
+        "company_size": ["E", "F"],
+    }
+    recorder = page.recorder
+    clock = FakeClock(recorder)
+    extractor = _extractor(page)
+    async with boundaries(recorder, clock):
+        with recorder.context(method, "save_search"):
+            result = await extractor.save_sales_navigator_search(
+                "leads", "Example search", criteria=criteria, confirm_send=False
+            )
+    page.assert_clean(retained_sales_list_guard=False)
+    trace = recorder.trace(
+        {
+            "method": method,
+            "arguments": {
+                "kind": "leads",
+                "name": "Example search",
+                "criteria": criteria,
+                "confirm_send": False,
+            },
+        },
+        result,
+    )
+    # Ids need no lookup, so a dry run needs no page at all.
+    assert not [e for e in trace["events"] if e["kind"] == "navigate"], trace
+    assert trace["result"]["status"] == "dry_run", trace["result"]
+    return trace
+
+
 async def _sn_no_seat_scenario() -> dict[str, Any]:
     page = _sn_page("list_sales_navigator_account_lists__no_seat")
     page.goto_landings.append("https://www.linkedin.com/premium/products/?from=x")
@@ -2388,6 +2423,7 @@ TOOL_FACADE_METHODS = {
     "create_sales_navigator_account_list",
     "add_accounts_to_sales_navigator_list",
     "delete_sales_navigator_account_list",
+    "save_sales_navigator_search",
 }
 COMPATIBILITY_METHODS = {"get_page_text", "click_button_by_text"}
 
@@ -3506,6 +3542,7 @@ async def build_policy_traces() -> dict[str, dict[str, Any]]:
         "sn-create-account-list-dry-run.json": await _sn_create_list_dry_run_scenario(),
         "sn-add-accounts-dry-run.json": await _sn_add_accounts_dry_run_scenario(),
         "sn-delete-account-list-dry-run.json": await _sn_delete_list_dry_run_scenario(),
+        "sn-save-search-dry-run.json": await _sn_save_search_dry_run_scenario(),
     }
     return traces
 

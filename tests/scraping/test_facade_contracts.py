@@ -94,6 +94,7 @@ TOOL_DELEGATES = {
     "create_sales_navigator_account_list": "create_sales_navigator_account_list",
     "add_accounts_to_sales_navigator_list": "add_accounts_to_sales_navigator_list",
     "delete_sales_navigator_account_list": "delete_sales_navigator_account_list",
+    "save_sales_navigator_search": "save_sales_navigator_search",
 }
 # Enrichment tools compose several facade calls, or none when they only read
 # the on-disk cache or the job ledger; a tuple lists every facade method a
@@ -154,6 +155,7 @@ async def test_constructor_export_and_dependency_use_the_same_facade(monkeypatch
         "_sales_inbox",
         "_sales_navigator",
         "_sales_navigator_lists",
+        "_sales_navigator_searches",
         "_sales_navigator_sender",
     }
     assert set(vars(extractor)) == expected_state
@@ -177,9 +179,9 @@ async def test_registered_tools_and_extractor_delegates_are_counted_separately()
     tools = await create_mcp_server().list_tools()
     tool_names = {tool.name for tool in tools}
 
-    assert len(tool_names) == 60
+    assert len(tool_names) == 61
     assert tool_names == {*TOOL_DELEGATES, *ENRICHMENT_TOOL_DELEGATES, "close_session"}
-    assert len(TOOL_DELEGATES) == 52
+    assert len(TOOL_DELEGATES) == 53
     assert len(ENRICHMENT_TOOL_DELEGATES) == 7
     assert TOOL_DELEGATES.keys().isdisjoint(ENRICHMENT_TOOL_DELEGATES)
     assert set(TOOL_DELEGATES.values()) == TOOL_FACADE_METHODS
@@ -549,7 +551,7 @@ def test_facade_methods_are_exactly_the_frozen_coroutine_surface():
     }
 
     assert actual == expected
-    assert len(TOOL_FACADE_METHODS) == 52
+    assert len(TOOL_FACADE_METHODS) == 53
     assert len(COMPATIBILITY_METHODS) == 2
 
 
