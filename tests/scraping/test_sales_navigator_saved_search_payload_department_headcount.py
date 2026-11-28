@@ -52,10 +52,8 @@ def test_a_create_with_the_department_and_range_is_admitted():
     ],
 )
 def test_a_create_for_another_department_headcount_is_refused(body):
-    assert (
-        _refusal(_planned(), "POST", FIXTURE["account_create"]["path"], body)
-        == "body differs from the plan"
-    )
+    refusal = _refusal(_planned(), "POST", FIXTURE["account_create"]["path"], body)
+    assert (refusal or "").startswith("body differs from the plan: ")
 
 
 @pytest.mark.parametrize(("department", "why"), [("8", None), ("13", "its filters")])

@@ -194,9 +194,9 @@ def _sent_values(values: Any, label: str) -> set[tuple[str, str, str]] | None:
     return found
 
 
-def _range(search_filter: SearchFilter) -> dict[str, int]:
+def _range(search_filter: SearchFilter) -> dict[str, str]:
     return {
-        name: bound
+        name: str(bound)
         for name, bound in (
             ("min", search_filter.minimum),
             ("max", search_filter.maximum),
@@ -205,18 +205,59 @@ def _range(search_filter: SearchFilter) -> dict[str, int]:
     }
 
 
-def filters_match(
+def _sent_range(value: Any) -> dict[str, str] | None:
+    """A body's ``rangeValue`` with its bounds as text, the way the app sends them.
+
+    Measured 2026-11-28: a department headcount's create carries
+    ``{"min": "20", "max": "500"}``, strings. A bound sent as a number is read
+    the same; anything else is no range.
+    """
+    if not isinstance(value, Mapping):
+        return None
+    bounds: dict[str, str] = {}
+    for name, bound in value.items():
+        if isinstance(bound, bool) or not isinstance(bound, (int, str)):
+            return None
+        bounds[str(name)] = str(bound)
+    return bounds
+
+
+_NUMBER = re.compile(r"\d(?:[\d,.\u00a0\u202f]*\d)?")
+
+
+def _range_matches(sent: Any, wanted: Mapping[str, str], *, nested: bool) -> bool:
+    """Whether a ``rangeValue`` holds exactly the ``wanted`` bounds.
+
+    Measured 2026-11-28: a saved department headcount reads back as
+    ``{"displayValue": "Engineering 20 – 500"}``, the department's label and
+    the bounds, with no ids. The numbers that label shows are the bounds, in
+    order.
+    """
+    if nested and isinstance(sent, Mapping) and set(sent) == {"displayValue"}:
+        label = sent["displayValue"]
+        if not isinstance(label, str):
+            return False
+        shown = [re.sub(r"\D", "", number) for number in _NUMBER.findall(label)]
+        return shown == list(wanted.values())
+    return _sent_range(sent) == wanted
+
+
+def filters_mismatch(
     wanted: Sequence[SearchFilter], sent: Any, *, label: str, nested: bool = False
-) -> bool:
-    """True when ``sent`` holds exactly the ``wanted`` filters, nothing else.
+) -> str | None:
+    """How ``sent`` differs from exactly the ``wanted`` filters, or None.
 
     ``label`` is the key a text value carries (``text`` in the app's body,
     ``displayValue`` in a read-back), whose ids are matched and whose
     display labels for an id are ignored. A read-back (``nested``) wraps each
-    filter in ``singleFilterMetadata`` and lists the empty ones too.
+    filter in ``singleFilterMetadata`` and lists the empty ones too. The
+    difference names filter types and fields only, never a value. A read-back
+    of a department headcount names its department by a display label only,
+    so there the department is the create's to check, and the bounds are read
+    from the label.
     """
     if not isinstance(sent, list):
-        return False
+        return "the filters are not a list"
     by_type: dict[str, Mapping[str, Any]] = {}
     for item in sent:
         record = (
@@ -225,29 +266,35 @@ def filters_match(
             else item
         )
         if not isinstance(record, Mapping) or not isinstance(record.get("type"), str):
-            return False
+            return "a filter has no type"
         if nested and not record.get("values") and not record.get("rangeValue"):
             continue
         if record["type"] in by_type:
-            return False
+            return f"the {record['type']} filter is there twice"
         by_type[record["type"]] = record
     asked = {f.type: f for f in wanted if _wanted_values(f) or _range(f)}
-    if set(by_type) != set(asked):
-        return False
+    if extra := sorted(set(by_type) - set(asked)):
+        return f"it has filters not asked: {', '.join(extra)}"
+    if missing := sorted(set(asked) - set(by_type)):
+        return f"it lacks the asked filters: {', '.join(missing)}"
     for kind, search_filter in asked.items():
         record = by_type[kind]
-        if search_filter.sub_filter is not None and (
-            str(record.get("selectedSubFilter")) != search_filter.sub_filter
+        if (
+            search_filter.sub_filter is not None
+            and (not nested or "selectedSubFilter" in record)
+            and str(record.get("selectedSubFilter")) != search_filter.sub_filter
         ):
-            return False
+            return f"the {kind} filter's selectedSubFilter differs"
         if _range(search_filter):
-            if not nested and record.get("rangeValue") != _range(search_filter):
-                return False
+            if not _range_matches(
+                record.get("rangeValue"), _range(search_filter), nested=nested
+            ):
+                return f"the {kind} filter's rangeValue differs"
             if not _wanted_values(search_filter):
                 continue
         if _sent_values(record.get("values"), label) != _wanted_values(search_filter):
-            return False
-    return True
+            return f"the {kind} filter's values differ"
+    return None
 
 
 def create_request(
@@ -256,21 +303,20 @@ def create_request(
     """The app's create, admitted when its search is exactly the plan."""
     _, query_key, use_case, _ = KINDS[kind]
 
-    def matches(body: Any) -> bool:
+    def mismatch(body: Any) -> str | None:
         if not isinstance(body, Mapping) or body.get("useCase") != use_case:
-            return False
+            return f"its useCase is not {use_case}"
         search = body.get("searchQuery")
         if not isinstance(search, Mapping) or set(search) != {query_key}:
-            return False
+            return f"its searchQuery is not one {query_key}"
         inner = search[query_key]
-        if (
-            not isinstance(inner, Mapping)
-            or (inner.get("keywords") or None) != keywords
-        ):
-            return False
-        if (body.get("keywords") or None) not in (None, keywords):
-            return False
-        return filters_match(filters, inner.get("filters", []), label="text")
+        if not isinstance(inner, Mapping):
+            return f"its {query_key} is not an object"
+        if (inner.get("keywords") or None) != keywords or (
+            body.get("keywords") or None
+        ) not in (None, keywords):
+            return "its keywords differ"
+        return filters_mismatch(filters, inner.get("filters", []), label="text")
 
     return PlannedListWrite(
         "POST",
@@ -278,7 +324,7 @@ def create_request(
         None,
         (),
         {"useCase": use_case, "keywords": keywords, "filters": len(filters)},
-        body_matches=matches,
+        body_mismatch=mismatch,
     )
 
 
@@ -316,8 +362,9 @@ def readback_mismatch(
         return "its name is not the one asked"
     if (element.get("keywords") or None) != keywords:
         return "its keywords are not the ones asked"
-    if not filters_match(
+    why = filters_mismatch(
         filters, element.get("filters"), label="displayValue", nested=True
-    ):
-        return "its filters are not the ones asked"
+    )
+    if why is not None:
+        return f"its filters are not the ones asked ({why})"
     return None
