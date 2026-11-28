@@ -146,8 +146,8 @@ def register_sales_navigator_saved_search_tools(
         confirm_send False is a dry run: nothing is saved, and the result
         reports the planned search URL and name (resolving a location or a
         company name may still load pages). confirm_send True loads the
-        search page, checks that the page searched exactly the filters asked,
-        presses Save search, types the name and saves it through Sales
+        search page, checks that the page's request carried exactly the
+        filters asked (not that LinkedIn applied them), presses Save search, types the name and saves it through Sales
         Navigator's own form; only that one request may leave the browser.
         Status saved is reported only when Sales Navigator answered it and
         the saved search then reads back under that name with that query.

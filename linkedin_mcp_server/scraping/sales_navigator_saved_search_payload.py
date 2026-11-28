@@ -236,10 +236,13 @@ def filters_match(
         return False
     for kind, search_filter in asked.items():
         record = by_type[kind]
+        if search_filter.sub_filter is not None and (
+            str(record.get("selectedSubFilter")) != search_filter.sub_filter
+        ):
+            return False
         if _range(search_filter):
             if not nested and record.get("rangeValue") != _range(search_filter):
                 return False
-            # A department headcount is a range on one department's id.
             if not _wanted_values(search_filter):
                 continue
         if _sent_values(record.get("values"), label) != _wanted_values(search_filter):

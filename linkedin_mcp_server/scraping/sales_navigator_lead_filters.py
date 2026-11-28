@@ -25,9 +25,10 @@ ACCOUNT_LIST = "ACCOUNT_LIST"
 # the filter panel sends it (measured 2026-11-27). ``REGION`` is the lead's own
 # location.
 COMPANY_HEADQUARTERS = "COMPANY_HEADQUARTERS"
-# Account search's "Department headcount": one department (a function id) and
-# a headcount range. Encoded like the other filters (id value plus
-# rangeValue); not yet measured against the filter panel.
+# Account search's "Department headcount": a headcount rangeValue with the
+# department (a function id) as the filter's selectedSubFilter, never as a
+# value, which LinkedIn ignores. The shape of a captured request for its
+# sibling DEPARTMENT_HEADCOUNT_GROWTH; not yet measured for this filter.
 DEPARTMENT_HEADCOUNT = "DEPARTMENT_HEADCOUNT"
 
 FUNCTION_IDS: Mapping[str, str] = {

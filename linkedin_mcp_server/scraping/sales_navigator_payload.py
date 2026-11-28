@@ -104,6 +104,7 @@ class SearchFilter:
     excluded_ids: tuple[str, ...] = ()
     minimum: int | None = None
     maximum: int | None = None
+    sub_filter: str | None = None
 
 
 class SnMoney(TypedDict):
@@ -344,6 +345,8 @@ def _filter_clause(search_filter: SearchFilter) -> str | None:
         parts.append(f"rangeValue:({','.join(bounds)})")
     if not parts:
         return None
+    if search_filter.sub_filter is not None:
+        parts.append(f"selectedSubFilter:{restli_value(search_filter.sub_filter)}")
     return f"(type:{search_filter.type},{','.join(parts)})"
 
 
@@ -430,7 +433,16 @@ def missing_echoes(
         ids = {v.get("id") for v in values if v.get("selectionType") == "INCLUDED"}
         texts = {v.get("text") for v in values if v.get("selectionType") == "INCLUDED"}
         excluded = {v.get("id") for v in values if v.get("selectionType") == "EXCLUDED"}
-        ranges = [_record(clause.get("rangeValue", "")) for clause in same_type]
+        sub_filter = (
+            None
+            if search_filter.sub_filter is None
+            else restli_value(search_filter.sub_filter)
+        )
+        ranges = [
+            _record(clause.get("rangeValue", ""))
+            for clause in same_type
+            if clause.get("selectedSubFilter") == sub_filter
+        ]
         wanted_range = {
             name: str(bound)
             for name, bound in (
@@ -444,6 +456,7 @@ def missing_echoes(
             and all(restli_value(v) in texts for v in search_filter.texts)
             and all(restli_value(v) in excluded for v in search_filter.excluded_ids)
             and (not wanted_range or wanted_range in ranges)
+            and (sub_filter is None or bool(ranges))
         )
         if not echoed and search_filter.type not in missing:
             missing.append(search_filter.type)
