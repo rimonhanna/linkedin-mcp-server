@@ -541,6 +541,7 @@ class LinkedInExtractor:
         size: Sequence[str] | None = None,
         headcount_growth_min: int | None = None,
         headcount_growth_max: int | None = None,
+        department_headcount: Mapping[str, object] | None = None,
         page: int = 1,
     ) -> dict[str, Any]:
         """One page of Sales Navigator account search results."""
@@ -552,6 +553,7 @@ class LinkedInExtractor:
             size=size,
             headcount_growth_min=headcount_growth_min,
             headcount_growth_max=headcount_growth_max,
+            department_headcount=department_headcount,
             page=page,
         )
 

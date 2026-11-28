@@ -118,6 +118,7 @@ class TestDelegation:
             size=["B"],
             headcount_growth_min=5,
             headcount_growth_max=10,
+            department_headcount=None,
             page=2,
         )
 
@@ -133,6 +134,7 @@ class TestDelegation:
             size=None,
             headcount_growth_min=None,
             headcount_growth_max=None,
+            department_headcount=None,
             page=1,
         )
 

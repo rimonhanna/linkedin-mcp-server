@@ -8,7 +8,7 @@ and never open a lead page, so no profile view is registered.
 
 import logging
 import time
-from typing import Annotated, Any
+from typing import Annotated, Any, NotRequired, TypedDict
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -26,6 +26,7 @@ from linkedin_mcp_server.scraping.identifiers import (
 )
 from linkedin_mcp_server.scraping.sales_navigator_lead_filters import (
     TenureBucket,
+    department_headcount as department_headcount_filter,
     function_ids,
 )
 from linkedin_mcp_server.scraping.sales_navigator_payload import SeniorityLevel
@@ -38,6 +39,12 @@ from linkedin_mcp_server.tools.enrichment import DEADLINE_FRACTION
 from linkedin_mcp_server.tools.person import StrList
 
 logger = logging.getLogger(__name__)
+
+
+class DepartmentHeadcount(TypedDict):
+    department: str
+    min: NotRequired[int | None]
+    max: NotRequired[int | None]
 
 
 def _deadline(tool_timeout: float) -> float:
@@ -73,6 +80,7 @@ def register_sales_navigator_tools(
         size: StrList | None = None,
         headcount_growth_min: int | None = None,
         headcount_growth_max: int | None = None,
+        department_headcount: DepartmentHeadcount | None = None,
         page: Annotated[int, Field(ge=1, le=40)] = 1,
         extractor: Any | None = None,
     ) -> dict[str, Any]:
@@ -111,6 +119,11 @@ def register_sales_navigator_tools(
                 (A to I).
             headcount_growth_min: Minimum headcount growth, percent.
             headcount_growth_max: Maximum headcount growth, percent.
+            department_headcount: Accounts by the headcount of one
+                department: {department, min, max}. department is a job
+                function name (engineering, information_technology, sales,
+                ...) or its id (1 to 26); min and max are whole numbers of
+                people, at least one given, min not above max.
             page: Result page, 1 to 40 (25 results each).
 
         Returns:
@@ -133,7 +146,10 @@ def register_sales_navigator_tools(
                 size_list,
                 headcount_growth_min,
                 headcount_growth_max,
+                department_headcount,
             )
+            if department_headcount is not None:
+                department_headcount_filter(department_headcount)
             if (
                 headcount_growth_min is not None
                 and headcount_growth_max is not None
@@ -160,6 +176,7 @@ def register_sales_navigator_tools(
                 size=size_list or None,
                 headcount_growth_min=headcount_growth_min,
                 headcount_growth_max=headcount_growth_max,
+                department_headcount=department_headcount,
                 page=page,
             )
 
