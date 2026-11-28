@@ -41,6 +41,7 @@ from linkedin_mcp_server.scraping.page_invites import PageInviteActions
 from linkedin_mcp_server.scraping.person import PersonScraper
 from linkedin_mcp_server.scraping.posts import PostSearch
 from linkedin_mcp_server.scraping.profile_page import ProfilePageReader
+from linkedin_mcp_server.scraping.recent_connections import RecentConnectionsReader
 from linkedin_mcp_server.scraping.sales_navigator import SalesNavigatorReader
 from linkedin_mcp_server.scraping.sales_navigator_inbox import (
     SalesNavigatorInboxReader,
@@ -106,6 +107,7 @@ class LinkedInExtractor:
         self._audiences = CampaignAudiences(session, navigator)
         self._sales_navigator = SalesNavigatorReader(session, navigator, facets)
         self._page_invites = PageInviteActions(session, navigator)
+        self._recent_connections = RecentConnectionsReader(session, navigator)
         self._sales_inbox = SalesNavigatorInboxReader(
             session,
             self._sales_navigator,
@@ -627,6 +629,14 @@ class LinkedInExtractor:
         """The leads of one Sales Navigator lead list, up to 1,000 per call."""
         return await self._sales_navigator.get_lead_list(
             list_id, page, deadline=deadline
+        )
+
+    async def list_recent_connections(
+        self, since: date, *, limit: int = 100, deadline: float | None = None
+    ) -> dict[str, Any]:
+        """The member's connections made on or after ``since``, newest first."""
+        return await self._recent_connections.list_recent(
+            since, limit=limit, deadline=deadline
         )
 
     async def list_page_follow_candidates(

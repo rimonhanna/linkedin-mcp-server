@@ -845,6 +845,7 @@ def semantic_program_id(program: str) -> str:
         # First, so a generic marker below that a Campaign Manager program
         # comes to contain (``rows.push({``, a dialog query) never claims it.
         ("linkedin-mcp:cm-anchor", "cm_anchor"),
+        ("linkedin-mcp:recent-connections-rows", "recent_connections_rows"),
         ("linkedin-mcp:sn-inbox-scroll", "sn_inbox_scroll"),
         ("linkedin-mcp:sn-inbox-history", "sn_inbox_history"),
         ("linkedin-mcp:sn-composer-pin */", "sn_composer_pin"),

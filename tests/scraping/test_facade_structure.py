@@ -71,6 +71,7 @@ PUBLIC_SIGNATURES = {
     "get_sales_navigator_account_list": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "list_sales_navigator_lead_lists": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "get_sales_navigator_lead_list": "(self, list_id: 'str', page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
+    "list_recent_connections": "(self, since: 'date', *, limit: 'int' = 100, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "list_page_follow_candidates": "(self, company_id: 'str', *, keywords: 'str | None' = None, limit: 'int' = 20, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "invite_to_follow_page": "(self, company_id: 'str', people: 'list[str]', *, confirm_send: 'bool', names: 'list[str | None] | None' = None, deadline: 'float | None' = None) -> 'dict[str, Any]'",
     "get_sales_navigator_inbox": "(self, limit: 'int' = 20, filter: 'InboxFilter' = 'all', *, deadline: 'float | None' = None) -> 'dict[str, Any]'",
@@ -130,6 +131,7 @@ DELEGATES = {
     "get_sales_navigator_account_list": ("_sales_navigator", "get_account_list"),
     "list_sales_navigator_lead_lists": ("_sales_navigator", "list_lead_lists"),
     "get_sales_navigator_lead_list": ("_sales_navigator", "get_lead_list"),
+    "list_recent_connections": ("_recent_connections", "list_recent"),
     "list_page_follow_candidates": ("_page_invites", "list_follow_candidates"),
     "invite_to_follow_page": ("_page_invites", "invite_to_follow"),
     "get_sales_navigator_inbox": ("_sales_inbox", "get_inbox"),
@@ -204,6 +206,9 @@ DELEGATE_CALLS = {
     "get_sales_navigator_lead_list": (
         "self._sales_navigator.get_lead_list(list_id, page, deadline=deadline)"
     ),
+    "list_recent_connections": (
+        "self._recent_connections.list_recent(since, limit=limit, deadline=deadline)"
+    ),
     "list_page_follow_candidates": (
         "self._page_invites.list_follow_candidates(company_id, keywords=keywords, "
         "limit=limit, deadline=deadline)"
@@ -258,6 +263,7 @@ FACADE_STATE = {
     "_page_invites",
     "_person",
     "_posts",
+    "_recent_connections",
     "_sales_inbox",
     "_sales_navigator",
     "_sales_navigator_lists",

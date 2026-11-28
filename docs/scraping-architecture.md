@@ -64,6 +64,8 @@ a page-owning collaborator.
 | `posts` | `PostSearch` | `browser-free` |
 | `profile_page` | `MessageTarget`, `MessageTargetResolution`, `ProfilePageReader`, `ReadMessageTarget` | `page-owning` |
 | `rate_limit` | `HTTP_STATUS_NAV_FAILURE`, `HTTP_STATUS_ON_INTERSTITIAL`, `RATE_LIMIT_BACKOFF_DELAY`, `RATE_LIMIT_BACKOFF_MAX`, `RATE_LIMIT_BACKOFF_MAX_DOUBLINGS`, `RATE_LIMIT_RETRY_BUDGET`, `RATE_LIMIT_RETRY_DELAY`, `RETRY_AFTER_CEILING`, `RateLimitBudget`, `rate_limit_backoff_delay()`, `rate_limit_backoff_max()`, `rate_limit_backoff_max_doublings()`, `rate_limit_retry_budget()`, `rate_limit_retry_delay()`, `retry_after_ceiling()`, `retry_after_seconds()` | `browser-free` |
+| `recent_connections` | `MAX_CONNECTIONS`, `RecentConnectionsReader` | `browser-free` |
+| `recent_connections_parse` | `CONNECTIONS_PATH`, `CONNECTIONS_URL`, `Connection`, `PAGINATION_PATH`, `ROWS_JS`, `connected_on()`, `connection_from_row()`, `connection_line()` | `browser-free` |
 | `restli` | `as_dicts()`, `as_int()`, `as_mapping()`, `as_str()`, `entity_id()`, `envelope_elements()`, `envelope_paging()`, `envelope_record()`, `envelope_total()`, `included_by_urn()`, `iso_from_ms()`, `normalized_elements()`, `plain_elements()`, `restli_list()`, `same_id()` | `browser-free` |
 | `sales_navigator` | `SalesNavigatorReader` | `page-owning` |
 | `sales_navigator_api` | `SalesNavigatorCapture` | `browser-free` |
@@ -113,7 +115,7 @@ a page-owning collaborator.
 - `contracts` -> `identifiers`, `link_metadata`
 - `conversations` -> `content`, `identifiers`, `link_metadata`, `messaging_api`, `messaging_payload`, `messaging_read_state`, `navigation`, `profile_page`, `session`, `text`
 - `enter_to_send` -> _(none)_
-- `extractor` -> `campaign_manager`, `campaign_manager_audiences`, `campaign_manager_content`, `campaign_manager_editor`, `campaign_manager_targeting`, `capture`, `company`, `connect_target`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `page_invites`, `person`, `posts`, `profile_page`, `sales_navigator`, `sales_navigator_inbox`, `sales_navigator_inbox_payload`, `sales_navigator_list_writes`, `sales_navigator_saved_search`, `sales_navigator_sender`, `session`, `text`
+- `extractor` -> `campaign_manager`, `campaign_manager_audiences`, `campaign_manager_content`, `campaign_manager_editor`, `campaign_manager_targeting`, `capture`, `company`, `connect_target`, `connection_actions`, `content`, `contracts`, `conversations`, `facets`, `feed`, `job_pages`, `job_policy`, `jobs`, `message_sender`, `navigation`, `page_invites`, `person`, `posts`, `profile_page`, `recent_connections`, `sales_navigator`, `sales_navigator_inbox`, `sales_navigator_inbox_payload`, `sales_navigator_list_writes`, `sales_navigator_saved_search`, `sales_navigator_sender`, `session`, `text`
 - `facets` -> `capture`, `company_parse`, `contracts`, `identifiers`, `job_policy`, `link_metadata`, `navigation`, `session`
 - `feed` -> `content`, `contracts`, `feed_payload`, `navigation`, `session`, `text`
 - `feed_payload` -> `link_metadata`
@@ -137,6 +139,8 @@ a page-owning collaborator.
 - `posts` -> `capture`, `contracts`, `link_metadata`, `search_urls`
 - `profile_page` -> `session`
 - `rate_limit` -> _(none)_
+- `recent_connections` -> `contracts`, `navigation`, `recent_connections_parse`, `session`
+- `recent_connections_parse` -> _(none)_
 - `restli` -> _(none)_
 - `sales_navigator` -> `contracts`, `facets`, `identifiers`, `navigation`, `restli`, `sales_navigator_api`, `sales_navigator_lead_filters`, `sales_navigator_payload`, `search_urls`, `session`
 - `sales_navigator_api` -> `api_capture`, `sales_navigator_payload`
@@ -191,6 +195,7 @@ a page-owning collaborator.
 - `list_audiences`
 - `list_campaigns`
 - `list_page_follow_candidates`
+- `list_recent_connections`
 - `list_sales_navigator_account_lists`
 - `list_sales_navigator_lead_lists`
 - `list_sponsorable_posts`
@@ -234,6 +239,7 @@ a page-owning collaborator.
 - `_page_invites`
 - `_person`
 - `_posts`
+- `_recent_connections`
 - `_sales_inbox`
 - `_sales_navigator`
 - `_sales_navigator_lists`

@@ -132,6 +132,10 @@
         "coroutine": true,
         "signature": "(self, company_id: 'str', *, keywords: 'str | None' = None, limit: 'int' = 20, deadline: 'float | None' = None) -> 'dict[str, Any]'"
       },
+      "list_recent_connections": {
+        "coroutine": true,
+        "signature": "(self, since: 'date', *, limit: 'int' = 100, deadline: 'float | None' = None) -> 'dict[str, Any]'"
+      },
       "list_sales_navigator_account_lists": {
         "coroutine": true,
         "signature": "(self, page: 'int' = 1, *, deadline: 'float | None' = None) -> 'dict[str, Any]'"
@@ -258,6 +262,7 @@
       "list_audiences",
       "list_campaigns",
       "list_page_follow_candidates",
+      "list_recent_connections",
       "list_sales_navigator_account_lists",
       "list_sales_navigator_lead_lists",
       "list_sponsorable_posts",
@@ -1432,6 +1437,51 @@
           "required": [
             "company_id"
           ],
+          "type": "object"
+        },
+        "output": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "list_recent_connections": {
+        "input": {
+          "additionalProperties": false,
+          "properties": {
+            "days": {
+              "anyOf": [
+                {
+                  "maximum": 365,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Connections from this many days ago until now (0 is today\nonly, 1 includes yesterday). Default 7 when neither is given."
+            },
+            "limit": {
+              "default": 100,
+              "description": "Most connections to return, 1 to 500 (default 100).",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "since": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Earliest connection date, YYYY-MM-DD in the member's local\ncalendar (at most 365 days ago). Pass this or days."
+            }
+          },
           "type": "object"
         },
         "output": {
