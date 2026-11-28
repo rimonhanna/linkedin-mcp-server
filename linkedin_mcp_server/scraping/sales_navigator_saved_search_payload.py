@@ -60,7 +60,13 @@ _LEAD_ONLY = (
     "lead_list",
     "exclude_lead_list",
 )
-_ACCOUNT_ONLY = ("hq_location", "size", "headcount_growth_min", "headcount_growth_max")
+_ACCOUNT_ONLY = (
+    "hq_location",
+    "size",
+    "headcount_growth_min",
+    "headcount_growth_max",
+    "department_headcount",
+)
 _PARAMETERS = {"leads": _SHARED + _LEAD_ONLY, "accounts": _SHARED + _ACCOUNT_ONLY}
 _RESTLI_KEY = re.compile(r"^\{seat=(urn:li:seat:\d+), id=(\d+)\}$")
 
@@ -233,7 +239,9 @@ def filters_match(
         if _range(search_filter):
             if not nested and record.get("rangeValue") != _range(search_filter):
                 return False
-            continue
+            # A department headcount is a range on one department's id.
+            if not _wanted_values(search_filter):
+                continue
         if _sent_values(record.get("values"), label) != _wanted_values(search_filter):
             return False
     return True
