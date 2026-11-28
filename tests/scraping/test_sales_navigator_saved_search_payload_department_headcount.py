@@ -18,7 +18,7 @@ from linkedin_mcp_server.scraping.sales_navigator_saved_search_payload import (
 from .test_sales_navigator_saved_search_payload import FIXTURE, _refusal
 
 ENGINEERING_50_TO_500 = SearchFilter(
-    DEPARTMENT_HEADCOUNT, ids=("8",), minimum=50, maximum=500
+    DEPARTMENT_HEADCOUNT, sub_filter="8", minimum=50, maximum=500
 )
 
 
@@ -27,10 +27,8 @@ def _body(department: str = "8", bounds: dict | None = None) -> dict:
     body["searchQuery"]["accountSearchQuery"]["filters"] = [
         {
             "type": DEPARTMENT_HEADCOUNT,
-            "values": [
-                {"id": department, "text": "Engineering", "selectionType": "INCLUDED"}
-            ],
             "rangeValue": bounds or {"min": 50, "max": 500},
+            "selectedSubFilter": department,
         }
     ]
     return body
@@ -69,14 +67,8 @@ def test_the_read_back_checks_the_department(department, why):
             {
                 "singleFilterMetadata": {
                     "type": DEPARTMENT_HEADCOUNT,
-                    "values": [
-                        {
-                            "id": department,
-                            "displayValue": "Engineering",
-                            "selectionType": "INCLUDED",
-                        }
-                    ],
                     "rangeValue": {"min": 50, "max": 500},
+                    "selectedSubFilter": department,
                 }
             }
         ],

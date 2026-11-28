@@ -740,7 +740,7 @@ class SalesNavigatorReader:
                     "department_headcount",
                     SearchFilter(
                         DEPARTMENT_HEADCOUNT,
-                        ids=(department_id,),
+                        sub_filter=department_id,
                         minimum=minimum,
                         maximum=maximum,
                     ),

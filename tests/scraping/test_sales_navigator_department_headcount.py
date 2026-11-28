@@ -14,13 +14,14 @@ from linkedin_mcp_server.scraping.sales_navigator_lead_filters import (
 from linkedin_mcp_server.scraping.sales_navigator_payload import (
     SearchFilter,
     build_search_query,
+    missing_echoes,
     search_page_url,
 )
 
 from .test_sales_navigator import _boot, _Browser, _card, _response, _run
 
 ENGINEERING_50_TO_500 = SearchFilter(
-    DEPARTMENT_HEADCOUNT, ids=("8",), minimum=50, maximum=500
+    DEPARTMENT_HEADCOUNT, sub_filter="8", minimum=50, maximum=500
 )
 
 
@@ -59,12 +60,41 @@ def test_department_headcount_refuses_a_bad_value(value, message):
         department_headcount(value)
 
 
-def test_department_headcount_is_sent_as_an_id_with_a_range():
-    assert build_search_query(None, [ENGINEERING_50_TO_500]) == (
-        "(filters:List((type:DEPARTMENT_HEADCOUNT,"
-        "values:List((id:8,selectionType:INCLUDED)),"
-        "rangeValue:(min:50,max:500))))"
+@pytest.mark.parametrize(
+    ("minimum", "maximum", "clause"),
+    [
+        (50, 500, "rangeValue:(min:50,max:500),selectedSubFilter:8"),
+        (10, None, "rangeValue:(min:10),selectedSubFilter:8"),
+        (None, 500, "rangeValue:(max:500),selectedSubFilter:8"),
+    ],
+)
+def test_department_headcount_sends_the_department_as_its_sub_filter(
+    minimum, maximum, clause
+):
+    search_filter = SearchFilter(
+        DEPARTMENT_HEADCOUNT, sub_filter="8", minimum=minimum, maximum=maximum
     )
+    query = build_search_query(None, [search_filter])
+    assert query == f"(filters:List((type:DEPARTMENT_HEADCOUNT,{clause})))"
+    assert "values" not in query
+
+
+@pytest.mark.parametrize(
+    ("sent", "missing"),
+    [
+        ("rangeValue:(min:50,max:500),selectedSubFilter:8", []),
+        ("rangeValue:(min:50,max:500),selectedSubFilter:13", [DEPARTMENT_HEADCOUNT]),
+        ("rangeValue:(min:50,max:500)", [DEPARTMENT_HEADCOUNT]),
+        (
+            "values:List((id:8,selectionType:INCLUDED)),rangeValue:(min:50,max:500)",
+            [DEPARTMENT_HEADCOUNT],
+        ),
+        ("rangeValue:(min:50),selectedSubFilter:8", [DEPARTMENT_HEADCOUNT]),
+    ],
+)
+def test_the_echo_check_reads_the_department_from_its_sub_filter(sent, missing):
+    captured = f"(filters:List((type:DEPARTMENT_HEADCOUNT,{sent})))"
+    assert missing_echoes(None, [ENGINEERING_50_TO_500], captured) == missing
 
 
 def _page(query: str, metadata: dict[str, Any], total: int):
