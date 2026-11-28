@@ -27,8 +27,8 @@ ACCOUNT_LIST = "ACCOUNT_LIST"
 COMPANY_HEADQUARTERS = "COMPANY_HEADQUARTERS"
 # Account search's "Department headcount": a headcount rangeValue with the
 # department (a function id) as the filter's selectedSubFilter, never as a
-# value, which LinkedIn ignores. The shape of a captured request for its
-# sibling DEPARTMENT_HEADCOUNT_GROWTH; not yet measured for this filter.
+# value, which LinkedIn ignores. Measured 2026-11-28: the search sends the
+# bounds as numbers, the saved-search create as strings.
 DEPARTMENT_HEADCOUNT = "DEPARTMENT_HEADCOUNT"
 
 FUNCTION_IDS: Mapping[str, str] = {

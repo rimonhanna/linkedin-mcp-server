@@ -55,8 +55,11 @@ class PlannedListWrite:
     body: Any
     # For a body the app composes with parts the plan cannot know (a
     # generated name, the seat, display labels): the decoded body is admitted
-    # when this says it is the plan, in place of the equality check.
-    body_matches: Callable[[Any], bool] | None = field(default=None, compare=False)
+    # when this names no difference from the plan, in place of the equality
+    # check. The difference it names is the refusal's reason.
+    body_mismatch: Callable[[Any], str | None] | None = field(
+        default=None, compare=False
+    )
 
     @property
     def path(self) -> str:
@@ -121,8 +124,9 @@ def admission_refusal(
         body = json.loads(text) if text else None
     except ValueError:
         return "body differs from the plan"
-    if planned.body_matches is not None:
-        return None if planned.body_matches(body) else "body differs from the plan"
+    if planned.body_mismatch is not None:
+        why = planned.body_mismatch(body)
+        return None if why is None else f"body differs from the plan: {why}"
     if body != planned.body:
         return "body differs from the plan"
     return None

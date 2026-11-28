@@ -164,11 +164,11 @@ class SalesNavigatorSearchSaver:
 
     async def _press(
         self, planned: PlannedListWrite, press: Any
-    ) -> tuple[bool, dict[str, Any] | None]:
+    ) -> tuple[ListWriteWindow, dict[str, Any] | None]:
         """Press the app's control inside ``planned``'s window.
 
-        Returns whether the app's request was admitted, and its answer
-        (``None`` when no answer arrived).
+        Returns the window (whether the app's request was admitted, or why it
+        was refused), and its answer (``None`` when no answer arrived).
         """
         page = self._session.page
         answer: dict[str, Any] | None = None
@@ -206,7 +206,7 @@ class SalesNavigatorSearchSaver:
                     )
         if answer is not None and answer["status"] == 429:
             note_throttle_signal("http_429")
-        return bool(window.admitted), answer
+        return window, answer
 
     async def _leave_page(self) -> None:
         try:
@@ -366,14 +366,16 @@ class SalesNavigatorSearchSaver:
                     )
             except _Stopped as exc:
                 return finish("not_sent", str(exc))
-            admitted, answer = await self._press(
+            window, answer = await self._press(
                 create, lambda: switch.first.evaluate(_SWITCH_JS)
             )
-            if not admitted:
+            if not window.admitted:
+                logger.debug("The saved-search create was refused: %s", window.refused)
+                why = f" ({window.refused[0]})" if window.refused else ""
                 return finish(
                     "not_sent",
-                    "Sales Navigator's save request was not exactly this search "
-                    "and was stopped in the browser; nothing was saved.",
+                    "Sales Navigator's save request was not exactly this search"
+                    f"{why} and was stopped in the browser; nothing was saved.",
                 )
             status = (answer or {}).get("status") or 0
             if status == 0 or status >= 500 or status == 429:
@@ -417,7 +419,8 @@ class SalesNavigatorSearchSaver:
                     "Rename it in Saved searches; do not save it again.",
                     retry_safe=False,
                 )
-            admitted, answer = await self._press(rename, save.click)
+            window, answer = await self._press(rename, save.click)
+            admitted = bool(window.admitted)
             status = (answer or {}).get("status") or 0
             if not admitted or not 200 <= status < 300:
                 return finish(

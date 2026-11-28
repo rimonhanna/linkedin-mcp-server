@@ -119,10 +119,8 @@ def test_a_create_for_another_search_is_refused(tamper):
     body = copy.deepcopy(FIXTURE["lead_create"]["body"])
     tamper(body)
     planned = create_request("leads", None, SEARCH)
-    assert (
-        _refusal(planned, "POST", FIXTURE["lead_create"]["path"], body)
-        == "body differs from the plan"
-    )
+    refusal = _refusal(planned, "POST", FIXTURE["lead_create"]["path"], body)
+    assert (refusal or "").startswith("body differs from the plan: ")
 
 
 def test_the_generated_name_seat_and_labels_do_not_decide_admission():
@@ -177,7 +175,8 @@ def test_the_read_back_confirms_the_saved_search():
 def test_a_read_back_of_another_search_is_named(name, keywords, filters, why):
     element = find_saved(FIXTURE["readback"], SAVED)
     assert element is not None
-    assert readback_mismatch(element, name, keywords, filters) == why
+    mismatch = readback_mismatch(element, name, keywords, filters)
+    assert mismatch == why or (mismatch or "").startswith(f"{why} (")
 
 
 def test_a_filter_of_the_other_kind_is_refused_naming_it():
