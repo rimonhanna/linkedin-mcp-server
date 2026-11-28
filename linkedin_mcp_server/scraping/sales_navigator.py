@@ -9,7 +9,7 @@ LinkedIn not to share data with third-party tools is left out and counted.
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar, cast
 from urllib.parse import urlparse
@@ -46,11 +46,13 @@ from linkedin_mcp_server.scraping.sales_navigator_api import (
 from linkedin_mcp_server.scraping.sales_navigator_lead_filters import (
     ACCOUNT_LIST,
     COMPANY_HEADQUARTERS,
+    DEPARTMENT_HEADCOUNT,
     FUNCTION,
     LEAD_LIST,
     RELATIONSHIP,
     YEARS_AT_CURRENT_COMPANY,
     YEARS_IN_CURRENT_POSITION,
+    department_headcount as _department_headcount,
     function_ids,
     tenure_ids,
 )
@@ -662,6 +664,7 @@ class SalesNavigatorReader:
         size: Sequence[str] | None = None,
         headcount_growth_min: int | None = None,
         headcount_growth_max: int | None = None,
+        department_headcount: Mapping[str, object] | None = None,
     ) -> tuple[str | None, list[tuple[str, SearchFilter]]]:
         """The keywords and filters an account search sends, ids resolved.
 
@@ -682,12 +685,24 @@ class SalesNavigatorReader:
             raise FilterValidationError(
                 "headcount_growth_min must not be greater than headcount_growth_max."
             )
+        department = (
+            None
+            if department_headcount is None
+            else _department_headcount(department_headcount)
+        )
         if not (
-            keywords or industries or not_industries or sizes or locations or growth
+            keywords
+            or industries
+            or not_industries
+            or sizes
+            or locations
+            or growth
+            or department
         ):
             raise FilterValidationError(
                 "Give at least one search criterion: keywords, industry, "
-                "exclude_industry, hq_location, size or a headcount growth bound."
+                "exclude_industry, hq_location, size, a headcount growth bound "
+                "or department_headcount."
             )
         _refuse_overlap("industry", industries, not_industries)
         filters: list[tuple[str, SearchFilter]] = []
@@ -718,6 +733,19 @@ class SalesNavigatorReader:
                     ),
                 )
             )
+        if department:
+            department_id, minimum, maximum = department
+            filters.append(
+                (
+                    "department_headcount",
+                    SearchFilter(
+                        DEPARTMENT_HEADCOUNT,
+                        ids=(department_id,),
+                        minimum=minimum,
+                        maximum=maximum,
+                    ),
+                )
+            )
 
         return keywords, filters
 
@@ -731,6 +759,7 @@ class SalesNavigatorReader:
         size: Sequence[str] | None = None,
         headcount_growth_min: int | None = None,
         headcount_growth_max: int | None = None,
+        department_headcount: Mapping[str, object] | None = None,
         page: int = 1,
     ) -> dict[str, Any]:
         """One page (25) of Sales Navigator account search results.
@@ -747,6 +776,7 @@ class SalesNavigatorReader:
             size=size,
             headcount_growth_min=headcount_growth_min,
             headcount_growth_max=headcount_growth_max,
+            department_headcount=department_headcount,
         )
         url, response = await self._search(
             "company", _ACCOUNT_SEARCH, keywords, filters, page

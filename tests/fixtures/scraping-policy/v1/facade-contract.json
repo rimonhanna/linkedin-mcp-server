@@ -194,7 +194,7 @@
       },
       "search_sales_navigator_accounts": {
         "coroutine": true,
-        "signature": "(self, *, keywords: 'str | None' = None, industry: 'Sequence[str] | None' = None, exclude_industry: 'Sequence[str] | None' = None, hq_location: 'Sequence[str] | None' = None, size: 'Sequence[str] | None' = None, headcount_growth_min: 'int | None' = None, headcount_growth_max: 'int | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
+        "signature": "(self, *, keywords: 'str | None' = None, industry: 'Sequence[str] | None' = None, exclude_industry: 'Sequence[str] | None' = None, hq_location: 'Sequence[str] | None' = None, size: 'Sequence[str] | None' = None, headcount_growth_min: 'int | None' = None, headcount_growth_max: 'int | None' = None, department_headcount: 'Mapping[str, object] | None' = None, page: 'int' = 1) -> 'dict[str, Any]'"
       },
       "search_sales_navigator_conversations": {
         "coroutine": true,
@@ -2563,6 +2563,46 @@
         "input": {
           "additionalProperties": false,
           "properties": {
+            "department_headcount": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "department": {
+                      "type": "string"
+                    },
+                    "max": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "min": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "department"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Accounts by the headcount of one\ndepartment: {department, min, max}. department is a job\nfunction name (engineering, information_technology, sales,\n...) or its id (1 to 26); min and max are whole numbers of\npeople, at least one given, min not above max."
+            },
             "exclude_industry": {
               "anyOf": [
                 {

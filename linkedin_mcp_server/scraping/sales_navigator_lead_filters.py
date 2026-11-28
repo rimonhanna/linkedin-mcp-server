@@ -25,6 +25,10 @@ ACCOUNT_LIST = "ACCOUNT_LIST"
 # the filter panel sends it (measured 2026-11-27). ``REGION`` is the lead's own
 # location.
 COMPANY_HEADQUARTERS = "COMPANY_HEADQUARTERS"
+# Account search's "Department headcount": one department (a function id) and
+# a headcount range. Encoded like the other filters (id value plus
+# rangeValue); not yet measured against the filter panel.
+DEPARTMENT_HEADCOUNT = "DEPARTMENT_HEADCOUNT"
 
 FUNCTION_IDS: Mapping[str, str] = {
     "accounting": "1",
@@ -89,6 +93,38 @@ def function_ids(values: Sequence[str]) -> list[str]:
             )
         ids.append(mapped)
     return ids
+
+
+def department_headcount(
+    value: Mapping[str, object],
+) -> tuple[str, int | None, int | None]:
+    """The function id and headcount bounds of a department headcount filter."""
+    department = value.get("department")
+    if not isinstance(department, str) or not department.strip():
+        raise FilterValidationError(
+            "department_headcount needs a department, a function name or id."
+        )
+    (department_id,) = function_ids([department])
+    bounds: list[int | None] = []
+    for name in ("min", "max"):
+        bound = value.get(name)
+        if bound is not None and (
+            isinstance(bound, bool) or not isinstance(bound, int) or bound < 0
+        ):
+            raise FilterValidationError(
+                f"department_headcount {name} must be a whole number of at least 0."
+            )
+        bounds.append(bound)
+    minimum, maximum = bounds
+    if minimum is None and maximum is None:
+        raise FilterValidationError(
+            "department_headcount needs a min or a max headcount."
+        )
+    if minimum is not None and maximum is not None and minimum > maximum:
+        raise FilterValidationError(
+            "department_headcount min must not be greater than its max."
+        )
+    return department_id, minimum, maximum
 
 
 def tenure_ids(values: Sequence[str], field: str) -> list[str]:
